@@ -1,0 +1,9 @@
+# binarios de teste e caches de python
+tests/bin/
+__pycache__/
+*.pyc
+.venv/
+# pacotes gerados pela preparacao de assets
+pacotes/
+*.lz4f
+_selftest.cfz4
