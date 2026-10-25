@@ -67,24 +67,6 @@ void vc_limpar(vc_t *c);
 unsigned int vc_livre(const vc_t *c);
 unsigned int vc_maior_buraco(const vc_t *c);
 
-/* --- extensoes do port completo (v0.3) ---------------------------------
- * vc_pedir() sozinho nao resolve dois problemas que o jogo inteiro
- * expoe: (1) duas chaves com o MESMO endereco quando o mesmo arquivo
- * alimenta varios sprites (limo/henchmen: 5 sprites, 1 folha) e (2) um
- * palco cujo conjunto de texturas e maior que a regiao inteira, caso em
- * que e preciso despejar DURANTE o desenho e nao so na troca de cena.
- *
- * vc_apelido()  : segunda chave apontando para o bloco de uma primeira.
- * vc_prender()  : aumenta a contagem de fixacao; vc_soltar() decrementa.
- * vc_despejar_ate(): despeja LRU ate existir buraco contiguo de 'bytes'.
- * vc_relatar()  : escreve um relatorio de uma linha (telemetria).
- */
-int  vc_apelido(vc_t *c, unsigned int chave_original, unsigned int chave_nova);
-void vc_prender(vc_t *c, unsigned int chave);
-void vc_soltar(vc_t *c, unsigned int chave);
-int  vc_despejar_ate(vc_t *c, unsigned int bytes);
-void vc_relatar(const vc_t *c, char *destino, int tam);
-
 #ifdef __cplusplus
 }
 #endif

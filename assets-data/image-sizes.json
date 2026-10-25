@@ -1,0 +1,1620 @@
+{
+ "images": {
+  "SpraycanPile": {
+   "h": 199,
+   "png": [
+    "weekend1/images/SpraycanPile.png"
+   ],
+   "sheets": 1,
+   "w": 309
+  },
+  "back-stools": {
+   "h": 311,
+   "png": [
+    "sserafim/images/back-stools.png"
+   ],
+   "sheets": 1,
+   "w": 4056
+  },
+  "back-tables": {
+   "h": 426,
+   "png": [
+    "sserafim/images/back-tables.png"
+   ],
+   "sheets": 1,
+   "w": 4953
+  },
+  "bg": {
+   "h": 1512,
+   "png": [
+    "sserafim/images/bg.png"
+   ],
+   "sheets": 1,
+   "w": 5023
+  },
+  "bricksGround": {
+   "h": 51,
+   "png": [
+    "week7/images/bricksGround.png"
+   ],
+   "sheets": 1,
+   "w": 382
+  },
+  "characters/SpookyKids": {
+   "frame_h": 578,
+   "frame_w": 644,
+   "frames": 106,
+   "h": 2388,
+   "png": [
+    "shared/images/characters/SpookyKids.png"
+   ],
+   "sheets": 1,
+   "w": 2306
+  },
+  "characters/bfAndGF": {
+   "frame_h": 603,
+   "frame_w": 634,
+   "frames": 293,
+   "h": 4096,
+   "png": [
+    "shared/images/characters/bfAndGF.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "characters/bfChristmas": {
+   "frame_h": 447,
+   "frame_w": 416,
+   "frames": 295,
+   "h": 2048,
+   "png": [
+    "shared/images/characters/bfChristmas.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "characters/bfPixel": {
+   "frame_h": 73,
+   "frame_w": 73,
+   "frames": 126,
+   "h": 512,
+   "png": [
+    "shared/images/characters/bfPixel.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "characters/gfPixel": {
+   "frame_h": 106,
+   "frame_w": 120,
+   "frames": 30,
+   "h": 512,
+   "png": [
+    "shared/images/characters/gfPixel.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "characters/gfTankmen": {
+   "frame_h": 648,
+   "frame_w": 911,
+   "frames": 65,
+   "h": 4096,
+   "png": [
+    "shared/images/characters/gfTankmen.png"
+   ],
+   "sheets": 1,
+   "w": 8192
+  },
+  "characters/nenePixel/nenePixel": {
+   "frame_h": 84,
+   "frame_w": 75,
+   "frames": 52,
+   "h": 256,
+   "png": [
+    "shared/images/characters/nenePixel/nenePixel.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "characters/picoPixel/picoPixel": {
+   "frame_h": 85,
+   "frame_w": 136,
+   "frames": 220,
+   "h": 773,
+   "png": [
+    "shared/images/characters/picoPixel/picoPixel.png"
+   ],
+   "sheets": 1,
+   "w": 1369
+  },
+  "characters/senpai": {
+   "frame_h": 164,
+   "frame_w": 125,
+   "frames": 154,
+   "h": 512,
+   "png": [
+    "shared/images/characters/senpai.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "characters/spirit": {
+   "h": 1673,
+   "png": [
+    "shared/images/characters/spirit.png"
+   ],
+   "sheets": 1,
+   "w": 1677
+  },
+  "characters/spooky_dark": {
+   "frame_h": 578,
+   "frame_w": 644,
+   "frames": 106,
+   "h": 2535,
+   "png": [
+    "shared/images/characters/spooky_dark.png"
+   ],
+   "sheets": 1,
+   "w": 2380
+  },
+  "christmas/bgEscalator": {
+   "h": 1775,
+   "png": [
+    "week5/images/christmas/bgEscalator.png"
+   ],
+   "sheets": 1,
+   "w": 3700
+  },
+  "christmas/bgWalls": {
+   "h": 1840,
+   "png": [
+    "week5/images/christmas/bgWalls.png"
+   ],
+   "sheets": 1,
+   "w": 3102
+  },
+  "christmas/bottomBop": {
+   "frame_h": 674,
+   "frame_w": 1978,
+   "frames": 14,
+   "h": 2048,
+   "png": [
+    "week5/images/christmas/bottomBop.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "christmas/christmasTree": {
+   "h": 1018,
+   "png": [
+    "week5/images/christmas/christmasTree.png"
+   ],
+   "sheets": 1,
+   "w": 662
+  },
+  "christmas/erect/bgEscalator": {
+   "h": 1775,
+   "png": [
+    "week5/images/christmas/erect/bgEscalator.png"
+   ],
+   "sheets": 1,
+   "w": 3700
+  },
+  "christmas/erect/bgWalls": {
+   "h": 1840,
+   "png": [
+    "week5/images/christmas/erect/bgWalls.png"
+   ],
+   "sheets": 1,
+   "w": 3102
+  },
+  "christmas/erect/bottomBop": {
+   "frame_h": 489,
+   "frame_w": 310,
+   "frames": 19,
+   "h": 998,
+   "png": [
+    "week5/images/christmas/erect/bottomBop/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 999
+  },
+  "christmas/erect/christmasTree": {
+   "h": 1021,
+   "png": [
+    "week5/images/christmas/erect/christmasTree.png"
+   ],
+   "sheets": 1,
+   "w": 665
+  },
+  "christmas/erect/upperBop": {
+   "frame_h": 368,
+   "frame_w": 2550,
+   "frames": 14,
+   "h": 2048,
+   "png": [
+    "week5/images/christmas/erect/upperBop.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "christmas/erect/white": {
+   "h": 1172,
+   "png": [
+    "week5/images/christmas/erect/white.png"
+   ],
+   "sheets": 1,
+   "w": 3301
+  },
+  "christmas/evilBG": {
+   "h": 1613,
+   "png": [
+    "week5/images/christmas/evilBG.png"
+   ],
+   "sheets": 1,
+   "w": 2625
+  },
+  "christmas/evilSnow": {
+   "h": 262,
+   "png": [
+    "week5/images/christmas/evilSnow.png"
+   ],
+   "sheets": 1,
+   "w": 3000
+  },
+  "christmas/evilTree": {
+   "h": 1108,
+   "png": [
+    "week5/images/christmas/evilTree.png"
+   ],
+   "sheets": 1,
+   "w": 617
+  },
+  "christmas/fgSnow": {
+   "h": 252,
+   "png": [
+    "week5/images/christmas/fgSnow.png"
+   ],
+   "sheets": 1,
+   "w": 3300
+  },
+  "christmas/santa": {
+   "frame_h": 748,
+   "frame_w": 663,
+   "frames": 14,
+   "h": 2048,
+   "png": [
+    "week5/images/christmas/santa.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "christmas/upperBop": {
+   "frame_h": 375,
+   "frame_w": 2596,
+   "frames": 13,
+   "h": 2048,
+   "png": [
+    "week5/images/christmas/upperBop.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "cityruins2": {
+   "h": 565,
+   "png": [
+    "week7/images/cityruins2.png"
+   ],
+   "sheets": 1,
+   "w": 1569
+  },
+  "cutscene/burger-cutscene": {
+   "h": 158,
+   "png": [
+    "sserafim/images/cutscene/burger-cutscene.png"
+   ],
+   "sheets": 1,
+   "w": 1418
+  },
+  "cutscene/counter-stretch": {
+   "h": 256,
+   "png": [
+    "sserafim/images/cutscene/counter-stretch.png"
+   ],
+   "sheets": 1,
+   "w": 16
+  },
+  "erect/bg": {
+   "h": 1332,
+   "png": [
+    "week1/images/erect/bg.png"
+   ],
+   "sheets": 1,
+   "w": 2609
+  },
+  "erect/bgDark": {
+   "h": 1250,
+   "png": [
+    "week2/images/erect/bgDark.png"
+   ],
+   "sheets": 1,
+   "w": 2450
+  },
+  "erect/bgLight": {
+   "h": 1250,
+   "png": [
+    "week2/images/erect/bgLight.png"
+   ],
+   "sheets": 1,
+   "w": 2450
+  },
+  "erect/bgtrees": {
+   "frame_h": 400,
+   "frame_w": 600,
+   "frames": 12,
+   "h": 2048,
+   "png": [
+    "week2/images/erect/bgtrees.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "erect/bricksGround": {
+   "h": 64,
+   "png": [
+    "week7/images/erect/bricksGround.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "erect/brightLightSmall": {
+   "h": 638,
+   "png": [
+    "week1/images/erect/brightLightSmall.png"
+   ],
+   "sheets": 1,
+   "w": 687
+  },
+  "erect/crowd": {
+   "frame_h": 452,
+   "frame_w": 1873,
+   "frames": 8,
+   "h": 2048,
+   "png": [
+    "week1/images/erect/crowd.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "erect/lightAbove": {
+   "h": 746,
+   "png": [
+    "week1/images/erect/lightAbove.png"
+   ],
+   "sheets": 1,
+   "w": 840
+  },
+  "erect/lightgreen": {
+   "h": 188,
+   "png": [
+    "week1/images/erect/lightgreen.png"
+   ],
+   "sheets": 1,
+   "w": 178
+  },
+  "erect/lightred": {
+   "h": 182,
+   "png": [
+    "week1/images/erect/lightred.png"
+   ],
+   "sheets": 1,
+   "w": 179
+  },
+  "erect/lights": {
+   "h": 562,
+   "png": [
+    "week1/images/erect/lights.png"
+   ],
+   "sheets": 1,
+   "w": 2876
+  },
+  "erect/orangeLight": {
+   "h": 1,
+   "png": [
+    "week1/images/erect/orangeLight.png"
+   ],
+   "sheets": 1,
+   "w": 1983
+  },
+  "erect/rando": {
+   "frame_h": 131,
+   "frame_w": 257,
+   "frames": 4,
+   "h": 284,
+   "png": [
+    "week7/images/erect/rando/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 419
+  },
+  "erect/server": {
+   "h": 646,
+   "png": [
+    "week1/images/erect/server.png"
+   ],
+   "sheets": 1,
+   "w": 1224
+  },
+  "erect/sniper": {
+   "frame_h": 349,
+   "frame_w": 270,
+   "frames": 7,
+   "h": 956,
+   "png": [
+    "week7/images/erect/sniper/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 292
+  },
+  "erect/stairsDark": {
+   "h": 1250,
+   "png": [
+    "week2/images/erect/stairsDark.png"
+   ],
+   "sheets": 1,
+   "w": 1150
+  },
+  "erect/stairsLight": {
+   "h": 1250,
+   "png": [
+    "week2/images/erect/stairsLight.png"
+   ],
+   "sheets": 1,
+   "w": 1150
+  },
+  "floor": {
+   "h": 754,
+   "png": [
+    "sserafim/images/floor.png"
+   ],
+   "sheets": 1,
+   "w": 5362
+  },
+  "front-stool": {
+   "h": 321,
+   "png": [
+    "sserafim/images/front-stool.png"
+   ],
+   "sheets": 1,
+   "w": 2982
+  },
+  "halloween_bg": {
+   "frame_h": 2092,
+   "frame_w": 2536,
+   "frames": 8,
+   "h": 2256,
+   "png": [
+    "week2/images/halloween_bg/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 3924
+  },
+  "lights/back-light-color": {
+   "h": 2049,
+   "png": [
+    "sserafim/images/lights/back-light-color.png"
+   ],
+   "sheets": 1,
+   "w": 3709
+  },
+  "lights/back-light-white": {
+   "h": 1532,
+   "png": [
+    "sserafim/images/lights/back-light-white.png"
+   ],
+   "sheets": 1,
+   "w": 2907
+  },
+  "lights/truck-light1": {
+   "h": 1328,
+   "png": [
+    "sserafim/images/lights/truck-light1.png"
+   ],
+   "sheets": 1,
+   "w": 2804
+  },
+  "lights/truck-light2": {
+   "h": 1015,
+   "png": [
+    "sserafim/images/lights/truck-light2.png"
+   ],
+   "sheets": 1,
+   "w": 2464
+  },
+  "limo/bgLimo": {
+   "frame_h": 384,
+   "frame_w": 2218,
+   "frames": 4,
+   "h": 2048,
+   "png": [
+    "week4/images/limo/bgLimo.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "limo/erect/bgLimo": {
+   "frame_h": 389,
+   "frame_w": 2216,
+   "frames": 4,
+   "h": 2048,
+   "png": [
+    "week4/images/limo/erect/bgLimo.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "limo/erect/limoDrive": {
+   "frame_h": 657,
+   "frame_w": 2052,
+   "frames": 4,
+   "h": 4096,
+   "png": [
+    "week4/images/limo/erect/limoDrive.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "limo/erect/limoSunset": {
+   "h": 1568,
+   "png": [
+    "week4/images/limo/erect/limoSunset.png"
+   ],
+   "sheets": 1,
+   "w": 2091
+  },
+  "limo/erect/shooting star": {
+   "frame_h": 218,
+   "frame_w": 331,
+   "frames": 29,
+   "h": 512,
+   "png": [
+    "week4/images/limo/erect/shooting star.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "limo/fastCarLol": {
+   "h": 720,
+   "png": [
+    "week4/images/limo/fastCarLol.png"
+   ],
+   "sheets": 1,
+   "w": 1280
+  },
+  "limo/henchmen": {
+   "frame_h": 410,
+   "frame_w": 517,
+   "frames": 80,
+   "h": 2048,
+   "png": [
+    "week4/images/limo/henchmen.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "limo/limoDrive": {
+   "frame_h": 646,
+   "frame_w": 2048,
+   "frames": 4,
+   "h": 2048,
+   "png": [
+    "week4/images/limo/limoDrive.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "limo/limoSunset": {
+   "h": 1313,
+   "png": [
+    "week4/images/limo/limoSunset.png"
+   ],
+   "sheets": 1,
+   "w": 1968
+  },
+  "mountains2": {
+   "h": 531,
+   "png": [
+    "week7/images/mountains2.png"
+   ],
+   "sheets": 1,
+   "w": 1951
+  },
+  "philly/behindTrain": {
+   "h": 856,
+   "png": [
+    "week3/images/philly/behindTrain.png"
+   ],
+   "sheets": 1,
+   "w": 2216
+  },
+  "philly/city": {
+   "h": 809,
+   "png": [
+    "week3/images/philly/city.png"
+   ],
+   "sheets": 1,
+   "w": 2271
+  },
+  "philly/erect/behindTrain": {
+   "h": 856,
+   "png": [
+    "week3/images/philly/erect/behindTrain.png"
+   ],
+   "sheets": 1,
+   "w": 2216
+  },
+  "philly/erect/city": {
+   "h": 809,
+   "png": [
+    "week3/images/philly/erect/city.png"
+   ],
+   "sheets": 1,
+   "w": 2271
+  },
+  "philly/erect/sky": {
+   "h": 955,
+   "png": [
+    "week3/images/philly/erect/sky.png"
+   ],
+   "sheets": 1,
+   "w": 1729
+  },
+  "philly/erect/street": {
+   "h": 856,
+   "png": [
+    "week3/images/philly/erect/street.png"
+   ],
+   "sheets": 1,
+   "w": 2216
+  },
+  "philly/sky": {
+   "h": 955,
+   "png": [
+    "week3/images/philly/sky.png"
+   ],
+   "sheets": 1,
+   "w": 1729
+  },
+  "philly/street": {
+   "h": 856,
+   "png": [
+    "week3/images/philly/street.png"
+   ],
+   "sheets": 1,
+   "w": 2216
+  },
+  "philly/train": {
+   "h": 512,
+   "png": [
+    "week3/images/philly/train.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "philly/win": {
+   "h": 414,
+   "png": [
+    "week3/images/philly/win.png"
+   ],
+   "sheets": 1,
+   "w": 2119
+  },
+  "phillyBlazin/lightning": {
+   "frame_h": 347,
+   "frame_w": 206,
+   "frames": 30,
+   "h": 1909,
+   "png": [
+    "weekend1/images/phillyBlazin/lightning.png"
+   ],
+   "sheets": 1,
+   "w": 1245
+  },
+  "phillyBlazin/skyBlur": {
+   "h": 495,
+   "png": [
+    "weekend1/images/phillyBlazin/skyBlur.png"
+   ],
+   "sheets": 1,
+   "w": 1387
+  },
+  "phillyBlazin/streetBlur": {
+   "h": 779,
+   "png": [
+    "weekend1/images/phillyBlazin/streetBlur.png"
+   ],
+   "sheets": 1,
+   "w": 1629
+  },
+  "phillyStreets/erect/greyGradient": {
+   "h": 1034,
+   "png": [
+    "weekend1/images/phillyStreets/erect/greyGradient.png"
+   ],
+   "sheets": 1,
+   "w": 2585
+  },
+  "phillyStreets/erect/paper": {
+   "frame_h": 583,
+   "frame_w": 2461,
+   "frames": 48,
+   "h": 1024,
+   "png": [
+    "weekend1/images/phillyStreets/erect/paper.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "phillyStreets/erect/phillyCars": {
+   "frame_h": 258,
+   "frame_w": 481,
+   "frames": 4,
+   "h": 512,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyCars.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "phillyStreets/erect/phillyConstruction": {
+   "h": 782,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyConstruction.png"
+   ],
+   "sheets": 1,
+   "w": 508
+  },
+  "phillyStreets/erect/phillyForeground": {
+   "h": 1299,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyForeground.png"
+   ],
+   "sheets": 1,
+   "w": 2901
+  },
+  "phillyStreets/erect/phillyForegroundCity": {
+   "h": 614,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyForegroundCity.png"
+   ],
+   "sheets": 1,
+   "w": 1031
+  },
+  "phillyStreets/erect/phillyHighway": {
+   "h": 671,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyHighway.png"
+   ],
+   "sheets": 1,
+   "w": 1747
+  },
+  "phillyStreets/erect/phillyHighwayLights": {
+   "h": 213,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyHighwayLights.png"
+   ],
+   "sheets": 1,
+   "w": 1096
+  },
+  "phillyStreets/erect/phillySkyline": {
+   "h": 1089,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillySkyline.png"
+   ],
+   "sheets": 1,
+   "w": 2704
+  },
+  "phillyStreets/erect/phillyTraffic": {
+   "frame_h": 459,
+   "frame_w": 348,
+   "frames": 77,
+   "h": 1864,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyTraffic.png"
+   ],
+   "sheets": 1,
+   "w": 3894
+  },
+  "phillyStreets/erect/phillyTraffic_lightmap": {
+   "h": 458,
+   "png": [
+    "weekend1/images/phillyStreets/erect/phillyTraffic_lightmap.png"
+   ],
+   "sheets": 1,
+   "w": 346
+  },
+  "phillyStreets/phillyCars": {
+   "frame_h": 247,
+   "frame_w": 470,
+   "frames": 4,
+   "h": 880,
+   "png": [
+    "weekend1/images/phillyStreets/phillyCars.png"
+   ],
+   "sheets": 1,
+   "w": 479
+  },
+  "phillyStreets/phillyConstruction": {
+   "h": 761,
+   "png": [
+    "weekend1/images/phillyStreets/phillyConstruction.png"
+   ],
+   "sheets": 1,
+   "w": 487
+  },
+  "phillyStreets/phillyForeground": {
+   "h": 1299,
+   "png": [
+    "weekend1/images/phillyStreets/phillyForeground.png"
+   ],
+   "sheets": 1,
+   "w": 2901
+  },
+  "phillyStreets/phillyForegroundCity": {
+   "h": 609,
+   "png": [
+    "weekend1/images/phillyStreets/phillyForegroundCity.png"
+   ],
+   "sheets": 1,
+   "w": 986
+  },
+  "phillyStreets/phillyHighway": {
+   "h": 655,
+   "png": [
+    "weekend1/images/phillyStreets/phillyHighway.png"
+   ],
+   "sheets": 1,
+   "w": 1731
+  },
+  "phillyStreets/phillyHighwayLights": {
+   "h": 197,
+   "png": [
+    "weekend1/images/phillyStreets/phillyHighwayLights.png"
+   ],
+   "sheets": 1,
+   "w": 1082
+  },
+  "phillyStreets/phillyHighwayLights_lightmap": {
+   "h": 197,
+   "png": [
+    "weekend1/images/phillyStreets/phillyHighwayLights_lightmap.png"
+   ],
+   "sheets": 1,
+   "w": 1082
+  },
+  "phillyStreets/phillySkyline": {
+   "h": 1040,
+   "png": [
+    "weekend1/images/phillyStreets/phillySkyline.png"
+   ],
+   "sheets": 1,
+   "w": 2654
+  },
+  "phillyStreets/phillySmog": {
+   "h": 1125,
+   "png": [
+    "weekend1/images/phillyStreets/phillySmog.png"
+   ],
+   "sheets": 1,
+   "w": 2761
+  },
+  "phillyStreets/phillyTraffic": {
+   "frame_h": 448,
+   "frame_w": 336,
+   "frames": 77,
+   "h": 1808,
+   "png": [
+    "weekend1/images/phillyStreets/phillyTraffic.png"
+   ],
+   "sheets": 1,
+   "w": 3060
+  },
+  "phillyStreets/phillyTraffic_lightmap": {
+   "h": 448,
+   "png": [
+    "weekend1/images/phillyStreets/phillyTraffic_lightmap.png"
+   ],
+   "sheets": 1,
+   "w": 336
+  },
+  "shared:characters/bf": {
+   "frame_h": 461,
+   "frame_w": 435,
+   "frames": 46,
+   "h": 1503,
+   "png": [
+    "shared/images/characters/bf/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 1998
+  },
+  "shared:characters/bf-car": {
+   "frame_h": 427,
+   "frame_w": 401,
+   "frames": 41,
+   "h": 1039,
+   "png": [
+    "shared/images/characters/bf-car/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2033
+  },
+  "shared:characters/bf-dark": {
+   "frame_h": 427,
+   "frame_w": 401,
+   "frames": 42,
+   "h": 1163,
+   "png": [
+    "shared/images/characters/bf-dark/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2038
+  },
+  "shared:characters/dad": {
+   "frame_h": 418,
+   "frame_w": 368,
+   "frames": 15,
+   "h": 981,
+   "png": [
+    "shared/images/characters/dad/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 991
+  },
+  "shared:characters/darnell": {
+   "frame_h": 313,
+   "frame_w": 425,
+   "frames": 88,
+   "h": 1440,
+   "png": [
+    "shared/images/characters/darnell/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2026
+  },
+  "shared:characters/darnellBlazin": {
+   "frame_h": 632,
+   "frame_w": 572,
+   "frames": 93,
+   "h": 1412,
+   "png": [
+    "shared/images/characters/darnellBlazin/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 4050
+  },
+  "shared:characters/gf": {
+   "frame_h": 369,
+   "frame_w": 513,
+   "frames": 45,
+   "h": 1065,
+   "png": [
+    "shared/images/characters/gf/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2064
+  },
+  "shared:characters/gf-christmas": {
+   "frame_h": 425,
+   "frame_w": 781,
+   "frames": 30,
+   "h": 1089,
+   "png": [
+    "shared/images/characters/gf-christmas/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 1965
+  },
+  "shared:characters/gf-dark": {
+   "frame_h": 369,
+   "frame_w": 413,
+   "frames": 27,
+   "h": 543,
+   "png": [
+    "shared/images/characters/gf-dark/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2022
+  },
+  "shared:characters/gfCar": {
+   "frame_h": 367,
+   "frame_w": 513,
+   "frames": 18,
+   "h": 662,
+   "png": [
+    "shared/images/characters/gfCar/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2031
+  },
+  "shared:characters/momCar": {
+   "frame_h": 406,
+   "frame_w": 471,
+   "frames": 70,
+   "h": 1844,
+   "png": [
+    "shared/images/characters/momCar/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2016
+  },
+  "shared:characters/monster": {
+   "frame_h": 604,
+   "frame_w": 486,
+   "frames": 83,
+   "h": 1935,
+   "png": [
+    "shared/images/characters/monster/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 4076
+  },
+  "shared:characters/nene": {
+   "frame_h": 235,
+   "frame_w": 357,
+   "frames": 97,
+   "h": 1048,
+   "png": [
+    "shared/images/characters/nene/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2046
+  },
+  "shared:characters/nene-christmas": {
+   "frame_h": 357,
+   "frame_w": 271,
+   "frames": 97,
+   "h": 701,
+   "png": [
+    "shared/images/characters/nene-christmas/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2045
+  },
+  "shared:characters/nene-dark": {
+   "frame_h": 232,
+   "frame_w": 357,
+   "frames": 87,
+   "h": 749,
+   "png": [
+    "shared/images/characters/nene-dark/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2026
+  },
+  "shared:characters/otis": {
+   "frame_h": 303,
+   "frame_w": 440,
+   "frames": 28,
+   "h": 718,
+   "png": [
+    "shared/images/characters/otis/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 1042
+  },
+  "shared:characters/parents-christmas": {
+   "frame_h": 697,
+   "frame_w": 694,
+   "frames": 57,
+   "h": 1301,
+   "png": [
+    "shared/images/characters/parents-christmas/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2030
+  },
+  "shared:characters/pico-christmas": {
+   "frame_h": 490,
+   "frame_w": 1062,
+   "frames": 299,
+   "h": 2958,
+   "png": [
+    "shared/images/characters/pico-christmas/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 4093
+  },
+  "shared:characters/pico-dark": {
+   "frame_h": 517,
+   "frame_w": 604,
+   "frames": 68,
+   "h": 1754,
+   "png": [
+    "shared/images/characters/pico-dark/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2038
+  },
+  "shared:characters/pico-holding-nene": {
+   "frame_h": 498,
+   "frame_w": 492,
+   "frames": 109,
+   "h": 1923,
+   "png": [
+    "shared/images/characters/pico-holding-nene/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2044
+  },
+  "shared:characters/pico-speaker": {
+   "frame_h": 702,
+   "frame_w": 741,
+   "frames": 50,
+   "h": 1154,
+   "png": [
+    "shared/images/characters/pico-speaker/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 4061
+  },
+  "shared:characters/pico/basic-animations": {
+   "frame_h": 323,
+   "frame_w": 604,
+   "frames": 21,
+   "h": 579,
+   "png": [
+    "shared/images/characters/pico/basic-animations/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2037
+  },
+  "shared:characters/picoBlazin": {
+   "frame_h": 644,
+   "frame_w": 523,
+   "frames": 128,
+   "h": 2340,
+   "png": [
+    "shared/images/characters/picoBlazin/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 4093
+  },
+  "shared:characters/sserafim/chaewon": {
+   "h": 870,
+   "png": [
+    "shared/images/characters/sserafim/chaewon/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2043
+  },
+  "shared:characters/sserafim/eunchae": {
+   "h": 1055,
+   "png": [
+    "shared/images/characters/sserafim/eunchae/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2042
+  },
+  "shared:characters/sserafim/kazuha": {
+   "h": 1044,
+   "png": [
+    "shared/images/characters/sserafim/kazuha/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2043
+  },
+  "shared:characters/sserafim/sakura": {
+   "h": 1950,
+   "png": [
+    "shared/images/characters/sserafim/sakura/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2043
+  },
+  "shared:characters/sserafim/sserafim-gf": {
+   "h": 1032,
+   "png": [
+    "shared/images/characters/sserafim/sserafim-gf/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2041
+  },
+  "shared:characters/sserafim/yunjin": {
+   "h": 1536,
+   "png": [
+    "shared/images/characters/sserafim/yunjin/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2043
+  },
+  "shared:characters/tankman/basic": {
+   "frame_h": 435,
+   "frame_w": 505,
+   "frames": 30,
+   "h": 1065,
+   "png": [
+    "shared/images/characters/tankman/basic/spritemap1.png"
+   ],
+   "sheets": 1,
+   "w": 2036
+  },
+  "smokeLeft": {
+   "frame_h": 843,
+   "frame_w": 511,
+   "frames": 48,
+   "h": 2048,
+   "png": [
+    "week7/images/smokeLeft.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "smokeRight": {
+   "frame_h": 938,
+   "frame_w": 568,
+   "frames": 48,
+   "h": 4096,
+   "png": [
+    "week7/images/smokeRight.png"
+   ],
+   "sheets": 1,
+   "w": 4096
+  },
+  "stageback": {
+   "h": 1400,
+   "png": [
+    "shared/images/stageback.png"
+   ],
+   "sheets": 1,
+   "w": 2560
+  },
+  "stagecurtains": {
+   "h": 1400,
+   "png": [
+    "shared/images/stagecurtains.png"
+   ],
+   "sheets": 1,
+   "w": 2560
+  },
+  "stagefront": {
+   "h": 581,
+   "png": [
+    "shared/images/stagefront.png"
+   ],
+   "sheets": 1,
+   "w": 2560
+  },
+  "tank0": {
+   "frame_h": 450,
+   "frame_w": 314,
+   "frames": 14,
+   "h": 1024,
+   "png": [
+    "week7/images/tank0.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "tank1": {
+   "frame_h": 122,
+   "frame_w": 472,
+   "frames": 15,
+   "h": 512,
+   "png": [
+    "week7/images/tank1.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "tank2": {
+   "frame_h": 322,
+   "frame_w": 295,
+   "frames": 14,
+   "h": 1024,
+   "png": [
+    "week7/images/tank2.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "tank3": {
+   "frame_h": 135,
+   "frame_w": 590,
+   "frames": 15,
+   "h": 1024,
+   "png": [
+    "week7/images/tank3.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "tank4": {
+   "frame_h": 330,
+   "frame_w": 401,
+   "frames": 14,
+   "h": 1024,
+   "png": [
+    "week7/images/tank4.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "tank5": {
+   "frame_h": 450,
+   "frame_w": 315,
+   "frames": 14,
+   "h": 1024,
+   "png": [
+    "week7/images/tank5.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "tankBuildings": {
+   "h": 726,
+   "png": [
+    "week7/images/tankBuildings.png"
+   ],
+   "sheets": 1,
+   "w": 1597
+  },
+  "tankClouds": {
+   "h": 235,
+   "png": [
+    "week7/images/tankClouds.png"
+   ],
+   "sheets": 1,
+   "w": 2155
+  },
+  "tankGround": {
+   "h": 1080,
+   "png": [
+    "week7/images/tankGround.png"
+   ],
+   "sheets": 1,
+   "w": 1920
+  },
+  "tankRolling": {
+   "frame_h": 328,
+   "frame_w": 319,
+   "frames": 3,
+   "h": 1024,
+   "png": [
+    "week7/images/tankRolling.png"
+   ],
+   "sheets": 1,
+   "w": 512
+  },
+  "tankSky": {
+   "h": 954,
+   "png": [
+    "week7/images/tankSky.png"
+   ],
+   "sheets": 1,
+   "w": 1
+  },
+  "tankWatchtower": {
+   "frame_h": 682,
+   "frame_w": 369,
+   "frames": 14,
+   "h": 1024,
+   "png": [
+    "week7/images/tankWatchtower.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "truck-door": {
+   "h": 664,
+   "png": [
+    "sserafim/images/truck-door.png"
+   ],
+   "sheets": 1,
+   "w": 276
+  },
+  "truck-stuff": {
+   "h": 1648,
+   "png": [
+    "sserafim/images/truck-stuff.png"
+   ],
+   "sheets": 1,
+   "w": 3512
+  },
+  "weeb/bgFreaks": {
+   "frame_h": 96,
+   "frame_w": 451,
+   "frames": 60,
+   "h": 1024,
+   "png": [
+    "week6/images/weeb/bgFreaks.png"
+   ],
+   "sheets": 1,
+   "w": 1024
+  },
+  "weeb/erect/evil/backSpike": {
+   "h": 35,
+   "png": [
+    "week6/images/weeb/erect/evil/backSpike.png"
+   ],
+   "sheets": 1,
+   "w": 13
+  },
+  "weeb/erect/evil/weebBackSpikes": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/evil/weebBackSpikes.png"
+   ],
+   "sheets": 1,
+   "w": 561
+  },
+  "weeb/erect/evil/weebSchool": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/evil/weebSchool.png"
+   ],
+   "sheets": 1,
+   "w": 511
+  },
+  "weeb/erect/evil/weebStreet": {
+   "h": 170,
+   "png": [
+    "week6/images/weeb/erect/evil/weebStreet.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/erect/petals": {
+   "frame_h": 161,
+   "frame_w": 311,
+   "frames": 56,
+   "h": 2048,
+   "png": [
+    "week6/images/weeb/erect/petals.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "weeb/erect/weebBackTrees": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/weebBackTrees.png"
+   ],
+   "sheets": 1,
+   "w": 561
+  },
+  "weeb/erect/weebSchool": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/weebSchool.png"
+   ],
+   "sheets": 1,
+   "w": 511
+  },
+  "weeb/erect/weebSky": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/weebSky.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/erect/weebStreet": {
+   "h": 170,
+   "png": [
+    "week6/images/weeb/erect/weebStreet.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/erect/weebTrees": {
+   "h": 1538,
+   "png": [
+    "week6/images/weeb/erect/weebTrees.png"
+   ],
+   "sheets": 1,
+   "w": 3591
+  },
+  "weeb/erect/weebTreesBack": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/erect/weebTreesBack.png"
+   ],
+   "sheets": 1,
+   "w": 411
+  },
+  "weeb/evil/weebBackTrees": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/evil/weebBackTrees.png"
+   ],
+   "sheets": 1,
+   "w": 561
+  },
+  "weeb/evil/weebSchool": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/evil/weebSchool.png"
+   ],
+   "sheets": 1,
+   "w": 511
+  },
+  "weeb/evil/weebStreet": {
+   "h": 170,
+   "png": [
+    "week6/images/weeb/evil/weebStreet.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/evil/weebTrees": {
+   "h": 170,
+   "png": [
+    "week6/images/weeb/evil/weebTrees.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/petals": {
+   "frame_h": 161,
+   "frame_w": 311,
+   "frames": 56,
+   "h": 2048,
+   "png": [
+    "week6/images/weeb/petals.png"
+   ],
+   "sheets": 1,
+   "w": 2048
+  },
+  "weeb/weebBackTrees": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/weebBackTrees.png"
+   ],
+   "sheets": 1,
+   "w": 561
+  },
+  "weeb/weebSchool": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/weebSchool.png"
+   ],
+   "sheets": 1,
+   "w": 511
+  },
+  "weeb/weebSky": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/weebSky.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/weebStreet": {
+   "h": 170,
+   "png": [
+    "week6/images/weeb/weebStreet.png"
+   ],
+   "sheets": 1,
+   "w": 466
+  },
+  "weeb/weebTrees": {
+   "h": 1538,
+   "png": [
+    "week6/images/weeb/weebTrees.png"
+   ],
+   "sheets": 1,
+   "w": 3591
+  },
+  "weeb/weebTreesBack": {
+   "h": 161,
+   "png": [
+    "week6/images/weeb/weebTreesBack.png"
+   ],
+   "sheets": 1,
+   "w": 411
+  }
+ },
+ "source": "/tmp/fassets"
+}

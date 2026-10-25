@@ -1,0 +1,90 @@
+FNF PS2 -- port para PlayStation 2, versão 0.2.105-aceito-exato
+================================================================
+
+ESTE ARQUIVO É PARA WINDOWS COM WSL, OU PARA LINUX DIRETO.
+
+
+SE VOCÊ ESTÁ NO WINDOWS
+-----------------------
+
+Dê um duplo-clique em:
+
+    COMPILAR.bat
+
+Ele faz tudo: acha o WSL, confere as ferramentas, procura o ps2sdk, compila,
+confere os 16 assets de runtime e copia pro pendrive. Se faltar alguma coisa,
+ele diz exatamente o quê e como resolver.
+
+Na primeira vez ele pode pedir para instalar o WSL:
+
+    wsl --install
+
+(no PowerShell como Administrador; reinicie o PC depois)
+
+E se você ainda não tem o ps2sdk:
+
+    COMPILAR.bat --instalar-ps2sdk
+
+Isso demora cerca de 1 hora. Se você já tem, ele acha sozinho.
+
+Os 16 assets de runtime (uns 65 MB) não vêm neste pacote -- estão no Google
+Drive. Quando faltar algum, o script abre uma página no seu navegador com um
+link para cada arquivo que falta. Baixe, mova para a pasta `assets/`, e rode
+de novo.
+
+
+SE VOCÊ ESTÁ NO LINUX
+---------------------
+
+    ./build.sh --check-assets    # confere os assets, lista o que falta
+    ./build.sh --deploy          # compila e monta build/ps2/FNFPS2/
+
+`./compilar.sh` continua funcionando -- só chama o build.sh.
+
+
+O QUE CADA COISA FAZ
+--------------------
+
+    build.sh                 suíte offline, build, valida o ELF
+    build.sh --deploy        o de cima + monta o layout do cartão de memória
+    build.sh --fast          -O1 em vez de -O2, para iterar rápido
+    build.sh --tests         só a suíte offline (não precisa de ps2sdk)
+    build.sh --check-assets  confere os 16 assets de runtime
+    build.sh --clean         apaga tudo e começa do zero
+    build.sh --help          a lista completa
+
+    COMPILAR.bat             o mesmo, no Windows, com cópia pro pendrive
+    COMPILAR.bat --ajuda     opções do .bat
+
+
+ONDE O PS2SDK TEM QUE ESTAR
+---------------------------
+
+O script procura em `$PS2DEV`, `/usr/local/ps2dev`, `/opt/ps2dev`,
+`~/ps2dev`, `/usr/local/ps2sdk` e `/var/tmp/ps2dev-root/ps2dev`. Se o seu
+estiver em outro lugar:
+
+    export PS2DEV=/caminho/para/ps2dev
+    ./build.sh --deploy
+
+
+SAÍDA
+-----
+
+    build/ps2/FNFPS2/               -> copie para o cartão como mass:/FNFPS2/
+    build/ps2/FNFPS2/assets/        -> os 16 assets
+    build/ps2/FNFPS2/assets/songs/  -> os 81 charts, um por dificuldade
+    build.log                       -> log completo, se o build falhar
+
+
+POR QUE O BUILD RODA DENTRO DO WSL NO WINDOWS
+---------------------------------------------
+
+O ps2sdk não compila nativo no Windows. O build dele usa shell script,
+autotools e Makefiles POSIX, que não existem no cmd.exe. No Windows o caminho
+suportado é o WSL. O COMPILAR.bat só traduz: detecta o WSL, roda o build de
+verdade lá dentro, e cuida da parte que é do Windows -- letra do pendrive,
+copiar arquivo.
+
+Toda a lógica fica em build.sh, que é o mesmo arquivo nos dois sistemas. O .bat
+não duplica nada; ele só é a porta de entrada.
