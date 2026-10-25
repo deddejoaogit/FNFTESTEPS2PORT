@@ -124,3 +124,67 @@ negociável, fidelidade de jogo não é.
   resultado for inaceitável, a alternativa medida é compor props estáticos num
   único fundo — o que só é possível para props com o mesmo `scrollFactor`, e
   ainda não foi testado.
+
+## 6. Escopo do achatamento (medido, não estimado)
+
+Os personagens do jogo não usam um formato só. Medido sobre os 46:
+
+| `renderType` | quantidade | formato no disco |
+|---|---|---|
+| `animateatlas` | 24 | pasta: `Animation.json` + `spritemapN.json/png` |
+| `multianimateatlas` | 10 | idem, com vários spritemaps |
+| `multisparrow` | 3 | PNG + XML |
+| `sparrow` | 1 | PNG + XML |
+| `packer` | 1 | PNG + `.txt` (`nome = x y w h`) |
+
+    python3 tools/scope_animate.py --assets <clone>
+
+| classificação | quantidade |
+|---|---|
+| folha plana, empacotável hoje | **12** |
+| Animate com camadas, precisa de compositor | **34** |
+| não resolvidos | **0** |
+| folhas sem raster correspondente | **0** |
+
+Os 12 planos já empacotam e verificam quadro a quadro:
+
+    bf-christmas 295 fr  416x447 esca 1.000  2 arquivos
+    bf-holding-gf 293 fr  445x424 esca 0.703  2 arquivos
+    bf-pixel     126 fr   73x73  esca 1.000
+    gf-pixel      30 fr  120x106 esca 1.000
+    gf-tankmen    65 fr  515x367 esca 0.565
+    nene-pixel    52 fr   75x84  esca 1.000
+    pico-pixel   220 fr  136x85  esca 1.000
+    senpai-angry 154 fr  125x164 esca 1.000
+    senpai       154 fr  125x164 esca 1.000
+    spirit       100 fr  256x256 esca 1.000
+    spooky-dark  106 fr  437x433 esca 0.678
+    spooky       106 fr  468x420 esca 0.727
+
+`tutorial_pack_load` recusa pacote acima de 8 MB, então um personagem grande
+sai em mais de um arquivo (bf-christmas: 2). Isso não é contorno: o runtime
+nunca precisa do personagem inteiro residente, então a parte é a unidade
+natural.
+
+### O que os 34 exigem
+
+Um atlas Animate **não é uma lista de quadros**. É uma timeline:
+
+```
+AN.TL.L[]            camadas
+  .FR[]              quadros-chave, com I (início) e DU (duração)
+    .E[].SI          instância de símbolo: SN, FF, TRP{x,y}, MX[6]
+SD.S[]               símbolos; cada um tem a própria TL, aninhada
+```
+
+Medido no grafo real:
+
+- aninhamento máximo: **6 níveis**
+- até **118 símbolos** distintos num personagem
+- até **14 512** instâncias de símbolo num personagem
+- **7 584** instâncias carregam matriz afim não-identidade (`MX`)
+
+Ou seja: o compositor precisa de **transformação afim de verdade** e recursão
+de 6 níveis. Colar no offset não reproduz a arte. Isso ainda não foi escrito, e
+não será declarado pronto sem comparação contra um artefato conhecido — o alvo
+de validação é `bf_frames.lz4f` (43 quadros de 258×254), que o jogo já usa.

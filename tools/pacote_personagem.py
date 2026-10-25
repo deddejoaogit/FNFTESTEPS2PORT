@@ -83,8 +83,39 @@ def resolve(assets, stem):
         if os.path.isdir(base) and glob.glob(os.path.join(base, "spritemap*.png")):
             return "animate", base
         if os.path.isfile(base + ".png"):
+            # Third layout: renderType "packer" ships a .txt frame list next to
+            # the image ("name = x y w h"), with no XML at all.
+            if os.path.isfile(base + ".txt"):
+                return "packer", (base + ".png", base + ".txt")
             return "sparrow", (base + ".png", base + ".xml")
     return None, "no art for %r" % stem
+
+
+def packer_frames(txt_path):
+    """-> [(name, x, y, w, h)] from a TexturePacker-style .txt, in file order.
+
+    The format is one line per frame:
+        idle spirit_0 = 0 1028 128 128
+    Anything that does not parse as four integers is a comment or a trailer and
+    is skipped, which is how the real files are written.
+    """
+    out = []
+    with open(txt_path, encoding="utf-8-sig", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if "=" not in line:
+                continue
+            name, rest = line.rsplit("=", 1)
+            parts = rest.split()
+            if len(parts) < 4:
+                continue
+            try:
+                x, y, w, h = (int(float(v)) for v in parts[:4])
+            except ValueError:
+                continue
+            if w > 0 and h > 0:
+                out.append((name.strip(), x, y, w, h))
+    return out
 
 
 def sparrow_frames(xml_path):
@@ -126,6 +157,12 @@ def load_atlas(assets, stem):
         return None, where
 
     frames = []
+    if kind == "packer":
+        png, txt = where
+        sheet = Image.open(png).convert("RGBA")
+        for name, x, y, w, h in packer_frames(txt):
+            frames.append((sheet.crop((x, y, x + w, y + h)), 0, 0))
+        return frames, None
     if kind == "sparrow":
         png, xml = where
         rects, order = sparrow_frames(xml)
@@ -145,7 +182,7 @@ def load_atlas(assets, stem):
     # maps names to the sheet that holds them.
     names = {}
     for jf in sorted(glob.glob(os.path.join(where, "spritemap*.json"))):
-        d = json.load(open(jf))
+        d = json.load(open(jf, encoding="utf-8-sig"))
         atlas = d.get("ATLAS") or {}
         sheets = [atlas] if "SPRITES" in atlas else [
             v for v in atlas.values() if isinstance(v, dict)]
@@ -171,7 +208,7 @@ def load_atlas(assets, stem):
     anim_json = os.path.join(where, "Animation.json")
     order = []
     if os.path.isfile(anim_json):
-        a = json.load(open(anim_json))
+        a = json.load(open(anim_json, encoding="utf-8-sig"))
         for an in a.get("ANIMATION", {}).get("ANIMATIONS", []):
             for fname in an.get("FRAMES", []):
                 n = fname.get("name")
@@ -262,6 +299,37 @@ def write_pack(blocks, frame_bytes, magic=b"CFZ4"):
     return header + bytes(entries) + bytes(blob), off
 
 
+def write_packs(blocks, frame_bytes, base_path):
+    """Write as many CFZ4 files as it takes to stay under the loader's 8 MB.
+
+    `tutorial_pack_load` refuses a pack over 8 MB, and a character whose whole
+    frame set lands above that cannot be one file. Splitting is not a
+    workaround for a limit -- it is what the runtime wants anyway: the port
+    uploads one frame at a time and never needs a whole character resident, so
+    a part is a natural unit.
+
+    Returns [(path, bytes, first_frame, count)].
+    """
+    out = []
+    part = 0
+    i = 0
+    while i < len(blocks):
+        size = 16 + 8          # header + one entry, the smallest possible part
+        take = []
+        while i < len(blocks):
+            nxt = size + 8 + len(blocks[i])
+            if nxt > PACK_MAX_BYTES and take:
+                break
+            take.append(blocks[i])
+            size = nxt
+            i += 1
+        path = base_path if part == 0 else "%s.part%d" % (base_path, part)
+        data, total = write_pack(take, frame_bytes)
+        out.append((path, total, i - len(take), len(take)))
+        part += 1
+    return out
+
+
 def pack_character(assets, cid, out_dir, scale=None, bpp=32, budget=None):
     """Pack one character. Returns a dict of measured facts.
 
@@ -310,21 +378,31 @@ def pack_character(assets, cid, out_dir, scale=None, bpp=32, budget=None):
                     % (len(raw), frame_bytes)}
         blocks.append(lz4.block.compress(raw, store_size=False))
 
-    data, total = write_pack(blocks, frame_bytes)
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, cid + ".cfz4")
-    with open(out, "wb") as f:
-        f.write(data)
+    base = os.path.join(out_dir, cid + ".cfz4")
+    parts = write_packs(blocks, frame_bytes, base)
+    for path, _total, _first, _n in parts:
+        header = b"CFZ4" + struct.pack("<III", 1, _n, frame_bytes)
+        entries = bytearray()
+        blob = bytearray()
+        off = 16 + _n * 8
+        for b in blocks[_first:_first + _n]:
+            entries += struct.pack("<II", off, len(b))
+            blob += b
+            off += len(b)
+        with open(path, "wb") as f:
+            f.write(header + bytes(entries) + bytes(blob))
 
     return {
         "id": cid,
-        "file": out,
+        "files": [p for p, _, _, _ in parts],
+        "parts": len(parts),
         "frames": len(blocks),
         "canvas": (cw, ch),
         "scale": round(scale, 4),
         "bpp": bpp,
         "vram_bytes": frame_bytes,
-        "disk_bytes": total,
+        "disk_bytes": sum(t for _, t, _, _ in parts),
         "source_atlas": stem,
         "native": (native_w, native_h),
     }
@@ -367,13 +445,22 @@ def main():
     total_disk = 0
     fails = 0
     for cid in [c.strip() for c in args.characters.split(",") if c.strip()]:
-        r = pack_character(args.assets, cid, args.out,
-                           scale=args.scale, bpp=args.bpp, budget=args.budget)
+        try:
+            r = pack_character(args.assets, cid, args.out,
+                               scale=args.scale, bpp=args.bpp, budget=args.budget)
+        except ValueError as e:
+            print("%-22s FAIL  %s" % (cid, e))
+            fails += 1
+            continue
         if "error" in r:
             print("%-22s FAIL  %s" % (cid, r["error"]))
             fails += 1
             continue
-        err = verify(r["file"], args.bpp) if args.verify else None
+        err = None
+        for fpath in r["files"]:
+            err = verify(fpath, args.bpp) if args.verify else None
+            if err:
+                break
         if err:
             print("%-22s FAIL  verify: %s" % (cid, err))
             fails += 1
@@ -381,9 +468,9 @@ def main():
         total_vram += r["vram_bytes"]
         total_disk += r["disk_bytes"]
         print("%-22s %3d fr  %4dx%-4d  scale %.3f  %d bpp  "
-              "VRAM/frame %7d B  pack %8d B"
+              "VRAM/frame %7d B  pack %8d B  %d file(s)"
               % (cid, r["frames"], r["canvas"][0], r["canvas"][1], r["scale"],
-                 r["bpp"], r["vram_bytes"], r["disk_bytes"]))
+                 r["bpp"], r["vram_bytes"], r["disk_bytes"], r["parts"]))
     print()
     print("total VRAM for one frame of each: %d B" % total_vram)
     print("total on the pendrive:            %d B" % total_disk)

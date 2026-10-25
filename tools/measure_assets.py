@@ -124,7 +124,7 @@ def animate_frames(dir_path):
     mw = mh = n = 0
     for jf in sorted(glob.glob(os.path.join(dir_path, "spritemap*.json"))):
         try:
-            d = json.load(open(jf))
+            d = json.load(open(jf, encoding="utf-8-sig"))
         except (ValueError, OSError):
             continue
         atlas = d.get("ATLAS") or {}
