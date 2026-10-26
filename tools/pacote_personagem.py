@@ -325,6 +325,11 @@ def write_packs(blocks, frame_bytes, base_path):
             i += 1
         path = base_path if part == 0 else "%s.part%d" % (base_path, part)
         data, total = write_pack(take, frame_bytes)
+        # Writing happens HERE and only here: the previous shape returned
+        # descriptors and left writing to the caller, and one caller forgot,
+        # reporting a successful pack that was never on disk.
+        with open(path, "wb") as f:
+            f.write(data)
         out.append((path, total, i - len(take), len(take)))
         part += 1
     return out
@@ -381,17 +386,6 @@ def pack_character(assets, cid, out_dir, scale=None, bpp=32, budget=None):
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.join(out_dir, cid + ".cfz4")
     parts = write_packs(blocks, frame_bytes, base)
-    for path, _total, _first, _n in parts:
-        header = b"CFZ4" + struct.pack("<III", 1, _n, frame_bytes)
-        entries = bytearray()
-        blob = bytearray()
-        off = 16 + _n * 8
-        for b in blocks[_first:_first + _n]:
-            entries += struct.pack("<II", off, len(b))
-            blob += b
-            off += len(b)
-        with open(path, "wb") as f:
-            f.write(header + bytes(entries) + bytes(blob))
 
     return {
         "id": cid,

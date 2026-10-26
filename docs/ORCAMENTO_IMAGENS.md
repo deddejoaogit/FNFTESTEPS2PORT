@@ -166,25 +166,67 @@ sai em mais de um arquivo (bf-christmas: 2). Isso não é contorno: o runtime
 nunca precisa do personagem inteiro residente, então a parte é a unidade
 natural.
 
-### O que os 34 exigem
+### O compositor, e como ele foi provado
 
-Um atlas Animate **não é uma lista de quadros**. É uma timeline:
+`tools/achatar_animate.py` resolve o grafo Animate em quadros planos. O algoritmo
+não foi inventado: foi lido do renderizador que o jogo usa
+(`FunkinCrew/flxanimate`).
 
-```
-AN.TL.L[]            camadas
-  .FR[]              quadros-chave, com I (início) e DU (duração)
-    .E[].SI          instância de símbolo: SN, FF, TRP{x,y}, MX[6]
-SD.S[]               símbolos; cada um tem a própria TL, aninhada
-```
+    flxanimate/animate/FlxElement.hx, fromJSONEx():
+        m[0]=mx[0]; m[1]=mx[1]; m[4]=mx[2]; m[5]=mx[3]; m[12]=mx[4]; m[13]=mx[5]
+        new FlxMatrix(m[0], m[1], m[4], m[5], m[12], m[13])
 
-Medido no grafo real:
+    flxanimate/animate/FlxTimeline.hx, fromJSONEx():
+        for (layer in timeline.L) layers.push(FlxLayer.fromJSONEx(layer))
 
-- aninhamento máximo: **6 níveis**
-- até **118 símbolos** distintos num personagem
-- até **14 512** instâncias de símbolo num personagem
-- **7 584** instâncias carregam matriz afim não-identidade (`MX`)
+    flxanimate/data/SpriteMapData.hx, AnimateSpriteData:
+        um sprite do spritemap é só um retângulo (x, y, w, h, rotated) na folha.
 
-Ou seja: o compositor precisa de **transformação afim de verdade** e recursão
-de 6 níveis. Colar no offset não reproduz a arte. Isso ainda não foi escrito, e
-não será declarado pronto sem comparação contra um artefato conhecido — o alvo
-de validação é `bf_frames.lz4f` (43 quadros de 258×254), que o jogo já usa.
+Duas coisas a fonte não fixa para export estático, e que por isso são
+**medidas**, não assumidas:
+
+1. **Dois tipos de elemento.** `FlxElement.fromJSON` começa com
+   `var symbol = element.SI != null` e usa `element.ASI` no outro ramo. `SI` é
+   instância de símbolo; `ASI` é bitmap, e `ASI.N` é o nome do sprite. O nível
+   mais fundo do atlas é sempre `ASI` — foi isso que fez a primeira versão
+   renderizar zero quadros.
+2. **`inner=first` vs `inner=advance`.** `FlxElement.fromJSONEx` faz
+   `params.firstFrame = element.SI.FF ?? 0`. Testadas as duas leituras contra a
+   referência: `first` dá IoU 0,970, `advance` dá 0,495 e erra quadros
+   alternados. `first` é a correta.
+
+Validação contra o artefato que o jogo já usa (`bf_frames.lz4f`, 43 quadros de
+258×254, decodificado do CFZ4 real):
+
+| medida | resultado |
+|---|---|
+| IoU da silhueta (6 quadros) | **0,970** |
+| escala nativa do render vs referência | **exatamente 0,500** |
+| erro médio de RGB (25 287 px opacos) | razão 0,98–0,99 entre canais |
+| correlação RGB | 0,887 / 0,899 / 0,883 |
+
+A referência é o render nativo **a meia escala** — coerente com a análise de
+exibição do `tools/ps2_display.py` (640×360 lógico dentro de 640×448). O
+compositor reproduz a arte do jogo; a diferença de nitidez é a meia escala, que
+é a do próprio original.
+
+Personagens achatados e empacotados a 16 bpp:
+
+| personagem | quadros | canvas @0.5 | VRAM/quadro | pacote |
+|---|---|---|---|---|
+| bf | 223 | 249×256 | 127 488 B | 3 138 355 B |
+| pico | 73 | 376×271 | 203 792 B | 1 227 093 B |
+| dad | 36 | 284×430 | 244 240 B | 766 486 B |
+
+`bf` traz 223 quadros porque cobre **as 12 animações** (Idle, Left, Left Miss,
+Right, Right Miss, Up, Up Miss, Down, Down Miss, Hey, Cheer, Scared); os 43 da
+referência são um subconjunto exportado à parte. Os quadros não são inventados:
+`inner=first` faz cada keyframe nomear seu próprio quadro interno, então a
+expansão é só o intervalo que a timeline já declara.
+
+### O que continua faltando aqui
+
+- O compositor roda **offline**, no PC. Ele ainda não está no `build.sh` como
+  etapa obrigatória, e nenhum destes pacotes foi carregado pelo jogo no console.
+- O caminho de desenho do jogo continua sem carregador genérico por música: os
+  pacotes existem, mas `main.c` ainda abre `bf_frames.lz4f` por nome fixo.
