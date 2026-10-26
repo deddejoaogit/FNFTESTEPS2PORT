@@ -26,6 +26,7 @@ tar -C "$HERE" -cf - \
     --exclude=build --exclude=old_motor --exclude=google_drive \
     --exclude=.git --exclude=__pycache__ --exclude='*.pyc' \
     --exclude='*.o' --exclude='*.map' --exclude='*.ELF' \
+    --exclude='FNFPS2-atualizacao.zip' --exclude='*.log' \
     . | tar -C "$PKG" -xf -
 
 # Os quatro .lz4f sao gitignored, entao o tar acima os pega do disco; se algum
