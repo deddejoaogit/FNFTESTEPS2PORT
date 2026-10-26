@@ -55,6 +55,51 @@ echo "== song_registry is generated from assets-data/ =="
 python3 tools/gen_song_registry.py --check
 echo
 
+# A tabela de palcos tem de ser a renderizacao do plano commitado, e o plano
+# tem de ser o que o empacotador viu nos pixels reais. Sem isto, o C pode
+# prometer 15 quadros onde o pacote tem 30 -- e o prop congela no console.
+echo "== stage_dados.h is the rendering of the committed stage plan =="
+python3 tools/gen_stage_dados.py --check
+python3 - <<'PYCHECK'
+import json, os, sys
+plan = json.load(open("assets-data/stage-props.json"))
+bad = 0
+nprops = 0
+nstages = 0
+for st in plan["stages"]:
+    nstages += 1
+    for p in st["props"]:
+        nprops += 1
+        if not p["anims"]:
+            print("  %s/%s: sem animacao" % (st["id"], p["name"])); bad += 1
+            continue
+        total = sum(a["count"] for a in p["anims"])
+        if total != p["frames"]:
+            print("  %s/%s: %d quadros nas animacoes, %d no pacote"
+                  % (st["id"], p["name"], total, p["frames"])); bad += 1
+        if p["sw"] > 1024 or p["sh"] > 1024:
+            print("  %s/%s: %dx%d passa de 1024" % (st["id"], p["name"], p["sw"], p["sh"]))
+            bad += 1
+        seen = set()
+        for a in p["anims"]:
+            if a["name"] in seen:
+                print("  %s/%s: animacao repetida %r" % (st["id"], p["name"], a["name"]))
+                bad += 1
+            seen.add(a["name"])
+# the same prop name must not appear twice inside one stage, or the pack path
+# collides
+for st in plan["stages"]:
+    names = [p["name"] for p in st["props"]]
+    if len(names) != len(set(names)):
+        print("  %s: nomes de prop repetidos" % st["id"]); bad += 1
+if bad:
+    print("  FAIL: %d problema(s) no plano de palcos" % bad)
+    sys.exit(1)
+print("  ok:   %d palcos, %d props, contagens e limites consistentes"
+      % (nstages, nprops))
+PYCHECK
+echo
+
 echo "== bs_dados.h stage + character tables match the game's own JSON =="
 python3 tools/check_bs_dados.py
 python3 tools/check_bs_chars.py

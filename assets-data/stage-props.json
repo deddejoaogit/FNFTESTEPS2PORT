@@ -1,0 +1,4529 @@
+{
+ "bpp": 16,
+ "note": "Gerado por tools/pacotar_palcos.py a partir dos pixels reais. O header em C e uma renderizacao deste arquivo.",
+ "stages": [
+  {
+   "id": "limoRide",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "limoSunset",
+     "scrollx": 0.1,
+     "scrolly": 0.1,
+     "sh": 475,
+     "src_h": 1313,
+     "src_w": 1968,
+     "sw": 711,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoSunset.cfz4",
+     "x": -120.0,
+     "y": -50.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "drive"
+      }
+     ],
+     "dance": 0,
+     "frames": 4,
+     "name": "bgLimo",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 139,
+     "src_h": 384,
+     "src_w": 2218,
+     "sw": 802,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/bgLimo.cfz4",
+     "x": -200.0,
+     "y": 480.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "drive"
+      }
+     ],
+     "dance": 0,
+     "frames": 4,
+     "name": "limo",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 234,
+     "src_h": 646,
+     "src_w": 2048,
+     "sw": 740,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limo.cfz4",
+     "x": -120.0,
+     "y": 528.0,
+     "z": 150
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fastCar",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 260,
+     "src_h": 720,
+     "src_w": 1280,
+     "sw": 463,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/fastCar.cfz4",
+     "x": -12600.0,
+     "y": 160.0,
+     "z": 500
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      }
+     ],
+     "dance": 1,
+     "frames": 30,
+     "name": "limoDancer1",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 148,
+     "src_h": 410,
+     "src_w": 395,
+     "sw": 143,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoDancer1.cfz4",
+     "x": 100.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      }
+     ],
+     "dance": 1,
+     "frames": 30,
+     "name": "limoDancer2",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 148,
+     "src_h": 410,
+     "src_w": 395,
+     "sw": 143,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoDancer2.cfz4",
+     "x": 400.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      }
+     ],
+     "dance": 1,
+     "frames": 30,
+     "name": "limoDancer3",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 148,
+     "src_h": 410,
+     "src_w": 395,
+     "sw": 143,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoDancer3.cfz4",
+     "x": 700.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      }
+     ],
+     "dance": 1,
+     "frames": 30,
+     "name": "limoDancer4",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 148,
+     "src_h": 410,
+     "src_w": 395,
+     "sw": 143,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoDancer4.cfz4",
+     "x": 1000.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      }
+     ],
+     "dance": 1,
+     "frames": 30,
+     "name": "limoDancer5",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 148,
+     "src_h": 410,
+     "src_w": 395,
+     "sw": 143,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRide/limoDancer5.cfz4",
+     "x": 1300.0,
+     "y": 100.0,
+     "z": 30
+    }
+   ],
+   "scale": 0.361535,
+   "zoom": 0.9
+  },
+  {
+   "id": "limoRideErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "limoSunset",
+     "scrollx": 0.1,
+     "scrolly": 0.1,
+     "sh": 526,
+     "src_h": 1568,
+     "src_w": 2091,
+     "sw": 701,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/limoRideErect/limoSunset.cfz4",
+     "x": -180.0,
+     "y": -80.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 28,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "shooting star"
+      }
+     ],
+     "dance": 0,
+     "frames": 28,
+     "name": "shootingStar",
+     "scrollx": 0.12,
+     "scrolly": 0.12,
+     "sh": 73,
+     "src_h": 218,
+     "src_w": 331,
+     "sw": 111,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/shootingStar.cfz4",
+     "x": 200.0,
+     "y": 0.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "drive"
+      }
+     ],
+     "dance": 0,
+     "frames": 4,
+     "name": "bgLimo",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 131,
+     "src_h": 389,
+     "src_w": 2216,
+     "sw": 743,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/bgLimo.cfz4",
+     "x": -200.0,
+     "y": 480.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "drive"
+      }
+     ],
+     "dance": 0,
+     "frames": 4,
+     "name": "limo",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 220,
+     "src_h": 657,
+     "src_w": 2052,
+     "sw": 688,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limo.cfz4",
+     "x": -120.0,
+     "y": 520.0,
+     "z": 150
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fastCar",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 242,
+     "src_h": 720,
+     "src_w": 1280,
+     "sw": 429,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/fastCar.cfz4",
+     "x": -12600.0,
+     "y": 160.0,
+     "z": 500
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 80,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit1"
+      },
+      {
+       "count": 80,
+       "first": 110,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit2"
+      }
+     ],
+     "dance": 1,
+     "frames": 190,
+     "name": "limoDancer1",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 138,
+     "src_h": 410,
+     "src_w": 517,
+     "sw": 173,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limoDancer1.cfz4",
+     "x": 100.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 80,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit1"
+      },
+      {
+       "count": 80,
+       "first": 110,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit2"
+      }
+     ],
+     "dance": 1,
+     "frames": 190,
+     "name": "limoDancer2",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 138,
+     "src_h": 410,
+     "src_w": 517,
+     "sw": 173,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limoDancer2.cfz4",
+     "x": 400.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 80,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit1"
+      },
+      {
+       "count": 80,
+       "first": 110,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit2"
+      }
+     ],
+     "dance": 1,
+     "frames": 190,
+     "name": "limoDancer3",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 138,
+     "src_h": 410,
+     "src_w": 517,
+     "sw": 173,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limoDancer3.cfz4",
+     "x": 700.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 80,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit1"
+      },
+      {
+       "count": 80,
+       "first": 110,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit2"
+      }
+     ],
+     "dance": 1,
+     "frames": 190,
+     "name": "limoDancer4",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 138,
+     "src_h": 410,
+     "src_w": 517,
+     "sw": 173,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limoDancer4.cfz4",
+     "x": 1000.0,
+     "y": 100.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 80,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit1"
+      },
+      {
+       "count": 80,
+       "first": 110,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "hit2"
+      }
+     ],
+     "dance": 1,
+     "frames": 190,
+     "name": "limoDancer5",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 138,
+     "src_h": 410,
+     "src_w": 517,
+     "sw": 173,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/limoRideErect/limoDancer5.cfz4",
+     "x": 1300.0,
+     "y": 100.0,
+     "z": 30
+    }
+   ],
+   "scale": 0.335485,
+   "zoom": 0.9
+  },
+  {
+   "id": "mainStage",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "stageBack",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 438,
+     "src_h": 1400,
+     "src_w": 2560,
+     "sw": 802,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStage/stageBack.cfz4",
+     "x": -600.0,
+     "y": -200.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "stageFront",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 182,
+     "src_h": 581,
+     "src_w": 2560,
+     "sw": 802,
+     "sx": 1.1,
+     "sy": 1.1,
+     "tex": "stages/mainStage/stageFront.cfz4",
+     "x": -650.0,
+     "y": 600.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "stageCurtains",
+     "scrollx": 1.3,
+     "scrolly": 1.3,
+     "sh": 438,
+     "src_h": 1400,
+     "src_w": 2560,
+     "sw": 802,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mainStage/stageCurtains.cfz4",
+     "x": -500.0,
+     "y": -300.0,
+     "z": 30
+    }
+   ],
+   "scale": 0.313214,
+   "zoom": 1.1
+  },
+  {
+   "id": "mainStageErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "brightLightSmall",
+     "scrollx": 1.2,
+     "scrolly": 1.2,
+     "sh": 210,
+     "src_h": 638,
+     "src_w": 687,
+     "sw": 226,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/brightLightSmall.cfz4",
+     "x": 967.0,
+     "y": -103.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 8,
+       "first": 0,
+       "fps": 12.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 8,
+     "name": "crowd",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 148,
+     "src_h": 452,
+     "src_w": 1873,
+     "sw": 615,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/crowd.cfz4",
+     "x": 682.0,
+     "y": 290.0,
+     "z": 5
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bg",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 437,
+     "src_h": 1332,
+     "src_w": 2609,
+     "sw": 857,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/bg.cfz4",
+     "x": -765.0,
+     "y": -247.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "server",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 212,
+     "src_h": 646,
+     "src_w": 1224,
+     "sw": 402,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/server.cfz4",
+     "x": -991.0,
+     "y": 205.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lights",
+     "scrollx": 1.2,
+     "scrolly": 1.2,
+     "sh": 185,
+     "src_h": 562,
+     "src_w": 2876,
+     "sw": 945,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/lights.cfz4",
+     "x": -847.0,
+     "y": -245.0,
+     "z": 4000
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "orangeLight",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 1,
+     "src_h": 1,
+     "src_w": 1983,
+     "sw": 651,
+     "sx": 1.0,
+     "sy": 1700.0,
+     "tex": "stages/mainStageErect/orangeLight.cfz4",
+     "x": 189.0,
+     "y": -500.0,
+     "z": 80
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lightgreen",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 62,
+     "src_h": 188,
+     "src_w": 178,
+     "sw": 58,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/lightgreen.cfz4",
+     "x": -171.0,
+     "y": 242.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lightred",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 60,
+     "src_h": 182,
+     "src_w": 179,
+     "sw": 59,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/lightred.cfz4",
+     "x": -101.0,
+     "y": 560.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lightAbove",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 245,
+     "src_h": 746,
+     "src_w": 840,
+     "sw": 276,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mainStageErect/lightAbove.cfz4",
+     "x": 804.0,
+     "y": -117.0,
+     "z": 4500
+    }
+   ],
+   "scale": 0.328453,
+   "zoom": 0.85
+  },
+  {
+   "id": "mallEvil",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bg",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 551,
+     "src_h": 1613,
+     "src_w": 2625,
+     "sw": 896,
+     "sx": 0.8,
+     "sy": 0.8,
+     "tex": "stages/mallEvil/bg.cfz4",
+     "x": -400.0,
+     "y": -500.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "evilTree",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 378,
+     "src_h": 1108,
+     "src_w": 617,
+     "sw": 211,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallEvil/evilTree.cfz4",
+     "x": 300.0,
+     "y": -300.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "evilSnow",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 89,
+     "src_h": 262,
+     "src_w": 3000,
+     "sw": 1024,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallEvil/evilSnow.cfz4",
+     "x": -500.0,
+     "y": 700.0,
+     "z": 20
+    }
+   ],
+   "scale": 0.341333,
+   "zoom": 1.0
+  },
+  {
+   "id": "mallXmas",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgWalls",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 416,
+     "src_h": 1840,
+     "src_w": 3102,
+     "sw": 702,
+     "sx": 0.8,
+     "sy": 0.8,
+     "tex": "stages/mallXmas/bgWalls.cfz4",
+     "x": -630.0,
+     "y": -492.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 13,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 13,
+     "name": "upperBoppers",
+     "scrollx": 0.28,
+     "scrolly": 0.28,
+     "sh": 85,
+     "src_h": 375,
+     "src_w": 2596,
+     "sw": 587,
+     "sx": 0.85,
+     "sy": 0.85,
+     "tex": "stages/mallXmas/upperBoppers.cfz4",
+     "x": -396.0,
+     "y": -98.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgEscalator",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 402,
+     "src_h": 1775,
+     "src_w": 3700,
+     "sw": 837,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mallXmas/bgEscalator.cfz4",
+     "x": -1100.0,
+     "y": -540.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "christmasTree",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 230,
+     "src_h": 1018,
+     "src_w": 662,
+     "sw": 150,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/christmasTree.cfz4",
+     "x": 370.0,
+     "y": -250.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "bottomBoppers",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 152,
+     "src_h": 674,
+     "src_w": 1978,
+     "sw": 448,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/bottomBoppers.cfz4",
+     "x": -300.0,
+     "y": 120.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fgSnow",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 57,
+     "src_h": 252,
+     "src_w": 3300,
+     "sw": 747,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/fgSnow.cfz4",
+     "x": -1150.0,
+     "y": 680.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "santa",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 169,
+     "src_h": 748,
+     "src_w": 663,
+     "sw": 150,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/santa.cfz4",
+     "x": -840.0,
+     "y": 150.0,
+     "z": 210
+    }
+   ],
+   "scale": 0.226261,
+   "zoom": 0.8
+  },
+  {
+   "id": "mallXmasErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgWalls",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 373,
+     "src_h": 1840,
+     "src_w": 3102,
+     "sw": 630,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mallXmasErect/bgWalls.cfz4",
+     "x": -726.0,
+     "y": -566.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "upperBoppers",
+     "scrollx": 0.28,
+     "scrolly": 0.28,
+     "sh": 75,
+     "src_h": 368,
+     "src_w": 2550,
+     "sw": 518,
+     "sx": 0.85,
+     "sy": 0.85,
+     "tex": "stages/mallXmasErect/upperBoppers.cfz4",
+     "x": -374.0,
+     "y": -98.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgEscalator",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 360,
+     "src_h": 1775,
+     "src_w": 3700,
+     "sw": 751,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mallXmasErect/bgEscalator.cfz4",
+     "x": -1100.0,
+     "y": -540.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "christmasTree",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 207,
+     "src_h": 1021,
+     "src_w": 665,
+     "sw": 135,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmasErect/christmasTree.cfz4",
+     "x": 370.0,
+     "y": -250.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "bottomBoppers",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 136,
+     "src_h": 672,
+     "src_w": 2255,
+     "sw": 458,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmasErect/bottomBoppers.cfz4",
+     "x": -300.0,
+     "y": -200.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fog",
+     "scrollx": 0.85,
+     "scrolly": 0.85,
+     "sh": 238,
+     "src_h": 1172,
+     "src_w": 3301,
+     "sw": 670,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mallXmasErect/fog.cfz4",
+     "x": -1000.0,
+     "y": 100.0,
+     "z": 49
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fgSnow",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 51,
+     "src_h": 252,
+     "src_w": 3300,
+     "sw": 670,
+     "sx": 1.1,
+     "sy": 1.0,
+     "tex": "stages/mallXmasErect/fgSnow.cfz4",
+     "x": -1350.0,
+     "y": 680.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "santa",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 152,
+     "src_h": 748,
+     "src_w": 663,
+     "sw": 135,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmasErect/santa.cfz4",
+     "x": -840.0,
+     "y": 150.0,
+     "z": 210
+    }
+   ],
+   "scale": 0.202989,
+   "zoom": 0.8
+  },
+  {
+   "id": "phillyBlazin",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "skyAdditive",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 251,
+     "src_h": 495,
+     "src_w": 1387,
+     "sw": 704,
+     "sx": 1.75,
+     "sy": 1.75,
+     "tex": "stages/phillyBlazin/skyAdditive.cfz4",
+     "x": -600.0,
+     "y": -175.0,
+     "z": 11
+    },
+    {
+     "anims": [
+      {
+       "count": 30,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "strike"
+      }
+     ],
+     "dance": 0,
+     "frames": 30,
+     "name": "lightning",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 176,
+     "src_h": 347,
+     "src_w": 206,
+     "sw": 105,
+     "sx": 1.75,
+     "sy": 1.75,
+     "tex": "stages/phillyBlazin/lightning.cfz4",
+     "x": 50.0,
+     "y": -300.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForegroundCity",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 395,
+     "src_h": 779,
+     "src_w": 1629,
+     "sw": 827,
+     "sx": 1.75,
+     "sy": 1.75,
+     "tex": "stages/phillyBlazin/phillyForegroundCity.cfz4",
+     "x": -600.0,
+     "y": -175.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "foregroundMultiply",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 395,
+     "src_h": 779,
+     "src_w": 1629,
+     "sw": 827,
+     "sx": 1.75,
+     "sy": 1.75,
+     "tex": "stages/phillyBlazin/foregroundMultiply.cfz4",
+     "x": -600.0,
+     "y": -175.0,
+     "z": 31
+    }
+   ],
+   "scale": 0.507702,
+   "zoom": 0.75
+  },
+  {
+   "id": "phillyStreets",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillySkyline",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 268,
+     "src_h": 1040,
+     "src_w": 2654,
+     "sw": 685,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillySkyline.cfz4",
+     "x": -545.0,
+     "y": -273.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForegroundCity2",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 157,
+     "src_h": 609,
+     "src_w": 986,
+     "sw": 254,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyForegroundCity2.cfz4",
+     "x": 1865.0,
+     "y": 220.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyConstruction",
+     "scrollx": 0.7,
+     "scrolly": 1.0,
+     "sh": 196,
+     "src_h": 761,
+     "src_w": 487,
+     "sw": 126,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyConstruction.cfz4",
+     "x": 1800.0,
+     "y": 364.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighwayLights",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 51,
+     "src_h": 197,
+     "src_w": 1082,
+     "sw": 279,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyHighwayLights.cfz4",
+     "x": 122.0,
+     "y": 201.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighwayLights_lightmap",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 51,
+     "src_h": 197,
+     "src_w": 1082,
+     "sw": 279,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyHighwayLights_lightmap.cfz4",
+     "x": 122.0,
+     "y": 201.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighway",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 169,
+     "src_h": 655,
+     "src_w": 1731,
+     "sw": 447,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyHighway.cfz4",
+     "x": -23.0,
+     "y": 105.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillySmog",
+     "scrollx": 0.8,
+     "scrolly": 1.0,
+     "sh": 290,
+     "src_h": 1125,
+     "src_w": 2761,
+     "sw": 712,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillySmog.cfz4",
+     "x": -6.0,
+     "y": 305.0,
+     "z": 70
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car1"
+      },
+      {
+       "count": 4,
+       "first": 4,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car2"
+      },
+      {
+       "count": 4,
+       "first": 8,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car3"
+      },
+      {
+       "count": 4,
+       "first": 12,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car4"
+      }
+     ],
+     "dance": 0,
+     "frames": 16,
+     "name": "phillyCars",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 64,
+     "src_h": 247,
+     "src_w": 470,
+     "sw": 121,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyCars.cfz4",
+     "x": 1200.0,
+     "y": 818.0,
+     "z": 80
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car1"
+      },
+      {
+       "count": 4,
+       "first": 4,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car2"
+      },
+      {
+       "count": 4,
+       "first": 8,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car3"
+      },
+      {
+       "count": 4,
+       "first": 12,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car4"
+      }
+     ],
+     "dance": 0,
+     "frames": 16,
+     "name": "phillyCars2",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 64,
+     "src_h": 247,
+     "src_w": 470,
+     "sw": 121,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyCars2.cfz4",
+     "x": 1200.0,
+     "y": 818.0,
+     "z": 78
+    },
+    {
+     "anims": [
+      {
+       "count": 77,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "togreen"
+      },
+      {
+       "count": 77,
+       "first": 77,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "tored"
+      }
+     ],
+     "dance": 0,
+     "frames": 154,
+     "name": "phillyTraffic",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 116,
+     "src_h": 448,
+     "src_w": 336,
+     "sw": 87,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyTraffic.cfz4",
+     "x": 1840.0,
+     "y": 608.0,
+     "z": 90
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyTraffic_lightmap",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 116,
+     "src_h": 448,
+     "src_w": 336,
+     "sw": 87,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyTraffic_lightmap.cfz4",
+     "x": 1840.0,
+     "y": 608.0,
+     "z": 90
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForeground",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 335,
+     "src_h": 1299,
+     "src_w": 2901,
+     "sw": 748,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/phillyForeground.cfz4",
+     "x": 88.0,
+     "y": 317.0,
+     "z": 100
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "spraycanPile",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 51,
+     "src_h": 199,
+     "src_w": 309,
+     "sw": 80,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreets/spraycanPile.cfz4",
+     "x": 920.0,
+     "y": 1045.0,
+     "z": 690
+    }
+   ],
+   "scale": 0.258014,
+   "zoom": 0.77
+  },
+  {
+   "id": "phillyStreetsErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillySkyline",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 241,
+     "src_h": 1089,
+     "src_w": 2704,
+     "sw": 598,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillySkyline.cfz4",
+     "x": -545.0,
+     "y": -273.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForegroundCity",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 136,
+     "src_h": 614,
+     "src_w": 1031,
+     "sw": 228,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyForegroundCity.cfz4",
+     "x": 600.0,
+     "y": 69.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForegroundCity2",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 136,
+     "src_h": 614,
+     "src_w": 1031,
+     "sw": 228,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyForegroundCity2.cfz4",
+     "x": 1860.0,
+     "y": 185.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyConstruction2",
+     "scrollx": 0.7,
+     "scrolly": 1.0,
+     "sh": 173,
+     "src_h": 782,
+     "src_w": 508,
+     "sw": 112,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyConstruction2.cfz4",
+     "x": 1795.0,
+     "y": 360.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighwayLights",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 47,
+     "src_h": 213,
+     "src_w": 1096,
+     "sw": 243,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyHighwayLights.cfz4",
+     "x": 122.0,
+     "y": 201.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighwayLights_lightmap",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 44,
+     "src_h": 197,
+     "src_w": 1082,
+     "sw": 239,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyHighwayLights_lightmap.cfz4",
+     "x": 122.0,
+     "y": 201.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyHighway2",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 148,
+     "src_h": 671,
+     "src_w": 1747,
+     "sw": 387,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyHighway2.cfz4",
+     "x": -23.0,
+     "y": 105.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "grey1",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 229,
+     "src_h": 1034,
+     "src_w": 2585,
+     "sw": 572,
+     "sx": 1.3,
+     "sy": 1.3,
+     "tex": "stages/phillyStreetsErect/grey1.cfz4",
+     "x": -388.0,
+     "y": 7.0,
+     "z": 91
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "grey2",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 229,
+     "src_h": 1034,
+     "src_w": 2585,
+     "sw": 572,
+     "sx": 1.3,
+     "sy": 1.3,
+     "tex": "stages/phillyStreetsErect/grey2.cfz4",
+     "x": -388.0,
+     "y": 7.0,
+     "z": 91
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car1"
+      },
+      {
+       "count": 4,
+       "first": 4,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car2"
+      },
+      {
+       "count": 4,
+       "first": 8,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car3"
+      },
+      {
+       "count": 4,
+       "first": 12,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car4"
+      }
+     ],
+     "dance": 0,
+     "frames": 16,
+     "name": "phillyCars",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 57,
+     "src_h": 258,
+     "src_w": 481,
+     "sw": 106,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyCars.cfz4",
+     "x": 1200.0,
+     "y": 818.0,
+     "z": 80
+    },
+    {
+     "anims": [
+      {
+       "count": 4,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car1"
+      },
+      {
+       "count": 4,
+       "first": 4,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car2"
+      },
+      {
+       "count": 4,
+       "first": 8,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car3"
+      },
+      {
+       "count": 4,
+       "first": 12,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "car4"
+      }
+     ],
+     "dance": 0,
+     "frames": 16,
+     "name": "phillyCars2",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 57,
+     "src_h": 258,
+     "src_w": 481,
+     "sw": 106,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyCars2.cfz4",
+     "x": 1200.0,
+     "y": 818.0,
+     "z": 78
+    },
+    {
+     "anims": [
+      {
+       "count": 77,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "togreen"
+      },
+      {
+       "count": 77,
+       "first": 77,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "tored"
+      }
+     ],
+     "dance": 0,
+     "frames": 154,
+     "name": "phillyTraffic",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 101,
+     "src_h": 456,
+     "src_w": 344,
+     "sw": 76,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyTraffic.cfz4",
+     "x": 1840.0,
+     "y": 608.0,
+     "z": 90
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyTraffic_lightmap",
+     "scrollx": 0.9,
+     "scrolly": 1.0,
+     "sh": 101,
+     "src_h": 458,
+     "src_w": 346,
+     "sw": 77,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyTraffic_lightmap.cfz4",
+     "x": 1840.0,
+     "y": 608.0,
+     "z": 90
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "phillyForeground",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 287,
+     "src_h": 1299,
+     "src_w": 2901,
+     "sw": 642,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/phillyForeground.cfz4",
+     "x": 88.0,
+     "y": 317.0,
+     "z": 100
+    },
+    {
+     "anims": [
+      {
+       "count": 48,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "paperBlow"
+      }
+     ],
+     "dance": 0,
+     "frames": 48,
+     "name": "paper",
+     "scrollx": 1.1,
+     "scrolly": 1.1,
+     "sh": 129,
+     "src_h": 583,
+     "src_w": 2461,
+     "sw": 545,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyStreetsErect/paper.cfz4",
+     "x": 350.0,
+     "y": 608.0,
+     "z": 800
+    }
+   ],
+   "scale": 0.221311,
+   "zoom": 0.77
+  },
+  {
+   "id": "phillyTrain",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "sky",
+     "scrollx": 0.1,
+     "scrolly": 0.1,
+     "sh": 239,
+     "src_h": 955,
+     "src_w": 1729,
+     "sw": 432,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrain/sky.cfz4",
+     "x": -100.0,
+     "y": 0.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "city",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 202,
+     "src_h": 809,
+     "src_w": 2271,
+     "sw": 568,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/phillyTrain/city.cfz4",
+     "x": -255.0,
+     "y": 45.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lights",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 104,
+     "src_h": 414,
+     "src_w": 2119,
+     "sw": 530,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/phillyTrain/lights.cfz4",
+     "x": -184.0,
+     "y": 155.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "behindTrain",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 214,
+     "src_h": 856,
+     "src_w": 2216,
+     "sw": 554,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrain/behindTrain.cfz4",
+     "x": -299.0,
+     "y": 144.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "train",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 128,
+     "src_h": 512,
+     "src_w": 4096,
+     "sw": 1024,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrain/train.cfz4",
+     "x": 2000.0,
+     "y": 360.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "street",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 214,
+     "src_h": 856,
+     "src_w": 2216,
+     "sw": 554,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrain/street.cfz4",
+     "x": -299.0,
+     "y": 144.0,
+     "z": 72
+    }
+   ],
+   "scale": 0.25,
+   "zoom": 1.1
+  },
+  {
+   "id": "phillyTrainErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "sky",
+     "scrollx": 0.1,
+     "scrolly": 0.1,
+     "sh": 239,
+     "src_h": 955,
+     "src_w": 1729,
+     "sw": 432,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrainErect/sky.cfz4",
+     "x": -100.0,
+     "y": 0.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "city",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 202,
+     "src_h": 809,
+     "src_w": 2271,
+     "sw": 568,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/phillyTrainErect/city.cfz4",
+     "x": -255.0,
+     "y": 45.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "lights",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 104,
+     "src_h": 414,
+     "src_w": 2119,
+     "sw": 530,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/phillyTrainErect/lights.cfz4",
+     "x": -184.0,
+     "y": 155.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "behindTrain",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 214,
+     "src_h": 856,
+     "src_w": 2216,
+     "sw": 554,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrainErect/behindTrain.cfz4",
+     "x": -299.0,
+     "y": 144.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "train",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 128,
+     "src_h": 512,
+     "src_w": 4096,
+     "sw": 1024,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrainErect/train.cfz4",
+     "x": 2000.0,
+     "y": 360.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "street",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 214,
+     "src_h": 856,
+     "src_w": 2216,
+     "sw": 554,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/phillyTrainErect/street.cfz4",
+     "x": -299.0,
+     "y": 144.0,
+     "z": 70
+    }
+   ],
+   "scale": 0.25,
+   "zoom": 1.1
+  },
+  {
+   "id": "school",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "sky",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/sky.cfz4",
+     "x": -626.0,
+     "y": -78.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "school",
+     "scrollx": 0.75,
+     "scrolly": 0.75,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 511,
+     "sw": 511,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/school.cfz4",
+     "x": -816.0,
+     "y": -38.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backTrees",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 561,
+     "sw": 561,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/backTrees.cfz4",
+     "x": -842.0,
+     "y": -80.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "street",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 170,
+     "src_h": 170,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/street.cfz4",
+     "x": -662.0,
+     "y": 6.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "treesFG",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 411,
+     "sw": 411,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/treesFG.cfz4",
+     "x": -500.0,
+     "y": 6.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 19,
+       "first": 0,
+       "fps": 12.0,
+       "looped": 1,
+       "name": "treeLoop"
+      }
+     ],
+     "dance": 0,
+     "frames": 19,
+     "name": "treesBG",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 512,
+     "src_h": 512,
+     "src_w": 512,
+     "sw": 512,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/treesBG.cfz4",
+     "x": -806.0,
+     "y": -1050.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 56,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "leaves"
+      }
+     ],
+     "dance": 0,
+     "frames": 56,
+     "name": "petals",
+     "scrollx": 0.85,
+     "scrolly": 0.85,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 311,
+     "sw": 311,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/petals.cfz4",
+     "x": -20.0,
+     "y": -40.0,
+     "z": 70
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 15,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft-scared"
+      },
+      {
+       "count": 15,
+       "first": 45,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight-scared"
+      }
+     ],
+     "dance": 1,
+     "frames": 60,
+     "name": "freaks",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 96,
+     "src_h": 96,
+     "src_w": 451,
+     "sw": 451,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/school/freaks.cfz4",
+     "x": -646.0,
+     "y": 222.0,
+     "z": 80
+    }
+   ],
+   "scale": 1.0,
+   "zoom": 1.0
+  },
+  {
+   "id": "schoolErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "sky",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/sky.cfz4",
+     "x": -626.0,
+     "y": -78.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "school",
+     "scrollx": 0.75,
+     "scrolly": 0.75,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 511,
+     "sw": 511,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/school.cfz4",
+     "x": -816.0,
+     "y": -38.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backTrees",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 561,
+     "sw": 561,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/backTrees.cfz4",
+     "x": -842.0,
+     "y": -80.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "street",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 170,
+     "src_h": 170,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/street.cfz4",
+     "x": -662.0,
+     "y": 6.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "treesFG",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 411,
+     "sw": 411,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/treesFG.cfz4",
+     "x": -500.0,
+     "y": 6.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 19,
+       "first": 0,
+       "fps": 12.0,
+       "looped": 1,
+       "name": "treeLoop"
+      }
+     ],
+     "dance": 0,
+     "frames": 19,
+     "name": "treesBG",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 512,
+     "src_h": 512,
+     "src_w": 512,
+     "sw": 512,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/treesBG.cfz4",
+     "x": -806.0,
+     "y": -1050.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 56,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "leaves"
+      }
+     ],
+     "dance": 0,
+     "frames": 56,
+     "name": "petals",
+     "scrollx": 0.85,
+     "scrolly": 0.85,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 311,
+     "sw": 311,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/petals.cfz4",
+     "x": -20.0,
+     "y": -40.0,
+     "z": 70
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft"
+      },
+      {
+       "count": 15,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight"
+      },
+      {
+       "count": 15,
+       "first": 30,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceLeft-scared"
+      },
+      {
+       "count": 15,
+       "first": 45,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "danceRight-scared"
+      }
+     ],
+     "dance": 1,
+     "frames": 60,
+     "name": "freaks",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 96,
+     "src_h": 96,
+     "src_w": 451,
+     "sw": 451,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolErect/freaks.cfz4",
+     "x": -100.0,
+     "y": 190.0,
+     "z": 0
+    }
+   ],
+   "scale": 1.0,
+   "zoom": 1.0
+  },
+  {
+   "id": "schoolEvil",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "school",
+     "scrollx": 0.75,
+     "scrolly": 0.75,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 511,
+     "sw": 511,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvil/school.cfz4",
+     "x": -816.0,
+     "y": -38.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backTrees",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 561,
+     "sw": 561,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvil/backTrees.cfz4",
+     "x": -842.0,
+     "y": -80.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "street",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 170,
+     "src_h": 170,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvil/street.cfz4",
+     "x": -662.0,
+     "y": 6.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "trees",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 170,
+     "src_h": 170,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvil/trees.cfz4",
+     "x": -662.0,
+     "y": 6.0,
+     "z": 30
+    }
+   ],
+   "scale": 1.0,
+   "zoom": 1.0
+  },
+  {
+   "id": "schoolEvilErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "school",
+     "scrollx": 0.75,
+     "scrolly": 0.75,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 511,
+     "sw": 511,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvilErect/school.cfz4",
+     "x": -816.0,
+     "y": -38.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backspike",
+     "scrollx": 0.85,
+     "scrolly": 0.85,
+     "sh": 35,
+     "src_h": 35,
+     "src_w": 13,
+     "sw": 13,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvilErect/backspike.cfz4",
+     "x": 1416.0,
+     "y": 464.0,
+     "z": 25
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backspikes",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 161,
+     "src_h": 161,
+     "src_w": 561,
+     "sw": 561,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvilErect/backspikes.cfz4",
+     "x": -842.0,
+     "y": -180.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "evilstreet",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 170,
+     "src_h": 170,
+     "src_w": 466,
+     "sw": 466,
+     "sx": 6.0,
+     "sy": 6.0,
+     "tex": "stages/schoolEvilErect/evilstreet.cfz4",
+     "x": -662.0,
+     "y": 6.0,
+     "z": 30
+    }
+   ],
+   "scale": 1.0,
+   "zoom": 1.0
+  },
+  {
+   "id": "spookyMansion",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 5,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      },
+      {
+       "count": 30,
+       "first": 5,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "lightning"
+      }
+     ],
+     "dance": 0,
+     "frames": 35,
+     "name": "halloweenBG",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 911,
+     "src_h": 2484,
+     "src_w": 2537,
+     "sw": 931,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansion/halloweenBG.cfz4",
+     "x": -395.0,
+     "y": -505.0,
+     "z": -100
+    }
+   ],
+   "scale": 0.366948,
+   "zoom": 1.0
+  },
+  {
+   "id": "spookyMansionErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 12,
+       "first": 0,
+       "fps": 5.0,
+       "looped": 1,
+       "name": "bgtrees"
+      }
+     ],
+     "dance": 0,
+     "frames": 12,
+     "name": "bgTrees",
+     "scrollx": 0.8,
+     "scrolly": 0.8,
+     "sh": 121,
+     "src_h": 400,
+     "src_w": 600,
+     "sw": 182,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansionErect/bgTrees.cfz4",
+     "x": 200.0,
+     "y": 50.0,
+     "z": -101
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgDark",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 379,
+     "src_h": 1250,
+     "src_w": 2450,
+     "sw": 742,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansionErect/bgDark.cfz4",
+     "x": -560.0,
+     "y": -220.0,
+     "z": -100
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgLight",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 379,
+     "src_h": 1250,
+     "src_w": 2450,
+     "sw": 742,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansionErect/bgLight.cfz4",
+     "x": -560.0,
+     "y": -220.0,
+     "z": -99
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "stairsDark",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 379,
+     "src_h": 1250,
+     "src_w": 1150,
+     "sw": 348,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansionErect/stairsDark.cfz4",
+     "x": 966.0,
+     "y": -225.0,
+     "z": 400
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "stairsLight",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 379,
+     "src_h": 1250,
+     "src_w": 1150,
+     "sw": 348,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/spookyMansionErect/stairsLight.cfz4",
+     "x": 966.0,
+     "y": -225.0,
+     "z": 401
+    }
+   ],
+   "scale": 0.303043,
+   "zoom": 1.0
+  },
+  {
+   "id": "sserafim",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bg",
+     "scrollx": 0.75,
+     "scrolly": 0.75,
+     "sh": 219,
+     "src_h": 1512,
+     "src_w": 5023,
+     "sw": 728,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/bg.cfz4",
+     "x": -1853.0,
+     "y": -815.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fucker",
+     "scrollx": 0.85,
+     "scrolly": 0.85,
+     "sh": 109,
+     "src_h": 754,
+     "src_w": 5362,
+     "sw": 777,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/fucker.cfz4",
+     "x": 790.0,
+     "y": 625.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backTables",
+     "scrollx": 0.93,
+     "scrolly": 0.93,
+     "sh": 62,
+     "src_h": 426,
+     "src_w": 4953,
+     "sw": 717,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/backTables.cfz4",
+     "x": -1857.0,
+     "y": 267.0,
+     "z": 12
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backTablesCutscene",
+     "scrollx": 0.93,
+     "scrolly": 0.93,
+     "sh": 37,
+     "src_h": 256,
+     "src_w": 16,
+     "sw": 2,
+     "sx": 400.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/backTablesCutscene.cfz4",
+     "x": -1858.0,
+     "y": 377.0,
+     "z": 12
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "burgerCutscene",
+     "scrollx": 0.93,
+     "scrolly": 0.93,
+     "sh": 23,
+     "src_h": 158,
+     "src_w": 1418,
+     "sw": 205,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/burgerCutscene.cfz4",
+     "x": -97.0,
+     "y": 237.0,
+     "z": 13
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backStools",
+     "scrollx": 0.94,
+     "scrolly": 0.94,
+     "sh": 45,
+     "src_h": 311,
+     "src_w": 4056,
+     "sw": 588,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/backStools.cfz4",
+     "x": -1357.0,
+     "y": 426.0,
+     "z": 14
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backLightColor",
+     "scrollx": 0.93,
+     "scrolly": 0.93,
+     "sh": 297,
+     "src_h": 2049,
+     "src_w": 3709,
+     "sw": 537,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/backLightColor.cfz4",
+     "x": -1241.0,
+     "y": -949.0,
+     "z": 17
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "backLightWhite",
+     "scrollx": 0.93,
+     "scrolly": 0.93,
+     "sh": 222,
+     "src_h": 1532,
+     "src_w": 2907,
+     "sw": 421,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/backLightWhite.cfz4",
+     "x": -771.0,
+     "y": -599.0,
+     "z": 18
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "truck",
+     "scrollx": 0.95,
+     "scrolly": 0.95,
+     "sh": 239,
+     "src_h": 1648,
+     "src_w": 3512,
+     "sw": 509,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/truck.cfz4",
+     "x": -983.0,
+     "y": -707.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "truckDoor",
+     "scrollx": 0.95,
+     "scrolly": 0.95,
+     "sh": 96,
+     "src_h": 664,
+     "src_w": 276,
+     "sw": 40,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/truckDoor.cfz4",
+     "x": -980.0,
+     "y": -173.0,
+     "z": 21
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "truckLight1",
+     "scrollx": 0.95,
+     "scrolly": 0.95,
+     "sh": 192,
+     "src_h": 1328,
+     "src_w": 2804,
+     "sw": 406,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/truckLight1.cfz4",
+     "x": -962.0,
+     "y": -607.0,
+     "z": 23
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "truckLight2",
+     "scrollx": 0.95,
+     "scrolly": 0.95,
+     "sh": 147,
+     "src_h": 1015,
+     "src_w": 2464,
+     "sw": 357,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/truckLight2.cfz4",
+     "x": -781.0,
+     "y": -464.0,
+     "z": 22
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "frontStool",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 46,
+     "src_h": 321,
+     "src_w": 2982,
+     "sw": 432,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/sserafim/frontStool.cfz4",
+     "x": -280.0,
+     "y": 818.0,
+     "z": 1500
+    }
+   ],
+   "scale": 0.14486,
+   "zoom": 0.5
+  },
+  {
+   "id": "tankmanBattlefield",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankSky",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 318,
+     "src_h": 954,
+     "src_w": 1,
+     "sw": 1,
+     "sx": 3000.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankSky.cfz4",
+     "x": -1000.0,
+     "y": -400.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "mountains",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 177,
+     "src_h": 531,
+     "src_w": 1951,
+     "sw": 650,
+     "sx": 1.2,
+     "sy": 1.2,
+     "tex": "stages/tankmanBattlefield/mountains.cfz4",
+     "x": -500.0,
+     "y": -35.0,
+     "z": 11
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "buildings",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 242,
+     "src_h": 726,
+     "src_w": 1597,
+     "sw": 532,
+     "sx": 1.1,
+     "sy": 1.1,
+     "tex": "stages/tankmanBattlefield/buildings.cfz4",
+     "x": -260.0,
+     "y": -35.0,
+     "z": 13
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "ruins",
+     "scrollx": 0.35,
+     "scrolly": 0.35,
+     "sh": 188,
+     "src_h": 565,
+     "src_w": 1569,
+     "sw": 523,
+     "sx": 1.1,
+     "sy": 1.1,
+     "tex": "stages/tankmanBattlefield/ruins.cfz4",
+     "x": -200.0,
+     "y": 150.0,
+     "z": 13
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "clouds2",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 78,
+     "src_h": 235,
+     "src_w": 2155,
+     "sw": 718,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/clouds2.cfz4",
+     "x": 0.0,
+     "y": 0.0,
+     "z": 11
+    },
+    {
+     "anims": [
+      {
+       "count": 48,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "smokeLeft"
+      }
+     ],
+     "dance": 0,
+     "frames": 48,
+     "name": "smokeLeft",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 281,
+     "src_h": 843,
+     "src_w": 511,
+     "sw": 170,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/smokeLeft.cfz4",
+     "x": -380.0,
+     "y": -40.0,
+     "z": 14
+    },
+    {
+     "anims": [
+      {
+       "count": 48,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "smokeRight"
+      }
+     ],
+     "dance": 0,
+     "frames": 48,
+     "name": "smokeRight",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 312,
+     "src_h": 938,
+     "src_w": 568,
+     "sw": 189,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/smokeRight.cfz4",
+     "x": 1050.0,
+     "y": -35.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "watchtower",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 227,
+     "src_h": 682,
+     "src_w": 369,
+     "sw": 123,
+     "sx": 0.85,
+     "sy": 0.85,
+     "tex": "stages/tankmanBattlefield/watchtower.cfz4",
+     "x": -35.0,
+     "y": 110.0,
+     "z": 21
+    },
+    {
+     "anims": [
+      {
+       "count": 3,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "roll"
+      }
+     ],
+     "dance": 0,
+     "frames": 3,
+     "name": "tankRolling",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 109,
+     "src_h": 328,
+     "src_w": 319,
+     "sw": 106,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankRolling.cfz4",
+     "x": 300.0,
+     "y": 300.0,
+     "z": 22
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankGround",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 360,
+     "src_h": 1080,
+     "src_w": 1920,
+     "sw": 639,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefield/tankGround.cfz4",
+     "x": -420.0,
+     "y": -150.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankBricks",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 17,
+     "src_h": 51,
+     "src_w": 382,
+     "sw": 127,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefield/tankBricks.cfz4",
+     "x": 438.0,
+     "y": 715.0,
+     "z": 101
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience0",
+     "scrollx": 1.7,
+     "scrolly": 1.5,
+     "sh": 150,
+     "src_h": 450,
+     "src_w": 314,
+     "sw": 105,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience0.cfz4",
+     "x": -500.0,
+     "y": 650.0,
+     "z": 1000
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience2",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 107,
+     "src_h": 322,
+     "src_w": 295,
+     "sw": 98,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience2.cfz4",
+     "x": 360.0,
+     "y": 980.0,
+     "z": 1002
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 15,
+     "name": "tankmanAudience3",
+     "scrollx": 3.5,
+     "scrolly": 2.5,
+     "sh": 45,
+     "src_h": 135,
+     "src_w": 590,
+     "sw": 197,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience3.cfz4",
+     "x": 1050.0,
+     "y": 1240.0,
+     "z": 1016
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience4",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 110,
+     "src_h": 330,
+     "src_w": 401,
+     "sw": 134,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience4.cfz4",
+     "x": 1200.0,
+     "y": 900.0,
+     "z": 1004
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience5",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 150,
+     "src_h": 450,
+     "src_w": 315,
+     "sw": 105,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience5.cfz4",
+     "x": 1550.0,
+     "y": 700.0,
+     "z": 1003
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 15,
+     "name": "tankmanAudience1",
+     "scrollx": 2.0,
+     "scrolly": 0.2,
+     "sh": 41,
+     "src_h": 122,
+     "src_w": 472,
+     "sw": 157,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience1.cfz4",
+     "x": -300.0,
+     "y": 750.0,
+     "z": 1100
+    }
+   ],
+   "scale": 0.333073,
+   "zoom": 0.9
+  },
+  {
+   "id": "tankmanBattlefieldErect",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bg",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 523,
+     "src_h": 1332,
+     "src_w": 2609,
+     "sw": 1024,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefieldErect/bg.cfz4",
+     "x": -985.0,
+     "y": -805.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      },
+      {
+       "count": 75,
+       "first": 15,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "sip"
+      }
+     ],
+     "dance": 2,
+     "frames": 90,
+     "name": "sniper",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 144,
+     "src_h": 368,
+     "src_w": 300,
+     "sw": 118,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefieldErect/sniper.cfz4",
+     "x": -240.0,
+     "y": -165.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 2,
+     "frames": 15,
+     "name": "guy",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 117,
+     "src_h": 297,
+     "src_w": 260,
+     "sw": 102,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefieldErect/guy.cfz4",
+     "x": -50.0,
+     "y": -150.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankBricks",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 25,
+     "src_h": 64,
+     "src_w": 512,
+     "sw": 201,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefieldErect/tankBricks.cfz4",
+     "x": 465.0,
+     "y": 760.0,
+     "z": 101
+    }
+   ],
+   "scale": 0.392488,
+   "zoom": 0.7
+  }
+ ]
+}

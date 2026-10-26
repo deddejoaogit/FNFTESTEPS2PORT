@@ -173,6 +173,11 @@ def load_atlas(assets, stem):
     if kind == "sparrow":
         png, xml = where
         rects, order = sparrow_frames(xml)
+        if not order:
+            # No XML at all: a static prop that ships as a plain image. The
+            # whole PNG is the single frame. (philly/sky and friends are like
+            # this; treating them as an empty atlas dropped 6 props.)
+            return [(Image.open(png).convert("RGBA"), 0, 0)], None
         sheet = Image.open(png).convert("RGBA")
         for name in order:
             x, y, w, h, fx, fy, fw, fh = rects[name]

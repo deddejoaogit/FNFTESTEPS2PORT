@@ -65,10 +65,14 @@ mkdir -p "$HOSTDIR"
 for f in draw draw2d draw_environment; do
     cp "$SDK/ee/draw/src/$f.c" "$HOSTDIR/$f.c"
 done
-python3 - "$HOSTDIR" <<'PYEOF'
+python3 - "$HOSTDIR" "$SDK/ee/draw/src" <<'PYEOF'
 import sys, re, subprocess
 d = sys.argv[1]
-orig = "/tmp/fnf-ps2sdk-headers/ee/draw/src"
+# The original is the SDK IN USE, passed in. It used to be hardcoded to
+# /tmp/fnf-ps2sdk-headers, so with any other SDK the diff compared against a
+# missing directory, produced empty output, and the guard reported a bogus
+# "diff inesperado" instead of checking anything.
+orig = sys.argv[2]
 # Troca o corpo asm de draw_log2 pelo caminho portatil do #else.
 src = open(d + "/draw.c").read()
 new = src.replace(

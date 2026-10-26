@@ -268,3 +268,78 @@ Medido, em ordem de dependência:
 3. **Console.** Nenhum pacote foi carregado no PS2. O travamento no quadro 0
    continua sem causa provada, e o único dado que o resolve é `BOOT.txt` +
    `FNF_COLHEITA.txt` de uma execução em hardware.
+
+## 9. Os 21 palcos: dados e pacotes
+
+`bs_dados.h` trazia os 21 palcos, mas só o `cameraZoom` e as três posições de
+slot. Os **157 props com textura** — posição, scale, scrollFactor, zIndex,
+animação e qual arquivo os guarda — existiam apenas no JSON. Era por isso que
+só o tutorial desenhava: nenhum outro palco tinha dado para desenhar.
+
+    python3 tools/pacotar_palcos.py --assets <clone>     # empacota
+    python3 tools/gen_stage_dados.py                     # renderiza o header
+
+Dois artefatos, e a divisão importa:
+
+| artefato | o que é | versionado? |
+|---|---|---|
+| `build/packs/stages/<palco>/<prop>.cfz4` | os pixels | não |
+| `assets-data/stage-props.json` | o **plano**: quadros por animação, fps, loop, canvas | **sim** |
+
+O header `src/stage_dados.h` é renderizado do plano, então roda offline, sem o
+clone de 2,5 GB — mesmo arranjo do `song_registry`. A regra "quantos quadros
+tem esta animação" existe em **um** lugar (`tools/stage_frames.py`), usado
+pelo empacotador e pelo gerador, para que o C não possa prometer 15 quadros
+onde o pacote tem 30.
+
+### Resultado medido
+
+    total no pendrive: 13.538.361 B em 21 palcos
+    157 props, 199 animações, 0 problemas
+
+| palco | escala | props | VRAM | % do orçamento |
+|---|---|---|---|---|
+| schoolEvil | **1.000** | 4 | 662 064 B | 39% |
+| schoolEvilErect | **1.000** | 4 | 504 534 B | 30% |
+| school | **1.000** | 8 | 1 497 040 B | 88% |
+| schoolErect | **1.000** | 8 | 1 497 040 B | 88% |
+| phillyBlazin | 0.508 | 4 | 1 697 028 B | 100% |
+| tankmanBattlefieldErect | 0.392 | 4 | 1 139 006 B | 67% |
+| … | | | | |
+| sserafim | 0.145 | 13 | 1 697 146 B | 100% |
+
+Quatro palcos ficam em resolução **nativa**; os outros cabem exatamente no
+orçamento, porque a escala é resolvida para isso.
+
+### Três erros que a verificação pegou (e que a estimativa não pegaria)
+
+1. **A escala vinha do maior quadro, não do canvas empacotado.** O pacote usa
+   a união das animações, que é maior. Com o número antigo, **17 dos 21 palcos
+   estouravam** a VRAM, de 3 KB a 1 MB. Agora a escala é resolvida sobre a
+   geometria realmente empacotada, e o empacotador falha alto se estourar.
+2. **O limite de textura de 1024 px não entrava na busca.** A busca escolhia
+   uma escala que cabia nos bytes e empurrava 4 props para 1158–1251 px de
+   largura; esses props eram descartados — arte sumindo da cena em silêncio.
+   O teto agora faz parte da busca.
+3. **Props estáticos eram lidos como atlas vazio.** Seis props do phillyTrain
+   são um PNG sem XML. Tratá-los como atlas vazio os descartava.
+
+E um defeito no próprio guard do harness: ele comparava o `draw.c` do ps2sdk
+contra um caminho fixo (`/tmp/fnf-ps2sdk-headers`), então com qualquer outro
+SDK o diff saía vazio e o guard acusava "diff inesperado" sem ter verificado
+nada. Agora compara contra o SDK em uso.
+
+## 10. O que falta para o jogo inteiro
+
+| # | item | estado |
+|---|---|---|
+| 1 | 46 personagens empacotados e verificados | **feito** |
+| 2 | 21 palcos com dados em C e pacotes verificados | **feito** |
+| 3 | carregador genérico no jogo (por música, não por nome fixo) | **falta** |
+| 4 | sistemas de jogo: score, barra, miss, combo, results | **falta** |
+| 5 | select de música, pause, transições | **falta** |
+| 6 | validação em console | **falta — depende de hardware** |
+
+O item 3 é o que transforma 46 + 21 arquivos em jogo. Até ele existir, `main.c`
+continua abrindo `bf_frames.lz4f` e `gf_frames.lz4f` por nome fixo e só o
+tutorial desenha.
