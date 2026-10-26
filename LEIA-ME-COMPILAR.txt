@@ -1,0 +1,120 @@
+﻿=========================================================
+ FNF PS2 - compilar e enviar para o pendrive
+=========================================================
+
+Como usar: de dois cliques em COMPILAR.bat
+
+Ele faz tudo: compila dentro do WSL e copia o resultado
+para F:\FNFPS2\. Nao apaga nada que ja esteja no
+pendrive, entao os assets que voce baixou continuam la.
+
+---------------------------------------------------------
+ O QUE PRECISA ESTAR NO SEU PC
+---------------------------------------------------------
+
+1. WSL com Ubuntu 22.04, com o toolchain do PS2.
+
+   Pelo que voce me disse, o ps2sdk esta em:
+     \\wsl.localhost\Ubuntu-22.04\usr\local\ps2dev
+
+   O script procura nesses lugares, nesta ordem:
+     - a variavel PS2DEV, se estiver definida
+     - /usr/local/ps2dev
+     - ~/ps2dev
+     - /opt/ps2dev
+
+   Se o compilador estiver em outro lugar, edite o
+   COMPILAR.bat e troque a linha:
+     set "DISTRO=Ubuntu-22.04"
+
+2. O pendrive em F:.
+
+   Se a letra for outra, edite a linha:
+     set "PENDRIVE=/mnt/f"
+   Por exemplo, para G: use  /mnt/g
+
+3. Se a pasta do WSL tiver nome diferente de Ubuntu-22.04,
+   veja o nome certo com  wsl -l -v  e ajuste DISTRO=.
+
+---------------------------------------------------------
+ A PASTA ASSETS
+---------------------------------------------------------
+
+A pasta assets\ deste pacote tem 4 arquivos que o
+compilador embute dentro do ELF:
+
+    title_logoBumpin.lz4f
+    title_gfDanceTitle.lz4f
+    story_gf_idle.lz4f
+    story_bf_idle.lz4f
+
+Eles NAO estao no Git (sao megabytes de arte) e sem eles
+o build nem comeca. Por isso vem juntos aqui. Se um dia
+voce copiar so os fontes de outro lugar, o script avisa
+exatamente quais estao faltando.
+
+---------------------------------------------------------
+ O QUE APARECE NA TELA
+---------------------------------------------------------
+
+  [1/3] conferindo o WSL
+  [2/3] convertendo o caminho do projeto
+  [3/3] compilando dentro do WSL
+
+Depois disso vem o relatorio do build: a suite de testes,
+o tamanho do ELF, e a copia para o pendrive. Se algo der
+errado, a janela NAO fecha sozinha: ela mostra o erro e
+aponta o build.log, que e' o arquivo para me mandar.
+
+A janela fica aberta no fim de proposito, senao o erro
+passaria em um piscar de olhos.
+
+---------------------------------------------------------
+ DEPOIS DE COMPILAR
+---------------------------------------------------------
+
+No PS2:
+   uLaunchELF -> mass:/FNFPS2/FNF_PS2.ELF
+
+A pasta FNFPS2 TEM de estar na raiz do pendrive.
+Se estiver dentro de outra pasta, o jogo dorme para
+sempre e nao aparece nada na tela.
+
+Se travar, me mande estes dois arquivos que o jogo
+escreve no proprio pendrive:
+
+   mass:/FNFPS2/BOOT.txt          ate onde o boot chegou
+   mass:/FNFPS2/FNF_COLHEITA.txt  o log quadro a quadro
+
+Eles sao a unica coisa que resolve o travamento: o mesmo
+codigo roda mais de 1400 quadros no PC, entao o que falha
+no console e' tempo de I/O ou sincronizacao, que nenhum
+teste local consegue provar.
+
+---------------------------------------------------------
+ SE DER ERRO
+---------------------------------------------------------
+
+"o WSL nao esta instalado"
+    PowerShell como administrador:
+        wsl --install -d Ubuntu-22.04
+
+"Nao achei a distribuicao ... no WSL"
+    wsl -l -v   mostra o nome certo.
+    Edite DISTRO= no COMPILAR.bat.
+
+"Nao encontrei mips64r5900el-ps2-elf-gcc"
+    O toolchain nao esta onde o script procurou.
+    Rode dentro do WSL:
+        ls /usr/local/ps2dev
+    Se o compilador estiver em outro caminho:
+        PS2DEV=/caminho tools/compilar_windows.sh
+
+"o pendrive nao esta montado em /mnt/f"
+    Dentro do WSL:  ls /mnt/f
+    Se nao listar, o Windows nao montou a unidade no WSL.
+    Se a letra for outra, ajuste PENDRIVE= no .bat.
+
+"a compilacao falhou"
+    Veja build.log na pasta do projeto. Ele tem os
+    primeiros erros do Makefile, nao a saida inteira.

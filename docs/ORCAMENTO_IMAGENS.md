@@ -343,3 +343,39 @@ nada. Agora compara contra o SDK em uso.
 O item 3 é o que transforma 46 + 21 arquivos em jogo. Até ele existir, `main.c`
 continua abrindo `bf_frames.lz4f` e `gf_frames.lz4f` por nome fixo e só o
 tutorial desenha.
+
+## 11. Compilar no PC do usuário, com um clique
+
+`COMPILAR.bat` (raiz do projeto) compila dentro do WSL e copia para o pendrive.
+
+    duplo clique -> WSL -> tools/compilar_windows.sh -> build.sh --deploy
+                 -> copia para /mnt/f/FNFPS2 (F:\FNFPS2 no Windows)
+
+### Decisões que o script toma, e por quê
+
+| decisão | motivo |
+|---|---|
+| compila em `$HOME`, não em `/mnt/*` | `/mnt/c` é rede para o Linux; compilar ali faz cada `stat` atravessar para o Windows |
+| **copia sem apagar** no pendrive | os 16 assets de runtime vivem no pendrive e não estão nos fontes; um delete-then-copy os apagaria e o jogo abriria numa tela preta |
+| procura o toolchain em 4 lugares | `/usr/local/ps2dev`, `~/ps2dev`, `/opt/ps2dev` e `$PS2DEV`; os dois layouts de `bin/` são aceitos |
+| confere os 4 `.lz4f` **antes** de compilar | são gitignored e o `.incbin` falha sem eles; melhor descobrir no primeiro segundo |
+| usa os assets do pendrive como fonte | assim o layout preparado fica completo e a cópia não desfaz o que já está certo |
+| devolve `build.log` mesmo em falha | é o arquivo que o usuário precisa mandar |
+| `.bat` em ASCII puro + CRLF | o `cmd.exe` lê mal acento e lê mal LF; um `.bat` embaralhado falha sem relação com o código |
+
+### Testado de verdade
+
+| teste | resultado |
+|---|---|
+| ZIP extraído num diretório limpo e compilado | **ok**, 26 s, ELF 5 264 264 B |
+| ELF entregue ao pendrive | ok, `FNF_PS2.ELF` + 81 charts + assets |
+| assets que já estavam no pendrive | **preservados** (verificado nome a nome) |
+| versão carimbada dentro do ELF | `0.2.114-pacote` encontrado no binário |
+| toolchain ausente | mensagem com os comandos de instalação, sem stack trace |
+| pendrive não montado | compila, avisa, e diz onde o build ficou |
+| `assets-manifest.json` ausente | aviso de uma linha; antes estourava traceback no meio do deploy |
+
+O `.bat` em si não pôde ser executado aqui: este sandbox é Linux e não tem
+`cmd.exe`. O que foi testado é tudo o que ele chama (`wslpath`, a conversão de
+caminho e o script do WSL). O `.bat` é ASCII puro, CRLF, e os caminhos passam
+por `wslpath` em vez de `--cd`, que nem toda versão do WSL aceita.

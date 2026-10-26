@@ -48,8 +48,37 @@ def main():
     dirs = args.directory or ["assets"]
     primary = dirs[0]
 
-    with open(MANIFEST) as fh:
-        man = json.load(fh)
+    # O manifesto guarda os tamanhos medidos de cada asset. Ele nao existe em
+    # toda copia do projeto (nunca foi versionado), e o script quebrava com um
+    # traceback no meio do deploy -- que e' justamente o momento em que o
+    # usuario esta' olhando a tela. Sem manifesto a conferencia por tamanho
+    # fica desligada, dito em uma linha, e o resto continua funcionando.
+    man = None
+    if os.path.isfile(MANIFEST):
+        with open(MANIFEST) as fh:
+            man = json.load(fh)
+    else:
+        print("   aviso  assets-manifest.json ausente: conferencia por tamanho "
+              "desativada")
+
+    if man is None:
+        # Sem tamanhos para comparar, o melhor que da' para fazer e' ensinar o
+        # que existe: com --stage-into, copia o que houver nos diretorios dados.
+        if args.stage_into:
+            n = 0
+            for d in dirs:
+                if not os.path.isdir(d):
+                    continue
+                for root, _ds, files in os.walk(d):
+                    for fn in files:
+                        src = os.path.join(root, fn)
+                        rel = os.path.relpath(src, d)
+                        dst = os.path.join(args.stage_into, rel)
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        shutil.copyfile(src, dst)
+                        n += 1
+            print("   %d arquivo(s) copiados de %s" % (n, ", ".join(dirs)))
+        return 0
 
     assets = {n: m for n, m in man["assets"].items() if m.get("required")}
     required = len(assets)

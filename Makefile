@@ -1,4 +1,7 @@
-EE_BIN = fnf_ps2_m84.elf
+# O nome tem de ser FNF_PS2.ELF: e' o que src/main.c e build_pendrive.sh
+# esperam em mass:/FNFPS2/, e e' o nome que o alvo do make usa (make <nome> so
+# funciona quando <nome> e' o proprio EE_BIN).
+EE_BIN = FNF_PS2.ELF
 EE_OBJS = src/main.o src/title_packs.o src/story_packs.o src/audio_ring.o src/chart.o src/chart_events.o src/engine/song_registry.o src/telemetry.o src/iomanX_irx.o src/fileXio_irx.o src/usbd_irx.o src/usbhdfsd_irx.o src/audsrv_irx.o
 EE_LIBS = -ldraw -lgraph -lpacket -ldma -lmath3d -lpad -laudsrv -lfileXio -lpatches
 # FNF_VERSION e FNX_EXTRA existem para permitir gerar variantes comparaveis
@@ -8,11 +11,11 @@ EE_LIBS = -ldraw -lgraph -lpacket -ldma -lmath3d -lpad -laudsrv -lfileXio -lpatc
 #            EE_BIN=fnf_ps2_m85_fix.elf FNX_MAP=fnf_ps2_m85_fix.map
 FNF_VERSION ?= 0.2.84-calibracao
 FNX_EXTRA   ?=
-FNX_MAP     ?= fnf_ps2_m84.map
+FNX_MAP     ?= FNF_PS2.map
 EE_CFLAGS = -O2 -G0 -Wall -Wextra -Werror=implicit-function-declaration -std=gnu11 -Isrc -Isrc/engine -DFNF_PS2_VERSION=\"$(FNF_VERSION)\" $(FNX_EXTRA)
 EE_LDFLAGS = -Wl,-Map,$(FNX_MAP)
 all: $(EE_BIN)
 clean:
-	rm -f $(EE_BIN) $(EE_OBJS) fnf_ps2_m84.map fnf_ps2_m85_fix.map
+	rm -f $(EE_BIN) $(EE_OBJS) FNF_PS2.map fnf_ps2_m84.map fnf_ps2_m85_fix.map
 include $(PS2SDK)/samples/Makefile.pref
 include $(PS2SDK)/samples/Makefile.eeglobal

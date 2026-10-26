@@ -10,6 +10,7 @@
 #   ./build.sh --tests      run only the offline suite (no PS2 toolchain needed)
 #   ./build.sh --check-assets  verify every asset the port reads is present
 #   ./build.sh --assets-dir=D  also look for the assets in D
+#   ./build.sh --version=V     stamp the ELF with version V (it shows in logs)
 #   ./build.sh --help
 #
 # The offline suite runs first on purpose: it is pure C plus Python, it needs no
@@ -44,7 +45,9 @@ DO_DEPLOY=0
 DO_CLEAN=0
 CHECK_ASSETS=0
 JOBS=""
-TARGET="fnf_ps2_m84.elf"
+TARGET="FNF_PS2.ELF"
+# --version stamps the ELF so a log from the console can be traced to a build.
+MAKEV=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -61,6 +64,7 @@ while [ $# -gt 0 ]; do
         --jobs)    shift; JOBS="${1:-}" ;;
         --jobs=*)  JOBS="${1#--jobs=}" ;;
         --elf)     shift; TARGET="${1:-}" ;;
+        --version) shift; FNF_VERSION="${1:-}" ; MAKEV="FNF_VERSION=$FNF_VERSION" ;;
         -h|--help)
             sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
@@ -322,7 +326,8 @@ MSG
     # Capture the log so a failure can be reported as the errors alone. A PS2
     # build with -Wall -Wextra produces hundreds of lines, and the one that
     # matters is easy to lose in them.
-    if make -j"$N" $EXTRA "$TARGET" >build.log 2>&1; then
+    # shellcheck disable=SC2086
+    if make -j"$N" $EXTRA $MAKEV "$TARGET" >build.log 2>&1; then
         ok "compiled ($(($(date +%s) - START))s total)"
     else
         printf '\n%s%s%s\n' "$C_RED" "build failed. The errors, and the lines around them:" "$C_OFF" >&2
