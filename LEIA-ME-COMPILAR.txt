@@ -115,6 +115,21 @@ teste local consegue provar.
     Se nao listar, o Windows nao montou a unidade no WSL.
     Se a letra for outra, ajuste PENDRIVE= no .bat.
 
+"Nao consegui escrever em /mnt/f/FNFPS2"
+    O build funcionou; so a copia falhou. O script ja mostra
+    a causa provavel logo abaixo da mensagem:
+      - "montada SOMENTE LEITURA (ro)": o Windows marcou o
+        volume como sujo. Ejetar o pendrive e reconectar; se
+        voltar, "chkdsk F: /f" no Windows. Ha tambem uma trava
+        fisica de escrita em alguns pendrives: verifique.
+      - "NAO e' uma unidade do Windows": a letra esta errada.
+        "ls /mnt" dentro do WSL mostra as letras visiveis.
+      - "sem permissao de escrita": siga o comando que o
+        script imprime (sudo mount -t drvfs ...).
+    Em qualquer caso o script gera FNFPS2-atualizacao.zip na
+    pasta do projeto: extraia DENTRO de F:\FNFPS2, por cima,
+    sem apagar o resto (os assets de runtime moram la).
+
 "a compilacao falhou"
     Veja build.log na pasta do projeto. Ele tem os
     primeiros erros do Makefile, nao a saida inteira.

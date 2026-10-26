@@ -14,3 +14,7 @@ assets/*.lz4f
 # Measured from the external asset clone; reproducible with
 # tools/measure_assets.py --assets <clone>, so the 2 MB JSON is committed but
 # nothing larger.
+
+# Gerado pelo fallback do compilar_windows.sh quando o pendrive nao aceita
+# escrita; nunca vai para o Git.
+FNFPS2-atualizacao.zip

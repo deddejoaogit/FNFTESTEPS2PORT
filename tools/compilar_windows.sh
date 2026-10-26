@@ -140,6 +140,95 @@ if [ "$MISSING" != 0 ]; then
     die "$MISSING arquivo(s) que o build embute estao faltando"
 fi
 
+# ------------------------------------------------------------------ pendrive
+#
+# WHY THIS RUNS BEFORE THE BUILD
+#   The runtime assets (font.rgba, menu_cache.rle, the .pcm stems, 65 MB) live
+#   only on the pendrive. build.sh is pointed at them with --assets-dir so the
+#   staged layout is complete and nothing on the stick is touched. If the wrong
+#   directory is assumed here, the build still succeeds but the staged layout is
+#   missing those files, and the copy cannot happen at all.
+#
+# WHAT WENT WRONG IN THE FIELD (2026-10-26)
+#   mkdir /mnt/f/FNFPS2 -> "Permission denied", with the stick mounted in
+#   Windows. At the same time /mnt/f/FNFPS2/assets did not exist. Two different
+#   causes fit those two facts and they need different fixes, so this block
+#   prints the evidence instead of picking one:
+#     A. the mount is read-only  -> "ro" in /proc/mounts (dirty NTFS volume,
+#        BitLocker, or the physical write-protect switch on the stick);
+#     B. /mnt/f is not the stick -> no drvfs mount for that path at all, or a
+#        different drive letter holds it.
+#   A stick that is present and writable is also found automatically: any
+#   /mnt/<letter>/FNFPS2 directory counts as the layout this script targets.
+
+# Prints what WSL actually sees about a mount point. Never guesses.
+pendrive_report() {
+    _p="$1"
+    say "    usuario WSL:   $(id -un) (uid $(id -u))"
+    say "    permissao:     $(ls -ld "$_p" 2>/dev/null | tr -s ' ')"
+    _m=$(grep -E "[[:space:]]$_p[[:space:]]" "${PENDRIVE_MOUNTS:-/proc/mounts}" 2>/dev/null | head -1)
+    if [ -n "$_m" ]; then
+        say "    montagem:     $_m"
+        case "$_m" in
+            *[[:space:]]ro[,[:space:]]*|*[[:space:]]ro[[:space:]]*)
+                say ""
+                say "    CAUSA: a unidade esta montada SOMENTE LEITURA (ro)."
+                say "    O WSL faz isso quando o Windows marcou o volume como sujo"
+                say "    (desligamento/remocao sem ejetar) ou quando o pendrive tem"
+                say "    trava fisica de escrita. Correcao, no Windows: ejetar e"
+                say "    reconectar o pendrive, ou rodar 'chkdsk F: /f' e tentar de novo."
+                return 1 ;;
+        esac
+    else
+        say "    montagem:     NENHUMA -- $_p nao e' uma unidade do Windows,"
+        say "                  e' apenas uma pasta vazia dentro do WSL."
+        say ""
+        say "    CAUSA: o pendrive nao esta nessa letra. Veja as unidades que o"
+        say "    WSL enxerga:"
+        _l=$(ls -d /mnt/[a-z] 2>/dev/null | tr '\n' ' ')
+        [ -n "$_l" ] || _l="(nenhuma unidade do Windows visivel)"
+        say "        $_l"
+        return 1
+    fi
+    if [ ! -w "$_p" ]; then
+        say ""
+        say "    CAUSA: montada, mas sem permissao de escrita para este usuario."
+        _letra=$(printf '%s' "${_p#/mnt/}" | tr 'a-z' 'A-Z')
+        say "    Correcao:  sudo mount -t drvfs ${_letra}: $_p -o rw,metadata,uid=$(id -u),gid=$(id -g)"
+        return 1
+    fi
+    return 0
+}
+
+step "procurando o pendrive"
+if [ "$DO_PENDRIVE" = 1 ]; then
+    if [ -d "$PENDRIVE/FNFPS2" ] && [ -w "$PENDRIVE" ]; then
+        ok "pendrive em $PENDRIVE (ja tem a pasta FNFPS2)"
+    else
+        # Exactly one /mnt/<letter>/FNFPS2 counts as the layout we target. Two
+        # or more is ambiguous, so it stops and asks rather than picking one.
+        _hits=""
+        for _d in /mnt/[a-z]; do
+            [ -d "$_d/FNFPS2" ] && [ -w "$_d" ] && _hits="$_hits $_d"
+        done
+        _n=$(printf '%s' "$_hits" | wc -w | tr -d ' ')
+        if [ "$_n" = 1 ]; then
+            PENDRIVE=$(printf '%s' "$_hits" | tr -d ' ')
+            ok "a letra informada nao serviu; achei a pasta FNFPS2 em $PENDRIVE"
+        elif [ "$_n" -gt 1 ]; then
+            say ""
+            say "Ha mais de um pendrive com a pasta FNFPS2:$_hits"
+            say "Escolha um e rode:"
+            for _d in $_hits; do say "    tools/compilar_windows.sh --pendrive $_d"; done
+            die "pendrive ambiguo"
+        else
+            warn "nenhuma pasta FNFPS2 encontrada em /mnt/*"
+            say "    se o pendrive esta conectado, rode no WSL:  ls /mnt"
+            say "    o build continua; a copia sera tentada em $PENDRIVE"
+        fi
+    fi
+fi
+
 # --------------------------------------------------------------- build tree
 
 # /mnt/c and /mnt/f are network filesystems to Linux: every stat crosses into
@@ -154,6 +243,7 @@ mkdir -p "$WORK" || die "nao consegui criar $WORK"
 tar -C "$HERE" -cf - \
     --exclude=build --exclude=.git --exclude=old_motor \
     --exclude=google_drive --exclude='*.o' --exclude='*.map' \
+    --exclude='FNFPS2-atualizacao.zip' --exclude='build.log' \
     --exclude=__pycache__ --exclude='*.ELF' . 2>/dev/null | tar -C "$WORK" -xf - \
     || die "nao consegui copiar a arvore do projeto"
 ok "arvore copiada"
@@ -211,29 +301,64 @@ fi
 
 step "copiando para o pendrive ($PENDRIVE)"
 
-if [ ! -d "$PENDRIVE" ]; then
+DEST="$PENDRIVE/FNFPS2"
+
+# The staged layout this build produced. Defined before the copy so the
+# fallback below can package it.
+SRCSTAGE="build/ps2/FNFPS2"
+
+# Packages the staged layout as a ZIP Explorer can extract onto the stick by
+# hand. This is the fallback when WSL cannot write the drive: the build has
+# already succeeded, so throwing the result away would be the wrong answer.
+pendrive_fallback_zip() {
+    _zip="$HERE/FNFPS2-atualizacao.zip"
+    rm -f "$_zip"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$SRCSTAGE" "$_zip" <<'PY' || return 1
+import os, sys, zipfile
+src, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+    for base, _dirs, files in os.walk(src):
+        for f in files:
+            p = os.path.join(base, f)
+            z.write(p, os.path.relpath(p, src))
+PY
+        ok "pacote pronto: $HERE/FNFPS2-atualizacao.zip ($(wc -c <"$_zip" | tr -d ' ') bytes)"
+        return 0
+    fi
+    return 1
+}
+
+if [ ! -d "$PENDRIVE" ] || [ ! -w "$PENDRIVE" ] || ! mkdir -p "$DEST" 2>/dev/null; then
     say ""
-    say "O pendrive nao esta montado em $PENDRIVE dentro do WSL."
-    say "No Windows ele pode estar em F:, mas o WSL so ve a unidade se ela"
-    say "estiver montada. Verifique com:  ls /mnt/f"
+    say "Nao consegui escrever em $DEST."
     say ""
-    say "Se o pendrive estiver em outra letra, rode:"
-    say "    tools/compilar_windows.sh --pendrive /mnt/g"
+    pendrive_report "$PENDRIVE" || true
     say ""
-    say "O build esta pronto de qualquer forma, em:"
-    say "    $WORK/build/ps2/FNFPS2/"
+    say "O BUILD ESTA PRONTO. Nada foi perdido. Para levar para o console,"
+    say "escolha uma das duas saidas:"
+    say ""
+    if pendrive_fallback_zip; then
+        say "  1) No Windows, abra a pasta do projeto:"
+        say "       $(printf '%s' "$HERE" | sed 's|^/mnt/\([a-z]\)|\U\1:|')  (ou \\\\wsl.localhost\\Ubuntu-22.04$HERE)"
+        say "     e extraia FNFPS2-atualizacao.zip DENTRO de F:\\FNFPS2,"
+        say "     substituindo os arquivos. NAO apague o resto da pasta:"
+        say "     os 16 assets de runtime estao la' e nao vem nos fontes."
+    else
+        say "  1) Copie a pasta pronta pelo Explorador do Windows:"
+        say "       \\\\wsl.localhost\\Ubuntu-22.04$WORK/build/ps2/FNFPS2"
+        say "     para  F:\\FNFPS2  (copiar por cima, sem apagar o resto)."
+    fi
+    say ""
+    say "  2) Corrija a montagem e rode o COMPILAR.bat de novo (as mensagens"
+    say "     acima dizem exatamente o que corrigir)."
     exit 4
 fi
-
-DEST="$PENDRIVE/FNFPS2"
-mkdir -p "$DEST" || die "nao consegui criar $DEST (o pendrive esta protegido contra escrita?)"
 
 # COPY, NEVER DELETE. The runtime assets (65 MB) are on the pendrive and are not
 # in the sources; a delete-then-copy would wipe them and the game would boot to
 # a black screen with a log full of failed opens. The ELF and the charts are
 # overwritten because they are what this build produces.
-SRCSTAGE="build/ps2/FNFPS2"
-
 cp -f "$SRCSTAGE/FNF_PS2.ELF" "$DEST/FNF_PS2.ELF" \
     || die "nao consegui gravar o ELF no pendrive"
 ok "FNF_PS2.ELF -> $DEST/FNF_PS2.ELF"
