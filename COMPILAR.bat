@@ -97,6 +97,24 @@ for /f %%c in ('dir /b /s "%LETRA%\FNFPS2\assets\songs\*.chart" 2^>nul ^| find /
 
 echo        ok  FNF_PS2.ELF (%TAMELF% bytes)
 echo        ok  %CHARTS% charts em %LETRA%\FNFPS2\assets\songs\
+
+rem  Os assets de runtime (fonte, audio do menu, cache) nao estao nos
+rem  fontes: o build so' os leva junto se achar uma pasta FNFPS2\assets
+rem  no PC. Sem eles o jogo roda, mas as telas que os usam ficam pretas.
+set "FALTANDO="
+for %%A in (font.rgba font.widths freakyMenu_48000.pcm audio_stems.pcm title_alphabet.rgba menu_cache.rle) do (
+    if not exist "%LETRA%\FNFPS2\assets\%%A" (
+        echo        aviso  falta assets\%%A
+        set "FALTANDO=1"
+    )
+)
+if defined FALTANDO (
+    echo.
+    echo        ATENCAO: faltam assets de runtime no pendrive.
+    echo        O jogo abre, mas as telas que usam esses arquivos ficam
+    echo        pretas. Se existir a pasta C:\FNFPS2\assets neste PC,
+    echo        copie o conteudo dela para %LETRA%\FNFPS2\assets.
+)
 echo.
 echo  =========================================================
 echo   TERMINOU. O jogo completo esta' em %LETRA%\FNFPS2\
