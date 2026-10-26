@@ -69,6 +69,7 @@ PACK_MAX_BYTES = 8 * 1024 * 1024
 
 def resolve(assets, stem):
     """-> ('animate', dir) | ('sparrow', (png, xml)) | (None, reason)."""
+    stem_orig = stem
     stem = stem.replace("\\", "/")
     cands = []
     if ":" in stem:
@@ -79,6 +80,12 @@ def resolve(assets, stem):
     for d in IMAGE_DIRS:
         for c in (stem, os.path.basename(stem)):
             cands.append(os.path.join(assets, d, c))
+    if ":" in stem_orig:
+        pkg, rest = stem_orig.split(":", 1)
+        for sub in ("images", "characters", "characters/" + rest.split("/")[0]):
+            for cand in (rest, os.path.basename(rest)):
+                b = os.path.join(assets, pkg, sub, cand)
+                cands.append(b)
     for base in cands:
         if os.path.isdir(base) and glob.glob(os.path.join(base, "spritemap*.png")):
             return "animate", base

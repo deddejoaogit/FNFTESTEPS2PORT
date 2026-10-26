@@ -88,6 +88,7 @@ class Atlas:
     """One Animate atlas: the timeline, the symbol table and the sheets."""
 
     def __init__(self, assets, stem):
+        stem_orig = stem
         stem = stem.replace("\\", "/")
         cands = []
         if ":" in stem:
@@ -98,6 +99,11 @@ class Atlas:
         for d in IMAGE_DIRS:
             for c in (stem, os.path.basename(stem)):
                 cands.append(os.path.join(assets, d, c))
+        if ":" in stem_orig:
+            pkg, rest = stem_orig.split(":", 1)
+            for sub in ("images", "characters", "characters/" + rest.split("/")[0]):
+                for cand in (rest, os.path.basename(rest)):
+                    cands.append(os.path.join(assets, pkg, sub, cand))
         self.dir = None
         for base in cands:
             if os.path.isdir(base) and os.path.isfile(os.path.join(base, "Animation.json")):

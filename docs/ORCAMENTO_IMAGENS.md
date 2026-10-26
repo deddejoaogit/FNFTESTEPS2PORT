@@ -230,3 +230,41 @@ expansão é só o intervalo que a timeline já declara.
   etapa obrigatória, e nenhum destes pacotes foi carregado pelo jogo no console.
 - O caminho de desenho do jogo continua sem carregador genérico por música: os
   pacotes existem, mas `main.c` ainda abre `bf_frames.lz4f` por nome fixo.
+
+## 7. Os 46 personagens, empacotados e verificados
+
+    tools/achatar_tudo.sh <clone-funkin.assets> build/packs/chars
+
+Resolve os três layouts por personagem e empacota tudo a 16 bpp, escala 0.5.
+
+| resultado | valor |
+|---|---|
+| personagens empacotados | **46 de 46** |
+| falhas | **0** |
+| quadros totais | **6 694** |
+| blocos LZ4 verificados na volta | **todos** (0 ruins) |
+| arquivos no pendrive | 46 pacotes + 2 partes (`bf-christmas`, `bf-holding-gf`) |
+| bytes no pendrive | **110 MB** |
+| VRAM por quadro | 106 KB a 378 KB |
+
+Dois defeitos de caminho que essa execução revelou e que estavam escondidos:
+
+1. Os planos declaram `assetPath` com a pasta dentro (`characters/spirit`), então
+   o PNG fica em `<pacote>/images/characters/spirit.png`. Olhar só
+   `<pacote>/images/<base>.png` errava 12 de 46.
+2. `write_packs` calculava as partes mas não gravava — quem gravava era o
+   chamador, e um chamador esqueceu. O script reportava sucesso com um arquivo
+   que não existia no disco. Agora a escrita acontece num lugar só.
+
+## 8. O que ainda separa isto de "jogável"
+
+Medido, em ordem de dependência:
+
+1. **Carregador genérico no jogo.** `main.c` abre `bf_frames.lz4f` e
+   `gf_frames.lz4f` por nome fixo. Os 46 pacotes existem no disco, mas nada os
+   procura por música/personagem. Sem isso, só o tutorial desenha.
+2. **Palcos.** Os 21 palcos precisam do mesmo tratamento (props como CFZ4 e a
+   escala da tabela da seção 4). Ainda não foram empacotados.
+3. **Console.** Nenhum pacote foi carregado no PS2. O travamento no quadro 0
+   continua sem causa provada, e o único dado que o resolve é `BOOT.txt` +
+   `FNF_COLHEITA.txt` de uma execução em hardware.

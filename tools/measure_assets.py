@@ -75,6 +75,7 @@ def find_image(assets, stem):
     Returns (png_paths, dir_path) where png_paths is a list of every PNG the
     asset occupies, and dir_path is set for the Animate layout.
     """
+    stem_orig = stem
     stem = stem.replace("\\", "/")
     tries = []
     if ":" in stem:
@@ -101,6 +102,14 @@ def find_image(assets, stem):
         hit = direct(t)
         if hit:
             return hit
+    # A package prefix may also name an asset folder ("week6:characters/x").
+    if ":" in stem_orig:
+        pkg, rest = stem_orig.split(":", 1)
+        for sub in ("images", "characters", "characters/" + rest.split("/")[0]):
+            for cand in (rest, os.path.basename(rest)):
+                hit = direct(os.path.join(assets, pkg, sub, cand))
+                if hit:
+                    return hit
 
     base = os.path.basename(stem)
     for hit in glob.glob(os.path.join(assets, "**", base + ".png"), recursive=True):
