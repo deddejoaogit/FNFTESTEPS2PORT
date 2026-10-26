@@ -4,9 +4,17 @@
 
 Como usar: de dois cliques em COMPILAR.bat
 
-Ele faz tudo: compila dentro do WSL e copia o resultado
-para F:\FNFPS2\. Nao apaga nada que ja esteja no
-pendrive, entao os assets que voce baixou continuam la.
+Ele faz tudo: compila dentro do WSL e copia o jogo
+completo para <pendrive>:\FNFPS2\. Nao apaga nada que ja
+esteja no pendrive, entao os assets que voce baixou
+continuam la.
+
+A copia para o pendrive e' feita pelo WINDOWS (robocopy),
+nao pelo Linux. O WSL so enxerga uma unidade do Windows se
+o Windows a montar dentro dele; quando isso nao acontece,
+o Linux nao consegue gravar no pendrive. O Windows sempre
+consegue. Foi assim que uma versao anterior gravou o jogo
+em C:\FNFPS2 por engano: nao acontece mais.
 
 ---------------------------------------------------------
  O QUE PRECISA ESTAR NO SEU PC
@@ -27,11 +35,14 @@ pendrive, entao os assets que voce baixou continuam la.
    COMPILAR.bat e troque a linha:
      set "DISTRO=Ubuntu-22.04"
 
-2. O pendrive em F:.
+2. Um pendrive conectado. A letra e' descoberta sozinha:
+   o programa pergunta ao Windows qual e' o volume
+   REMOVIVEL. O disco C: nunca e' escolhido.
 
-   Se a letra for outra, edite a linha:
-     set "PENDRIVE=/mnt/f"
-   Por exemplo, para G: use  /mnt/g
+   Se a deteccao errar (acontece com HD externo, que o
+   Windows nao chama de removivel), edite a linha:
+     set "FORCAR=G:"
+   e ponha a letra certa.
 
 3. Se a pasta do WSL tiver nome diferente de Ubuntu-22.04,
    veja o nome certo com  wsl -l -v  e ajuste DISTRO=.
@@ -57,12 +68,14 @@ exatamente quais estao faltando.
  O QUE APARECE NA TELA
 ---------------------------------------------------------
 
-  [1/3] conferindo o WSL
-  [2/3] convertendo o caminho do projeto
-  [3/3] compilando dentro do WSL
+  [1/5] conferindo o WSL
+  [2/5] procurando o pendrive
+  [3/5] convertendo o caminho do projeto
+  [4/5] compilando dentro do WSL
+  [5/5] copiando para <letra>:\FNFPS2
 
-Depois disso vem o relatorio do build: a suite de testes,
-o tamanho do ELF, e a copia para o pendrive. Se algo der
+Depois do build vem o relatorio da suite de testes e o
+tamanho do ELF; entao a copia e o que ficou no pendrive. Se algo der
 errado, a janela NAO fecha sozinha: ela mostra o erro e
 aponta o build.log, que e' o arquivo para me mandar.
 
@@ -110,25 +123,19 @@ teste local consegue provar.
     Se o compilador estiver em outro caminho:
         PS2DEV=/caminho tools/compilar_windows.sh
 
-"o pendrive nao esta montado em /mnt/f"
-    Dentro do WSL:  ls /mnt/f
-    Se nao listar, o Windows nao montou a unidade no WSL.
-    Se a letra for outra, ajuste PENDRIVE= no .bat.
+"NAO ACHEI O PENDRIVE"
+    Nenhum volume removivel apareceu. Confira se o pendrive
+    esta conectado e aparece no Explorador, e se ele nao
+    esta' com a trava fisica de escrita ligada.
+    Se for HD externo (o Windows nao chama de removivel) ou
+    estiver em outra letra, edite no COMPILAR.bat:
+        set "FORCAR=G:"
 
-"Nao consegui escrever em /mnt/f/FNFPS2"
-    O build funcionou; so a copia falhou. O script ja mostra
-    a causa provavel logo abaixo da mensagem:
-      - "montada SOMENTE LEITURA (ro)": o Windows marcou o
-        volume como sujo. Ejetar o pendrive e reconectar; se
-        voltar, "chkdsk F: /f" no Windows. Ha tambem uma trava
-        fisica de escrita em alguns pendrives: verifique.
-      - "NAO e' uma unidade do Windows": a letra esta errada.
-        "ls /mnt" dentro do WSL mostra as letras visiveis.
-      - "sem permissao de escrita": siga o comando que o
-        script imprime (sudo mount -t drvfs ...).
-    Em qualquer caso o script gera FNFPS2-atualizacao.zip na
-    pasta do projeto: extraia DENTRO de F:\FNFPS2, por cima,
-    sem apagar o resto (os assets de runtime moram la).
+"A COPIA PARA O PENDRIVE FALHOU"
+    O jogo compilou: ele esta' em build-out\ dentro desta
+    pasta. Copie essa pasta a mao para <letra>:\FNFPS2.
+    Se o Windows nao deixar gravar, o pendrive esta'
+    protegido contra escrita ou cheio.
 
 "a compilacao falhou"
     Veja build.log na pasta do projeto. Ele tem os

@@ -32,6 +32,8 @@ set -u
 
 PENDRIVE="/mnt/f"
 DO_PENDRIVE=1
+STAGE_OUT=""
+ASSETS_FROM=""
 WITH_PACKS=0
 VERSION=""
 KEEP=0
@@ -41,6 +43,10 @@ while [ $# -gt 0 ]; do
         --pendrive)   shift; PENDRIVE="${1:-/mnt/f}" ;;
         --pendrive=*) PENDRIVE="${1#--pendrive=}" ;;
         --no-pendrive) DO_PENDRIVE=0 ;;
+        --assets-from) shift; ASSETS_FROM="${1:-}" ;;
+        --assets-from=*) ASSETS_FROM="${1#--assets-from=}" ;;
+        --stage-out)   shift; STAGE_OUT="${1:-}" ;;
+        --stage-out=*) STAGE_OUT="${1#--stage-out=}" ;;
         --com-packs)  WITH_PACKS=1 ;;
         --version)    shift; VERSION="${1:-}" ;;
         --version=*)  VERSION="${1#--version=}" ;;
@@ -207,9 +213,23 @@ if [ "$DO_PENDRIVE" = 1 ]; then
     else
         # Exactly one /mnt/<letter>/FNFPS2 counts as the layout we target. Two
         # or more is ambiguous, so it stops and asks rather than picking one.
+        # THE SYSTEM DISK IS NEVER THE PENDRIVE.
+        # Regression, found on the user's machine (2026-10-26): the scan
+        # accepted any /mnt/<letter>/FNFPS2, so a leftover C:\FNFPS2 made it
+        # copy the whole build into the Windows system disk and report it as
+        # "the pendrive". C: is only scanned if the user names it explicitly
+        # with --pendrive. A volume that carries pagefile.sys or a Windows/
+        # directory is the system volume whatever letter it has, so it is
+        # refused too.
         _hits=""
-        for _d in /mnt/[a-z]; do
-            [ -d "$_d/FNFPS2" ] && [ -w "$_d" ] && _hits="$_hits $_d"
+        for _d in "${MNT_ROOT:-/mnt}"/[d-z]; do
+            [ -d "$_d/FNFPS2" ] || continue
+            [ -w "$_d" ] || continue
+            if [ -f "$_d/pagefile.sys" ] || [ -d "$_d/Windows" ]; then
+                warn "$_d tem cara de disco do sistema; ignorado"
+                continue
+            fi
+            _hits="$_hits $_d"
         done
         _n=$(printf '%s' "$_hits" | wc -w | tr -d ' ')
         if [ "$_n" = 1 ]; then
@@ -261,12 +281,29 @@ if ! command -v python3 >/dev/null 2>&1; then
     warn "python3 nao encontrado: pulando a suite offline (--no-tests)"
     BUILD_ARGS="$BUILD_ARGS --no-tests"
 fi
-# The 16 runtime assets usually live on the pendrive already. Pointing the
-# deploy at them means the staged layout is complete and the copy to the
-# pendrive changes nothing that is already right.
-if [ -d "$PENDRIVE/FNFPS2/assets" ]; then
-    BUILD_ARGS="$BUILD_ARGS --assets-dir=$PENDRIVE/FNFPS2/assets"
-    ok "assets de runtime encontrados no pendrive, usados como fonte"
+# The 16 runtime assets (font.rgba, menu_cache.rle, the .pcm stems) are not in
+# the sources; they exist only as a copy in some FNFPS2/assets directory. If one
+# is found, the deploy is pointed at it so the staged layout is COMPLETE and the
+# game lands on the stick working. This is a READ, so the Windows system disk is
+# fair game here -- unlike the copy, which never targets it.
+if [ -z "$ASSETS_FROM" ]; then
+    if [ -d "$PENDRIVE/FNFPS2/assets" ]; then
+        ASSETS_FROM="$PENDRIVE/FNFPS2/assets"
+    else
+        for _d in "${MNT_ROOT:-/mnt}"/[a-z]; do
+            if [ -d "$_d/FNFPS2/assets" ]; then
+                ASSETS_FROM="$_d/FNFPS2/assets"
+                break
+            fi
+        done
+    fi
+fi
+if [ -n "$ASSETS_FROM" ] && [ -d "$ASSETS_FROM" ]; then
+    BUILD_ARGS="$BUILD_ARGS --assets-dir=$ASSETS_FROM"
+    ok "assets de runtime encontrados em $ASSETS_FROM, usados como fonte"
+else
+    warn "nenhuma pasta FNFPS2/assets encontrada: o layout sai sem os"
+    warn "assets de runtime e as telas que os usam ficam pretas"
 fi
 
 step "compilando"
@@ -290,22 +327,48 @@ ELF="build/ps2/FNFPS2/FNF_PS2.ELF"
 [ -f "$ELF" ] || die "o build disse que passou mas $ELF nao existe"
 ok "ELF gerado: $(wc -c <"$ELF" | tr -d ' ') bytes"
 
+# The staged mass:/FNFPS2 layout. Defined here because both the export below
+# and the pendrive copy use it.
+SRCSTAGE="build/ps2/FNFPS2"
+
+# --------------------------------------------------------------- stage out
+#
+# WHY THIS EXISTS
+#   WSL can only write to a Windows drive that Windows itself mounted into it.
+#   On the user's machine it could not write F: at all, and the first version of
+#   this script then wrote the game to the wrong place. Copying from the Windows
+#   side (COMPILAR.bat, robocopy) has no such failure mode: Explorer can always
+#   write the stick, so cmd.exe can too.
+#   --stage-out exports the complete layout to a directory Windows can see, and
+#   the .bat robocopies it into <letra>:\FNFPS2. Nothing is deleted on either
+#   side, so assets that only exist on the stick survive.
+if [ -n "$STAGE_OUT" ]; then
+    step "exportando o jogo completo para $STAGE_OUT"
+    rm -rf "$STAGE_OUT" 2>/dev/null
+    mkdir -p "$STAGE_OUT" || die "nao consegui criar $STAGE_OUT"
+    ( cd "$SRCSTAGE" && tar -cf - . ) | tar -C "$STAGE_OUT" -xf - \
+        || die "nao consegui copiar o layout para $STAGE_OUT"
+    ok "$(find "$STAGE_OUT" -type f | wc -l | tr -d ' ') arquivos prontos para copiar"
+fi
+
 # ------------------------------------------------------------------ pendrive
 
 if [ "$DO_PENDRIVE" = 0 ]; then
     say ""
     say "Build pronto (sem copiar para o pendrive). A pasta para copiar e:"
     say "    $WORK/build/ps2/FNFPS2/"
+    [ -n "$STAGE_OUT" ] && say "ja' exportada em $STAGE_OUT"
     exit 0
 fi
 
-step "copiando para o pendrive ($PENDRIVE)"
+# The drive letter as Windows writes it, derived from the mount point. Never
+# hardcode a letter in a message: the message is how the user checks the result,
+# so a wrong letter there is how "it says F: but nothing is on F:" happened.
+LETRA=$(printf '%s' "${PENDRIVE#"${MNT_ROOT:-/mnt}"/}" | cut -d/ -f1 | tr 'a-z' 'A-Z')
+
+step "copiando para o pendrive ($PENDRIVE / ${LETRA}:)"
 
 DEST="$PENDRIVE/FNFPS2"
-
-# The staged layout this build produced. Defined before the copy so the
-# fallback below can package it.
-SRCSTAGE="build/ps2/FNFPS2"
 
 # Packages the staged layout as a ZIP Explorer can extract onto the stick by
 # hand. This is the fallback when WSL cannot write the drive: the build has
@@ -341,13 +404,13 @@ if [ ! -d "$PENDRIVE" ] || [ ! -w "$PENDRIVE" ] || ! mkdir -p "$DEST" 2>/dev/nul
     if pendrive_fallback_zip; then
         say "  1) No Windows, abra a pasta do projeto:"
         say "       $(printf '%s' "$HERE" | sed 's|^/mnt/\([a-z]\)|\U\1:|')  (ou \\\\wsl.localhost\\Ubuntu-22.04$HERE)"
-        say "     e extraia FNFPS2-atualizacao.zip DENTRO de F:\\FNFPS2,"
+        say "     e extraia FNFPS2-atualizacao.zip DENTRO de ${LETRA}:\\FNFPS2,"
         say "     substituindo os arquivos. NAO apague o resto da pasta:"
         say "     os 16 assets de runtime estao la' e nao vem nos fontes."
     else
         say "  1) Copie a pasta pronta pelo Explorador do Windows:"
         say "       \\\\wsl.localhost\\Ubuntu-22.04$WORK/build/ps2/FNFPS2"
-        say "     para  F:\\FNFPS2  (copiar por cima, sem apagar o resto)."
+        say "     para  ${LETRA}:\\FNFPS2  (copiar por cima, sem apagar o resto)."
     fi
     say ""
     say "  2) Corrija a montagem e rode o COMPILAR.bat de novo (as mensagens"
@@ -399,7 +462,7 @@ done
 
 say ""
 if [ "$MISS" = 0 ]; then
-    printf '\033[32mPRONTO.\033[0m Copie nada: ja esta no pendrive em F:\\FNFPS2\\.\n'
+    printf '\033[32mPRONTO.\033[0m Copie nada: ja esta no pendrive em %s:\\FNFPS2\\.\n' "$LETRA"
 else
     printf '\033[33mPRONTO, com %d arquivo(s) faltando.\033[0m\n' "$MISS"
     say "Os que faltam sao assets de runtime, que vem do Drive e nao do build."
