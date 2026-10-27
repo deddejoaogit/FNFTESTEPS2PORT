@@ -42,19 +42,19 @@ for f in assets/title_logoBumpin.lz4f assets/title_gfDanceTitle.lz4f \
 done
 [ "$miss" = 0 ] || exit 1
 
-for f in COMPILAR.bat LEIA-ME-COMPILAR.txt Makefile build.sh; do
+for f in COMPILAR.bat COPIAR-PARA-PENDRIVE.bat LEIA-ME-COMPILAR.txt Makefile build.sh; do
     [ -f "$PKG/$f" ] || { echo "FALTA $f no pacote" >&2; exit 1; }
 done
 
 # CRLF no .bat, sempre. Um .bat com LF falha de um jeito que nao tem nada a ver
 # com o codigo, e o usuario nao tem como descobrir isso.
-python3 - "$PKG/COMPILAR.bat" <<'PY'
+python3 - "$PKG/COMPILAR.bat" "$PKG/COPIAR-PARA-PENDRIVE.bat" <<'PY'
 import sys
-p = sys.argv[1]
-d = open(p, 'rb').read().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
-open(p, 'wb').write(d)
-assert d.count(b'\r\n') > 50, "COMPILAR.bat sem CRLF"
-assert all(b < 128 for b in d), "COMPILAR.bat com byte nao-ASCII"
+for p in sys.argv[1:]:
+    d = open(p, 'rb').read().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+    open(p, 'wb').write(d)
+    assert d.count(b'\r\n') > 50, p + " sem CRLF"
+    assert all(b < 128 for b in d), p + " com byte nao-ASCII"
 PY
 
 chmod +x "$PKG"/build.sh "$PKG"/tools/*.sh

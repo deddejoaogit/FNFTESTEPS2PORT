@@ -24,9 +24,22 @@ neste ultimo caso, uma vez so'.
 
 O plano B existe porque o WSL so' enxerga uma unidade do
 Windows se o proprio Windows a montar dentro dele, e isso
-acontece quando o WSL inicia. Pendrive conectado depois
-disso nao aparece. Nesse caso o jogo e' compilado e
-copiado pelo lado do Windows, que nao tem esse problema.
+acontece UMA VEZ, quando o WSL inicia. Pendrive conectado
+depois disso nao aparece em /mnt.
+
+Por isso o programa, antes de desistir do caminho normal:
+   1. reinicia o WSL (wsl --shutdown) com o pendrive ja'
+      conectado -- a montagem acontece na inicializacao;
+   2. confere de novo;
+   3. so' se ainda falhar, compila e copia pelo lado do
+      Windows, com robocopy, que nao depende de montagem.
+
+Se o Windows tambem nao disser qual e' a unidade (alguns
+pendrives e HDs externos se anunciam como disco fixo, nao
+como "removivel"), o programa lista as unidades que ele ve
+-- com tipo, rotulo e espaco livre -- e pede a letra.
+Nunca escolhe o disco do sistema: nem C:, nem volume com
+pasta Windows ou pagefile.sys.
 
 ---------------------------------------------------------
  O QUE PRECISA ESTAR NO SEU PC
@@ -83,11 +96,12 @@ exatamente quais estao faltando.
   [1/5] conferindo o WSL
   [2/5] conferindo o ambiente no Ubuntu
   [3/5] compilando dentro do Ubuntu
-  [4/5] conferindo no pendrive
-  [5/5] pronto
+  [4/5] localizando o destino
+  [5/5] copiando e conferindo no pendrive
 
-Se o Ubuntu nao conseguir gravar no pendrive, os passos
-viram 3b/4b/5b e a copia e' feita pelo Windows.
+Se o Ubuntu nao vir o pendrive, ele reinicia o WSL e
+tenta de novo; se ainda assim nao vir, a copia e' feita
+pelo Windows e a tela pede a letra da unidade.
 
 Depois do build vem o relatorio da suite de testes e o
 tamanho do ELF; entao a copia e o que ficou no pendrive. Se algo der
@@ -138,26 +152,18 @@ teste local consegue provar.
     Se o compilador estiver em outro caminho:
         PS2DEV=/caminho tools/compilar_windows.sh
 
-"Nenhuma unidade gravavel do Windows apareceu dentro do Ubuntu"
-    O script lista o que ele ve em /mnt e segue pelo lado
-    do Windows automaticamente, entao o jogo chega no
-    pendrive de qualquer jeito.
-    Se quiser que o caminho normal (pelo Ubuntu) volte a
-    funcionar, o motivo mais comum e' o pendrive ter sido
-    conectado depois que o WSL ja' estava rodando:
-        wsl --shutdown
-    (no Windows), conectar o pendrive e rodar de novo.
-
-"NAO ACHEI O PENDRIVE" (mensagem do COMPILAR.bat)
-    O Windows nao viu nenhuma unidade removivel. Confira
-    se o pendrive esta conectado e sem a trava fisica de
-    escrita. Se for HD externo (o Windows nao chama de
-    removivel) ou estiver em outra letra, edite:
-        set "FORCAR=G:"
+"NAO ACHEI O PENDRIVE"
+    O programa mostra as unidades que o Windows ve e pede
+    a letra. Digite a letra do pendrive (ex: F) e Enter.
+    O jogo ja' esta' compilado nesse ponto: se preferir,
+    copie a mao a pasta que a tela mostra para
+    <letra>:\FNFPS2 no Explorador.
 
 "A COPIA PARA O PENDRIVE FALHOU"
     O jogo compilou: ele esta' pronto na pasta que a tela
     mostra. Copie essa pasta a mao para <letra>:\FNFPS2.
+    Se o Windows nao deixar gravar, o pendrive esta'
+    protegido contra escrita ou cheio.
 
 "a compilacao falhou"
     Veja build.log na pasta do projeto. Ele tem os
