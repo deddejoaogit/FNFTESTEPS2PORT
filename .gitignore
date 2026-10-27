@@ -18,3 +18,8 @@ assets/*.lz4f
 # Gerado pelo fallback do compilar_windows.sh quando o pendrive nao aceita
 # escrita; nunca vai para o Git.
 FNFPS2-atualizacao.zip
+
+# Bilhete que o script do Ubuntu escreve para o COMPILAR.bat ler: onde o
+# jogo foi parar. Gerado a cada execucao, nunca vai para o Git.
+.fnf_destino
+FNFPS2-atualizacao.zip
