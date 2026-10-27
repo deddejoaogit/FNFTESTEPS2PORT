@@ -9,7 +9,9 @@ EE_LIBS = -ldraw -lgraph -lpacket -ldma -lmath3d -lpad -laudsrv -lfileXio -lpatc
 # que o Makefile.pref compoe, e o build quebraria em tamtypes.h).
 # Uso:  make FNX_EXTRA=-DFNX_V1_INCLUSIVO FNF_VERSION=0.2.85-v1inclusivo \
 #            EE_BIN=fnf_ps2_m85_fix.elf FNX_MAP=fnf_ps2_m85_fix.map
-FNF_VERSION ?= 0.2.84-calibracao
+# Sem FNF_VERSION explicito, usa o conteudo do arquivo VERSION (assim o
+# COMPILAR.bat do Windows carimba a versao certa sem ninguem exportar nada).
+FNF_VERSION ?= $(shell cat VERSION 2>/dev/null || echo 0.2.84-calibracao)
 FNX_EXTRA   ?=
 FNX_MAP     ?= FNF_PS2.map
 EE_CFLAGS = -O2 -G0 -Wall -Wextra -Werror=implicit-function-declaration -std=gnu11 -Isrc -Isrc/engine -DFNF_PS2_VERSION=\"$(FNF_VERSION)\" $(FNX_EXTRA)
