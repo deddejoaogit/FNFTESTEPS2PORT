@@ -951,6 +951,7 @@ static volatile int g_capture_status_write_enabled=1;
    pendrive nunca montou, nao ha log nenhum, e eu fico sem nenhuma pista. Este
    arquivo diz o ultimo passo que o jogo completou. Ele para de ser escrito
    depois da fase de boot, para nao custar E/S no jogo rodando. */
+static int g_telemetry_init_result=0;
 static int g_boot_mark_n=0;
 static void boot_mark(const char*phase,int code){
   int fd;char b[128];int n;
@@ -968,6 +969,195 @@ static void capture_status(const char*phase,int row,int code){
   if(!g_capture_status_write_enabled)return;
   boot_mark(phase,code);
   telemetry_phase(phase,row,code);}
+
+/* ===================== DIAGNOSTICO DE TRAVAMENTO 0.2.116 ===================
+   O BOOT.txt da sessao de 2026-10-27 parou em "passo 48: FRAME code=0": o jogo
+   entrou no laco de quadros e morreu DENTRO do corpo de um quadro, na tela de
+   titulo, por volta do quadro 15. Nao dava para saber em qual chamada, porque
+   em ui_state 0 o FRAME e o primeiro marco do quadro e o proximo so vem no
+   quadro seguinte.
+
+   O que entra aqui NAO conserta nada: coleta. Regra 4 do projeto -- sem dado
+   nao se escolhe causa.
+
+   Duas pecas, com papeis diferentes:
+
+   1) frame_mark(): marco fino (sub-passo dentro do quadro) escrito pelo MESMO
+      caminho do boot_mark(), que foi o unico escritor que comprovadamente
+      escreveu no console do usuario (open -> write -> fsync -> close).
+      Custo LIMITADO POR CONSTRUCAO: no maximo uma escrita a cada 200 ms, com
+      fsync em uma a cada quatro. A 0.2.108 nao abriu no console por ~20
+      escritas POR QUADRO; isto e no maximo 5 por segundo.
+
+   2) Cao de guarda: as posicoes ficam tambem num anel de RAM, sem portao. Uma
+      thread de prioridade baixa vigia o contador de quadros; se ele nao mudar
+      em 8 acordadas de 200 ms (1,6 s), ela grava as ultimas 16 posicoes em
+      FNF_TRAVA.txt. E o unico jeito de saber onde o processo parou quando ele
+      para de responder. No caminho normal isso NAO escreve nada.
+
+   Ordem de grandeza do custo total: 5 escritas/s + 0 no caminho normal do cao
+   de guarda, contra os ~1200/s da 0.2.108. */
+#define FNMARK_MIN_GAP_TICKS ((u64)kBUSCLK/5u)   /* 200 ms */
+#define FNMARK_RING 16
+#define FNWD_WAKE_US 200000
+#define FNWD_STALL_WAKES 15                       /* 15 x 200 ms = 3 s parado.
+                                                     Carregar packs do tutorial
+                                                     leva ~1 s; 1,6 s dava falso
+                                                     positivo em carga normal. */
+#ifndef FNMARK_FRAME_GATE
+#define FNMARK_FRAME_GATE 300u                    /* ver comentario em frame_mark */
+#endif
+#define FNWD_MAX_DUMPS 3
+#define FNWD_PAUSE_WAIT_US 2000000
+
+typedef struct { const char*phase; int code; u32 frame; u32 queued; u32 ring;
+                 u32 underruns; u32 submits; u32 zeros; } fnmark_t;
+
+static fnmark_t g_fnring[FNMARK_RING];
+static volatile u32 g_fnring_wp=0;
+static volatile u32 g_fn_beat=0;          /* muda a cada quadro completo */
+static volatile u32 g_fn_frame=0;         /* quadro corrente, para o cao */
+static volatile int g_fnwd_stop=0;
+static int g_fnwd_thread=-1;
+static u64 g_fn_last_write=0;
+static u64 g_fn_last_write_frame=0;
+static u32 g_fn_writes=0;
+static volatile int g_fn_write_ok=1;      /* vira 0 na primeira falha: desliga */
+
+/* Contadores do anel de audio. audio_underruns eh uma LOCAL do main(), entao
+   aqui se le pela API do anel: mesma fonte, sem depender de escopo. */
+static u32 g_fn_underruns=0;
+static void fn_ler_contadores(void){
+  u32 p=0,r=0,l=0,e=0,u=0;
+  audio_ring_stats(&p,&r,&l,&e,&u);
+  g_fn_underruns=u;
+}
+
+/* Despeja o anel inteiro num arquivo so. Custo por despejo: UM open, UM write
+   de ~1 KB e UM close (uma chamada de RPC, nao dezesseis). O fsync acontece em
+   um despejo a cada quatro, entao o pior atraso entre o que aconteceu e o que
+   esta no pendrive e' de 800 ms -- e o cao de guarda cobre o caso de travamento
+   com um despejo sincronizado proprio.
+
+   POR QUE O ANEL INTEIRO E NAO UMA LINHA: a primeira versao gravava so a marca
+   do instante do portao, e como o portao abre sempre na primeira marca do
+   quadro, o arquivo saia com F.IN em toda linha -- 81 linhas de F.IN no teste do
+   harness. Aquilo nao localiza nada. Com o anel, a cauda do arquivo e' sempre a
+   sequencia de fases do ultimo quadro, que e' exatamente o que se precisa para
+   saber onde o jogo para. */
+static void fnmark_flush(void){
+  int fd;char b[256];u32 i,base;
+  if(!g_fn_write_ok)return;
+  fd=open("mass:/FNFPS2/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+  if(fd<0)fd=open("mass:/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+  if(fd<0){g_fn_write_ok=0;return;}
+  fn_ler_contadores();
+  g_fn_writes++;
+  {
+    int n=snprintf(b,sizeof(b),"# despejo %u marcas f=%u q=%u ring=%u und=%u sub=%u zero=%u\n",
+      (unsigned)g_fn_writes,(unsigned)g_fn_frame,(unsigned)audsrv_queued(),
+      (unsigned)audio_ring_level(),(unsigned)g_fn_underruns,
+      (unsigned)g_audsrv_submit_errors,(unsigned)g_audsrv_zero_events);
+    write_all_fd(fd,b,n);
+  }
+  base=(g_fnring_wp>FNMARK_RING)?(g_fnring_wp-FNMARK_RING):0u;
+  for(i=0;i<FNMARK_RING&&(u32)(base+i)<g_fnring_wp;i++){
+    const fnmark_t*r=&g_fnring[(base+i)%FNMARK_RING];
+    int n=snprintf(b,sizeof(b),"rt %s code=%d f=%u q=%u ring=%u und=%u sub=%u zero=%u\n",
+      r->phase?r->phase:"?",r->code,(unsigned)r->frame,(unsigned)r->queued,
+      (unsigned)r->ring,(unsigned)r->underruns,(unsigned)r->submits,(unsigned)r->zeros);
+    write_all_fd(fd,b,n);
+  }
+  if((g_fn_writes&3u)==0u)fsync(fd);
+  close(fd);
+}
+
+/* Registra o sub-passo no anel de RAM (sempre) e despeja o anel quando o
+   portao abre. Dois portoes independentes:
+     tempo   -> no maximo 5 despejos por segundo (o portao que vale no console);
+     quadros -> no maximo 1 despejo a cada 300 quadros (5 s a 60 fps). Existe
+                porque o harness do PC mede o tempo em microssegundos, nao em
+                unidades de BUSCLK: sem ele o caminho de escrita ficaria sem
+                cobertura la. No console o portao de tempo sempre abre antes. */
+static void frame_mark(const char*phase,int code){
+  fnmark_t*r=&g_fnring[g_fnring_wp%FNMARK_RING];
+  u64 now=GetTimerSystemTime();
+  r->phase=phase;r->code=code;r->frame=g_fn_frame;
+  fn_ler_contadores();
+  r->underruns=g_fn_underruns;
+  r->queued=(u32)audsrv_queued();r->ring=(u32)audio_ring_level();
+  r->submits=(u32)g_audsrv_submit_errors;r->zeros=(u32)g_audsrv_zero_events;
+  g_fnring_wp++;
+  if(g_fn_last_write&&now-g_fn_last_write<FNMARK_MIN_GAP_TICKS&&
+     (g_fn_frame-g_fn_last_write_frame)<FNMARK_FRAME_GATE)return;
+  g_fn_last_write=now;
+  g_fn_last_write_frame=g_fn_frame;
+  fnmark_flush();
+}
+
+/* Grava as ultimas posicoes. Usada SO pelo cao de guarda, quando o jogo parou. */
+static void fnwd_dump(int dumps){
+  int fd;char b[256],hdr[160];int i,n,u32base;
+  /* O usbhdfsd nao e reentrante: o produtor de audio para de tocar o USB antes.
+     A espera e limitada (2 s) e a gravacao acontece mesmo se ele nao parar --
+     e o ultimo recurso de diagnostico. */
+  audio_ring_pause(1);
+  fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+  if(fd<0){
+    audio_ring_pause(0);
+    return;
+  }
+  n=snprintf(hdr,sizeof(hdr),
+    "# build=" FNF_PS2_VERSION " dumps=%d parado_ha=%dms f=%u q=%u ring=%u und=%u sub=%u zero=%u\n",
+    dumps,FNWD_STALL_WAKES*FNWD_WAKE_US/1000,(unsigned)g_fn_frame,
+    (unsigned)audsrv_queued(),(unsigned)audio_ring_level(),(unsigned)g_fn_underruns,
+    (unsigned)g_audsrv_submit_errors,(unsigned)g_audsrv_zero_events);
+  write_all_fd(fd,hdr,n);
+  u32base=(g_fnring_wp>FNMARK_RING)?(g_fnring_wp-FNMARK_RING):0u;
+  for(i=0;i<FNMARK_RING&&(u32)(u32base+(u32)i)<g_fnring_wp;i++){
+    fnmark_t*r=&g_fnring[(u32base+i)%FNMARK_RING];
+    n=snprintf(b,sizeof(b),"  %s code=%d f=%u q=%u ring=%u und=%u sub=%u zero=%u\n",
+      r->phase?r->phase:"?",r->code,(unsigned)r->frame,(unsigned)r->queued,
+      (unsigned)r->ring,(unsigned)r->underruns,(unsigned)r->submits,(unsigned)r->zeros);
+    write_all_fd(fd,b,n);
+  }
+  fsync(fd);
+  close(fd);
+  audio_ring_pause(0);
+}
+
+static unsigned char fnwd_stack[16384] __attribute__((aligned(128)));
+static void fnwd_thread_fn(void*arg);
+static void fnwd_start(void){
+  ee_thread_t t;
+  if(g_fnwd_thread>=0)return;
+  memset(&t,0,sizeof(t));
+  t.func=fnwd_thread_fn;t.stack=fnwd_stack;t.stack_size=sizeof(fnwd_stack);
+  t.gp_reg=&_gp;t.initial_priority=10;   /* abaixo do audio (40) e do titulo (50) */
+  g_fnwd_thread=CreateThread(&t);
+  if(g_fnwd_thread<0)return;
+  if(StartThread(g_fnwd_thread,0)<0){DeleteThread(g_fnwd_thread);g_fnwd_thread=-1;}
+}
+static void fnwd_thread_fn(void*arg){
+  u32 last_beat=0;
+  u32 wakes=0;
+  int dumps=0;
+  int paradas=0;      /* acordadas seguidas sem o quadro avancar */
+  (void)arg;
+  /* Teto de vida: 6000 acordadas de 200 ms = 20 minutos. Depois disso a
+     thread sai sozinha, para nao existir laco eterno de diagnostico. */
+  while(!g_fnwd_stop&&dumps<FNWD_MAX_DUMPS&&wakes<6000u){
+    DelayThread(FNWD_WAKE_US);
+    wakes++;
+    if(g_fn_beat!=last_beat){last_beat=g_fn_beat;paradas=0;continue;}
+    paradas++;
+    if(paradas<FNWD_STALL_WAKES)continue;
+    paradas=0;
+    dumps++;
+    fnwd_dump(dumps);
+  }
+  ExitThread();
+}
 static u32 title_intro_phase(void){
  int queued_bytes;
  if(g_title_audio_fd>=0){
@@ -1310,13 +1500,13 @@ static void estado_dump(const estado_t *e)
 }
 
 int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,tex2,fonttex,gftex,stagetex;packet_t* packet;int draw=1,running=1,anim=0,deferred_menu_start=1,last=-1,last2=-1,transform_mode=0,components_mode=0,ui_state=0,target_state=-1,transition_frame=0,selection=0,settings_sel=0,toggle_value=1,slider_value=7,tab_value=0,repeat_dir=0,repeat_frames=0,transitions=0,audio_ok=0,audio_playing=1,audio_started=0,audio_volume=70,voices_enabled=1,audio_fd=-1,title_logo_last=-1,title_gf_last=-1,title_intro_active=1,title_confirm_frames=0,title_ng_restored=0,title_intro_flash_frames=0,menu_placeholder=0,menu_anim_tick=-1,story_diff=1,story_level=0,menu_back_transition=0,story_assets_ready=0,story_diff_tween=5;float menu_cam_y=40.0f;u32 frame_no=0,visual_frame=0,anim_start=0,audio_submitted=0,music_clock=0,audio_read_bytes=0,audio_loops=0,audio_read_errors=0,audio_underruns=0;u64 music_clock_tick=0,music_clock_fraction=0;int latency_samples=0,clock_hold=0,transport_state=1;u32 chart_event_cursor=0;
- reset_iop();telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+ reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
 /* O log NAO eh truncado aqui. telemetry_init() jah o abriu com O_APPEND e jah
    escreveu o cabecalho; reabrir com O_TRUNC apagava esse cabecalho e deixava
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
    sai do proprio telemetry_init. */
 if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
-{int lm=load_metadata();capture_status("META_DONE",-1,lm);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
+{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
  dma_channel_initialize(DMA_CHANNEL_GIF,NULL,0);dma_channel_fast_waits(DMA_CHANNEL_GIF);graph_vram_clear();
  fb[0].width=SCREEN_W;fb[0].height=SCREEN_H;fb[0].psm=GS_PSM_32;fb[0].mask=0;fb[0].address=graph_vram_allocate(SCREEN_W,SCREEN_H,GS_PSM_32,GRAPH_ALIGN_PAGE);fb[1]=fb[0];fb[1].address=graph_vram_allocate(SCREEN_W,SCREEN_H,GS_PSM_32,GRAPH_ALIGN_PAGE);
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
@@ -1326,14 +1516,20 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
  stagetex.width=512;stagetex.psm=GS_PSM_32;stagetex.address=graph_vram_allocate(512,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  fonttex.width=384;fonttex.psm=GS_PSM_32;fonttex.address=graph_vram_allocate(384,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  telemetry_event("fb0",(int)fb[0].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("fb1",(int)fb[1].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("tex",(int)tex.address,(320<<16)|256);telemetry_event("tex2",(int)tex2.address,(320<<16)|256);telemetry_event("gftex",(int)gftex.address,(256<<16)|256);telemetry_event("stagetex",(int)stagetex.address,(512<<16)|256);telemetry_event("fonttex",(int)fonttex.address,(384<<16)|256);telemetry_event("tex1_fix",LOD_MIPMAP_REGISTER,0);telemetry_event("stage_src",g_official_mainstage_props[0].z,g_official_mainstage_chars[2].z);telemetry_event("stage_zoom",(int)(g_official_mainstage_camera_zoom*1000.0f),(int)g_official_mainstage_chars[0].x);telemetry_event("idle_blend",1,2);telemetry_event("merch_trim",59,3);capture_status("GS_BEGIN",-1,0);graph_initialize(fb[0].address,SCREEN_W,SCREEN_H,GS_PSM_32,0,0);graph_set_bgcolor(0,0,0);packet=packet_init(4096,PACKET_NORMAL);setup_texture(&tex);setup_texture_dims(&tex2,320,256);setup_texture_dims(&gftex,g_gf.width,g_gf.height);setup_texture_dims(&stagetex,512,256);setup_texture_dims(&fonttex,FONT_W,FONT_H);capture_status("GS_ENV_READY",-1,0);if(read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_font_pixels,384*192*4)==0){setup_texture_dims(&fonttex,384,192);upload_raw(&fonttex,g_font_pixels,384,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_ALPHA,g_font_pixels,384*192*4);capture_status("TITLE_ALPHA_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_stage_pixels,512*192*4)==0){setup_texture_dims(&stagetex,512,192);upload_raw(&stagetex,g_stage_pixels,512,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,g_stage_pixels,512*192*4);capture_status("TITLE_PROMPT_L_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_hud_pixels,320*192*4)==0){setup_texture_dims(&tex2,320,192);upload_raw(&tex2,g_hud_pixels,320,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,g_hud_pixels,320*192*4);capture_status("TITLE_PROMPT_R_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;capture_status("TITLE_LOGO_GF_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_newgrounds.rgba",g_gf_pixels+TITLE_NG_STORE_OFFSET,181*175*4)==0){setup_texture_dims(&tex,181,175);upload_raw(&tex,g_gf_pixels+TITLE_NG_STORE_OFFSET,181,175);menu_anim_tick=-1;capture_status("TITLE_NG_READY",-1,0);} {int anim_rc=title_animation_cache_start();telemetry_event("title_anim_cache",anim_rc==0,anim_rc);telemetry_event("title_cache_policy",TITLE_CACHE_READ_CHUNK,TITLE_CACHE_AUDIO_RESERVE);}capture_status("FIRST_FRAME_PENDING",-1,0);{packet_t*tp=packet_init(8,PACKET_NORMAL);qword_t*tq=tp->data;tq->dw[0]=GIF_SET_TAG(1,1,0,0,GIF_FLG_PACKED,1);tq->dw[1]=GIF_REG_AD;tq++;tq->dw[0]=((u64)0x80<<32);tq->dw[1]=GS_REG_TEXA;tq++;dma_channel_send_normal(DMA_CHANNEL_GIF,tp->data,tq-tp->data,0,0);dma_wait_fast();packet_free(tp);telemetry_event("texa",0x80,0);}capture_status("F0_BLEND_BEGIN",-1,0);draw_enable_blending();capture_status("F0_BLEND_DONE",-1,0);
+/* O cao de guarda NAO nasce aqui: durante o boot (6,5 s de espera de
+    dispositivo) o contador de quadros ainda esta em zero, ele contaria isso
+    como "parado" e gastaria os tres despejos antes de o jogo comecar --
+    exatamente quando ele deixa de servir. Ele nasce depois do primeiro quadro
+    completo, em fnwd_start(), chamado no fim do laco. */
  while(running){u64 begin,after_draw,after_vsync;unsigned short pressed;if(frame_no==0){capture_status("F0_LOOP_ENTER",-1,0);}begin=GetTimerSystemTime();g_frame_texture_quads=0;band_counters_reset();g_dl_n=0;g_dl_overflow=0;
   /* Um marco por quadro nos primeiros 300 quadros (5 segundos). Sem isto o
      BOOT.txt parava no ultimo marco de frame_no==0 e eu nao tinha como saber
      se o jogo tinha chegado ao quadro 1, ao 3 ou tinha pendurado no meio.
      frame_no<300 porque depois disso o custo de abrir/escrever/sincronizar um
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
+  g_fn_frame=frame_no;
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
-  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
+  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
   if(g_title_anim_thread_id>=0&&g_title_anim_status!=2)g_title_anim_thread_id=-1;
  /* START sozinho encerrava o jogo em qualquer tela fora do Tutorial.
    No oficial START confirma, nunca sai. Sair exige SELECT+START, que
@@ -1381,7 +1577,14 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(!components_mode&&(pressed&PAD_L1)&&latency_samples>-4800)latency_samples-=240;
   if(!components_mode&&(pressed&PAD_R1)&&latency_samples<4800)latency_samples+=240;
   if(ui_state==0||ui_state==6||ui_state==7)transport_state=0;else if(!audio_playing)transport_state=3;else if(audio_started)transport_state=2;
-  if((ui_state==0||ui_state==6||ui_state==7)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){while(audsrv_available()>=AUDIO_READ_CHUNK){int n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}int j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);}else break;} }
+  /* 0.2.116: este laco nao tinha guarda nem saida por erro. audio_play_complete
+     desiste em 2000 x 1 ms; se audsrv_play_audio parar de aceitar bytes,
+     audsrv_available() nao diminui e o laco NUNCA sai, a ate 2 s por volta --
+     "ficou lento e travou" na tela de titulo (o mesmo ui_state do BOOT.txt do
+     console). O limite e 64 voltas: 64 x 4 KB = 256 KB, o dobro do anel de
+     audio deste jogo, entao o caminho saudavel sai pela mesma condicao de
+     antes. Quando o limite ou o erro pegam, fica registrado em AUDIO_STALL. */
+  if((ui_state==0||ui_state==6||ui_state==7)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){int voltas=0;while(audsrv_available()>=AUDIO_READ_CHUNK){int n;int j;if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);else{frame_mark("A.STOP_ERRO",j);break;}}else break;} }
   if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0){
    if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&audio_ring_level()>=65536){
     audio_started=1;clock_hold=0;music_clock_tick=begin;music_clock_fraction=0;transport_state=2;
@@ -1393,6 +1596,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     else{g_tutorial_audio_status=-6;audio_playing=0;audio_started=0;audsrv_stop_audio();telemetry_event("tutorial_audio_submit",submitted,(int)frame_no);}
    }
   }
+  frame_mark("F.AUDIO",transport_state);
   {u32 reads=0;audio_ring_stats(&audio_read_bytes,&reads,&audio_loops,&audio_read_errors,&audio_underruns);(void)reads;}
   if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?(u32)audsrv_queued():0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
   /* Acumulador continuo: o RPC bruto apenas valida/corrige deriva; nao ancora
@@ -1412,6 +1616,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(heard>music_clock+1600u){u32 correction=heard-music_clock-1600u;if(correction>32u)correction=32u;music_clock+=correction;}
   }
   heard=music_clock;
+  frame_mark("F.CLOCK",(int)music_clock);
   if(ui_state==8&&audio_started&&g_chart_status==0){
    const chart_event_t *event;
    while(g_chart_cursor<g_chart_info.event_count){
@@ -1447,13 +1652,14 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   
 
   if(ui_state==6&&transition_frame>0)menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
+  frame_mark("F.TITLE",ui_state);
   if(frame_no==0){capture_status("F0_INPUT_STATE_DONE",-1,0);}if(ui_state==0&&title_intro_active&&!title_ng_restored){if(title_intro_phase()>=8u){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;title_ng_restored=1;}}
   if((ui_state==0||ui_state==6||ui_state==7)&&g_gf_reload_active==1){u32 left=g_gf_reload_total-g_gf_reload_offset,want=left>32768u?32768u:left;int got=read(g_gf_reload_fd,g_gf_pixels+g_gf_reload_offset,(int)want);if(got<=0){close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=3;}else{g_gf_reload_offset+=(u32)got;if(g_gf_reload_offset==g_gf_reload_total){close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=2;FlushCache(0);}}}
   if(ui_state==0&&title_confirm_frames>0){title_confirm_frames--;if(title_confirm_frames==0){target_state=6;transition_frame=1;transitions++;}}
   /* Incremental menu ownership: begin as soon as the fade starts, process at
    * most 64 KiB output per video frame, and hold only at the opaque midpoint. */
   if(target_state==6&&transition_frame>0&&!g_menu_cache_ready&&!g_menu_decode_active&&!g_menu_decode_error)menu_decode_begin();
-  if(g_menu_decode_active)menu_decode_step(65536u);
+  if(g_menu_decode_active){frame_mark("F.DECODE",(int)g_menu_decode_di);menu_decode_step(65536u);}
   /* Stop menu audio before blocking title-bank I/O so the SPU cannot hold a
    * single sample while the screen is opaque. */
   /* Story resources are restored while the fade is opaque. Stop the previous
@@ -1590,8 +1796,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
 tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&fonttex,FONT_W,FONT_H);upload_raw(&fonttex,g_font_pixels,FONT_W,FONT_H);}}}}menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
   }else if(transition_frame==0&&ui_state==7){if(pressed&PAD_UP){int sr;story_level=(story_level+8)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_DOWN){int sr;story_level=(story_level+1)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_LEFT){story_diff=(story_diff+2)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_RIGHT){story_diff=(story_diff+1)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS&&story_level==0){g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;target_state=8;transition_frame=1;transitions++;}
   }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
+  frame_mark("F.STATE",ui_state*100+transition_frame);
   if(audio_playing)visual_frame++;
   if(transition_frame==0){if(pressed&PAD_LEFT){anim=1;anim_start=visual_frame;}if(pressed&PAD_DOWN){anim=2;anim_start=visual_frame;}if(pressed&PAD_UP){anim=3;anim_start=visual_frame;}if(pressed&PAD_RIGHT){anim=4;anim_start=visual_frame;}if(pressed&PAD_CROSS){anim=0;anim_start=visual_frame;}}
+  frame_mark("F.ANIM",anim);
   local=((visual_frame-anim_start)*g_bf.fps)/60u;
   if(local>=g_bf.anim[anim].count){
    if(anim>0 && (g_held&anim_button(anim))){anim_start=visual_frame;local=0;}
@@ -1605,7 +1813,7 @@ tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;tra
      tutorial's opponent IS gf, so both 1 and 2 focus her and 0 focuses BF. */
   {const chart_event_state_t*ev=chart_events_state();g_tut_cam_focus=(ev->cam_char==CHART_FOCUS_GF||ev->cam_char==CHART_FOCUS_DAD)?1:0;}
   if(ui_state==8&&g_tutorial_scene_ready&&g_tutorial_audio_status==0){u32 af=(u32)(((u64)music_clock*24u)/48000u);int bfi=tut_anim_idx(&g_bf_sing,g_bf_sing_at,music_clock,BF_SING,14u,af),gfi=tut_anim_idx(&g_gf_sing,g_gf_sing_at,music_clock,GF_SING,30u,af);if(bfi!=g_tutorial_bf_uploaded&&tutorial_pack_frame(g_tutorial_bf_pack,g_tutorial_bf_pack_bytes,(u32)bfi,43,258u*254u*4u,g_stage_pixels)==0){FlushCache(0);setup_texture_dims(&tex,258,254);upload_raw(&tex,g_stage_pixels,258,254);g_tutorial_bf_uploaded=bfi;}if(gfi!=g_tutorial_gf_uploaded&&tutorial_pack_frame(g_tutorial_gf_pack,g_tutorial_gf_pack_bytes,(u32)gfi,87,320u*307u*2u,g_hud_pixels)==0){FlushCache(0);setup_texture_dims(&g_gftex16,320,307);upload_raw_psm(&g_gftex16,g_hud_pixels,320,307,GS_PSM_16);g_tutorial_gf_uploaded=gfi;}}
-  if(ui_state==6){qword_t*mq=packet->data;int tick=(int)(frame_no*24u/60u),mi;setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);mq=draw_setup_environment(mq,0,&fb[draw],&z);mq=draw_clear(mq,0,0,0,SCREEN_W,SCREEN_H,0,0,0);mq=bind_texture(mq,&stagetex);{/* 0.2.104 A4: parallax do fundo, scrollFactor.y = 0,17 no original
+  if(ui_state==6){frame_mark("F.BG",(int)menu_cam_y);qword_t*mq=packet->data;int tick=(int)(frame_no*24u/60u),mi;setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);mq=draw_setup_environment(mq,0,&fb[draw],&z);mq=draw_clear(mq,0,0,0,SCREEN_W,SCREEN_H,0,0,0);mq=bind_texture(mq,&stagetex);{/* 0.2.104 A4: parallax do fundo, scrollFactor.y = 0,17 no original
      (MainMenuState.hx L119-120). Derivacao, em unidades do original:
        bg.y = -75,92   (setGraphicSize(1280*1,2)=1536 de largura, altura
                         730*1536/1286 = 871,83, screenCenter -> (720-871,83)/2)
@@ -1665,6 +1873,7 @@ tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;tra
    Na 0.2.65 eu o movi para dentro achando que economizava 1,5 ms, e
    o resultado foi o CREDITS piscando a cada quadro. Revertido. */
 if(!menu_placeholder){int sel4=(selection==4),af4=sel4?(tick%3):g_menu_idle_timeline[4][tick%9];const unsigned int*fr4=g_menu_frame_rw[4][sel4][af4];setup_texture_dims(&stagetex,(int)fr4[1],(int)fr4[2]);memcpy(g_up_bounce,g_menu_pixels+fr4[0],(u32)fr4[1]*(u32)fr4[2]*4u);upload_raw(&stagetex,g_up_bounce,(int)fr4[1],(int)fr4[2]);}}
+  frame_mark("F.PACKET",(int)frame_no);
   if(frame_no==0){capture_status("F0_PACKET_BEGIN",-1,0);}
   /* SELECT+L1 grava a lista de desenho E a imagem do MESMO quadro.
      Sem isso eu recebo a lista de um quadro e a foto de outro, e a
@@ -1823,7 +2032,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   if(transition_frame>0){int tm=menu_back_transition?42:15,te=menu_back_transition?102:30,p=transition_frame<=tm?transition_frame:(te-transition_frame);unsigned char a=(unsigned char)(transition_frame<=tm?((p*0x80)/tm):((p*0x80)/(te-tm)));q=rect_alpha(q,0,0,SCREEN_W,SCREEN_H,0,0,0,a);}
   if(g_calib){q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
               q=desenhar_calibracao(q);}
-  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);draw_wait_finish();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>TUTORIAL_AUDIO_SAMPLES)saved_sample=TUTORIAL_AUDIO_SAMPLES;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos)bp=(u64)(u32)endpos;lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,GS_PSM_32,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);after_vsync=GetTimerSystemTime();if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>TUTORIAL_AUDIO_SAMPLES)saved_sample=TUTORIAL_AUDIO_SAMPLES;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos)bp=(u64)(u32)endpos;lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,GS_PSM_32,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);after_vsync=GetTimerSystemTime();if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que
@@ -1837,8 +2046,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       em qual ui_state e em qual transicao a coisa parou. */
    telemetry_state(frame_no-1,ui_state,target_state,selection,story_level,story_diff,transition_frame,transitions,transport_state,audio_started,audio_playing,g_menu_audio_suspended,g_chart_status,g_tutorial_scene_ready,g_tutorial_audio_status,story_assets_ready,g_menu_cache_ready,g_title_anim_status,g_tutorial_gf_uploaded,g_tutorial_bf_uploaded,(int)(g_gftex16.address!=0),g_story_gf_uploaded,g_story_bf_uploaded,g_aspect_169,g_viewport_360,music_clock,audio_submitted,ring_bytes,audio_underruns,audio_fd,g_title_audio_fd,g_tutorial_note_hits,g_tutorial_note_misses,g_tutorial_note_combo,g_tutorial_note_score,g_tutorial_note_feedback,chart_event_cursor,g_band_clip_rects,g_band_clip_lines,g_band_cull_rects);
    telemetry_flush();
+   frame_mark("F.POST",(int)frame_no);g_fn_beat++;
+   if(frame_no==1u)fnwd_start();
    av_trace_capture(frame_no-1,ui_state,target_state,transition_frame,transport_state,audio_fd,music_clock,audio_started,audio_playing,last2,last,chart_event_cursor);draw^=1;
  }
+ g_fnwd_stop=1;if(g_fnwd_thread>=0){DelayThread(250000);DeleteThread(g_fnwd_thread);g_fnwd_thread=-1;}
  telemetry_event("audsrv_partial",(int)g_audsrv_partial_events,(int)g_audsrv_zero_events);telemetry_event("audsrv_submit_errors",(int)g_audsrv_submit_errors,0);capture_status("SHUTDOWN",-1,0); /* 0.2.102: dumps de ~2-3 MB sincronos no shutdown = ~4 s de "travamento"; saem sob demanda por L1/R1/L2 */audio_ring_stop();DelayThread(20000);if(audio_fd>=0)close(audio_fd);if(audio_ok)audsrv_quit();padPortClose(0,0);padEnd();SleepThread();return 0;}
 
 
