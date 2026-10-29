@@ -43,6 +43,13 @@ $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /t
 /tmp/fnf_test_engine
 echo
 
+# Nucleo de gameplay: julgamento, vida, combo e resultado. Cada numero vem de
+# Scoring.hx / Constants.hx de v0.8.6, e o teste falha se alguem aproximar.
+echo "== gameplay (julgamento, vida, combo, resultado) =="
+$CC $FLAGS test/test_gameplay.c src/engine/gameplay.c -o /tmp/fnf_test_gameplay -lm
+/tmp/fnf_test_gameplay
+echo
+
 echo "== song_registry =="
 $CC $FLAGS test/test_registry.c src/engine/song_registry.c -o /tmp/fnf_test_registry
 /tmp/fnf_test_registry

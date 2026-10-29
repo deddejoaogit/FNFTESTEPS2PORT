@@ -24,6 +24,7 @@
 #include "story_titles_generated.h"
 #include "chart.h"
 #include "chart_events.h"
+#include "engine/gameplay.h"
 #include "song_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,6 +160,10 @@ static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial
 #define CHART_MAX_NOTE_STATES 1280u /* acompanha CHART_MAX_NOTES: 2hot-HARD tem 1.035 notas */
 static unsigned char g_tutorial_note_state[CHART_MAX_NOTE_STATES];
 static u32 g_tutorial_note_score=0,g_tutorial_note_hits=0,g_tutorial_note_misses=0,g_tutorial_note_combo=0,g_tutorial_note_feedback_frame=0;
+/* Estado da tentativa, com os numeros do original (ver engine/gameplay.h).
+   O HUD passou a ler daqui em vez de manter contadores proprios: era assim que
+   "Score: 0" ficava fixo na tela mesmo com notas sendo acertadas. */
+static fnf_play_t g_play;
 
 
 static int g_gf_reload_fd=-1,g_gf_reload_active=0; static u32 g_gf_reload_offset=0,g_gf_reload_total=0;
@@ -692,14 +697,27 @@ static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,fl
  r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align);
 static unsigned short tutorial_lane_button(unsigned int lane){static const unsigned short masks[4]={PAD_LEFT,PAD_DOWN,PAD_UP,PAD_RIGHT};return lane<4?masks[lane]:0;}
-static void tutorial_notes_reset(void){memset(g_tutorial_note_state,0,sizeof(g_tutorial_note_state));g_tutorial_note_score=0;g_tutorial_note_hits=0;g_tutorial_note_misses=0;g_tutorial_note_combo=0;g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;}
+static void tutorial_notes_reset(void){
+ u32 k,scorable=0;
+ memset(g_tutorial_note_state,0,sizeof(g_tutorial_note_state));
+ g_tutorial_note_score=0;g_tutorial_note_hits=0;g_tutorial_note_misses=0;g_tutorial_note_combo=0;
+ g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;
+ /* tallies.totalNotes do original: quantas notas do chart contam para o
+    resultado. Sao as notas do jogador (must_press), nao as do oponente. */
+ for(k=0;k<g_chart_info.note_count&&k<CHART_MAX_NOTE_STATES;k++){
+  chart_note_t nt;
+  if(chart_note(k,&nt)<0)continue;
+  if(nt.must_press)scorable++;
+ }
+ fnf_play_reset(&g_play,FNF_SCORING_PBOT1,(int)scorable);
+}
 static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  u32 i;unsigned int lane;
  if(g_chart_status!=0)return;
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
-  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;g_tutorial_note_misses++;g_tutorial_note_combo=0;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(u32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
@@ -724,8 +742,17 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     * best ever pointed past the table. best comes from the loop above, which
     * already bounds it, but "already bounds it" is not a contract. */
    if(chart_note((u32)best,&note)<0)best=-1;
-   else{offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;g_tutorial_note_hits++;g_tutorial_note_combo++;g_tutorial_note_score+=best_abs<=2400u?350u:best_abs<=4800u?200u:100u;g_tutorial_note_feedback=best_abs<=2400u?1:best_abs<=4800u?2:3;g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_hit",best,(int)offset);}}
-  else{g_tutorial_note_feedback=5;g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_ghost",(int)lane,(int)sample);}
+   else{fnf_judge_t judge;
+    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;
+    /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
+       noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
+    judge=fnf_play_hit(&g_play,(float)offset/48.0f);
+    g_tutorial_note_hits=(u32)g_play.total_notes_hit;
+    g_tutorial_note_combo=(u32)g_play.combo;
+    g_tutorial_note_score=(u32)g_play.score;
+    g_tutorial_note_feedback=judge==FNF_JUDGE_SICK?1:judge==FNF_JUDGE_GOOD?2:judge==FNF_JUDGE_BAD?3:4;
+    g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_hit",best,(int)offset);}}
+  else{fnf_play_ghost(&g_play);g_tutorial_note_score=(u32)g_play.score;g_tutorial_note_feedback=5;g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_ghost",(int)lane,(int)sample);}
  }
 }
 static float tutorial_note_y(s32 delta){return 26.3f+(float)delta*(0.45f/(48.0f*2.0f))*g_tut_scroll;}
@@ -897,6 +924,29 @@ static int tutorial_vcr_restore(void){u32 fp;int r=story_font_alpha_decode(g_men
 static int g_menu_remembered=0;  /* FIDELIDADE 0.2.96: rememberedSelectedIndex do original */
 static int g_story_vcr_vbase=0;
 static qword_t*story_vcr_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=9.375f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-3));v.v0.z=0;v.v1.x=FNX_FIM(cursor+10);v.v1.y=FNX_FIM(vy(y-3)+20);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+/* PlayState.updateScoreText() + FlxStringUtil.formatMoney(v,false,true):
+   "Score: N" com virgula a cada tres digitos. Devolve o comprimento, porque
+   hud_score_line() recebe contagem explicita (ela nao mede a string). */
+static int fmt_score_line(char*out,int cap,int score){
+ int n=0,digits[10],nd=0,neg=0,base=0,val=score;
+ const char*pre="Score: ";
+ if(!out||cap<10)return 0;
+ while(*pre&&n<cap-1)out[n++]=*pre++;
+ if(val<0){neg=1;val=-val;}
+ do{digits[nd++]=val%10;val/=10;}while(val&&nd<10);
+ if(neg&&n<cap-1)out[n++]='-';
+ while(nd>0){
+  nd--;
+  if(n>=cap-1)break;
+  out[n++]=(char)('0'+digits[nd]);
+  /* A virgula entra depois do digito quando o que sobra a' direita e'
+     multiplo de tres -- o mesmo resultado do formatMoney. */
+  base=nd;
+  if(base>0&&(base%3)==0&&n<cap-1)out[n++]=',';
+ }
+ out[n]=0;
+ return n;
+}
 static qword_t*hud_score_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=4.6875f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-1.5f));v.v0.z=0;v.v1.x=FNX_FIM(cursor+5.0f);v.v1.y=FNX_FIM(vy(y-1.5f)+10.0f);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
 static qword_t*story_vcr(qword_t*q,const char*s,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){const char*p=s,*e;float yy=y;while(1){e=strchr(p,'\n');q=story_vcr_line(q,p,e?(int)(e-p):(int)strlen(p),x,yy,align,r,g,b,a);if(!e)break;p=e+1;yy+=16;}return q;}
 static unsigned char*menu_idle_blend(int mi,int af,int phase){
@@ -2005,7 +2055,30 @@ float bf_cam_x=g_official_mainstage_chars[2].x+17.0f-18.0f+g_official_mainstage_
                   (787+4-338+8)+0 = 461,00 */
 float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy;float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
   }
-  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,music_clock,g_held,frame_no);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);q=rect_alpha(q,171.75f,326.0f,468.25f,331.5f,255,0,0,128);q=rect_alpha(q,320.0f,326.0f,468.25f,331.5f,102,255,51,128);q=sprite_region(q,258.0f,288.5f,75.0f,75.0f,0,128,75,75);q=sprite_region(q,307.0f,288.5f,75.0f,75.0f,155,128,-75,75);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */q=bind_texture_filter(q,&fonttex,1);q=hud_score_line(q,"Score: 0",8,374.75f,339.0f,0,0,0,0,128);q=hud_score_line(q,"Score: 0",8,375.75f,339.0f,0,0,0,0,128);q=hud_score_line(q,"Score: 0",8,375.25f,338.5f,0,0,0,0,128);q=hud_score_line(q,"Score: 0",8,375.25f,339.5f,0,0,0,0,128);q=hud_score_line(q,"Score: 0",8,375.25f,339.0f,0,128,128,128,128);
+  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,music_clock,g_held,frame_no);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
+     menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
+     da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
+     em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o
+     numero fixo que estava aqui e so' valia no primeiro quadro. */
+    float hf=fnf_play_health_ratio(&g_play),sx=468.25f-296.5f*hf;
+    if(sx<171.75f)sx=171.75f;
+    if(sx>468.25f)sx=468.25f;
+    if(sx>171.75f){
+        q=rect_alpha(q,171.75f,326.0f,sx,331.5f,255,0,0,128);
+    }
+    if(sx<468.25f){
+        q=rect_alpha(q,sx,326.0f,468.25f,331.5f,102,255,51,128);
+    }}q=sprite_region(q,258.0f,288.5f,75.0f,75.0f,0,128,75,75);q=sprite_region(q,307.0f,288.5f,75.0f,75.0f,155,128,-75,75);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */{/* PlayState.updateScoreText(): "Score: " + FlxStringUtil.formatMoney(
+     songScore, SHOW_DECIMALS=false, COMMA_SEPARATED=true). Sem decimais e com
+     virgula de milhar, entao 1500 vira "1,500". O texto era literalmente
+     "Score: 0" e nunca mudava. */
+    char sb[32];int sl=(int)fmt_score_line(sb,(int)sizeof(sb),(int)g_play.score);
+    q=bind_texture_filter(q,&fonttex,1);
+    q=hud_score_line(q,sb,sl,374.75f,339.0f,0,0,0,0,128);
+    q=hud_score_line(q,sb,sl,375.75f,339.0f,0,0,0,0,128);
+    q=hud_score_line(q,sb,sl,375.25f,338.5f,0,0,0,0,128);
+    q=hud_score_line(q,sb,sl,375.25f,339.5f,0,0,0,0,128);
+    q=hud_score_line(q,sb,sl,375.25f,339.0f,0,128,128,128,128);}
 /* MARCA DE VERSAO, no lugar certo desta vez.
    O oficial mostra Constants.VERSION em exatamente dois pontos:
      MainMenuState.hx:321  leftWatermarkText  canto inferior ESQUERDO

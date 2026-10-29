@@ -435,8 +435,13 @@ int  graph_vram_allocate(int width, int height, int psm, int align)
    um quadro. Quando o limite de quadros chega, o harness pede a saida pelo
    pad -- o mesmo caminho que o jogador usaria (START com SELECT segurado),
    para que o jogo passe pelo shutdown completo e o log seja fechado. */
+#define H_BUSCLK 147456000ull
+#define H_TICKS_PER_FRAME (H_BUSCLK / 60ull)
+static u64 h_virtual_ticks = H_TICKS_PER_FRAME;   /* comeca em 1 quadro */
+
 void graph_wait_vsync(void)
 {
+    h_virtual_ticks += H_TICKS_PER_FRAME;
     h_frames_run++;
     if (h_frames_run >= ps2h_frames) {
         h_quit_requested = 1;
@@ -523,11 +528,29 @@ int SifExecModuleBuffer(void *ptr, unsigned size, int len, int *result, int *fin
 void FlushCache(int op) { (void)op; }
 void DelayThread(int us) { (void)us; }
 
+/*
+ * Relogio VIRTUAL, batendo com o do console.
+ *
+ * O console entrega GetTimerSystemTime() em unidades de BUSCLK e o jogo
+ * converte com `dt * AUDIO_RATE / kBUSCLK` para saber quantas amostras de
+ * audio passaram -- e' o relogio da musica, o mesmo que posiciona as notas.
+ *
+ * A versao anterior deste shim devolvia MICROSSEGUNDOS de relogio de parede.
+ * Isso nao e' "quase a mesma coisa": a conta do jogo passava a valer
+ * 48000/147456000 de amostra por microssegundo, e o relogio da musica andava
+ * ~0,0003 amostra por us. Medido no harness: `music_clock` ficou travado em 1
+ * durante 800 quadros. Resultado: nenhuma nota chegava perto do receptor, o
+ * caminho de acerto/julgamento nunca rodava no PC, e o harness nao via nada do
+ * codigo de gameplay -- so' o de desenho.
+ *
+ * Aqui o tempo avanca por QUADRO, na taxa do console: 1/60 s por
+ * graph_wait_vsync(). Vira deterministico (duas rodadas medem o mesmo), o
+ * relogio da musica anda 800 amostras por quadro (48000/60), e o jogo passa a
+ * se comportar como em 60 fps constantes.
+ */
 u64 GetTimerSystemTime(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (u64)ts.tv_sec * 1000000ull + (u64)ts.tv_nsec / 1000ull;
+    return h_virtual_ticks;
 }
 
 /* ------------------------------------------------------------------------- */

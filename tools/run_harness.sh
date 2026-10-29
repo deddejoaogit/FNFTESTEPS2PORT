@@ -99,7 +99,7 @@ DRAWSRC="$HOSTDIR/draw.c $HOSTDIR/draw2d.c $HOSTDIR/draw_environment.c"
 echo "== compilando o harness (jogo real + draw real do ps2sdk) =="
 gcc $FLAGS \
     src/main.c src/audio_ring.c src/chart.c src/chart_events.c src/telemetry.c \
-    src/engine/song_registry.c src/engine/vram_cache.c src/engine/io_fila.c \
+    src/engine/song_registry.c src/engine/gameplay.c src/engine/vram_cache.c src/engine/io_fila.c \
     src/iomanX_irx.c src/fileXio_irx.c src/usbd_irx.c src/usbhdfsd_irx.c src/audsrv_irx.c \
     src/title_packs.S src/story_packs.S \
     test/ps2harness/ps2h.c \
