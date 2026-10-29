@@ -17,9 +17,17 @@ Aqui as pressoes sao calculadas das notas do chart:
 (`tutorial_audio_start`). O roteiro e' deterministico: a mesma entrada produz
 sempre o mesmo script, e duas passadas seguidas dao o mesmo resultado.
 
+O roteiro sai em AMOSTRAS, nao em quadros -- formato "460800:LEFT,..." lido
+pelo harness por PS2H_INPUT_AMOSTRAS. O motivo foi medido: o relogio da musica
+anda por TEMPO, e no harness o tempo virtual tambem avanca dentro dos
+DelayThread do audio, entao a razao amostras/quadro muda quando o envio de
+audio muda. Um roteiro em quadros erra tudo quando isso acontece (aconteceu: 0
+acertos); um roteiro em amostras aperta quando o jogo chega naquele ponto,
+independente de quantos quadros levou.
+
 Uso:
-    python3 tools/harness_presses.py <chart> <quadro_zero> [--pular N]
-Imprime o roteiro no formato do harness: "150:CROSS,900:LEFT,..."
+    python3 tools/harness_presses.py <chart> [--pular N]
+Imprime "amostra:BOTAO,..." para cada nota do jogador.
 """
 import struct
 import sys
@@ -61,14 +69,13 @@ def read_chart(path):
 
 
 def main(argv):
-    if len(argv) < 3:
+    if len(argv) < 2:
         raise SystemExit(__doc__)
-    path, zero = argv[1], int(argv[2])
+    path = argv[1]
     pular = 0
     if "--pular" in argv:
         pular = int(argv[argv.index("--pular") + 1])
     notes, end, spb, bpms, sections, events = read_chart(path)
-    samples_per_frame = 800  # 48 kHz / 60 quadros: o harness anda 16.667 us/quadro
 
     player = [n for n in notes if n[3]]
     puladas = set()
@@ -83,8 +90,7 @@ def main(argv):
     for idx, (sample, _dur, lane, _mp) in enumerate(player):
         if idx in puladas:
             continue
-        frame = zero + int(round(sample / float(samples_per_frame)))
-        itens.append((frame, LANES[lane]))
+        itens.append((sample, LANES[lane]))
     itens.sort()
     print(",".join(f"{f}:{k}" for f, k in itens))
     sys.stderr.write(

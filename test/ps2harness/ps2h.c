@@ -100,7 +100,17 @@ static void h_note_fail(const char *p)
 static u32 h_audio_submitted, h_audio_available_calls;
 static u32 h_upload_calls, h_upload_bytes;
 static u32 h_draw_filled, h_draw_textured, h_draw_env;
-typedef struct { unsigned frame; unsigned short btns; } ps2h_input_t;
+typedef struct { unsigned frame; unsigned short btns; int por_amostra; int disparado; } ps2h_input_t;
+/* Relogio da musica, em amostras, informado pelo jogo uma vez por quadro.
+   Existe porque o roteiro por QUADRO nao serve para apertar nota: o relogio da
+   musica anda por TEMPO, e no harness o tempo virtual tambem anda dentro dos
+   DelayThread do audio. Medido: depois de mudar o envio de audio, o relogio
+   passou a correr 28 % mais rapido que 800 amostras por quadro, e o roteiro de
+   notas (calculado em quadros) errou tudo. Com o roteiro em AMOSTRAS o
+   aperto acontece quando o jogo chega naquele ponto da musica, independente de
+   quantos quadros isso levou -- que e' o que interessa. */
+static unsigned h_song_clock;
+void ps2h_song_clock(unsigned int sample) { h_song_clock = sample; }
 
 /* Quantos eventos de botao o roteiro aceita, e o tamanho do buffer do texto.
    Eram 64 eventos e 512 caracteres: o roteiro de gameplay (pressoes continuas
@@ -115,6 +125,7 @@ static unsigned h_input_fired;
 
 static u32 h_draw_calls;
 static int  h_quit_requested;
+static int  h_quit_phase;        /* 0 = nada, 1 = SELECT no quadro, 2 = START */
 unsigned ps2h_quit_frame = 0;
 static unsigned ps2h_watch_secs = 0;
 
@@ -514,9 +525,14 @@ int padPortClose(int port, int slot) { (void)port;(void)slot; return 1; }
 int padEnd(void) { return 1; }
 int padGetState(int port, int slot) { (void)port;(void)slot; return 6; /* PAD_STATE_STABLE */ }
 
-/* O pad devolve SELECT segurado o tempo todo -- eh assim que o combo de saida
-   do jogo (START com SELECT) fica disponivel. Quando o harness pede a saida,
-   START entra por um quadro so. Nenhum outro botao: o jogo comeca no menu. */
+/* O combo de saida do jogo e' START com SELECT SEGURADO. Ate 0.2.116 o harness
+   deixava o SELECT pressionado o tempo TODO para ter esse combo disponivel --
+   o que fazia qualquer START ser um pedido de saida. Isso so' ficou visivel
+   quando a PAUSA passou a existir: ela tambem abre no START, e o primeiro
+   teste de pausa fechou o jogo no lugar de pausar (o harness morreu em
+   SleepThread no quadro 1201). Agora o SELECT entra so' na sequencia de saida,
+   dois quadros: um com SELECT, outro com SELECT+START -- que e' o que o jogo
+   le como "SELECT segurado, START apertado agora". */
 unsigned char padRead(int port, int slot, struct padButtonStatus *data)
 {
     struct padButtonStatus *b = data;
@@ -526,7 +542,6 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
     b->ok = 1;
     b->mode = 0x73;              /* DualShock, analogico travado */
     b->btns = 0xffffu;           /* bit 0 = solto, bit 1 = apertado */
-    b->btns &= (unsigned short)~PAD_SELECT;
     b->rjoy_h = b->rjoy_v = 128;
     b->ljoy_h = b->ljoy_v = 128;
 
@@ -534,14 +549,29 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
        de titulo: o menu, o story e o tutorial -- que eh onde esta o codigo
        arriscado -- nunca sao exercitados. */
     for (script = 0; script < ps2h_input_n; script++) {
-        if (ps2h_input[script].frame != h_frames_run) continue;
+        if (ps2h_input[script].por_amostra) {
+            /* Dispara uma vez, quando o relogio da musica passa do ponto. A
+               margem de 200 amostras (~4 ms) e' para o aperto nao ficar cedo
+               demais quando o quadro pula por cima do valor exato. */
+            if (ps2h_input[script].disparado) continue;
+            if (h_song_clock + 200u < ps2h_input[script].frame) continue;
+            ps2h_input[script].disparado = 1;
+        } else {
+            if (ps2h_input[script].frame != h_frames_run) continue;
+        }
         b->btns &= (unsigned short)~ps2h_input[script].btns;
         h_input_fired++;
     }
 
     if (h_quit_requested) {
-        b->btns &= (unsigned short)~PAD_START;
-        h_quit_requested = 0;    /* so por um quadro */
+        if (h_quit_phase == 0) {
+            h_quit_phase = 1;
+            b->btns &= (unsigned short)~PAD_SELECT;
+        } else {
+            b->btns &= (unsigned short)~(PAD_SELECT | PAD_START);
+            h_quit_phase = 0;
+            h_quit_requested = 0;
+        }
     }
     return 1;
 }
@@ -778,8 +808,12 @@ static unsigned ps2h_button_bit(const char *name)
     return 0;
 }
 
-/* Formato: "quadro:BOTAO,quadro:BOTAO+BOTAO"  (ex.: "150:CROSS,320:CIRCLE") */
-static void ps2h_parse_input(const char *spec)
+/* Formato: "quadro:BOTAO,quadro:BOTAO+BOTAO"  (ex.: "150:CROSS,320:CIRCLE").
+   Com por_amostra=1 o numero e' AMOSTRA da musica, e o aperto sai quando o
+   jogo informa que chegou ali (PS2H_INPUT_AMOSTRAS). */
+static void ps2h_parse_input_ex(const char *spec, int por_amostra);
+static void ps2h_parse_input(const char *spec) { ps2h_parse_input_ex(spec, 0); }
+static void ps2h_parse_input_ex(const char *spec, int por_amostra)
 {
     char buf[8192], *save = NULL, *tok;
     if (!spec || !*spec) return;
@@ -803,6 +837,8 @@ static void ps2h_parse_input(const char *spec)
         }
         ps2h_input[ps2h_input_n].frame = (unsigned)strtoul(tok, NULL, 10);
         ps2h_input[ps2h_input_n].btns  = bits;
+        ps2h_input[ps2h_input_n].por_amostra = por_amostra;
+        ps2h_input[ps2h_input_n].disparado = 0;
         ps2h_input_n++;
     }
 }
@@ -954,6 +990,7 @@ static void ps2h_read_env(void)
     if ((e = getenv("PS2H_QWORDS_CAP"))) ps2h_qwcap = (unsigned)strtoul(e, NULL, 10);
     if ((e = getenv("PS2H_FORCE_QWC")))  ps2h_force_qwc = (unsigned)strtoul(e, NULL, 10);
     ps2h_parse_input(getenv("PS2H_INPUT"));
+    ps2h_parse_input_ex(getenv("PS2H_INPUT_AMOSTRAS"), 1);
     if (ps2h_frames == 0) ps2h_frames = 1;
 }
 

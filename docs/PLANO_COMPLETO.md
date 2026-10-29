@@ -161,8 +161,68 @@ acertos**, 3 notas deixadas para trás de propósito (os 3 misses), placar
 devolve. Ou seja: o resultado da tela agora bate com a conta do original, e o
 teste compara os dois.
 
-**O que falta na Fase 3:** pausa (`PauseSubState.hx`), Freeplay
-(`FreeplayState.hx`) e a seleção de dificuldade dentro dela.
+**Fechado: pausa (`PauseSubState.hx`).**
+
+No original a pausa é um **substate**: o PlayState continua atrás, congelado
+(`shouldSubstatePause`), com um retângulo preto a 60 % por cima
+(`bgColor 0x99000000`) e o menu. O port mantém `ui_state == 8` e desenha a
+sobreposição por cima — mesma estrutura, sem duplicar a cena.
+
+| Item | Original | Port |
+|---|---|---|
+| abrir | `controls.PAUSE_P` (START) | START em `ui_state 8` |
+| congela | `shouldSubstatePause` + `persistentUpdate = false` | relógio da música, contagem, eventos e áudio param |
+| fundo | alpha 0 → 0,6 em 0,8 s, `FlxEase.quartOut` | idem, `153 · quartOut(t)` |
+| menu | Resume / Restart Song / Change Difficulty / Enable Practice Mode / Exit to Menu | as 4 primeiras menos **Practice Mode** (ver abaixo) |
+| posição | `y = 70·i + 30`, `x = 0` em 1280×720 | metade disso em 640×360 |
+| entrada | primeiro quadro ignora (`justOpened`) | `g_pause_frame >= 2` |
+| metadados | nome da música, dificuldade, `N Blue Balls` | iguais, no canto superior direito |
+| Change Difficulty | lista as dificuldades que a música tem + Back | `SR_DIFF_*` do registro + Back; escolher recarrega chart e cena |
+
+**Por que "Enable Practice Mode" não está lá:** o Practice Mode do original é
+um modo de jogo (sem morte, começando numa seção escolhida), não um item de
+menu. Uma entrada que não faz o que promete é pior que a ausência dela; ela
+entra quando o modo existir.
+
+Medido (`tools/run_pause_harness.sh`): pausa aberta em 194.400 amostras,
+**um único valor de relógio em todos os quadros pausados** (congelou de
+verdade), 73 quads na sobreposição, Resume voltando em **194.400** (o mesmo
+ponto) e a música terminando em **3.225.600** — exatamente o tamanho do arquivo
+de áudio. Troca de dificuldade: 2 charts carregados e 3 contagens regressivas
+completas.
+
+**Três defeitos reais que a pausa desenterrou** (todos medidos, nenhum por
+leitura):
+
+1. **O fim da música dependia de o áudio ter tamanho múltiplo do bloco lido.**
+   O produtor lê de 32 KB e o consumidor só aceitava blocos inteiros de 8 KB: o
+   resto do arquivo ficava preso no anel, `audio_ring_eof()` era verdadeiro,
+   o anel nunca esvaziava e a música **nunca terminava**. Depois de retomar da
+   pausa sobravam **1.280 bytes** presos. Corrigido com
+   `audio_ring_take_available()` (entrega o que houver) mais o caminho de cauda
+   no mixer. Agora a música fecha em 3.225.600 de 3.225.600 amostras.
+2. **O harness segurava SELECT o tempo todo** para ter o combo de saída
+   (START+SELECT) disponível — o que fazia **qualquer START** ser um pedido de
+   saída. O primeiro teste de pausa não pausou: fechou o jogo (morreu em
+   `SleepThread` no quadro 1201). Agora o SELECT só entra nos dois quadros da
+   sequência de saída.
+3. **O roteiro por quadro não servia para apertar nota.** O relógio da música
+   anda por tempo, e no harness o tempo virtual também anda dentro dos
+   `DelayThread` do áudio: depois de mexer no envio de áudio a razão
+   amostras/quadro mudou e o roteiro (calculado em quadros) errou **tudo** —
+   0 acertos. O roteiro agora é em **amostras** (`PS2H_INPUT_AMOSTRAS`), com o
+   jogo informando o relógio ao harness por um gancho fraco
+   (`ps2h_song_clock`, nulo no console). Resultado: 29 de 29 acertos, e a pausa
+   não precisa de compensação nenhuma — o que já é o teste do congelamento.
+
+E um erro meu, encontrado pelo próprio teste no mesmo build: ao passar o bloco
+variável ao `audio_play_complete` eu enviei `n` bytes de **entrada** (8 bytes
+por amostra) em vez de `n/2` bytes de **saída** (4 bytes por amostra). O áudio
+entregue ao audsrv dobrou e o relógio correu até 4.755.264 amostras num arquivo
+de 3.225.600. Corrigido com o fator explícito e comentado no lugar.
+
+**O que falta na Fase 3:** Freeplay (`FreeplayState.hx`) e a seleção de
+dificuldade dentro dela.
 
 ## Regra de trabalho desta rodada
 

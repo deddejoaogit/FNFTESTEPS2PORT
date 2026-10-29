@@ -365,6 +365,17 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -6 /tmp/fnf_gameover.log
+
+    # PAUSA: abrir, congelar (o relogio nao anda), desenhar, e voltar pelos tres
+    # caminhos -- Resume do mesmo ponto, Restart Song e Change Difficulty.
+    echo
+    echo "== pausa no harness (congelar, Resume, Restart, Change Difficulty) =="
+    if ! sh tools/run_pause_harness.sh 5800 > /tmp/fnf_pause.log 2>&1; then
+        tail -24 /tmp/fnf_pause.log
+        echo "  FALHA: a pausa nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_pause.log
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

@@ -186,6 +186,54 @@ static s32 g_countdown_left=0,g_countdown_step=0,g_countdown_beat=0,g_chart_cloc
    g_gameover_drawn serve de prova, como g_result_drawn: "o estado existe" nao
    e' o mesmo que "desenhou alguma coisa". */
 static int g_gameover_frames=0,g_gameover_drawn=0;
+/* PAUSA (ui_state continua 8: no original a pausa e' um SUBSTATE, o PlayState
+   continua atras, congelado). g_pause_mode 0 = menu padrao, 1 = troca de
+   dificuldade. As entradas do menu padrao sao as do original
+   (PAUSE_MENU_ENTRIES_STANDARD), menos "Enable Practice Mode": o Practice Mode
+   do original e' um modo de jogo inteiro (sem morte e comecando numa secao) e
+   ainda nao existe no port -- a entrada entra quando o modo existir, porque
+   oferecer uma entrada que nao faz o que promete e' pior que nao oferecer. */
+static int g_paused=0,g_pause_sel=0,g_pause_frame=0,g_pause_mode=0,g_pause_drawn=0;
+/* Gancho opcional do harness de PC. Fraco de proposito: no console o simbolo
+   nao existe, o ponteiro e' nulo e nada acontece. */
+extern void ps2h_song_clock(unsigned int) __attribute__((weak));
+static void (*const ps2h_song_clock_hook)(unsigned int)=ps2h_song_clock;
+/* deathCounter do PlayState: o original incrementa a cada morte e mostra no
+   menu de pausa como "N Blue Balls". */
+static int g_death_counter=0;
+#define PAUSE_ENTRADAS_PADRAO 4
+
+/* Dois caminhos fazem exatamente a mesma coisa a partir de dois lugares (o
+   Restart Song da pausa e o reinicio do game over), e por isso eles saem daqui
+   em vez de duas copias que podem divergir: zerar o transporte, o relogio, o
+   cursor do chart, os tallies, a camera e a contagem regressiva, e rebobinar o
+   audio. Usam variaveis de main() de proposito -- sao macros, nao funcoes,
+   para nao passar quinze ponteiros. */
+#define PLAY_REBOBINAR_AUDIO(fd) do{ \
+    if((fd)>=0){lseek((fd),0,SEEK_SET); \
+     if(audio_ring_reset()==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;}} \
+  }while(0)
+#define PLAY_REINICIAR_MUSICA() do{ \
+    audsrv_stop_audio();audio_playing=0;audio_started=0;audio_submitted=0;music_clock=0; \
+    music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0; \
+    g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0; \
+    g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
+    chart_events_reset(g_official_mainstage_camera_zoom,1.0f); \
+    g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
+    g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
+    tutorial_notes_reset(); \
+    g_countdown_beat=(s32)(4u*g_play_samples_per_step); \
+    if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP); \
+    g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left; \
+  }while(0)
+/* Volta a tocar do ponto em que a pausa pegou. */
+#define PLAY_RETOMAR_AUDIO(fd,amostra) do{ \
+    if((fd)>=0){int _fim;audsrv_stop_audio();audio_ring_stop(); \
+     _fim=(int)lseek((fd),0,SEEK_END); \
+     if(_fim>0){u64 _bp=(u64)(amostra)*8u;if(_bp>(u64)(u32)_fim)_bp=(u64)(u32)_fim;lseek((fd),(int)_bp,SEEK_SET);} \
+     if(audio_ring_start((fd))==0){audio_submitted=(amostra);music_clock_tick=GetTimerSystemTime(); \
+      music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=1;transport_state=2;}} \
+  }while(0)
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
@@ -833,17 +881,36 @@ static int audio_play_complete(const char *data,int bytes){int off=0,guard=2000;
 static int tutorial_audio_mix_submit(int voices_enabled){
  short *samples=(short*)g_audio_pcm;
  int i,n;
- if(audsrv_available()<AUDIO_READ_CHUNK||audio_ring_level()<STEM_READ_CHUNK)return 0;
+ if(audsrv_available()<AUDIO_READ_CHUNK)return 0;
+ /* Antes: `if(audio_ring_level()<STEM_READ_CHUNK)return 0;` e depois exigir que
+    audio_ring_take() entregasse o bloco inteiro. No fim do arquivo sobra um
+    resto menor que o bloco, que nunca era consumido: o anel nunca esvaziava,
+    audio_ring_eof() ja' era verdadeiro e a musica NUNCA terminava -- o fim de
+    musica dependia de o arquivo ter tamanho multiplo do bloco lido. Medido:
+    depois de retomar da pausa sobravam 1.280 bytes presos no anel. */
+ if(audio_ring_level()<STEM_READ_CHUNK&&!audio_ring_eof())return 0;
  n=audio_ring_take(g_audio_pcm,STEM_READ_CHUNK);
- if(n!=STEM_READ_CHUNK)return n<0?n:0;
- for(i=0;i<STEM_READ_CHUNK/8;i++){
+ if(n<=0){
+  if(!audio_ring_eof())return 0;
+  n=audio_ring_take_available(g_audio_pcm,STEM_READ_CHUNK);
+  n-=(n&7);   /* so' amostras inteiras: 8 bytes = 2 canais x 2 fontes */
+  if(n<=0)return 0;
+ }
+ for(i=0;i<n/8;i++){
   int left=(int)samples[i*4]+(voices_enabled?(int)samples[i*4+2]:0);
   int right=(int)samples[i*4+1]+(voices_enabled?(int)samples[i*4+3]:0);
   if(left>32767)left=32767;else if(left<-32768)left=-32768;
   if(right>32767)right=32767;else if(right<-32768)right=-32768;
   samples[i*2]=(short)left;samples[i*2+1]=(short)right;
  }
- return audio_play_complete((const char*)g_audio_pcm,AUDIO_READ_CHUNK);
+ /* ATENCAO ao fator: o anel entrega 8 bytes por amostra (instrumental +
+    vozes, 16 bits por canal), e o mixer escreve 4 bytes por amostra (estereo).
+    Entao o bloco de SAIDA tem n/2 bytes. Antes o codigo lia STEM_READ_CHUNK e
+    enviava AUDIO_READ_CHUNK -- que e' exatamente a metade -- e por isso parecia
+    certo. Enviar `n` dobrava o audio entregue ao audsrv, e o relogio da musica
+    (limitado por audio_submitted) passava a correr o dobro: medido, o relogio
+    chegou a 4.755.264 amostras num arquivo de 3.225.600. */
+ return audio_play_complete((const char*)g_audio_pcm,n/2);
 }
 static int audio_init(void){int result=-1;if(SifLoadModule("rom0:LIBSD",0,NULL)<0)return -1;if(SifExecModuleBuffer(audsrv_irx,size_audsrv_irx,0,NULL,&result)<0||result<0)return -2;if(audsrv_init()!=0)return -3;if(audio_set_stream(70)<0)return -4;return 0;}
 static int menu_audio_prime(void){int total=0,guard=1000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=32;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int j;if(audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK)!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,AUDIO_READ_CHUNK);if(j<=0)break;total+=j;g_title_audio_submitted+=(u32)(j/4);}telemetry_event("menu_prime",total,audsrv_queued());return total;}
@@ -1707,14 +1774,18 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      audio deste jogo, entao o caminho saudavel sai pela mesma condicao de
      antes. Quando o limite ou o erro pegam, fica registrado em AUDIO_STALL. */
   if((ui_state==0||ui_state==6||ui_state==7)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){int voltas=0;while(audsrv_available()>=AUDIO_READ_CHUNK){int n;int j;if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);else{frame_mark("A.STOP_ERRO",j);break;}}else break;} }
-  if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0){
+  if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0&&!g_paused){
    /* A musica so' comeca depois da contagem: no original startSong() e'
       chamado quando o Conductor chega em 0 (PlayState.hx:1144-1151). */
    if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&g_countdown_left<=0&&audio_ring_level()>=65536){
     audio_started=1;clock_hold=0;music_clock_tick=begin;music_clock_fraction=0;transport_state=2;
     telemetry_event("tutorial_audio_start",(int)frame_no,(int)audio_ring_level());
    }
-   if(audio_started&&audio_playing&&audsrv_available()>=AUDIO_READ_CHUNK&&audio_ring_level()>=STEM_READ_CHUNK){
+   /* Sem exigir `audio_ring_level()>=STEM_READ_CHUNK` aqui: no fim do arquivo
+      sobra um resto menor que o bloco, e essa exigencia impedia o mixer de ser
+      chamado -- o resto ficava preso no anel para sempre e a musica nunca
+      terminava. Quem decide o que ha' para enviar e' o mixer. */
+   if(audio_started&&audio_playing&&audsrv_available()>=AUDIO_READ_CHUNK){
     int submitted=tutorial_audio_mix_submit(voices_enabled);
     /* UM BLOCO CURTO NAO PODE MATAR A MUSICA.
        Antes, qualquer valor diferente de AUDIO_READ_CHUNK marcava
@@ -1759,7 +1830,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    u32 advance=(u32)(scaled/(u64)kBUSCLK);
    music_clock_fraction=scaled%(u64)kBUSCLK;
    music_clock_tick=begin;
-   if(ui_state==8&&g_countdown_left>0){
+   if(g_paused){
+    /* Pausado: nada avanca. O substate do original para o PlayState inteiro
+       (shouldSubstatePause), entao relogio, contagem e musica ficam parados. */
+   }else if(ui_state==8&&g_countdown_left>0){
     g_countdown_left-=(s32)advance;
     if(g_countdown_left<0)g_countdown_left=0;
     {s32 st=(s32)(5-(g_countdown_left+(g_countdown_beat-1))/g_countdown_beat);
@@ -1782,6 +1856,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      Conductor ja' foi para -5 batidas e as notas do inicio ja' descem. Sem
      isso o campo de notas ficaria congelado 5 batidas e pularia de uma vez. */
   g_chart_clock=(g_countdown_left>0)?-(s32)g_countdown_left:(s32)music_clock;
+  /* Gancho do harness (fraco: no console o simbolo nao existe e o if e' falso).
+     Ele permite ao roteiro do PC apertar uma tecla quando a MUSICA chega em tal
+     amostra, em vez de num quadro fixo -- o relogio da musica anda por tempo, e
+     por quadro o aperto erra assim que o tempo por quadro muda. */
+  if(ps2h_song_clock_hook)ps2h_song_clock_hook(g_chart_clock<0?0u:(u32)g_chart_clock);
   heard=music_clock;
   frame_mark("F.CLOCK",(int)music_clock);
   if(ui_state==8&&audio_started&&g_chart_status==0){
@@ -1809,7 +1888,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     /* the anim name's first byte and the force flag, packed into one word */
     telemetry_event("tut_play_anim",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
    }}
-  if(ui_state==8&&audio_started)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
+  if(ui_state==8&&audio_started&&!g_paused)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* MORTE -> GAME OVER.
      PlayState.hx:1255: `if (health <= Constants.HEALTH_MIN && !isPracticeMode
      && !isPlayerDying)` -> pausa a musica/vozes e chama moveToGameOver(), que
@@ -1818,6 +1897,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      o jogo continuava como se nada tivesse acontecido -- dava para terminar a
      musica morto. */
   if(ui_state==8&&g_play.dead&&g_tutorial_scene_ready){
+   g_death_counter++;
    telemetry_event("play_death",(int)g_play.missed,(int)frame_no);
    audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;
    clock_hold=1;music_clock_tick=0;music_clock_fraction=0;
@@ -2013,6 +2093,69 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(audio_ring_reset()==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;telemetry_event("tutorial_audio_replay",(int)frame_no,0);}
    else g_tutorial_audio_status=-7;
   }
+  /* PAUSA (PauseSubState.hx).
+     Abre no START, congela o jogo, escurece a tela com um retangulo preto
+     alfa 0,6 (transitionIn(): tween de alpha 0 -> 0,6 em 0,8 s com quartOut) e
+     mostra o menu. O primeiro quadro depois de abrir nao aceita entrada --
+     e' o `justOpened` do original, que existe para o mesmo START que abriu nao
+     fechar na hora. */
+  if(ui_state==8&&transition_frame==0&&g_tutorial_scene_ready&&!g_play.dead){
+   if(!g_paused&&(pressed&PAD_START)&&!(g_held&PAD_SELECT)&&!g_tutorial_audio_finished){
+    g_paused=1;g_pause_sel=0;g_pause_frame=0;g_pause_mode=0;g_pause_drawn=0;
+    audsrv_stop_audio();audio_playing=0;audio_ring_stop();transport_state=3;
+    telemetry_event("pause_open",(int)music_clock,(int)frame_no);
+   }else if(g_paused){
+    g_pause_frame++;
+    if(g_pause_frame>=2){
+     /* Entradas visiveis neste modo. */
+     int n_sel=g_pause_mode?0:PAUSE_ENTRADAS_PADRAO,song_diffs=0,diff_list[3],n_ent,d,i;
+     const char*diff_names[3]={"EASY","NORMAL","HARD"};
+     unsigned int mask=(g_play_song?g_play_song->difficulties:SR_DIFF_ALL);
+     if(g_pause_mode){
+      for(d=0;d<3;d++)if(mask&(1u<<d))diff_list[song_diffs++]=d;
+      n_sel=song_diffs+1;   /* as dificuldades e, no fim, o "Back" */
+     }
+     n_ent=n_sel;
+     if(pressed&PAD_UP){g_pause_sel=(g_pause_sel+n_ent-1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
+     else if(pressed&PAD_DOWN){g_pause_sel=(g_pause_sel+1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
+     if(pressed&PAD_START){g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
+      PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
+     }else if((pressed&PAD_CROSS)&&n_ent>0){
+      if(!g_pause_mode){
+       if(g_pause_sel==0){ /* Resume */
+        g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
+        PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
+       }else if(g_pause_sel==1){ /* Restart Song: mesmo reinicio do game over */
+        g_paused=0;
+        PLAY_REINICIAR_MUSICA();
+        PLAY_REBOBINAR_AUDIO(audio_fd);
+        telemetry_event("pause_restart",(int)frame_no,0);
+       }else if(g_pause_sel==2){ /* Change Difficulty */
+        g_pause_mode=1;g_pause_sel=0;telemetry_event("pause_difficulty",(int)mask,0);
+       }else{ /* Exit to Menu */
+        g_paused=0;
+        audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;
+        g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;
+        telemetry_event("pause_exit",(int)frame_no,0);
+       }
+      }else{
+       /* Modo dificuldade: as entradas sao as dificuldades da musica (as que o
+          registro diz que existem) e, no fim, "Back". */
+       for(d=0;d<3;d++)if(mask&(1u<<d))diff_list[song_diffs++]=d;
+       if(g_pause_sel<song_diffs){
+        /* Trocar a dificuldade recarrega o chart: a entrada do PlayState
+           recarrega cena, chart e audio, como o restartPlayState do original. */
+        story_diff=diff_list[g_pause_sel];
+        g_paused=0;g_pause_mode=0;g_pause_sel=0;
+        g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
+        target_state=8;transition_frame=1;transitions++;
+        telemetry_event("pause_change_difficulty",(int)story_diff,(int)frame_no);
+       }else{g_pause_mode=0;g_pause_sel=2;telemetry_event("pause_back",0,0);}
+      }
+     }else if((pressed&PAD_CIRCLE)&&g_pause_mode){g_pause_mode=0;g_pause_sel=2;telemetry_event("pause_back",0,0);}
+    }
+   }
+  }
   /* GAME OVER: entrada, reinicio e saida.
      CROSS reinicia a musica e CIRCLE volta ao Story Menu, como no original
      (ACCEPT_P -> confirmDeath() -> needsReset; BACK_P -> goBack()). Antes de
@@ -2023,22 +2166,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     /* Reinicio NO LUGAR: o original fecha o substate e marca needsReset, e o
        PlayState se reinicia. Aqui a cena ja' esta' carregada, entao o que
        precisa voltar ao comeco e' o transporte, o relogio, o cursor do chart,
-       os tallies e a contagem regressiva. */
-    audsrv_stop_audio();audio_playing=0;audio_started=0;audio_submitted=0;music_clock=0;
-    music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;
-    g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0;
-    g_chart_last_type=g_chart_last_value=g_chart_last_sample=0;
-    chart_events_reset(g_official_mainstage_camera_zoom,1.0f);
-    g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;
-    g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;
-    tutorial_notes_reset();
-    g_countdown_beat=(s32)(4u*g_play_samples_per_step);
-    if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);
-    g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;
-    if(audio_fd>=0){
-     lseek(audio_fd,0,SEEK_SET);
-     if(audio_ring_reset()==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;}
-    }
+       os tallies, a camera e a contagem regressiva (PLAY_REINICIAR_MUSICA,
+       a mesma macro que o Restart Song da pausa usa). */
+    PLAY_REINICIAR_MUSICA();
+    PLAY_REBOBINAR_AUDIO(audio_fd);
     ui_state=8;target_state=-1;transition_frame=0;transform_mode=0;last=-1;last2=-1;
     telemetry_event("state",8,(int)frame_no);
     telemetry_event("gameover_restart",(int)frame_no,(int)g_play.health);
@@ -2342,6 +2473,50 @@ q=hud_score_line(q,TUT_VER_TXT,(int)(sizeof(TUT_VER_TXT)-1),632.5f,345.5f,2,0,0,
 q=hud_score_line(q,TUT_VER_TXT,(int)(sizeof(TUT_VER_TXT)-1),632.0f,345.0f,2,128,128,128,128);
 q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   q=bind_texture_filter(q,&fonttex,1);
+  /* SOBREPOSICAO DA PAUSA (ui_state continua 8).
+     Fundo preto com alpha subindo de 0 a 0,6 em 0,8 s por FlxEase.quartOut
+     (PauseSubState.transitionIn + bgColor 0x99000000 = 60 % de preto) e o menu
+     por cima. As entradas ficam em y = 70*i + 30 e x = 0 nas coordenadas de
+     1280x720 do original (clearAndAddMenuEntries), ou seja metade disso em
+     640x360. O texto do original e' AtlasText com as letras dobradas de
+     tamanho; aqui e' a fonte do port. */
+  if(ui_state==8&&g_paused){
+   char lb[64];int i,q0=g_frame_texture_quads;
+   static const char*padrao[PAUSE_ENTRADAS_PADRAO]={"RESUME","RESTART SONG","CHANGE DIFFICULTY","EXIT TO MENU"};
+   static const char*dnames[3]={"EASY","NORMAL","HARD"};
+   unsigned int mask=(g_play_song?g_play_song->difficulties:SR_DIFF_ALL);
+   int n_ent=PAUSE_ENTRADAS_PADRAO,list[3],nd=0;
+   float t=(float)g_pause_frame/(0.8f*60.0f),a;
+   if(t>1.0f)t=1.0f;
+   /* FlxEase.quartOut: 1-(1-t)^4 */
+   {float u=1.0f-t;a=1.0f-u*u*u*u;}
+   if(g_pause_mode){
+    for(i=0;i<3;i++)if(mask&(1u<<i))list[nd++]=i;
+    n_ent=nd+1;
+   }
+   q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
+   band_set(SCISSOR_TOPO,SCISSOR_BASE);
+   q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,(unsigned char)(153.0f*a));
+   q=bind_texture_filter(q,&fonttex,1);
+   for(i=0;i<n_ent;i++){
+    const char*txt;
+    unsigned char alpha=(i==g_pause_sel)?(unsigned char)128:77;
+    if(!g_pause_mode)txt=padrao[i];
+    else if(i<nd)txt=dnames[list[i]];
+    else txt="BACK";
+    q=text_draw_alpha(q,txt,6.0f,15.0f+35.0f*(float)i,0.85f,0,alpha);
+   }
+   /* Texto de metadados do original (canto superior direito): nome da musica,
+      dificuldade e o contador de "Blue Balls" (mortes). */
+   snprintf(lb,sizeof(lb),"%s",g_play_song?g_play_song->display_name:"?");
+   q=text_draw_alpha(q,lb,634.0f,15.0f,0.7f,2,128);
+   snprintf(lb,sizeof(lb),"%s",(story_diff==0)?"EASY":(story_diff==2)?"HARD":"NORMAL");
+   q=text_draw_alpha(q,lb,634.0f,33.0f,0.7f,2,128);
+   snprintf(lb,sizeof(lb),"%d BLUE BALLS",g_death_counter);
+   q=text_draw_alpha(q,lb,634.0f,51.0f,0.7f,2,128);
+   q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
+   if(!g_pause_drawn){g_pause_drawn=1;telemetry_event("pause_draw",g_frame_texture_quads-q0,(int)g_pause_mode);}
+  }
   /* GAME OVER (ui_state 10).
      O original cobre a tela com um retangulo PRETO opaco (FunkinSprite
      makeSolidColor(FlxG.width*2, FlxG.height*2, BLACK) com alpha 1.0 --
@@ -2357,7 +2532,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,255);
    q=bind_texture_filter(q,&fonttex,1);
    q=text_draw(q,"GAME OVER",320,150,2.0f,1);
-   n=snprintf(lb,sizeof(lb),"MISSES %d",g_play.missed);
+   snprintf(lb,sizeof(lb),"MISSES %d",g_play.missed);
    q=text_draw(q,lb,320,196,0.9f,1);
    if(g_gameover_frames<60)q=text_draw(q,"...",320,238,0.9f,1);
    else q=text_draw(q,"CROSS  RETRY      CIRCLE  EXIT",320,238,0.75f,1);
@@ -2372,22 +2547,22 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      conclusao; e' o mesmo conjunto. Falta a arte, o som e as animacoes da
      tela original -- estes ficam na Fase 3 do plano. */
   if(ui_state==9){
-   char lb[64];int n,q0=g_frame_texture_quads;
+   char lb[64];int q0=g_frame_texture_quads;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
    q=bind_texture_filter(q,&fonttex,1);
    q=text_draw(q,"RESULTS",320,72,1.6f,1);
    q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),320,104,1.4f,1);
-   n=snprintf(lb,sizeof(lb),"SCORE %d",(int)g_play.score);
+   snprintf(lb,sizeof(lb),"SCORE %d",(int)g_play.score);
    q=text_draw(q,lb,320,140,1.1f,1);
-   n=snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
+   snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
    q=text_draw(q,lb,320,168,0.9f,1);
-   n=snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
+   snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
    q=text_draw(q,lb,320,190,0.9f,1);
-   n=snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
+   snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
    q=text_draw(q,lb,320,216,0.9f,1);
-   n=snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
+   snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
    q=text_draw(q,lb,320,242,1.1f,1);
    q=text_draw(q,"CROSS  CONTINUE",320,272,0.8f,1);
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);

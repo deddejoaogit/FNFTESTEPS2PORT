@@ -25,8 +25,11 @@
 #   o roteiro e' deterministico e o acerto e' o esperado. Algumas notas sao
 #   deixadas de fora de proposito para que o caminho de MISS tambem rode.
 #
-# O quadro em que a musica chega em 0 NAO e' chutado: vem do log da primeira
-# passada (`tutorial_audio_start`). Duas passadas, ambas medidas.
+# O roteiro e' em AMOSTRAS, nao em quadros (PS2H_INPUT_AMOSTRAS): o jogo avisa o
+# harness em que amostra a musica esta', e a tecla sai quando ela chega ali. Por
+# quadro o roteiro erra assim que o tempo por quadro muda -- e muda, porque o
+# relogio da musica anda por tempo e os DelayThread do audio tambem andam no
+# tempo virtual do harness.
 #
 # Uso:  tools/run_gameplay_harness.sh [quadros]
 set -u
@@ -41,31 +44,20 @@ CHART=build/harness_assets/FNFPS2/assets/songs/tutorial/normal.chart
 # a quarta entra no jogo).
 ENTRADA="200:CROSS,420:CROSS,600:CROSS,760:CROSS,820:CROSS,880:CROSS,940:CROSS"
 
-rm -f "$LOG"
-echo "== gameplay: passada 1 (so' entra no jogo, para achar o quadro zero) =="
-PS2H_INPUT="$ENTRADA" sh tools/run_harness.sh 1400 >/dev/null 2>&1 || {
-    echo "  FALHA: o harness nao terminou a passada 1"; exit 1; }
-ZERO=$(awk -F, '$1=="E" && $3=="tutorial_audio_start" {print $4; exit}' "$LOG")
-if [ -z "$ZERO" ]; then
-    echo "  FALHA: a musica nao comecou na passada 1 (sem tutorial_audio_start)"
-    exit 1
-fi
-echo "  musica em 0 no quadro ....... $ZERO"
-
 if [ ! -f "$CHART" ]; then
     echo "  FALHA: falta $CHART (rode tools/gen_harness_assets.py)"
     exit 1
 fi
-TECLAS=$(python3 tools/harness_presses.py "$CHART" "$ZERO" --pular 3) || {
+TECLAS=$(python3 tools/harness_presses.py "$CHART" --pular 3) || {
     echo "  FALHA: nao consegui gerar o roteiro a partir do chart"; exit 1; }
 # grep -c . e nao wc -l: a ultima entrada nao tem quebra de linha, e wc -l
 # contava uma a menos do que o roteiro tinha.
 NOTAS=$(printf '%s' "$TECLAS" | tr ',' '\n' | grep -c .)
-echo "  pressoes geradas do chart ... $NOTAS"
+echo "== gameplay: apostando nas notas do chart ($NOTAS pressoes em amostras) =="
 
 rm -f "$LOG"
-echo "== gameplay: passada 2 (acertando as notas do chart) =="
-PS2H_INPUT="$ENTRADA,$TECLAS" sh tools/run_harness.sh "$FRAMES" || exit 1
+PS2H_INPUT="$ENTRADA" PS2H_INPUT_AMOSTRAS="$TECLAS" \
+    sh tools/run_harness.sh "$FRAMES" || exit 1
 
 if [ ! -f "$LOG" ]; then
     echo "  FALHA: o jogo nao gravou $LOG"

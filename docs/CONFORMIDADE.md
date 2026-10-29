@@ -65,7 +65,12 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
    `fnf_play_completion()` devolve 0 com total zero e o rank saía `NONE`
    (`-1`) em qualquer música. Encontrado no harness (`play_result,-1,0`), não
    por leitura. Ordem corrigida e `play_total_notes` posta no log.
-4. **Um bloco curto de áudio matava a música** (`tutorial_audio_mix_submit`).
+4. **O fim da música dependia do tamanho do arquivo.** O resto do áudio menor
+   que o bloco de leitura ficava preso no anel; `audio_ring_eof()` era
+   verdadeiro, o anel nunca esvaziava e a música não terminava. Medido: 1.280
+   bytes presos depois de retomar da pausa. Corrigido com
+   `audio_ring_take_available()`.
+5. **Um bloco curto de áudio matava a música** (`tutorial_audio_mix_submit`).
    Corrigido na mesma rodada; ver `docs/PLANO_COMPLETO.md`, Fase 2.
 
 ## B — lido e conferido, sem teste que trave
@@ -79,6 +84,7 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 | ícones de vida | `HealthIcon.updatePosition()` (`HealthIcon.hx:269-293`) | desenhados nas duas pontas da barra; posição fixa ainda, sem o remap da fórmula |
 | easings | 13 nomes, sem cubic/sine | `chart_ease_names` |
 | tela de resultado: conteúdo | `ResultState.hx` mostra rank, placar, tallies, maior combo e `%` (`:578-583`) | `ui_state 9` desenha os mesmos campos, dos mesmos `fnf_play_*` que julgaram | teste: rank != NONE e >= 1 quad na tela 9 |
+| pausa | `PauseSubState.hx`: substate sobre o PlayState congelado, fundo preto alpha 0,6 em 0,8 s `quartOut`, `y = 70·i + 30`, `justOpened` | `g_paused` mantendo `ui_state 8`, `153·quartOut(t)`, `15 + 35·i` | teste: 1 valor de relógio em toda a pausa, Resume no mesmo ponto, música fecha em 3.225.600 |
 | game over | `PlayState.hx:1255` dispara em `health <= HEALTH_MIN`; `moveToGameOver()` zera placar e vida; `GameOverSubState` abre sem transição e bloqueia entrada por 1 s | `ui_state 10`, `fnf_play_move_to_game_over`, 60 quadros de bloqueio | teste: morte com 13 misses, tela desenhada, reinício tocando de novo |
 | contagem regressiva | `Countdown.hx`: Conductor em -5 batidas, `FlxTimer` de uma batida, 5 voltas, alpha 1→0 em `FlxEase.cubeInOut` | `countdown_*` em `main.c` com batida = 4 passos do chart | teste: 5 passos, e música só começa depois do AFTER |
 | total de notas do resultado | `tallies.totalNotes` = notas do jogador | `fnf_play_reset` com `must_press` contados **após** o chart carregar | teste: `play_total_notes` = 32 no Tutorial normal |
@@ -96,7 +102,9 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 - a ARTE e o SOM da contagem regressiva (o tempo e a curva são do original; o
   desenho é texto e os sons do `noteStyle` não estão no pacote);
 - a ARTE de morte (animação `firstDeath` do personagem) e a música de game over;
-- pausa e Freeplay: ainda não existem no port.
+- a arte do menu de pausa (ícone, círculo, AtlasFont) e a música de pausa;
+- "Enable Practice Mode": depende do Practice Mode, que ainda não existe;
+- Freeplay: ainda não existe no port.
 
 ## Regra para as próximas fases
 
