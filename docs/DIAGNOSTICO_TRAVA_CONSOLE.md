@@ -49,6 +49,17 @@ cabem nisso e o arquivo sozinho não decide:
 - **(b)** o log abriu e a primeira escrita falhou: `flush_output()` marca
   `output_error = 1` e **tudo** é descartado a partir dali, por projeto.
 
+## Versões
+
+- **0.2.116-diagnostico** é a build do diagnóstico deste documento. O código
+  dela está no commit `9047630` do ramo `arena/9d71e796-fnftesteps2port`; se
+  precisar regerar exatamente aquele ELF, é `git checkout 9047630 -- .` e
+  `make`.
+- Da 0.2.117 em diante o jogo tem o mapa de VRAM conferido e o framebuffer de
+  16 bits (ver `PLANO_COMPLETO.md`, Fase 4). **Nada do diagnóstico mudou**:
+  os mesmos `capture_status`, o mesmo `CSR`/`VIF1_STAT`, os mesmos marcos de
+  quadro. Um log de 0.2.117 serve para o mesmo diagnóstico que um de 0.2.116.
+
 ## Plano da build 0.2.116-diagnostico (só coleta, nenhum conserto)
 
 Regra 4 do projeto: sem dado não se conserta, coleta-se. Nada de evento do jogo

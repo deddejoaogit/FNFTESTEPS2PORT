@@ -104,6 +104,9 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
   certo;
 - geometria da tela de resultado (só o conteúdo foi ligado; posições e arte não
   foram conferidas contra `ResultState.hx`);
+- **a APARÊNCIA do framebuffer de 16 bits**: o GS recebe os registradores
+  certos (provado no harness, `vram_mapa 0`), mas dithering, banda de cor e a
+  captura PSMCT16 só se julgam numa tela;
 - a ARTE e o SOM da contagem regressiva (o tempo e a curva são do original; o
   desenho é texto e os sons do `noteStyle` não estão no pacote);
 - a ARTE de morte (animação `firstDeath` do personagem) e a música de game over;

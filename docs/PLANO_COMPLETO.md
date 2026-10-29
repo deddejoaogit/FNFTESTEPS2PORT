@@ -129,6 +129,10 @@ Agora `src/engine/vram_layout.{h,c}` é o mapa, em tabela, e
 | total | 1.017.856 palavras = 4.071.424 B — **cabe** em 4.194.304 B |
 | livre | 30.720 palavras = 122.880 B |
 
+(Este quadro é o estado logo depois de a fonte encolher. O framebuffer de 16
+bits, na seção seguinte, muda todos esses endereços para baixo — os números
+finais estão lá.)
+
 E o harness passou a rodar a **conta de verdade**: `graph_vram_allocate()` no
 `test/ps2harness/ps2h.c` devolvia `0` sempre, então no PC todas as texturas
 ficavam no mesmo endereço e nenhum teste notava. O corpo agora é o de
@@ -152,6 +156,46 @@ antes só havia 24.576 B livres. Evento `vram_mapa` no log: `0` divergências.
 
 Medido: `tools/run_gameplay_harness.sh 5600` → PASSOU; `test/run_tests.sh`
 completo → `ALL SUITES PASSED`.
+
+#### Fechado: framebuffer 640×448 em 16 bits (PSMCT16)
+
+O par de buffers de quadro era PSMCT32: 286.720 palavras cada, **573.440 no
+par**. Em PSMCT16 cada um cai para 143.360 e o par para 286.720 —
+**1.146.880 bytes de VRAM de volta**, com a resolução *igual*. Nenhuma
+coordenada de nada mudou: o que muda é a profundidade de cor da tela.
+
+| | antes (PSMCT32) | agora (PSMCT16) |
+|---|---|---|
+| framebuffer | 1.146.880 B | 573.440 B |
+| par de framebuffers | 2.293.760 B | 1.146.880 B |
+| VRAM usada no total | 4.071.424 B | **2.924.544 B** |
+| VRAM livre | 122.880 B | **1.269.760 B** |
+| endereço da `tex` | 573.440 | 286.720 |
+| endereço da `fonttex` | 944.128 | 657.408 |
+
+O que vem junto e é obrigatório:
+
+- `draw_enable_dither16()`: `draw_setup_environment()` do ps2sdk **desliga** o
+  dither a cada quadro (o padrão dele assume framebuffer de 32 bits). Sem
+  dither, 5 bits por canal mostram escada em qualquer degradê. São 2 quadwords
+  por quadro, nas três montagens de pacote (menu, jogo e títulos do story).
+- O `FBA` o ps2sdk já escolhe sozinho: ele lê `frame->psm` e põe
+  `ALPHA_CORRECT_RGBA16` quando o framebuffer é de 16 bits.
+- A captura de tela (`safe_readback_rect` + `capture_framebuffer_raw`) agora lê
+  2 bytes por pixel (`QWC = largura*altura/8`, `BITBLTBUF`/`TRXREG` em PSMCT16)
+  e **expande de volta para 32 bits no próprio buffer, de trás para frente**.
+  O arquivo `.rgba.txt` continua idêntico ao de antes, byte por byte na
+  ordem R,G,B,A com A=255 — as ferramentas que leem a captura não mudam.
+
+Provado no PC: mapa de VRAM com `vram_mapa 0` (calculado × alocado, oito slots
+iguais), `tools/run_gameplay_harness.sh 5600` PASSOU, suíte inteira
+`ALL SUITES PASSED`.
+
+**O que NÃO está provado:** como isso *aparece*. O harness não tem tela — ele
+prova que o GS recebeu os registradores certos, não que o dither ficou bom nem
+que a captura PSMCT16 sai legível. Isso só o console responde, e é a primeira
+coisa a olhar na próxima build (o log já traz `capture_status` e o
+`screen_capture_raw`).
 
 ### Fase 5 — Otimização medida
 

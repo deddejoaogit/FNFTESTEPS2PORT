@@ -19,10 +19,13 @@ static int falhas;
 int main(void)
 {
     printf("== vram: conta de tamanho igual ao ps2sdk ==\n");
-    /* 640x448 PSMCT32: 640*448 = 286.720 palavras = 1.146.880 bytes.
-       E' o numero que a documentacao do projeto usa. */
+    /* 640x448 PSMCT32: 640*448 = 286.720 palavras = 1.146.880 bytes. E' o que o
+       port usava em cada framebuffer ate' a Fase 4. */
     CHECK_EQ(vl_size_words(640, 448, VL_PSM_32, VL_ALINHAMENTO_PAGINA), 286720u);
-    CHECK_EQ(vl_bytes(VL_FB0), 1146880u);
+    /* 640x448 PSMCT16: 640*(448/2) = 143.360 palavras = 573.440 bytes --
+       metade, com a MESMA resolucao. E' o que o port usa agora. */
+    CHECK_EQ(vl_size_words(640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA), 143360u);
+    CHECK_EQ(vl_bytes(VL_FB0), 573440u);
     /* 320x64 PSMCT16: 320*(64/2) = 10.240 palavras = 40.960 bytes. */
     CHECK_EQ(vl_size_words(320, 64, VL_PSM_16, VL_ALINHAMENTO_BLOCO), 10240u);
     CHECK_EQ(vl_bytes(VL_GFTEX16), 40960u);
@@ -34,28 +37,38 @@ int main(void)
        de textura que a documentacao cita (737.280 para a gftex) ficam errados
        e isso tem de aparecer aqui, nao no console. */
     CHECK_EQ(vl_address(VL_FB0), 0u);
-    CHECK_EQ(vl_address(VL_FB1), 286720u);
-    CHECK_EQ(vl_address(VL_TEX), 573440u);
-    CHECK_EQ(vl_address(VL_TEX2), 655360u);
-    CHECK_EQ(vl_address(VL_GFTEX), 737280u);
+    CHECK_EQ(vl_address(VL_FB1), 143360u);
+    CHECK_EQ(vl_address(VL_TEX), 286720u);
+    CHECK_EQ(vl_address(VL_TEX2), 368640u);
+    CHECK_EQ(vl_address(VL_GFTEX), 450560u);
+    CHECK_EQ(vl_address(VL_GFTEX16), 516096u);
+    CHECK_EQ(vl_address(VL_STAGETEX), 526336u);
+    CHECK_EQ(vl_address(VL_FONTTEX), 657408u);
 
     printf("== vram: cabe em 4 MiB ==\n");
     CHECK(vl_fits());
     CHECK(vl_used_words() <= VL_TOTAL_WORDS);
-    /* Medido: o mapa usa 1.017.856 palavras (4.071.424 bytes) e sobram 30.720
-       palavras (122.880 bytes). Antes da fonte encolher eram 24.576 bytes. */
-    CHECK_EQ(vl_used_words(), 1017856u);
-    CHECK_EQ(vl_free_words(), 30720u);
-    CHECK_EQ(vl_free_words() * 4u, 122880u);
+    /* Medido: o mapa usa 731.136 palavras (2.924.544 bytes) e sobram 317.440
+       palavras (1.269.760 bytes). Antes dos dois passos da Fase 4 -- fonte
+       384x192 e framebuffer de 16 bits -- eram 4.071.424 bytes usados e 122.880
+       livres. O ganho total e' 1.245.184 bytes. */
+    CHECK_EQ(vl_used_words(), 731136u);
+    CHECK_EQ(vl_free_words(), 317440u);
+    CHECK_EQ(vl_free_words() * 4u, 1269760u);
 
-    printf("== vram: o que a Fase 4 ganharia com framebuffer de 16 bits ==\n");
-    /* 512x384 PSMCT16 = 98.304 palavras = 393.216 bytes por buffer; o par sai de
-       573.440 palavras para 196.608, libertando 376.832 palavras = 1.507.328
-       bytes. E' o numero que docs/PLANO_COMPLETO.md cita, conferido aqui. */
-    CHECK_EQ(vl_size_words(512, 384, VL_PSM_16, VL_ALINHAMENTO_PAGINA), 98304u);
+    printf("== vram: o que o framebuffer de 16 bits devolveu ==\n");
+    /* O par de buffers sai de 573.440 palavras (dois de 640x448 PSMCT32) para
+       286.720 (dois de 640x448 PSMCT16): 286.720 palavras = 1.146.880 bytes. */
     CHECK_EQ(vl_size_words(640, 448, VL_PSM_32, VL_ALINHAMENTO_PAGINA) * 2u
+             - vl_size_words(640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA) * 2u,
+             286720u);
+    /* E o proximo passo (512x384 PSMCT16) valeria outros 90.112 palavras =
+       360.448 bytes, ao preco de reescalar TODO o desenho em 0,8. Fica
+       registrado aqui como o numero que o passo tem de entregar. */
+    CHECK_EQ(vl_size_words(512, 384, VL_PSM_16, VL_ALINHAMENTO_PAGINA), 98304u);
+    CHECK_EQ(vl_size_words(640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA) * 2u
              - vl_size_words(512, 384, VL_PSM_16, VL_ALINHAMENTO_PAGINA) * 2u,
-             376832u);
+             90112u);
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  vram: mapa exato e dentro da VRAM\n");

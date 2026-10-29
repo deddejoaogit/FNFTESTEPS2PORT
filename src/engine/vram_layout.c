@@ -4,8 +4,12 @@
    enderecos; o boot compara com o alocador real e diz no log se divergiu. */
 static const vl_slot_t g_slots[VL_SLOTS] = {
     /* nome        w    h   psm      alinhamento */
-    { "fb0",      640, 448, VL_PSM_32, VL_ALINHAMENTO_PAGINA },
-    { "fb1",      640, 448, VL_PSM_32, VL_ALINHAMENTO_PAGINA },
+    /* Framebuffers em PSMCT16 (A1B5G5R5): 640*(448/2) = 143.360 palavras
+       cada, contra 286.720 em PSMCT32. O par devolve 286.720 palavras =
+       1.146.880 bytes de VRAM. A resolucao e' a mesma; o que muda e' a
+       profundidade de cor da tela (dithering ligado por quadro). */
+    { "fb0",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
+    { "fb1",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
     { "tex",      320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
     { "tex2",     320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
     { "gftex",    256, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
