@@ -102,6 +102,12 @@ RESULT=$(awk -F, '$1=="S" && $3==9 {n++} END{print n+0}' "$LOG")
 RANK=$(awk -F, '$1=="E" && $3=="play_result" {print $4; exit}' "$LOG")
 PERC=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
 DRAW=$(awk -F, '$1=="E" && $3=="result_draw" {print $4; exit}' "$LOG")
+# Contagem regressiva: os cinco passos tem de acontecer e a musica so' pode
+# comecar DEPOIS do ultimo. E' a ordem do original: startSong() e' chamado
+# quando o Conductor chega em 0, o que so' acontece depois do GO.
+CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
+CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
+CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
 
 echo
 echo "  musica do tutorial iniciada .. $INICIOU vez(es)"
@@ -112,6 +118,7 @@ echo "  acertos que somaram pontos ... $SALTOS"
 echo "  quadros na tela de resultado . $RESULT"
 echo "  rank / clear percent ......... ${RANK:-?} / ${PERC:-?}%"
 echo "  quads desenhados na tela 9 ... ${DRAW:-?}"
+echo "  batida / passos da contagem .. ${CDBEAT:-?} amostras / ${CDPASSOS:-?}"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -128,6 +135,14 @@ FALHA=0
 [ "$RANK" != "-1" ]  || { echo "  FALHA: rank NONE -- o total de notas do chart chegou zerado no julgamento"; FALHA=1; }
 # A tela de resultado tem de DESENHAR, nao so' existir.
 [ "${DRAW:-0}" -gt 0 ] || { echo "  FALHA: a tela de resultado nao desenhou nada"; FALHA=1; }
+[ "${CDPASSOS:-0}" -ge 5 ] || { echo "  FALHA: a contagem regressiva nao passou pelos cinco passos"; FALHA=1; }
+[ -n "${CDBEAT:-}" ] && [ "$CDBEAT" -gt 0 ] || { echo "  FALHA: a batida da contagem saiu zero"; FALHA=1; }
+if [ -n "${CDFIM:-}" ]; then
+    # o quadro de tutorial_audio_start tem de ser MAIOR que o do passo AFTER
+    awk -F, -v fim="$CDFIM" '$1=="E" && $3=="tutorial_audio_start" {if ($2+0 <= fim+0) {print "  FALHA: a musica comecou antes do fim da contagem"; exit 1} exit 0} END{}' "$LOG" || FALHA=1
+else
+    echo "  FALHA: a contagem regressiva nunca terminou (sem passo AFTER)"; FALHA=1
+fi
 
 if [ "$FALHA" != 0 ]; then
     echo

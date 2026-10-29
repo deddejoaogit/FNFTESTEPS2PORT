@@ -170,6 +170,15 @@ static int g_result_wait=0;
    o valor e exige que seja maior que zero. Sem isso, "ui_state 9 apareceu no
    log" so' provaria que o estado existe, nao que alguma coisa foi desenhada. */
 static int g_result_drawn=0;
+/* CONTAGEM REGRESSIVA (Countdown.hx).
+   g_countdown_left: amostras que faltam para ela acabar; 0 = musica liberada.
+   g_countdown_step: 0=BEFORE, 1="3", 2="2", 3="1", 4="GO!", 5=AFTER -- os
+   mesmos seis passos do enum CountdownStep do original.
+   g_countdown_beat: uma batida em amostras (4 passos do chart), que e' o
+   intervalo do FlxTimer da contagem (Countdown.performCountdown).
+   g_chart_clock: relogio do CHART, que e' NEGATIVO durante a contagem. O
+   original ja' move o Conductor para -5 batidas antes de a musica comecar. */
+static s32 g_countdown_left=0,g_countdown_step=0,g_countdown_beat=0,g_chart_clock=0;
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
@@ -831,10 +840,31 @@ static int tutorial_audio_mix_submit(int voices_enabled){
 }
 static int audio_init(void){int result=-1;if(SifLoadModule("rom0:LIBSD",0,NULL)<0)return -1;if(SifExecModuleBuffer(audsrv_irx,size_audsrv_irx,0,NULL,&result)<0||result<0)return -2;if(audsrv_init()!=0)return -3;if(audio_set_stream(70)<0)return -4;return 0;}
 static int menu_audio_prime(void){int total=0,guard=1000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=32;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int j;if(audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK)!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,AUDIO_READ_CHUNK);if(j<=0)break;total+=j;g_title_audio_submitted+=(u32)(j/4);}telemetry_event("menu_prime",total,audsrv_queued());return total;}
-static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align){int len=(int)strlen(s),i;float total=0,cursor;
+static qword_t *text_draw_alpha(qword_t*q,const char*s,float x,float y,float scale,int align,unsigned char alpha){int len=(int)strlen(s),i;float total=0,cursor;
  for(i=0;i<len;i++){unsigned char ch=(unsigned char)s[i];if(ch<32||ch>127)ch='?';total+=g_font_widths[ch-32]*0.5f*scale;}
  if(align==1)x-=total*0.5f;else if(align==2)x-=total;cursor=x;
- for(i=0;i<len;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n,advance;if(ch<32||ch>127)ch='?';n=ch-32;advance=g_font_widths[n];v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y));v.v0.z=0;v.v1.x=FNX_FIM(cursor+FONT_DRAW_W*scale);v.v1.y=FNX_FIM(vy(y)+FONT_DRAW_H*scale);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+0.5f;v.t0.v=(n/16)*FONT_CELL_H+0.5f;v.t1.u=(n%16+1)*FONT_CELL_W-0.5f;v.t1.v=(n/16+1)*FONT_CELL_H-0.5f;v.color=rgba(0x80,0x80,0x80,0x80);q=draw_rect_textured(q,0,&v);cursor+=advance*0.5f*scale;}return q;}
+ for(i=0;i<len;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n,advance;if(ch<32||ch>127)ch='?';n=ch-32;advance=g_font_widths[n];v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y));v.v0.z=0;v.v1.x=FNX_FIM(cursor+FONT_DRAW_W*scale);v.v1.y=FNX_FIM(vy(y)+FONT_DRAW_H*scale);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+0.5f;v.t0.v=(n/16)*FONT_CELL_H+0.5f;v.t1.u=(n%16+1)*FONT_CELL_W-0.5f;v.t1.v=(n/16+1)*FONT_CELL_H-0.5f;v.color=rgba(0x80,0x80,0x80,alpha);q=draw_rect_textured(q,0,&v);cursor+=advance*0.5f*scale;}return q;}
+static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align){return text_draw_alpha(q,s,x,y,scale,align,128);}
+/* FlxEase.cubeInOut, que e' a curva do tween de alpha da contagem
+   (Countdown.showCountdownGraphic: var fadeEase = FlxEase.cubeInOut). */
+static float ease_cube_in_out(float t){if(t<=0.0f)return 0.0f;if(t>=1.0f)return 1.0f;if(t<0.5f)return 4.0f*t*t*t;{float u=-2.0f*t+2.0f;return 1.0f-u*u*u*0.5f;}}
+/* Grafico da contagem regressiva (Countdown.showCountdownGraphic).
+   O original pega o sprite do noteStyle, centraliza na camHUD e faz um tween
+   de alpha 1 -> 0 com FlxEase.cubeInOut durante UMA batida. Aqui e' o texto com
+   a mesma posicao (centro do quadro), a mesma curva e a mesma duracao; a arte do
+   noteStyle entra quando o atlas de countdown estiver no pacote. */
+static qword_t *countdown_draw(qword_t*q,texbuffer_t*font){
+ const char*lb=0;float prog,alpha;s32 st;
+ if(g_countdown_left<=0||g_countdown_beat<=0)return q;
+ st=(s32)(5-(g_countdown_left+(g_countdown_beat-1))/g_countdown_beat);
+ if(st==1)lb="3";else if(st==2)lb="2";else if(st==3)lb="1";else if(st==4)lb="GO!";else return q;
+ prog=(float)((5-st)*g_countdown_beat-g_countdown_left)/(float)g_countdown_beat;
+ alpha=1.0f-ease_cube_in_out(prog);
+ if(alpha<0.0f)alpha=0.0f;
+ if(alpha>1.0f)alpha=1.0f;
+ q=bind_texture_filter(q,font,1);
+ return text_draw_alpha(q,lb,320.0f,132.0f,2.4f,1,(unsigned char)(alpha*128.0f));
+}
 static int rle_decode(const unsigned char*src,u32 src_bytes,unsigned char*dst,u32 dst_bytes){u32 si=0,di=0;while(si<src_bytes&&di<dst_bytes){unsigned int c=src[si++];if(c<128u){u32 n=(c+1u)*4u;if(si+n>src_bytes||di+n>dst_bytes)return-1;memcpy(dst+di,src+si,n);si+=n;di+=n;}else if(c>128u){u32 count=257u-c;if(si+4u>src_bytes||di+count*4u>dst_bytes)return-2;while(count--){memcpy(dst+di,src+si,4);di+=4;}si+=4;}else return-3;}if(si!=src_bytes||di!=dst_bytes)return-4;FlushCache(0);return 0;}
 static u32 g_menu_decode_si=0,g_menu_decode_di=0;static int g_menu_decode_active=0,g_menu_decode_error=0;
 static u32 g_menu_alpha_clamped=0,g_menu_rgb_dilated=0,g_menu_atlas_fixed=0;
@@ -1671,7 +1701,9 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      antes. Quando o limite ou o erro pegam, fica registrado em AUDIO_STALL. */
   if((ui_state==0||ui_state==6||ui_state==7)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){int voltas=0;while(audsrv_available()>=AUDIO_READ_CHUNK){int n;int j;if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);else{frame_mark("A.STOP_ERRO",j);break;}}else break;} }
   if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0){
-   if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&audio_ring_level()>=65536){
+   /* A musica so' comeca depois da contagem: no original startSong() e'
+      chamado quando o Conductor chega em 0 (PlayState.hx:1144-1151). */
+   if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&g_countdown_left<=0&&audio_ring_level()>=65536){
     audio_started=1;clock_hold=0;music_clock_tick=begin;music_clock_fraction=0;transport_state=2;
     telemetry_event("tutorial_audio_start",(int)frame_no,(int)audio_ring_level());
    }
@@ -1710,25 +1742,45 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   /* Acumulador continuo: o RPC bruto apenas valida/corrige deriva; nao ancora
    * cada bloco. O resto fracionario evita perder subamostras entre frames. */
   if(clock_hold&&heard>=music_clock)clock_hold=0;
-  if(!audio_playing||!audio_started||clock_hold){
-   music_clock_tick=begin;
-  }else{
-   u64 dt=music_clock_tick?begin-music_clock_tick:0;
+  /* As amostras decorridas neste quadro sobem para fora do ramo do relogio da
+     musica porque a CONTAGEM REGRESSIVA tambem precisa de um relogio, e antes
+     de a musica comecar nao ha' audio de onde tirar o tempo. O tempo vem do
+     vsync, que e' exatamente a base do FlxTimer da contagem no original
+     (Countdown.performCountdown). */
+  {u64 dt=music_clock_tick?begin-music_clock_tick:0;
    u64 scaled=dt*(u64)AUDIO_RATE+music_clock_fraction;
    u32 advance=(u32)(scaled/(u64)kBUSCLK);
    music_clock_fraction=scaled%(u64)kBUSCLK;
    music_clock_tick=begin;
-   if(advance&&music_clock+advance>music_clock)music_clock+=advance;
-   if(music_clock>audio_submitted)music_clock=audio_submitted;
-   /* Corrige somente deriva grande e gradualmente, sem salto de bloco. */
-   if(heard>music_clock+1600u){u32 correction=heard-music_clock-1600u;if(correction>32u)correction=32u;music_clock+=correction;}
+   if(ui_state==8&&g_countdown_left>0){
+    g_countdown_left-=(s32)advance;
+    if(g_countdown_left<0)g_countdown_left=0;
+    {s32 st=(s32)(5-(g_countdown_left+(g_countdown_beat-1))/g_countdown_beat);
+     if(st!=g_countdown_step){
+      g_countdown_step=st;
+      telemetry_event("countdown_step",(int)st,(int)frame_no);
+      /* O som de cada passo vem do noteStyle no original
+         (Countdown.playCountdownSound). Esse asset ainda nao esta' no pacote,
+         e o log registra o passo que ficou sem som em vez de fingir que tocou. */
+      if(st>=1&&st<=4)telemetry_event("countdown_sound_ausente",(int)st,0);
+     }}
+   }else if(audio_playing&&audio_started&&!clock_hold){
+    if(advance&&music_clock+advance>music_clock)music_clock+=advance;
+    if(music_clock>audio_submitted)music_clock=audio_submitted;
+    /* Corrige somente deriva grande e gradualmente, sem salto de bloco. */
+    if(heard>music_clock+1600u){u32 correction=heard-music_clock-1600u;if(correction>32u)correction=32u;music_clock+=correction;}
+   }
   }
+  /* Durante a contagem o relogio do chart e' NEGATIVO, como no original: o
+     Conductor ja' foi para -5 batidas e as notas do inicio ja' descem. Sem
+     isso o campo de notas ficaria congelado 5 batidas e pularia de uma vez. */
+  g_chart_clock=(g_countdown_left>0)?-(s32)g_countdown_left:(s32)music_clock;
   heard=music_clock;
   frame_mark("F.CLOCK",(int)music_clock);
   if(ui_state==8&&audio_started&&g_chart_status==0){
    const chart_event_t *event;
    while(g_chart_cursor<g_chart_info.event_count){
-    event=chart_event(g_chart_cursor);if(!event||event->sample>music_clock)break;
+    event=chart_event(g_chart_cursor);if(!event||event->sample>(u32)g_chart_clock)break;
     /* Every event's meaning now lives in chart_events.c, which reads the FCH4
        fields. The v3 code that was here packed one parameter into `value` and
        dropped the rest, so SetCameraBop, SetHealthIcon and PlayAnimation never
@@ -1750,7 +1802,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     /* the anim name's first byte and the force flag, packed into one word */
     telemetry_event("tut_play_anim",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
    }}
-  if(ui_state==8&&audio_started)tutorial_notes_update(music_clock,pressed,frame_no);
+  if(ui_state==8&&audio_started)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* Fim da musica -> resultado, depois de uma pausa curta para o ultimo quadro
      aparecer. O original tambem nao corta na hora: ha' a transicao de saida
      do PlayState antes do ResultState. */
@@ -1803,6 +1855,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   audio_started=0;audio_playing=0;audio_submitted=0;music_clock=0;
   music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;
   g_tutorial_audio_finished=0;g_tutorial_audio_status=-1;
+  g_countdown_left=0;g_countdown_step=0;g_chart_clock=0;
   capture_status("TUT_FONT_BEGIN",(int)frame_no,0);
   fr=tutorial_vcr_restore();
   capture_status("TUT_FONT_DONE",(int)frame_no,fr);
@@ -1920,7 +1973,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
@@ -1929,6 +1982,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
    audsrv_stop_audio();audio_started=0;audio_playing=0;audio_submitted=music_clock=0;
    music_clock_tick=music_clock_fraction=0;clock_hold=1;g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0;g_chart_last_type=g_chart_last_value=g_chart_last_sample=0;tutorial_notes_reset();
+   g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;
    if(audio_ring_reset()==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;telemetry_event("tutorial_audio_replay",(int)frame_no,0);}
    else g_tutorial_audio_status=-7;
   }
@@ -1991,7 +2045,7 @@ tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;tra
   /* FocusCameraSongEvent.hx: char 0 is BF, 1 is the opponent, 2 is GF. The
      tutorial's opponent IS gf, so both 1 and 2 focus her and 0 focuses BF. */
   {const chart_event_state_t*ev=chart_events_state();g_tut_cam_focus=(ev->cam_char==CHART_FOCUS_GF||ev->cam_char==CHART_FOCUS_DAD)?1:0;}
-  if(ui_state==8&&g_tutorial_scene_ready&&g_tutorial_audio_status==0){u32 af=(u32)(((u64)music_clock*24u)/48000u);int bfi=tut_anim_idx(&g_bf_sing,g_bf_sing_at,music_clock,BF_SING,14u,af),gfi=tut_anim_idx(&g_gf_sing,g_gf_sing_at,music_clock,GF_SING,30u,af);if(bfi!=g_tutorial_bf_uploaded&&tutorial_pack_frame(g_tutorial_bf_pack,g_tutorial_bf_pack_bytes,(u32)bfi,43,258u*254u*4u,g_stage_pixels)==0){FlushCache(0);setup_texture_dims(&tex,258,254);upload_raw(&tex,g_stage_pixels,258,254);g_tutorial_bf_uploaded=bfi;}if(gfi!=g_tutorial_gf_uploaded&&tutorial_pack_frame(g_tutorial_gf_pack,g_tutorial_gf_pack_bytes,(u32)gfi,87,320u*307u*2u,g_hud_pixels)==0){FlushCache(0);setup_texture_dims(&g_gftex16,320,307);upload_raw_psm(&g_gftex16,g_hud_pixels,320,307,GS_PSM_16);g_tutorial_gf_uploaded=gfi;}}
+  if(ui_state==8&&g_tutorial_scene_ready&&g_tutorial_audio_status==0){u32 af=(u32)(((u64)(g_chart_clock<0?0:g_chart_clock)*24u)/48000u);int bfi=tut_anim_idx(&g_bf_sing,g_bf_sing_at,music_clock,BF_SING,14u,af),gfi=tut_anim_idx(&g_gf_sing,g_gf_sing_at,music_clock,GF_SING,30u,af);if(bfi!=g_tutorial_bf_uploaded&&tutorial_pack_frame(g_tutorial_bf_pack,g_tutorial_bf_pack_bytes,(u32)bfi,43,258u*254u*4u,g_stage_pixels)==0){FlushCache(0);setup_texture_dims(&tex,258,254);upload_raw(&tex,g_stage_pixels,258,254);g_tutorial_bf_uploaded=bfi;}if(gfi!=g_tutorial_gf_uploaded&&tutorial_pack_frame(g_tutorial_gf_pack,g_tutorial_gf_pack_bytes,(u32)gfi,87,320u*307u*2u,g_hud_pixels)==0){FlushCache(0);setup_texture_dims(&g_gftex16,320,307);upload_raw_psm(&g_gftex16,g_hud_pixels,320,307,GS_PSM_16);g_tutorial_gf_uploaded=gfi;}}
   if(ui_state==6){frame_mark("F.BG",(int)menu_cam_y);qword_t*mq=packet->data;int tick=(int)(frame_no*24u/60u),mi;setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);mq=draw_setup_environment(mq,0,&fb[draw],&z);mq=draw_clear(mq,0,0,0,SCREEN_W,SCREEN_H,0,0,0);mq=bind_texture(mq,&stagetex);{/* 0.2.104 A4: parallax do fundo, scrollFactor.y = 0,17 no original
      (MainMenuState.hx L119-120). Derivacao, em unidades do original:
        bg.y = -75,92   (setGraphicSize(1280*1,2)=1536 de largura, altura
@@ -2184,7 +2238,7 @@ float bf_cam_x=g_official_mainstage_chars[2].x+17.0f-18.0f+g_official_mainstage_
                   (787+4-338+8)+0 = 461,00 */
 float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy;float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
   }
-  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,music_clock,g_held,frame_no);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
+  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
      da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
      em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o

@@ -189,7 +189,7 @@ o áudio do tutorial *morre no harness* poucos quadros depois de começar
 (`audio_playing` cai a 0 e o relógio da música congela). Isso é o primeiro item
 da Fase 2.
 
-### Fase 2 — PlayState genérico: ABERTA (só falta a contagem regressiva)
+### Fase 2 — PlayState genérico: FECHADA (falta só o mixer de duas faixas, que é Fase 4)
 
 **Fechado: o harness agora executa o julgamento.** Medido antes e depois:
 
@@ -302,7 +302,39 @@ console isso apareceria como "o jogo não conta as notas". A ordem foi corrigida
 se a tela não desenhar nenhum quad — "o estado existe" não é prova de que
 apareceu alguma coisa.
 
-**O que falta na Fase 2: a contagem regressiva** (5 ticks, `Countdown.hx`).
+**Fechado: contagem regressiva (5 passos, `Countdown.hx`).**
+
+O original não deixa a música começar no quadro em que o PlayState aparece:
+`Countdown.performCountdown()` põe o `Conductor` em **-5 batidas**, cria um
+`FlxTimer` de uma batida com 5 voltas e só quando o `songPosition` chega em 0 é
+que `PlayState.startSong()` toca o instrumental (`PlayState.hx:1144-1151`). Nos
+cinco passos aparece 3, 2, 1, GO! com um tween de alpha 1→0 em
+`FlxEase.cubeInOut` durante uma batida (`Countdown.showCountdownGraphic`).
+
+O port agora faz o mesmo:
+
+| Item | Antes | Agora |
+|---|---|---|
+| início da música | no primeiro quadro do PlayState | depois de 5 batidas (`countdown_begin`) |
+| batida | — | 4 passos do chart (28.800 amostras a 100 BPM) |
+| passos | — | 0 BEFORE, 1 "3", 2 "2", 3 "1", 4 "GO!", 5 AFTER |
+| gráfico | — | texto no centro, alpha 1→0 em `cubeInOut` por uma batida |
+| relógio do chart | só ≥ 0 | **negativo** durante a contagem (é o que o original faz), então as notas do começo já descem |
+| log | — | `countdown_begin`, `countdown_step`, `countdown_sound_ausente` |
+
+Duas coisas ditas sem enfeite: (a) a **arte** do countdown vem do `noteStyle`
+do original e ainda não está no pacote, então o desenho é texto — o tempo e a
+curva são os do original; (b) o **som** de cada passo também é do `noteStyle` e
+também não está no pacote, e é por isso que existe `countdown_sound_ausente` no
+log: o passo que ficou sem som fica registrado em vez de ser omitido em
+silêncio.
+
+Medido no harness (5.800 quadros): `countdown_begin` com batida 28.800,
+cinco `countdown_step`, `tutorial_audio_start` **no quadro 957**, depois do
+passo AFTER no quadro 956. O teste falha se a música começar antes do fim da
+contagem, se algum passo faltar ou se a batida sair zero.
+
+**O que falta na Fase 2**
 
 **Primeiro item, e ele é uma hipótese forte para o travamento do console**
 
@@ -318,6 +350,8 @@ e engasgado, e trava"): o pendrive do PS2 é USB 1.1, a ~1,5 MB/s, com blocos de
 `tutorial_audio_mix_submit` devolve bloco curto e em que quadro, com o jogo
 continuando em vez de parar. Entra na próxima build, sozinho (regra 8).
 
-Depois dele, ainda na Fase 2: a contagem regressiva. Escolher música e
-dificuldade, o áudio por música e o fim de música → resultado já estão fechados
-acima.
+A Fase 2 fecha com este item. Escolher música e dificuldade, o áudio por
+música, a contagem regressiva e o fim de música → resultado estão fechados
+acima. O que continua pendente na camada de áudio, e é Fase 4/5, é o **mixer de
+duas faixas** (instrumental + vozes separados, como o `Inst`/`Voices` do
+original): hoje o port toca um único `stems.pcm` já misturado.
