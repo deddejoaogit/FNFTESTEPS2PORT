@@ -313,6 +313,19 @@ else
 fi
 
 echo
+# O caminho de ACERTO (julgamento, vida, combo, placar) no jogo real. Separado
+# do harness normal de proposito: o roteiro de la' passa ~100 quadros dentro do
+# tutorial, tempo de desenhar notas e nunca de uma nota chegar ao receptor, de
+# modo que o julgamento nao era executado no PC. Aqui o roteiro aperta durante a
+# musica e o teste exige acertos e placar > 0.
+echo "== gameplay de ponta a ponta no harness (acerto, placar, combo) =="
+if [ -f "$SDK_HEADERS/ee/draw/src/draw.c" ] || [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
+    sh tools/run_gameplay_harness.sh 3200 2>&1 | tail -6 || exit 1
+else
+    echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
+fi
+echo
+
 echo "== harness com ASan + UBSan (todos os buffers, nao so o pacote) =="
 
 # O pacote limitado pega estouro DO PACOTE de desenho. Estes sanitizadores

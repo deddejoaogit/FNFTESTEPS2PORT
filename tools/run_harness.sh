@@ -53,6 +53,20 @@ WRAPS="-Wl,--wrap=draw_rect_filled -Wl,--wrap=draw_rect_textured -Wl,--wrap=draw
 
 mkdir -p build
 
+# Os quatro pacotes embutidos (.incbin em title_packs.S / story_packs.S) sao
+# arte convertida, baixada do Drive, e nao ficam no repositorio. Sem eles o
+# assembler para e o harness nem compila -- o que ja' aconteceu duas vezes ao
+# se reconstruir o ambiente do zero. Se faltarem, sintetiza: sao validos do
+# mesmo formato, so' nao sao a arte.
+FALTA_PACK=0
+for f in title_logoBumpin.lz4f title_gfDanceTitle.lz4f story_gf_idle.lz4f story_bf_idle.lz4f; do
+    [ -f "assets/$f" ] || FALTA_PACK=1
+done
+if [ "$FALTA_PACK" = 1 ]; then
+    echo "== pacotes embutidos ausentes: sintetizando (nao e' a arte real) =="
+    python3 tools/gen_packs_vazios.py || { echo "FALHA ao sintetizar os pacotes"; exit 1; }
+fi
+
 # O codigo de draw eh o do ps2sdk, nao uma reimplementacao: assim a contagem
 # de quadwords de cada primitiva eh exatamente a que o console vera.
 #

@@ -149,6 +149,9 @@ static const unsigned char *g_story_bf_pack=0,*g_story_gf_pack=0;static u32 g_st
 static unsigned char *g_story_bf_pixels=0,*g_story_gf_pixels=0;
 extern const unsigned char g_story_gf_pack_start[],g_story_gf_pack_end[],g_story_bf_pack_start[],g_story_bf_pack_end[];
 static int g_tutorial_audio_status=-1,g_tutorial_audio_finished=0,g_chart_status=-1;
+/* Diagnostico do transporte de audio do tutorial, sem mudar o comportamento
+   normal: quantos blocos vieram curtos e quantos quadros seguidos falharam. */
+static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up=0;
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
@@ -221,6 +224,10 @@ static unsigned char *g_audio_pcm;
 #define TUTORIAL_NOTE_AHEAD 76800u
 #define TUTORIAL_NOTE_LATE 12000u
 #define TUTORIAL_NOTE_JUDGE_WINDOW 7200u
+/* Quantos quadros seguidos o audio pode falhar antes de o transporte parar.
+   120 quadros = 2 s a 60 fps: tempo de sobra para o pendrive entregar um bloco
+   de 8 KB (a 1,5 MB/s isso leva 5 ms). Antes, UM bloco curto ja' parava tudo. */
+#define TUT_AUDIO_FAIL_LIMIT 120
 #define TUTORIAL_NOTE_SOURCE_TILE 56.0f
 static const float g_note_w[4]={54.0f,55.0f,55.0f,54.0f};
 static const float g_note_h[4]={55.0f,54.0f,54.0f,55.0f};
@@ -1642,8 +1649,31 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    }
    if(audio_started&&audio_playing&&audsrv_available()>=AUDIO_READ_CHUNK&&audio_ring_level()>=STEM_READ_CHUNK){
     int submitted=tutorial_audio_mix_submit(voices_enabled);
-    if(submitted==AUDIO_READ_CHUNK)audio_submitted+=(u32)(submitted/4);
-    else{g_tutorial_audio_status=-6;audio_playing=0;audio_started=0;audsrv_stop_audio();telemetry_event("tutorial_audio_submit",submitted,(int)frame_no);}
+    /* UM BLOCO CURTO NAO PODE MATAR A MUSICA.
+       Antes, qualquer valor diferente de AUDIO_READ_CHUNK marcava
+       g_tutorial_audio_status=-6, chamava audsrv_stop_audio() e congelava o
+       relogio da musica -- para o resto da tentativa, sem retentativa. Um
+       bloco curto acontece quando a fila do audsrv enche no meio do envio, o
+       que no console e' normal (pendrive a ~1,5 MB/s, anel de 20 KB). O
+       sintoma que o usuario descreveu no PS2 -- "a musica comeca, fica muito
+       lenta e engasgada, e trava" -- tem exatamente esse formato.
+       Agora: bloco curto conta e segue; o transporte so' para depois de
+       TUT_AUDIO_FAIL_LIMIT quadros seguidos sem conseguir enviar nada. */
+    if(submitted>0){
+     audio_submitted+=(u32)(submitted/4);
+     if(submitted!=AUDIO_READ_CHUNK){
+      if(g_tut_partial_blocks<8u)telemetry_event("tutorial_audio_curto",submitted,(int)frame_no);
+      g_tut_partial_blocks++;
+     }
+     g_tut_audio_fail_streak=0;
+    }else{
+     g_tut_audio_fail_streak++;
+     if(g_tut_audio_fail_streak>=TUT_AUDIO_FAIL_LIMIT){
+      g_tut_audio_given_up=1;
+      g_tutorial_audio_status=-6;audio_playing=0;audio_started=0;audsrv_stop_audio();
+      telemetry_event("tutorial_audio_submit",submitted,(int)frame_no);
+     }
+    }
    }
   }
   frame_mark("F.AUDIO",transport_state);

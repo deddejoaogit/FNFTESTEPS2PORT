@@ -102,7 +102,12 @@ static u32 h_upload_calls, h_upload_bytes;
 static u32 h_draw_filled, h_draw_textured, h_draw_env;
 typedef struct { unsigned frame; unsigned short btns; } ps2h_input_t;
 
-#define PS2H_MAX_INPUT 64
+/* Quantos eventos de botao o roteiro aceita, e o tamanho do buffer do texto.
+   Eram 64 eventos e 512 caracteres: o roteiro de gameplay (pressoes continuas
+   durante a musica, para chegar ao julgamento) tem mais de cem, e o excedente
+   era DESCARTADO EM SILENCIO -- o teste falhava dizendo que o jogo nao
+   julgava nada, quando na verdade o harness tinha parado de apertar no meio. */
+#define PS2H_MAX_INPUT 512
 static ps2h_input_t ps2h_input[PS2H_MAX_INPUT];
 static unsigned ps2h_input_n;
 static unsigned h_input_fired;
@@ -438,10 +443,55 @@ int  graph_vram_allocate(int width, int height, int psm, int align)
 #define H_BUSCLK 147456000ull
 #define H_TICKS_PER_FRAME (H_BUSCLK / 60ull)
 static u64 h_virtual_ticks = H_TICKS_PER_FRAME;   /* comeca em 1 quadro */
+static __thread int h_caller_is_render_thread;
+
+#define H_AUDIO_RING_BYTES    20480
+#define H_AUDIO_BYTES_PER_SEC 192000ull
+static long h_audio_queued_bytes;
+static u64 h_audio_drain_frac;      /* bytes fracionarios, para nao derivar */
+
+static void h_audio_drain_ns(u64 ns)
+{
+    u64 num = ns * H_AUDIO_BYTES_PER_SEC + h_audio_drain_frac;
+    u64 bytes = num / 1000000000ull;
+    long cur, next;
+
+    h_audio_drain_frac = num % 1000000000ull;
+    if (!bytes) return;
+    for (;;) {
+        cur = __atomic_load_n(&h_audio_queued_bytes, __ATOMIC_RELAXED);
+        if (cur <= 0) {
+            __atomic_store_n(&h_audio_queued_bytes, 0, __ATOMIC_RELAXED);
+            return;
+        }
+        next = cur - (long)bytes;
+        if (next < 0) next = 0;
+        if (__atomic_compare_exchange_n(&h_audio_queued_bytes, &cur, next, 0,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+            return;
+    }
+}
+
+/*
+ * Avanca o tempo virtual: ticks de BUSCLK (o relogio que o jogo le) e a fila
+ * de audio que escoa nesse intervalo. h_tempo_us acumula microssegundos para
+ * nao perder fracao de tick em chamadas curtas.
+ */
+static u64 h_tempo_us;
+static void h_advance_us(u64 us)
+{
+    h_tempo_us += us;
+    h_virtual_ticks += (h_tempo_us * H_BUSCLK) / 1000000ull -
+                       ((h_tempo_us - us) * H_BUSCLK) / 1000000ull;
+    h_audio_drain_ns(us * 1000ull);
+}
+
 
 void graph_wait_vsync(void)
 {
+    h_caller_is_render_thread = 1;
     h_virtual_ticks += H_TICKS_PER_FRAME;
+    h_audio_drain_ns(1000000000ull / 60ull);
     h_frames_run++;
     if (h_frames_run >= ps2h_frames) {
         h_quit_requested = 1;
@@ -500,18 +550,67 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
 /*  audsrv                                                                    */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Fila do audsrv modelada como no console.
+ *
+ * Antes: audsrv_available() devolvia 1 MB (sempre cabe tudo) e audsrv_queued()
+ * devolvia 0 (nunca ha' nada tocando). Isso nao e' "aproximado", e' outra
+ * coisa. Duas consequencias medidas no log do harness:
+ *
+ *   1. audsrv_queued()==0 fazia o jogo concluir que a musica tinha acabado
+ *      assim que o anel esvaziava (audio_ring_eof() && ring==0 && queued==0),
+ *      e ele parava o transporte no quadro 664 -- 49 quadros depois de comecar.
+ *      Com isso o relogio da musica congelava e NENHUMA nota chegava ao
+ *      receptor: o caminho de acerto/julgamento nunca era executado no PC.
+ *   2. available() infinito fazia audio_play_complete() sempre acertar de
+ *      primeira, entao o caminho de "anel cheio, submeter parcial, tentar de
+ *      novo" -- que e' justamente o que o retry existe para cobrir -- nunca
+ *      rodava.
+ *
+ * Numeros do console (no plano do port): a 48 kHz o audsrv usa blocos de
+ * 2.048 B e um anel interno de 20.480 B. O consumo e' de 192.000 B por segundo
+ * (48.000 amostras x 4 B estereo 16 bits).
+ */
 int audsrv_init(void) { return 0; }
 int audsrv_quit(void) { return 0; }
 int audsrv_set_format(void *fmt) { (void)fmt; return 0; }
 int audsrv_set_volume(int v) { (void)v; return 0; }
-int audsrv_stop_audio(void) { return 0; }
+int audsrv_stop_audio(void)
+{
+    __atomic_store_n(&h_audio_queued_bytes, 0, __ATOMIC_RELAXED);
+    return 0;
+}
 int audsrv_play_audio(const char *chunk, int bytes)
 {
-    if (bytes > 0) h_audio_submitted += (unsigned)(bytes / 4);
-    return bytes > 0 ? bytes : 0;
+    long cur, next;
+    (void)chunk;
+    if (bytes <= 0) return 0;
+    for (;;) {
+        cur = __atomic_load_n(&h_audio_queued_bytes, __ATOMIC_RELAXED);
+        if (cur >= H_AUDIO_RING_BYTES) return 0;          /* anel cheio */
+        next = cur + bytes;
+        if (next > H_AUDIO_RING_BYTES) next = cur + ((H_AUDIO_RING_BYTES - cur) & ~3L);
+        if (next <= cur) return 0;                        /* nao cabe nem 4 B */
+        if (__atomic_compare_exchange_n(&h_audio_queued_bytes, &cur, next, 0,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+        {
+            int accepted = (int)(next - cur);
+            h_audio_submitted += (unsigned)(accepted / 4);
+            return accepted;
+        }
+    }
 }
-int audsrv_available(void) { h_audio_available_calls++; return 1 << 20; }
-int audsrv_queued(void) { return 0; }
+int audsrv_available(void)
+{
+    long cur = __atomic_load_n(&h_audio_queued_bytes, __ATOMIC_RELAXED);
+    h_audio_available_calls++;
+    return cur >= H_AUDIO_RING_BYTES ? 0 : (int)(H_AUDIO_RING_BYTES - cur);
+}
+int audsrv_queued(void)
+{
+    long cur = __atomic_load_n(&h_audio_queued_bytes, __ATOMIC_RELAXED);
+    return cur < 0 ? 0 : (int)cur;
+}
 
 /* ------------------------------------------------------------------------- */
 /*  SifRpc / kernel / timer                                                   */
@@ -526,7 +625,37 @@ int SifExecModuleBuffer(void *ptr, unsigned size, int len, int *result, int *fin
 { (void)ptr;(void)size;(void)len; if (result) *result = 0; if (final) *final = 0; return 0; }
 
 void FlushCache(int op) { (void)op; }
-void DelayThread(int us) { (void)us; }
+/*
+ * DelayThread avanca o tempo VIRTUAL.
+ *
+ * Antes era vazio ("no-op"), e o comentario do projeto ate' dizia que isso era
+ * aceitavel. Nao era: o jogo usa DelayThread(1000) dentro de
+ * audio_play_complete() para esperar a fila do audsrv abrir espaco. Com o
+ * delay nulo, essa espera era um laco de 2000 voltas instantaneas que nunca
+ * liberava espaco (nada tocava), e a funcao desistia no meio do bloco. No
+ * console esse mesmo laco funciona porque o tempo passa.
+ *
+ * Agora cada chamada avanca o relogio virtual e consome a fila de audio na
+ * mesma proporcao. Continua instantaneo em tempo de parede (o harness roda em
+ * segundos, nao em minutos), mas o ESTADO que o jogo ve' acompanha o tempo,
+ * que e' o que importa para decidir se o codigo esta' certo.
+ */
+/*
+ * So' a thread que desenha pode mover o relogio.
+ *
+ * O shim agora roda threads de verdade (pthread), e o produtor do anel de audio
+ * chama DelayThread em laco. Se ele tambem movesse o relogio, o tempo passaria
+ * a depender de quantas voltas a thread deu -- ou seja, deixaria de ser 60 fps
+ * e passaria a ser ruido, justo num harness que precisa ser determinístico.
+ * A marca e' por thread (__thread): quem chamou graph_wait_vsync e' a thread
+ * do jogo; todo o resto trata DelayThread como antes, um no-op.
+ */
+void DelayThread(int us)
+{
+    if (us <= 0) return;
+    if (!h_caller_is_render_thread) return;
+    h_advance_us((u64)us);
+}
 
 /*
  * Relogio VIRTUAL, batendo com o do console.
@@ -652,7 +781,7 @@ static unsigned ps2h_button_bit(const char *name)
 /* Formato: "quadro:BOTAO,quadro:BOTAO+BOTAO"  (ex.: "150:CROSS,320:CIRCLE") */
 static void ps2h_parse_input(const char *spec)
 {
-    char buf[512], *save = NULL, *tok;
+    char buf[8192], *save = NULL, *tok;
     if (!spec || !*spec) return;
     strncpy(buf, spec, sizeof buf - 1);
     buf[sizeof buf - 1] = 0;

@@ -189,7 +189,56 @@ o áudio do tutorial *morre no harness* poucos quadros depois de começar
 (`audio_playing` cai a 0 e o relógio da música congela). Isso é o primeiro item
 da Fase 2.
 
-### Fase 2 — PlayState genérico: ABERTA
+### Fase 2 — PlayState genérico: ABERTA (dois itens fechados)
+
+**Fechado: o harness agora executa o julgamento.** Medido antes e depois:
+
+| | antes | depois |
+|---|---|---|
+| relógio da música no quadro 2200 | **1** (travado) | **1.939.200** amostras |
+| acertos julgados numa execução | **0** | **9** |
+| placar | 0 | 793 |
+| código de gameplay executado no PC | só desenho | acerto, ghost, miss, combo, vida |
+
+Foram três defeitos de harness, cada um medido:
+
+1. `GetTimerSystemTime()` em µs (já corrigido na Fase 1, relógio virtual).
+2. `audsrv_queued()` devolvia 0 e `audsrv_available()` 1 MB. Com `queued()==0`
+   o jogo concluía "música acabou" 49 quadros depois de começar. Agora a fila
+   é modelada como no console: 20.480 B, consumo de 192.000 B/s, `available()`
+   = espaço livre. `DelayThread` também passou a avançar o tempo (só na thread
+   que desenha), porque o `audio_play_complete()` espera com ele.
+3. O `audio_stems.pcm` sintético tinha 1,36 s e o chart tem 67 s — o jogo
+   *corretamente* encerrava a música. Agora o arquivo sintético dura o chart
+   inteiro (25,8 MB, gerado, não versionado).
+
+E dois defeitos do próprio roteiro de teste: o limite de 64 eventos de botão
+descartava o excedente **em silêncio**, e a cadência periódica criava aliasing
+com o espaçamento das notas (passo 12 → erro preso em 12 quadros; passo 7 →
+erro preso em 10 quadros, 2 fora da janela). A cadência agora é
+pseudoaleatória determinística.
+
+**Fechado: um bloco curto de áudio não mata mais a música.**
+`tutorial_audio_mix_submit()` devolvendo algo diferente de `AUDIO_READ_CHUNK`
+marcava `g_tutorial_audio_status = -6`, parava o `audsrv` e congelava o relógio
+**para o resto da tentativa, sem retentativa**. Um bloco curto é o que acontece
+quando a fila do audsrv enche no meio de um envio — normal no console, onde o
+pendrive entrega a ~1,5 MB/s e o anel tem 20 KB. Agora: bloco curto conta
+(`tutorial_audio_curto` no log, limitado a 8 eventos para não inundar), o
+transporte segue, e ele só para depois de **120 quadros seguidos (2 s)** sem
+conseguir enviar nada.
+
+Isso é o que a regra 8 pede: **uma** causa, medida, com o número na mão. Não
+afirmo que era a causa do travamento do console — afirmo que era um defeito
+real, que o sintoma descrito cabe nele, e que agora ele não pode mais acontecer.
+
+**Fechado parcialmente: `tutorial_audio_end` com o transporte vivo**
+
+Antes a música do tutorial terminava no quadro 817 de 1500. Agora ela avança até
+o fim da janela de teste; o fim de música continua sendo reconhecido quando o
+arquivo realmente acaba.
+
+**O que falta na Fase 2**
 
 **Primeiro item, e ele é uma hipótese forte para o travamento do console**
 

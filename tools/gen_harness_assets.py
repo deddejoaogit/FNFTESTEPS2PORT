@@ -279,7 +279,12 @@ def build(root, charts_src=None):
             + make_rle(512 * 256 * 4, STORY_RLE)
             + make_rle(306_180, STORY_TITLES_RLE),
         "menu_sfx.pcm": bytes(sfx),
-        "audio_stems.pcm": pcm(1 << 18, 196),
+        # O stem do tutorial tem de durar o que o chart dura. Eram 256 KB
+        # (65.536 amostras = 1,36 s) e o chart tem 3.225.600 amostras (67 s):
+        # o jogo, corretamente, concluia "musica acabou" no quadro 817 e
+        # congelava o transporte -- e as primeiras notas (a 9,6 s) nunca
+        # chegavam ao receptor. Formato: inst L,R + voices L,R = 8 B/amostra.
+        "audio_stems.pcm": pcm(3225600 * 8, 196),
         "freakyMenu_48000.pcm": pcm(1 << 18, 330),
 
         "font.rgba": rgba_pattern(384, 192, 1),
