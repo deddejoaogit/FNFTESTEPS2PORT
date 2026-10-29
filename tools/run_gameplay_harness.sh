@@ -35,7 +35,7 @@ set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO" || exit 1
 
-FRAMES=${1:-3200}
+FRAMES=${1:-5600}
 LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 
 # Entrada no tutorial (as tres primeiras cruzes sao titulo -> menu -> story;
@@ -57,7 +57,12 @@ ENTRADA="200:CROSS,420:CROSS,600:CROSS,760:CROSS,820:CROSS,880:CROSS,940:CROSS"
 TECLAS=""
 Q=1000
 SORTE=12345
-while [ "$Q" -lt 3200 ]; do
+# As pressoes param 200 quadros antes do fim: o roteiro precisa cobrir o
+# julgamento das notas E deixar a musica terminar em paz, porque o fim da
+# musica dispara a tela de resultado e uma pressao ali dentro poderia
+# atravessa-la antes do teste olhar.
+FIM_TECLAS=$((FRAMES - 200))
+while [ "$Q" -lt "$FIM_TECLAS" ]; do
     SORTE=$(( (SORTE * 1103515245 + 12345) % 2147483648 ))
     case $(( (SORTE / 65536) % 4 )) in
         0) T=$TECLAS,${Q}:LEFT ;;
@@ -93,18 +98,36 @@ SCORE_MIN=$(awk -F, 'BEGIN{m=1000000000} $1=="S" && $3==8 {if ($36+0 < m) m = $3
 SALTOS=$(awk -F, '$1=="S" && $3==8 {if (seen && $36 - prev >= 100) n++; prev=$36; seen=1} END{print n+0}' "$LOG")
 CLOCK=$(awk -F, '$1=="S" && $3==8 {if ($27+0 > m) m = $27+0} END{print m+0}' "$LOG")
 
+RESULT=$(awk -F, '$1=="S" && $3==9 {n++} END{print n+0}' "$LOG")
+RANK=$(awk -F, '$1=="E" && $3=="play_result" {print $4; exit}' "$LOG")
+PERC=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
+DRAW=$(awk -F, '$1=="E" && $3=="result_draw" {print $4; exit}' "$LOG")
+
 echo
 echo "  musica do tutorial iniciada .. $INICIOU vez(es)"
 echo "  relogio maximo da musica ..... $CLOCK amostras"
 echo "  acertos julgados ............. $HITS"
 echo "  placar (minimo..maximo) ...... $SCORE_MIN .. $SCORE_MAX"
 echo "  acertos que somaram pontos ... $SALTOS"
+echo "  quadros na tela de resultado . $RESULT"
+echo "  rank / clear percent ......... ${RANK:-?} / ${PERC:-?}%"
+echo "  quads desenhados na tela 9 ... ${DRAW:-?}"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
 [ "$HITS" -ge 2 ]       || { echo "  FALHA: menos de dois acertos julgados -- o caminho de julgamento nao rodou"; FALHA=1; }
 [ "$SCORE_MAX" != "$SCORE_MIN" ] || { echo "  FALHA: o placar nunca mudou -- nada pontuou"; FALHA=1; }
 [ "$SALTOS" -ge 2 ]      || { echo "  FALHA: nenhum salto positivo de placar -- os acertos nao pontuaram"; FALHA=1; }
+
+# A tela de resultado tem de aparecer sozinha quando a musica termina, com o
+# rank calculado pelo mesmo nucleo que julgou as notas.
+[ "$RESULT" -ge 2 ] || { echo "  FALHA: o jogo nao chegou na tela de resultado"; FALHA=1; }
+[ -n "$RANK" ]      || { echo "  FALHA: nenhum play_result no log"; FALHA=1; }
+# Rank -1 e' FNF_RANK_NONE: significa que o total de notas era zero, ou seja,
+# que ninguem informou ao julgamento quantas notas o chart tem.
+[ "$RANK" != "-1" ]  || { echo "  FALHA: rank NONE -- o total de notas do chart chegou zerado no julgamento"; FALHA=1; }
+# A tela de resultado tem de DESENHAR, nao so' existir.
+[ "${DRAW:-0}" -gt 0 ] || { echo "  FALHA: a tela de resultado nao desenhou nada"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo

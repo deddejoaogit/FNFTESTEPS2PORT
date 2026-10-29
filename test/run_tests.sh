@@ -338,7 +338,12 @@ echo "== gameplay de ponta a ponta no harness (acerto, placar, combo) =="
 if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     # Sem pipe: "sh ... | tail" devolveria o status do tail, e uma falha do
     # jogo passava batido com um ALL SUITES PASSED no fim. Ja' aconteceu.
-    if ! sh tools/run_gameplay_harness.sh 3200 > /tmp/fnf_gameplay.log 2>&1; then
+    # 5600 quadros, e nao 3200: 3200 param no meio da musica e o teste do
+    # resultado (tela 9, play_result, rank) nunca chegaria a rodar. O roteiro
+    # agora exige tambem que a musica TERMINE -- o Tutorial tem 3.225.600
+    # amostras de audio, ou seja ~4.840 quadros so' de reproducao, mais a
+    # drenagem do anel e os 90 quadros de espera antes do resultado.
+    if ! sh tools/run_gameplay_harness.sh 5600 > /tmp/fnf_gameplay.log 2>&1; then
         tail -20 /tmp/fnf_gameplay.log
         echo "  FALHA: o gameplay de ponta a ponta nao passou"
         exit 1

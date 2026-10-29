@@ -60,7 +60,12 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
    zero — invenção minha. Medido no harness: o placar chegava a 0 e ficava lá,
    escondendo centenas de penalidades reais. Removido, e o contador de
    telemetria passou de `u32` para `s32` para não virar 4 bilhões no log.
-3. **Um bloco curto de áudio matava a música** (`tutorial_audio_mix_submit`).
+3. **Total de notas zerado no resultado.** `tutorial_notes_reset()` era chamado
+   antes do `chart_load`, então `fnf_play_reset()` recebia `total_notes = 0`;
+   `fnf_play_completion()` devolve 0 com total zero e o rank saía `NONE`
+   (`-1`) em qualquer música. Encontrado no harness (`play_result,-1,0`), não
+   por leitura. Ordem corrigida e `play_total_notes` posta no log.
+4. **Um bloco curto de áudio matava a música** (`tutorial_audio_mix_submit`).
    Corrigido na mesma rodada; ver `docs/PLANO_COMPLETO.md`, Fase 2.
 
 ## B — lido e conferido, sem teste que trave
@@ -73,6 +78,8 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 | texto do placar | `updateScoreText()` + `formatMoney(score,false,true)` (`PlayState.hx:2748-2760`) | `fmt_score_line`, vírgula de milhar |
 | ícones de vida | `HealthIcon.updatePosition()` (`HealthIcon.hx:269-293`) | desenhados nas duas pontas da barra; posição fixa ainda, sem o remap da fórmula |
 | easings | 13 nomes, sem cubic/sine | `chart_ease_names` |
+| tela de resultado: conteúdo | `ResultState.hx` mostra rank, placar, tallies, maior combo e `%` (`:578-583`) | `ui_state 9` desenha os mesmos campos, dos mesmos `fnf_play_*` que julgaram | teste: rank != NONE e >= 1 quad na tela 9 |
+| total de notas do resultado | `tallies.totalNotes` = notas do jogador | `fnf_play_reset` com `must_press` contados **após** o chart carregar | teste: `play_total_notes` = 32 no Tutorial normal |
 
 ## C — não auditado (o que continua sendo fé)
 
@@ -82,7 +89,9 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 - palcos, personagens e props (46/21): os packs foram medidos por IoU, não por
   comparação de transformação com o `flxanimate`;
 - VRAM e alocação (`vram_cache_init` continua sem uso);
-- contagem regressiva, pausa, game over, resultado: ainda não existem no port.
+- geometria da tela de resultado (só o conteúdo foi ligado; posições e arte não
+  foram conferidas contra `ResultState.hx`);
+- contagem regressiva, pausa e game over: ainda não existem no port.
 
 ## Regra para as próximas fases
 

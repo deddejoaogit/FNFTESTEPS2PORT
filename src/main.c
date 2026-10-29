@@ -161,6 +161,15 @@ static const sr_song_t *g_play_song=0;
 static unsigned g_play_level=0,g_play_song_index=0;
 /* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
 static u32 g_play_samples_per_step=0;
+/* Tela de resultado (ui_state 9). O original vai para ResultState quando a
+   musica termina; aqui os numeros vem do mesmo nucleo que pontua durante o
+   jogo (engine/gameplay.h), nao de contadores paralelos. */
+static int g_result_wait=0;
+/* Quantos quads texturizados o bloco da tela de resultado emitiu na primeira
+   vez que desenhou. E' a prova de que a tela nao ficou em branco: o harness le
+   o valor e exige que seja maior que zero. Sem isso, "ui_state 9 apareceu no
+   log" so' provaria que o estado existe, nao que alguma coisa foi desenhada. */
+static int g_result_drawn=0;
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
@@ -1605,7 +1614,7 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
   g_fn_frame=frame_no;
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
-  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
+  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
   if(g_title_anim_thread_id>=0&&g_title_anim_status!=2)g_title_anim_thread_id=-1;
  /* START sozinho encerrava o jogo em qualquer tela fora do Tutorial.
    No oficial START confirma, nunca sai. Sair exige SELECT+START, que
@@ -1742,9 +1751,27 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     telemetry_event("tut_play_anim",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
    }}
   if(ui_state==8&&audio_started)tutorial_notes_update(music_clock,pressed,frame_no);
+  /* Fim da musica -> resultado, depois de uma pausa curta para o ultimo quadro
+     aparecer. O original tambem nao corta na hora: ha' a transicao de saida
+     do PlayState antes do ResultState. */
+  if(ui_state==8&&g_tutorial_audio_finished&&transition_frame==0){
+   g_result_wait++;
+   if(g_result_wait==90&&target_state<0){
+    fnf_rank_t rk=fnf_play_rank(&g_play);
+    telemetry_event("play_result",(int)rk,fnf_play_clear_percent(&g_play));
+    telemetry_event("play_result_score",g_play.score,g_play.max_combo);
+    telemetry_event("play_result_tallies",(g_play.sick<<24)|(g_play.good<<16)|(g_play.bad<<8)|(g_play.shit&0xff),g_play.missed);
+    target_state=9;transition_frame=1;transitions++;
+   }
+  }
   if(ui_state==8&&audio_started&&audio_ring_eof()&&ring_bytes==0&&queued_bytes==0){
    audsrv_stop_audio();audio_playing=0;audio_started=0;g_tutorial_audio_finished=1;transport_state=4;
-   music_clock=TUTORIAL_AUDIO_SAMPLES;heard=music_clock;
+   /* O fim da musica e' o fim do CHART (song_end_sample), nao
+      TUTORIAL_AUDIO_SAMPLES, que e' a duracao do Tutorial escrita no codigo.
+      Para outra musica aquela constante seria o tempo errado, e o resultado
+      sairia com o relogio de outra faixa. */
+   music_clock=g_chart_info.song_end_sample?g_chart_info.song_end_sample:TUTORIAL_AUDIO_SAMPLES;
+   heard=music_clock;
    telemetry_event("tutorial_audio_end",(int)music_clock,(int)frame_no);
   }
   /* Tutorial note timing follows the submitted/played audio sample clock. */
@@ -1788,7 +1815,12 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   telemetry_event("tutorial_note_atlas",g_tutorial_note_asset_status,224*112*4);
   if(g_tutorial_note_asset_status==0){FlushCache(0);setup_texture_dims(&tex2,320,256);upload_raw(&tex2,g_hud_pixels,320,256);}
   memset(&g_chart_info,0,sizeof(g_chart_info));g_chart_cursor=g_chart_seen=0;g_chart_last_type=g_chart_last_value=g_chart_last_sample=0;
-  tutorial_notes_reset();
+  /* O reset das notas NAO pode ficar aqui: ele tambem chama fnf_play_reset()
+     com o total de notas pontuaveis, e aqui o chart ainda nao foi carregado --
+     note_count ainda e' 0. Isso deixava o total em zero pelo resto da musica,
+     e o resultado saia sempre com rank NONE e 0% de conclusao, porque
+     fnf_play_completion() devolve 0 quando nao sabe o total. O reset vai
+     depois do chart_load, em TUT_CHART_BEGIN. */
   capture_status("TUT_CHART_BEGIN",(int)frame_no,0);
   /* The chart is resolved through the registry, not hardcoded. The tutorial is
      what the port plays, so its entry is looked up by id; the difficulty comes
@@ -1839,6 +1871,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   telemetry_event("play_step",(int)g_play_samples_per_step,(int)g_chart_info.initial_bpm);
   chart_events_init(g_play_samples_per_step);
   chart_events_bind(&g_chart_info);
+  /* Agora sim: o chart esta carregado, entao o total de notas pontuaveis do
+     resultado (tallies.totalNotes do original) sai do proprio chart. */
+  tutorial_notes_reset();
+  telemetry_event("play_total_notes",(int)g_play.total_notes,0);
   chart_rc=g_chart_status;
   capture_status("TUT_CHART_DONE",(int)frame_no,chart_rc);
   telemetry_event("tutorial_chart",g_chart_status,(int)g_chart_info.checksum);
@@ -1887,7 +1923,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -1937,7 +1973,8 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      tutorial_pack_load() recarrega ao entrar no Tutorial de novo (pointer 0). */
 tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&fonttex,FONT_W,FONT_H);upload_raw(&fonttex,g_font_pixels,FONT_W,FONT_H);}}}}menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
   }else if(transition_frame==0&&ui_state==7){if(pressed&PAD_UP){int sr;story_level=(story_level+8)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_DOWN){int sr;story_level=(story_level+1)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_LEFT){story_diff=(story_diff+2)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_RIGHT){story_diff=(story_diff+1)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS&&story_level==0){g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;target_state=8;transition_frame=1;transitions++;}
-  }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
+  }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}
+   else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
   frame_mark("F.STATE",ui_state*100+transition_frame);
   if(audio_playing)visual_frame++;
   if(transition_frame==0){if(pressed&PAD_LEFT){anim=1;anim_start=visual_frame;}if(pressed&PAD_DOWN){anim=2;anim_start=visual_frame;}if(pressed&PAD_UP){anim=3;anim_start=visual_frame;}if(pressed&PAD_RIGHT){anim=4;anim_start=visual_frame;}if(pressed&PAD_CROSS){anim=0;anim_start=visual_frame;}}
@@ -2189,6 +2226,35 @@ q=hud_score_line(q,TUT_VER_TXT,(int)(sizeof(TUT_VER_TXT)-1),632.5f,345.5f,2,0,0,
 q=hud_score_line(q,TUT_VER_TXT,(int)(sizeof(TUT_VER_TXT)-1),632.0f,345.0f,2,128,128,128,128);
 q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   q=bind_texture_filter(q,&fonttex,1);
+  /* TELA DE RESULTADO (ui_state 9).
+     Todos os numeros vem de engine/gameplay.h -- as mesmas funcoes que
+     julgaram as notas -- entao o que aparece aqui e' o que o jogo calculou, e
+     nao um contador paralelo que pode divergir. O original (ResultState.hx)
+     mostra rank, placar, os cinco tallies, maior combo e o percentual de
+     conclusao; e' o mesmo conjunto. Falta a arte, o som e as animacoes da
+     tela original -- estes ficam na Fase 3 do plano. */
+  if(ui_state==9){
+   char lb[64];int n,q0=g_frame_texture_quads;
+   q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
+   band_set(SCISSOR_TOPO,SCISSOR_BASE);
+   q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
+   q=bind_texture_filter(q,&fonttex,1);
+   q=text_draw(q,"RESULTS",320,72,1.6f,1);
+   q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),320,104,1.4f,1);
+   n=snprintf(lb,sizeof(lb),"SCORE %d",(int)g_play.score);
+   q=text_draw(q,lb,320,140,1.1f,1);
+   n=snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
+   q=text_draw(q,lb,320,168,0.9f,1);
+   n=snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
+   q=text_draw(q,lb,320,190,0.9f,1);
+   n=snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
+   q=text_draw(q,lb,320,216,0.9f,1);
+   n=snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
+   q=text_draw(q,lb,320,242,1.1f,1);
+   q=text_draw(q,"CROSS  CONTINUE",320,272,0.8f,1);
+   q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
+   if(!g_result_drawn){g_result_drawn=1;telemetry_event("result_draw",g_frame_texture_quads-q0,0);}
+  }
   if(ui_state==8&&!g_tutorial_scene_ready){char msg[40];snprintf(msg,sizeof(msg),"TUTORIAL ASSET ERROR %d",g_tutorial_scene_status);q=text_draw(q,msg,320,200,1.0f,1);q=text_draw(q,"CIRCLE  RETURN TO STORY",320,260,.70f,1);}
   if(ui_state==0 && components_mode){char v[32];q=text_draw(q,"UI COMPONENTS",320,30,2.0f,1);snprintf(v,sizeof(v),"TOGGLE: %s",toggle_value?"ON":"OFF");q=text_draw(q,v,155,94,1.2f,0);snprintf(v,sizeof(v),"SLIDER: %d",slider_value);q=text_draw(q,v,155,156,1.2f,0);snprintf(v,sizeof(v),"TAB: %d   L1/R1",tab_value+1);q=text_draw(q,v,155,218,1.2f,0);q=text_draw(q,"DISABLED OPTION",155,280,1.2f,0);q=text_draw(q,"SCROLL ITEM",155,342,1.2f,0);q=text_draw(q,"TRIANGLE/CIRCLE: BACK",320,410,1.0f,1);}
   else if(ui_state==0){u32 ib=title_intro_phase();if(title_intro_active){if(ib!=g_title_intro_phase_reported){telemetry_event("title_credit_phase",(int)ib,(int)g_title_intro_heard_samples);g_title_intro_phase_reported=ib;}if(ib>=1&&ib<4){q=title_alpha(q,&fonttex,"NINJAMUFFIN99",320,100,1.0f);q=title_alpha(q,&fonttex,"PHANTOMARCADE",320,130,1.0f);q=title_alpha(q,&fonttex,"KAWAISPRITE",320,160,1.0f);q=title_alpha(q,&fonttex,"EVILSK8R",320,190,1.0f);if(ib>=3)q=title_alpha(q,&fonttex,"PRESENT",320,220,1.0f);}else if(ib>=5&&ib<8){q=title_alpha(q,&fonttex,"IN ASSOCIATION",320,100,1.0f);q=title_alpha(q,&fonttex,"WITH",320,130,1.0f);if(ib>=7){q=title_alpha(q,&fonttex,"NEWGROUNDS",320,160,1.0f);q=bind_texture(q,&tex);q=sprite_dims(q,229.5f,187.2f,181.0f,175.0f,181,175);}}else if(ib>=9&&ib<12){q=title_alpha(q,&fonttex,"DOPE ASS GAME",320,100,1.0f);if(ib>=11)q=title_alpha(q,&fonttex,"PLAYSTATION MAGAZINE",320,130,.75f);}else if(ib>=13&&ib<16){q=title_alpha(q,&fonttex,"FRIDAY",320,100,1.0f);if(ib>=14)q=title_alpha(q,&fonttex,"NIGHT",320,130,1.0f);if(ib>=15)q=title_alpha(q,&fonttex,"FUNKIN",320,160,1.0f);}else if(ib>=16){title_intro_flash_frames=60;title_intro_active=0;}}else{unsigned int pf=title_confirm_frames>0?(2u+((title_confirm_frames/4u)&1u)):((frame_no/30u)&1u);q=bind_texture(q,&stagetex);q=sprite_region(q,50,288,512,40,0,pf*48+4,512,40);q=bind_texture(q,&tex2);q=sprite_region(q,562,288,228,40,0,pf*48+4,228,40);q=bind_texture_filter(q,&fonttex,1);}}

@@ -189,7 +189,7 @@ o áudio do tutorial *morre no harness* poucos quadros depois de começar
 (`audio_playing` cai a 0 e o relógio da música congela). Isso é o primeiro item
 da Fase 2.
 
-### Fase 2 — PlayState genérico: ABERTA (dois itens fechados)
+### Fase 2 — PlayState genérico: ABERTA (só falta a contagem regressiva)
 
 **Fechado: o harness agora executa o julgamento.** Medido antes e depois:
 
@@ -270,7 +270,39 @@ desaparece quando o mixer de duas faixas existir.
 Provado no harness: `play_audio_path` abriu o arquivo por música (fd 6),
 `play_step` = 7.200 com `initial_bpm` 100, 9 acertos e 5 saltos de placar.
 
-**O que falta na Fase 2**
+**Fechado: fim de música → tela de Resultado (`ui_state == 9`).**
+
+Antes o PlayState não tinha fim: a música acabava e o jogo ficava no quadro
+parado. Agora:
+
+| Item | Antes | Agora |
+|---|---|---|
+| fim da música | nada acontecia | `audio_ring_eof()` sem fila pendente → 90 quadros de espera → transição para `ui_state 9` |
+| relógio final | constante `TUTORIAL_AUDIO_SAMPLES` | `g_chart_info.song_end_sample`, com a constante só como reserva do Tutorial |
+| resultado | não existia tela | rank (`fnf_play_rank`), placar, cinco tallies, maior combo e `%` de conclusão (`fnf_play_clear_percent`), das **mesmas** funções que julgaram as notas |
+| log | nada | `play_result` (rank, %), `play_result_score` (placar, combo), `play_result_tallies`, `result_enter`, `result_draw` |
+| saída | — | CROSS volta ao Story Menu |
+
+Um defeito **encontrado pelo teste**, não por leitura: `tutorial_notes_reset()`
+era chamado **antes** do `chart_load`, então `fnf_play_reset()` recebia
+`total_notes = 0`. Com total zero, `fnf_play_completion()` devolve 0 e
+`fnf_play_rank()` devolve `FNF_RANK_NONE`. O resultado sairia sempre com rank
+**NONE** e **0 %** em qualquer música, por melhor que fosse a execução — e no
+console isso apareceria como "o jogo não conta as notas". A ordem foi corrigida
+(reset depois do `chart_events_bind`) e o log ganhou `play_total_notes`.
+
+| Medição (harness, 5.600 quadros, Tutorial normal) | Antes | Depois |
+|---|---|---|
+| `play_total_notes` | 0 | **32** |
+| rank no resultado | `-1` (NONE) | **0** (SHIT, coerente: 23 misses) |
+| quadros em `ui_state 9` | 0 | **689** |
+| quads desenhados na tela 9 | 0 | **95** |
+
+`PLAY_RESULT` no harness agora falha se o rank vier `-1` (total de notas zero) e
+se a tela não desenhar nenhum quad — "o estado existe" não é prova de que
+apareceu alguma coisa.
+
+**O que falta na Fase 2: a contagem regressiva** (5 ticks, `Countdown.hx`).
 
 **Primeiro item, e ele é uma hipótese forte para o travamento do console**
 
@@ -286,6 +318,6 @@ e engasgado, e trava"): o pendrive do PS2 é USB 1.1, a ~1,5 MB/s, com blocos de
 `tutorial_audio_mix_submit` devolve bloco curto e em que quadro, com o jogo
 continuando em vez de parar. Entra na próxima build, sozinho (regra 8).
 
-Depois dele, ainda na Fase 2: escolher música e dificuldade (o loader já
-resolve o caminho), áudio por música em vez de `audio_stems.pcm` fixo,
-contagem regressiva, fim de música → resultado.
+Depois dele, ainda na Fase 2: a contagem regressiva. Escolher música e
+dificuldade, o áudio por música e o fim de música → resultado já estão fechados
+acima.
