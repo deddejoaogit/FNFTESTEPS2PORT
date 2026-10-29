@@ -84,6 +84,7 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 | ícones de vida | `HealthIcon.updatePosition()` (`HealthIcon.hx:269-293`) | desenhados nas duas pontas da barra; posição fixa ainda, sem o remap da fórmula |
 | easings | 13 nomes, sem cubic/sine | `chart_ease_names` |
 | tela de resultado: conteúdo | `ResultState.hx` mostra rank, placar, tallies, maior combo e `%` (`:578-583`) | `ui_state 9` desenha os mesmos campos, dos mesmos `fnf_play_*` que julgaram | teste: rank != NONE e >= 1 quad na tela 9 |
+| freeplay | `FreeplayState.hx`: lista de capsules do registro, dificuldade entre as que a música tem, CROSS toca | `ui_state 11`, lista de 27 músicas, `SR_DIFF_*` | teste: 27 na lista, HARD → chart de 48 notas, volta para a Freeplay |
 | pausa | `PauseSubState.hx`: substate sobre o PlayState congelado, fundo preto alpha 0,6 em 0,8 s `quartOut`, `y = 70·i + 30`, `justOpened` | `g_paused` mantendo `ui_state 8`, `153·quartOut(t)`, `15 + 35·i` | teste: 1 valor de relógio em toda a pausa, Resume no mesmo ponto, música fecha em 3.225.600 |
 | game over | `PlayState.hx:1255` dispara em `health <= HEALTH_MIN`; `moveToGameOver()` zera placar e vida; `GameOverSubState` abre sem transição e bloqueia entrada por 1 s | `ui_state 10`, `fnf_play_move_to_game_over`, 60 quadros de bloqueio | teste: morte com 13 misses, tela desenhada, reinício tocando de novo |
 | contagem regressiva | `Countdown.hx`: Conductor em -5 batidas, `FlxTimer` de uma batida, 5 voltas, alpha 1→0 em `FlxEase.cubeInOut` | `countdown_*` em `main.c` com batida = 4 passos do chart | teste: 5 passos, e música só começa depois do AFTER |
@@ -104,7 +105,8 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 - a ARTE de morte (animação `firstDeath` do personagem) e a música de game over;
 - a arte do menu de pausa (ícone, círculo, AtlasFont) e a música de pausa;
 - "Enable Practice Mode": depende do Practice Mode, que ainda não existe;
-- Freeplay: ainda não existe no port.
+- a arte das telas de Freeplay (capsules) e de pausa (ícone, círculo,
+  `AtlasFont`) -- a informação e o comportamento estão no port, a arte não.
 
 ## Regra para as próximas fases
 

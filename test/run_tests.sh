@@ -376,6 +376,18 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -6 /tmp/fnf_pause.log
+
+    # FREEPLAY: o item do menu que antes so' dizia "COMING IN NEXT STAGE".
+    # Confere lista completa, dificuldade, o chart da musica escolhida e a volta
+    # para a Freeplay depois do resultado.
+    echo
+    echo "== freeplay no harness (lista, dificuldade, tocar, voltar) =="
+    if ! sh tools/run_freeplay_harness.sh 6000 > /tmp/fnf_freeplay.log 2>&1; then
+        tail -20 /tmp/fnf_freeplay.log
+        echo "  FALHA: a freeplay nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_freeplay.log
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

@@ -122,7 +122,7 @@ registrar a tabela neste documento. Sem tabela, nada é declarado ganho.
 
 ---
 
-### Fase 3 — Telas: ABERTA (Resultado e Game Over fechados)
+### Fase 3 — Telas: FECHADA (arte das telas ainda pendente)
 
 **Fechado: Game Over (`ui_state == 10`, `GameOverSubState.hx`).**
 
@@ -221,8 +221,39 @@ por amostra) em vez de `n/2` bytes de **saída** (4 bytes por amostra). O áudio
 entregue ao audsrv dobrou e o relógio correu até 4.755.264 amostras num arquivo
 de 3.225.600. Corrigido com o fator explícito e comentado no lugar.
 
-**O que falta na Fase 3:** Freeplay (`FreeplayState.hx`) e a seleção de
-dificuldade dentro dela.
+**Fechado: Freeplay (`ui_state 11`).**
+
+Até aqui 26 das 27 músicas eram **inalcançáveis**: o menu tinha a entrada
+FREEPLAY, mas apertá-la mostrava "COMING IN NEXT STAGE". Agora:
+
+| Item | Original | Port |
+|---|---|---|
+| entrada | item FREEPLAY do menu (`MainMenuState.hx`) | mesmo item, abre `ui_state 11` |
+| lista | capsules numa grade, vindas do registro | 27 músicas do registro (`sr_levels()`), sem duplicar as que aparecem em mais de uma semana |
+| navegação | quatro direções na grade | UP/DOWN na lista (sem a arte das capsules), 9 linhas visíveis de 27 |
+| dificuldade | "bubble" da esquerda/direita | LEFT/RIGHT, **só entre as `SR_DIFF_*` que a música tem** |
+| tocar | CROSS na capsule | CROSS fixa a música e a dificuldade e entra no PlayState com ela |
+| voltar | CIRCLE sai para o menu | CIRCLE sai para o menu; e ao sair do **resultado/game over/pausa** o destino é a Freeplay, não o Story |
+| log | — | `freeplay_open`, `freeplay_enter`, `freeplay_sel`, `freeplay_diff`, `freeplay_play`, `freeplay_draw`, `freeplay_back` |
+
+Medido (`tools/run_freeplay_harness.sh`, 6.000 quadros): **27 músicas** na
+lista, tela desenhada com **153 quads**, RIGHT levando a dificuldade para
+**HARD**, o chart carregado com **48 notas** (o normal tem 32) e checksum
+diferente, a música tocando e **506 quadros de volta na Freeplay** depois de
+sair do resultado.
+
+Também fechado de quebra: **um defeito de escalonamento no reinício**.
+`audio_ring_reset()` depende de a thread produtora ver o pedido dentro de
+500 ms; quando ela não é escalonada a tempo o reset devolve −1 e o reinício
+ficava com o anel cheio e a música parada. Aconteceu no harness (game over com
+"1 vez que a música começou" em vez de 2) e não acontecia sempre — é corrida.
+Agora, se o reset falha, o transporte para e recomeça do zero
+(`audio_ring_stop` + `audio_ring_start`), que é o que o Resume da pausa já
+fazia, e o resultado vai para o log (`rebobinar`).
+
+**Fase 3 fechada**, com uma ressalva de arte: a Freeplay desenha a lista e não
+as capsules, e o menu de pausa não tem o ícone/círculo nem o `AtlasFont` do
+original. A informação e o comportamento estão lá; a arte entra com o pacote.
 
 ## Regra de trabalho desta rodada
 
