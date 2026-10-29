@@ -48,6 +48,23 @@ static void hit_many(fnf_play_t *p, int n, float ms, fnf_judge_t want)
     }
 }
 
+/* A janela do JOGO (Constants.HIT_WINDOW_MS) e a conversao para amostras que
+   main.c usa. 160 ms a 48 kHz = 7.680 amostras; o port usava 7.200 para acertar
+   e 12.000 para perder, nenhum dos dois existindo na fonte. */
+static void test_hit_window_matches_game(void)
+{
+    const int amostras = (int)(FNF_HIT_WINDOW_MS * 48000.0f / 1000.0f);
+    CHECK_NEAR(FNF_HIT_WINDOW_MS, 160.0, 1e-6);
+    CHECK(amostras == 7680);
+    /* A janela de acerto e a de nota perdida sao o mesmo numero no original. */
+    CHECK(fnf_play_is_pressable(FNF_HIT_WINDOW_MS, FNF_SCORING_PBOT1) == 1);
+    CHECK(fnf_play_is_pressable(-FNF_HIT_WINDOW_MS, FNF_SCORING_PBOT1) == 1);
+    CHECK(fnf_play_is_pressable(FNF_HIT_WINDOW_MS + 0.5f, FNF_SCORING_PBOT1) == 0);
+    /* E o julgamento concorda com a janela: dentro nunca da' MISS. */
+    CHECK(fnf_judge_ms(159.0f, FNF_SCORING_PBOT1) != FNF_JUDGE_MISS);
+    CHECK(fnf_judge_ms(161.0f, FNF_SCORING_PBOT1) == FNF_JUDGE_MISS);
+}
+
 static void test_windows(void)
 {
     /* Scoring.PBOT1_SHIT_THRESHOLD / LEGACY_HIT_WINDOW. */
@@ -168,6 +185,18 @@ static void test_play_sequence(void)
     CHECK(p.combo == 0 && p.bad == 1 && p.max_combo == 3);
     CHECK_NEAR(p.health, 1.09, 1e-5);
 
+    /* O placar NAO e' limitado em zero: o original soma e mostra o negativo
+       (PBOT1_MISS_SCORE = -100, SCORE_GHOST_MISS_PENALTY = -10). */
+    {
+        fnf_play_t q;
+        int i;
+        fnf_play_reset(&q, FNF_SCORING_PBOT1, 100);
+        for (i = 0; i < 5; i++) fnf_play_miss(&q);
+        CHECK(q.score == -500);
+        for (i = 0; i < 3; i++) fnf_play_ghost(&q);
+        CHECK(q.score == -530);
+    }
+
     /* Um MISS tira 0,08 e 100 pontos. */
     fnf_play_miss(&p);
     CHECK(p.missed == 1);
@@ -261,6 +290,7 @@ int main(void)
 {
     printf("== gameplay: janelas e julgamento ==\n");
     test_windows();
+    test_hit_window_matches_game();
     test_pbot1_judge();
     printf("== gameplay: pontuacao ==\n");
     test_pbot1_score();

@@ -162,7 +162,11 @@ static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial
 
 #define CHART_MAX_NOTE_STATES 1280u /* acompanha CHART_MAX_NOTES: 2hot-HARD tem 1.035 notas */
 static unsigned char g_tutorial_note_state[CHART_MAX_NOTE_STATES];
-static u32 g_tutorial_note_score=0,g_tutorial_note_hits=0,g_tutorial_note_misses=0,g_tutorial_note_combo=0,g_tutorial_note_feedback_frame=0;
+/* s32 no placar, nao u32: o original NAO limita songScore em zero, entao uma
+   passagem ruim deixa o placar negativo. Com u32 isso virava 4 bilhoes no log
+   e no HUD. Os outros contadores so' crescem e ficam u32. */
+static s32 g_tutorial_note_score=0;
+static u32 g_tutorial_note_hits=0,g_tutorial_note_misses=0,g_tutorial_note_combo=0,g_tutorial_note_feedback_frame=0;
 /* Estado da tentativa, com os numeros do original (ver engine/gameplay.h).
    O HUD passou a ler daqui em vez de manter contadores proprios: era assim que
    "Score: 0" ficava fixo na tela mesmo com notas sendo acertadas. */
@@ -222,8 +226,14 @@ static unsigned char *g_audio_pcm;
 #define AUDIO_RATE 48000
 #define TUTORIAL_AUDIO_SAMPLES 3225600u
 #define TUTORIAL_NOTE_AHEAD 76800u
-#define TUTORIAL_NOTE_LATE 12000u
-#define TUTORIAL_NOTE_JUDGE_WINDOW 7200u
+/* Janela de julgamento e de nota perdida: AS DUAS SAO O MESMO NUMERO no
+   original, Constants.HIT_WINDOW_MS = 160 ms, aplicado simetricamente em
+   GRhythmUtil.getHitWindow() e cobrado em processWindow() (songPosition > end
+   -> hasMissed). Aqui 160 ms a 48 kHz = 7.680 amostras. Estavam 7.200 (150 ms)
+   e 12.000 (250 ms), dois valores que nao existem na fonte. Derivados da
+   constante, nao digitados: assim nao voltam a divergir. */
+#define TUTORIAL_NOTE_LATE ((u32)(FNF_HIT_WINDOW_MS*(float)AUDIO_RATE/1000.0f))
+#define TUTORIAL_NOTE_JUDGE_WINDOW TUTORIAL_NOTE_LATE
 /* Quantos quadros seguidos o audio pode falhar antes de o transporte parar.
    120 quadros = 2 s a 60 fps: tempo de sobra para o pendrive entregar um bloco
    de 8 KB (a 1,5 MB/s isso leva 5 ms). Antes, UM bloco curto ja' parava tudo. */
@@ -724,7 +734,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
-  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(u32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
@@ -756,10 +766,10 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);
     g_tutorial_note_hits=(u32)g_play.total_notes_hit;
     g_tutorial_note_combo=(u32)g_play.combo;
-    g_tutorial_note_score=(u32)g_play.score;
+    g_tutorial_note_score=(s32)g_play.score;
     g_tutorial_note_feedback=judge==FNF_JUDGE_SICK?1:judge==FNF_JUDGE_GOOD?2:judge==FNF_JUDGE_BAD?3:4;
     g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_hit",best,(int)offset);}}
-  else{fnf_play_ghost(&g_play);g_tutorial_note_score=(u32)g_play.score;g_tutorial_note_feedback=5;g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_ghost",(int)lane,(int)sample);}
+  else{fnf_play_ghost(&g_play);g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=5;g_tutorial_note_feedback_frame=frame;telemetry_event("tutorial_note_ghost",(int)lane,(int)sample);}
  }
 }
 static float tutorial_note_y(s32 delta){return 26.3f+(float)delta*(0.45f/(48.0f*2.0f))*g_tut_scroll;}

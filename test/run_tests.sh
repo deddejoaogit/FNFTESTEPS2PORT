@@ -50,6 +50,22 @@ $CC $FLAGS test/test_gameplay.c src/engine/gameplay.c -o /tmp/fnf_test_gameplay 
 /tmp/fnf_test_gameplay
 echo
 
+# As constantes de julgamento do main.c tem de sair da fonte, nao de numero
+# digitado. Esta checagem e' feita por leitura do texto porque o valor vive numa
+# macro; o valor em si (160 ms -> 7.680 amostras) esta' preso em
+# test/test_gameplay.c, que roda logo acima.
+echo "== julgamento derivado de Constants.HIT_WINDOW_MS, sem numero solto =="
+if ! grep -q "TUTORIAL_NOTE_LATE ((u32)(FNF_HIT_WINDOW_MS" src/main.c; then
+    echo "  FALHA: TUTORIAL_NOTE_LATE nao deriva de FNF_HIT_WINDOW_MS"
+    exit 1
+fi
+if grep -nE "TUTORIAL_NOTE_(LATE|JUDGE_WINDOW)[[:space:]]+[0-9]+u?" src/main.c; then
+    echo "  FALHA: a janela voltou a ser um numero digitado"
+    exit 1
+fi
+echo "  ok:   janela de acerto e de nota perdida saem do mesmo 160 ms"
+echo
+
 echo "== song_registry =="
 $CC $FLAGS test/test_registry.c src/engine/song_registry.c -o /tmp/fnf_test_registry
 /tmp/fnf_test_registry
@@ -319,8 +335,15 @@ echo
 # modo que o julgamento nao era executado no PC. Aqui o roteiro aperta durante a
 # musica e o teste exige acertos e placar > 0.
 echo "== gameplay de ponta a ponta no harness (acerto, placar, combo) =="
-if [ -f "$SDK_HEADERS/ee/draw/src/draw.c" ] || [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
-    sh tools/run_gameplay_harness.sh 3200 2>&1 | tail -6 || exit 1
+if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
+    # Sem pipe: "sh ... | tail" devolveria o status do tail, e uma falha do
+    # jogo passava batido com um ALL SUITES PASSED no fim. Ja' aconteceu.
+    if ! sh tools/run_gameplay_harness.sh 3200 > /tmp/fnf_gameplay.log 2>&1; then
+        tail -20 /tmp/fnf_gameplay.log
+        echo "  FALHA: o gameplay de ponta a ponta nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_gameplay.log
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

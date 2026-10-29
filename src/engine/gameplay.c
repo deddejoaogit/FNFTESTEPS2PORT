@@ -193,8 +193,14 @@ static void play_apply(fnf_play_t *play, fnf_judge_t judge, int score)
         if (play->combo > play->max_combo) play->max_combo = play->combo;
     }
 
+    /* songScore NAO e' limitado no original: PlayState.applyScore() faz
+       `songScore += score` e nada mais, e updateScoreText() mostra
+       formatMoney(songScore). Com PBOT1_MISS_SCORE = -100 e
+       SCORE_GHOST_MISS_PENALTY = -10, o placar passa de zero para baixo numa
+       passagem ruim -- e o jogo original mostra isso. Limitar em zero aqui era
+       invencao minha, e invencao e' divergencia. Medido no harness: o placar
+       chegou a zero e ficou la', escondendo centenas de penalidades reais. */
     play->score += score;
-    if (play->score < 0) play->score = 0;   /* o HUD do original não mostra negativo */
 }
 
 fnf_judge_t fnf_play_hit(fnf_play_t *play, float ms)
@@ -221,11 +227,13 @@ void fnf_play_miss(fnf_play_t *play)
 void fnf_play_ghost(fnf_play_t *play)
 {
     if (!play) return;
+    /* ghostNoteMiss(): health += healthChange; songScore += scoreChange; e
+       nada mais -- sem tally, sem combo. Os dois valores vem de
+       Constants.HEALTH_GHOST_MISS_PENALTY e SCORE_GHOST_MISS_PENALTY. */
     play->health += FNF_HEALTH_GHOST_MISS_PENALTY;
     if (play->health < FNF_HEALTH_MIN) play->health = FNF_HEALTH_MIN;
     if (play->health <= FNF_HEALTH_MIN) play->dead = 1;
     play->score += FNF_SCORE_GHOST_MISS_PENALTY;
-    if (play->score < 0) play->score = 0;
 }
 
 void fnf_play_hold(fnf_play_t *play, float seconds)

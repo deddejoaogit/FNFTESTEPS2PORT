@@ -73,6 +73,22 @@ typedef enum {
 #define FNF_PBOT1_BAD_THRESHOLD    135.0f
 #define FNF_PBOT1_SHIT_THRESHOLD   160.0f
 
+/*
+ * Constants.HIT_WINDOW_MS. E' ESTA a janela do jogo, e ela vale para as duas
+ * pontas do mesmo numero:
+ *
+ *   GRhythmUtil.getHitWindow()  start = strumTime - HIT_WINDOW_MS,
+ *                               center = strumTime,
+ *                               end   = strumTime + HIT_WINDOW_MS
+ *   GRhythmUtil.processWindow() songPosition > end  ->  hasMissed = true
+ *
+ * Ou seja: um aperto so' acerta dentro de +-160 ms, e a nota so' e' dada como
+ * perdida DEPOIS dos mesmos +-160 ms. O port usava 150 ms para acertar
+ * (TUTORIAL_NOTE_JUDGE_WINDOW = 7200 amostras) e 250 ms para perder
+ * (TUTORIAL_NOTE_LATE = 12000), dois numeros que nao existem no original.
+ */
+#define FNF_HIT_WINDOW_MS 160.0f
+
 /* Scoring.LEGACY_* e Scoring.WEEK7_* -- a janela de 10 quadros a 60 fps. */
 #define FNF_LEGACY_HIT_WINDOW      (10.0f/60.0f*1000.0f)  /* 166,666... ms */
 #define FNF_LEGACY_SICK_THRESHOLD  0.2f

@@ -81,19 +81,30 @@ fi
 HITS=$(grep -c ',tutorial_note_hit,' "$LOG" 2>/dev/null || true)
 [ -z "$HITS" ] && HITS=0
 INICIOU=$(awk -F, '$1=="E" && $3=="tutorial_audio_start" {n++} END{print n+0}' "$LOG")
-SCORE=$(awk -F, '$1=="S" && $3==8 {if ($36+0 > m) m = $36+0} END{print m+0}' "$LOG")
+# O placar do original NAO e' limitado em zero, entao ele anda para baixo com
+# as penalidades: o que interessa aqui e' (a) ele mudar, provando que o caminho
+# de pontuacao rodou, e (b) o maximo visto, que mostra os acertos pontuando.
+SCORE_MAX=$(awk -F, 'BEGIN{m=-1000000000} $1=="S" && $3==8 {if ($36+0 > m) m = $36+0} END{print m}' "$LOG")
+SCORE_MIN=$(awk -F, 'BEGIN{m=1000000000} $1=="S" && $3==8 {if ($36+0 < m) m = $36+0} END{print m}' "$LOG")
+# Acerto que soma ponto: um salto positivo grande entre dois quadros. E' o que
+# prova que fnf_play_hit() somou pontos de verdade -- o valor absoluto do
+# placar nao serve, porque centenas de ghost misses o empurram para baixo e o
+# original NAO limita em zero.
+SALTOS=$(awk -F, '$1=="S" && $3==8 {if (seen && $36 - prev >= 100) n++; prev=$36; seen=1} END{print n+0}' "$LOG")
 CLOCK=$(awk -F, '$1=="S" && $3==8 {if ($27+0 > m) m = $27+0} END{print m+0}' "$LOG")
 
 echo
 echo "  musica do tutorial iniciada .. $INICIOU vez(es)"
 echo "  relogio maximo da musica ..... $CLOCK amostras"
 echo "  acertos julgados ............. $HITS"
-echo "  placar maximo ................ $SCORE"
+echo "  placar (minimo..maximo) ...... $SCORE_MIN .. $SCORE_MAX"
+echo "  acertos que somaram pontos ... $SALTOS"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
 [ "$HITS" -ge 2 ]       || { echo "  FALHA: menos de dois acertos julgados -- o caminho de julgamento nao rodou"; FALHA=1; }
-[ "$SCORE" -gt 0 ]      || { echo "  FALHA: o placar ficou em zero"; FALHA=1; }
+[ "$SCORE_MAX" != "$SCORE_MIN" ] || { echo "  FALHA: o placar nunca mudou -- nada pontuou"; FALHA=1; }
+[ "$SALTOS" -ge 2 ]      || { echo "  FALHA: nenhum salto positivo de placar -- os acertos nao pontuaram"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo
