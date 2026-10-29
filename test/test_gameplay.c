@@ -243,6 +243,35 @@ static void test_play_sequence(void)
     CHECK_NEAR(fnf_play_health_ratio(&p), 0.0, 1e-6);
 }
 
+static void test_move_to_game_over(void)
+{
+    fnf_play_t p;
+
+    /* O que moveToGameOver() faz: zera o placar e devolve a vida inicial, e
+       destrava `dead` para o port nao reentrar no game over no quadro seguinte.
+       Os tallies ficam (o original tambem nao os toca). */
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 40);
+    { int i; for (i = 0; i < 6; i++) fnf_play_miss(&p); }
+    { int i; for (i = 0; i < 5; i++) fnf_play_hold(&p, 1.0f); }
+    CHECK(p.dead == 0 || p.health > FNF_HEALTH_MIN);
+    { int i; for (i = 0; i < 20; i++) fnf_play_miss(&p); }
+    CHECK(p.dead == 1);
+    CHECK(p.score < 0);
+    CHECK(p.missed == 26);
+
+    fnf_play_move_to_game_over(&p);
+    CHECK(p.score == 0);
+    CHECK_NEAR(p.health, FNF_HEALTH_STARTING, 1e-6);
+    CHECK(p.dead == 0);
+    CHECK(p.missed == 26);           /* tallies preservados */
+    CHECK(p.combo == 0);             /* miss ja' zerou o combo */
+
+    /* E depois do game over a musica pode voltar a ser jogada: um reset
+       completo devolve o total de notas, que e' o que o resultado usa. */
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 40);
+    CHECK(p.missed == 0 && p.total_notes == 40 && !p.dead);
+}
+
 static void test_result(void)
 {
     fnf_play_t p;
@@ -298,6 +327,8 @@ int main(void)
     printf("== gameplay: vida e combo ==\n");
     test_health_and_combo();
     test_play_sequence();
+    printf("== gameplay: game over ==\n");
+    test_move_to_game_over();
     printf("== gameplay: resultado ==\n");
     test_result();
 

@@ -207,6 +207,18 @@ float fnf_play_completion(const fnf_play_t *play);
 /* O número que o ResultState mostra, já em porcentagem inteira. */
 int fnf_play_clear_percent(const fnf_play_t *play);
 
+/*
+ * PlayState.moveToGameOver(): o que o original faz ao ABRIR o game over, antes
+ * de o jogador decidir. Ele zera o placar e devolve a vida ao valor inicial,
+ * para que o reinício comece limpo -- e `dead` volta a 0, senão o port entraria
+ * no game over outra vez no quadro seguinte.
+ *
+ * Os tallies NÃO são mexidos aqui: o original também não mexe
+ * (`moveToGameOver` só toca songScore/health), e reiniciar a música é o que
+ * zera o resto.
+ */
+void fnf_play_move_to_game_over(fnf_play_t *play);
+
 /* Rank do fim da música. FNF_RANK_NONE quando não houve nota nenhuma. */
 fnf_rank_t fnf_play_rank(const fnf_play_t *play);
 

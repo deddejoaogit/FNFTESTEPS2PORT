@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Gera o roteiro de botoes do harness a partir do PROPRIO chart.
+
+Por que existe: o roteiro anterior apertava as setas em cadencia
+pseudoaleatoria. Ele provava que o julgamento roda (alguns acertos), mas
+tambem produzia dezenas de ghost misses -- e um ghost miss tira 0,08 de vida
+(Constants.HIT_WINDOW_MS / Scoring.hx). Com 23 ghost misses o jogador morre de
+verdade, e o teste de fim de musica nunca chegava ao resultado. Depois que o
+game over existe, apertar no aleatorio deixa de ser um teste de gameplay: vira
+um teste de derrota.
+
+Aqui as pressoes sao calculadas das notas do chart:
+
+    quadro = <quadro em que a musica chega em 0> + round(amostra / amostras_por_quadro)
+
+`quadro_zero` NAO e' chutado: ele vem do log da primeira passada
+(`tutorial_audio_start`). O roteiro e' deterministico: a mesma entrada produz
+sempre o mesmo script, e duas passadas seguidas dao o mesmo resultado.
+
+Uso:
+    python3 tools/harness_presses.py <chart> <quadro_zero> [--pular N]
+Imprime o roteiro no formato do harness: "150:CROSS,900:LEFT,..."
+"""
+import struct
+import sys
+
+NOTES_STRIDE = 12
+LANES = ["LEFT", "DOWN", "UP", "RIGHT"]  # g_receptor_x ordem do port
+
+
+def read_chart(path):
+    """Le o cabecalho e as notas de um .chart FCH3/FCH4 do port."""
+    with open(path, "rb") as f:
+        data = f.read()
+    magic = data[:4]
+    if magic not in (b"FCH3", b"FCH4"):
+        raise SystemExit(f"{path}: nao e' um chart FCH3/FCH4 ({magic!r})")
+    version = struct.unpack_from("<H", data, 4)[0]
+    notes = struct.unpack_from("<I", data, 8)[0]
+    bpms = struct.unpack_from("<H", data, 12)[0]
+    sections = struct.unpack_from("<H", data, 14)[0]
+    events = struct.unpack_from("<H", data, 16)[0]
+    end = struct.unpack_from("<I", data, 32)[0]
+    header = 40 if version == 3 else 48
+    if header > len(data):
+        raise SystemExit(f"{path}: cabecalho truncado")
+    out = []
+    off = header
+    for i in range(notes):
+        rec = data[off + i * NOTES_STRIDE: off + (i + 1) * NOTES_STRIDE]
+        if len(rec) < NOTES_STRIDE:
+            raise SystemExit(f"{path}: nota {i} truncada")
+        sample, duration = struct.unpack_from("<II", rec, 0)
+        lane, must_press = rec[8], rec[9]
+        order = struct.unpack_from("<H", rec, 10)[0]
+        if order != i or lane > 3 or must_press > 1:
+            raise SystemExit(f"{path}: nota {i} invalida (order {order}, lane {lane})")
+        out.append((sample, duration, lane, must_press))
+    spb = struct.unpack_from("<I", data, off + notes * 12 + 8)[0]
+    return out, end, spb, bpms, sections, events
+
+
+def main(argv):
+    if len(argv) < 3:
+        raise SystemExit(__doc__)
+    path, zero = argv[1], int(argv[2])
+    pular = 0
+    if "--pular" in argv:
+        pular = int(argv[argv.index("--pular") + 1])
+    notes, end, spb, bpms, sections, events = read_chart(path)
+    samples_per_frame = 800  # 48 kHz / 60 quadros: o harness anda 16.667 us/quadro
+
+    player = [n for n in notes if n[3]]
+    puladas = set()
+    if pular > 0 and player:
+        # Pula notas espalhadas (nao as primeiras): cada uma vira um MISS de
+        # verdade, que o teste usa para exercitar o caminho de erro sem matar
+        # o jogador.
+        for k in range(pular):
+            puladas.add((k * len(player)) // pular)
+
+    itens = []
+    for idx, (sample, _dur, lane, _mp) in enumerate(player):
+        if idx in puladas:
+            continue
+        frame = zero + int(round(sample / float(samples_per_frame)))
+        itens.append((frame, LANES[lane]))
+    itens.sort()
+    print(",".join(f"{f}:{k}" for f, k in itens))
+    sys.stderr.write(
+        f"chart {path}: {len(notes)} notas ({len(player)} do jogador), "
+        f"fim {end}, {spb} amostras/passo, {bpms} BPM(s), {sections} secao(oes), "
+        f"{events} evento(s); {len(puladas)} nota(s) deixada(s) para tras\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

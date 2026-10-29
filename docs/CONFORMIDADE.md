@@ -79,6 +79,7 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 | ícones de vida | `HealthIcon.updatePosition()` (`HealthIcon.hx:269-293`) | desenhados nas duas pontas da barra; posição fixa ainda, sem o remap da fórmula |
 | easings | 13 nomes, sem cubic/sine | `chart_ease_names` |
 | tela de resultado: conteúdo | `ResultState.hx` mostra rank, placar, tallies, maior combo e `%` (`:578-583`) | `ui_state 9` desenha os mesmos campos, dos mesmos `fnf_play_*` que julgaram | teste: rank != NONE e >= 1 quad na tela 9 |
+| game over | `PlayState.hx:1255` dispara em `health <= HEALTH_MIN`; `moveToGameOver()` zera placar e vida; `GameOverSubState` abre sem transição e bloqueia entrada por 1 s | `ui_state 10`, `fnf_play_move_to_game_over`, 60 quadros de bloqueio | teste: morte com 13 misses, tela desenhada, reinício tocando de novo |
 | contagem regressiva | `Countdown.hx`: Conductor em -5 batidas, `FlxTimer` de uma batida, 5 voltas, alpha 1→0 em `FlxEase.cubeInOut` | `countdown_*` em `main.c` com batida = 4 passos do chart | teste: 5 passos, e música só começa depois do AFTER |
 | total de notas do resultado | `tallies.totalNotes` = notas do jogador | `fnf_play_reset` com `must_press` contados **após** o chart carregar | teste: `play_total_notes` = 32 no Tutorial normal |
 
@@ -94,7 +95,8 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
   foram conferidas contra `ResultState.hx`);
 - a ARTE e o SOM da contagem regressiva (o tempo e a curva são do original; o
   desenho é texto e os sons do `noteStyle` não estão no pacote);
-- pausa e game over: ainda não existem no port.
+- a ARTE de morte (animação `firstDeath` do personagem) e a música de game over;
+- pausa e Freeplay: ainda não existem no port.
 
 ## Regra para as próximas fases
 

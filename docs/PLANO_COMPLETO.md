@@ -96,10 +96,11 @@ aceita um fd, então é trocar a origem; (c) contagem regressiva (5 ticks,
 
 ### Fase 3 — Telas: Freeplay, seleção de dificuldade, pausa, Game Over, Resultado
 
-**Existe hoje:** título (0), menu (6), story (7), tutorial (8). Nada de
-freeplay, pausa, game over, resultado.
+**Existe hoje:** título (0), menu (6), story (7), jogo (8), **resultado (9)** e
+**game over (10)**. Faltam Freeplay, seleção de dificuldade própria da Freeplay
+e pausa.
 
-**Falta:** quatro telas, cada uma com a geometria do original (o menu e o story
+**Falta:** três telas, cada uma com a geometria do original (o menu e o story
 já mostram o método: coordenadas de `camHUD` a metade de 1280×720).
 
 ### Fase 4 — VRAM: o modelo quebrado e o cache sem uso
@@ -120,6 +121,48 @@ frame buffers 512×384 PSMCT16, repack por palco.
 registrar a tabela neste documento. Sem tabela, nada é declarado ganho.
 
 ---
+
+### Fase 3 — Telas: ABERTA (Resultado e Game Over fechados)
+
+**Fechado: Game Over (`ui_state == 10`, `GameOverSubState.hx`).**
+
+Antes: a vida chegava a zero, a barra esvaziava e **o jogo continuava**. Dava
+para terminar a música com saúde zero, e o resultado saía como se a passagem
+tivesse sido normal. Além disso o harness apertava no aleatório e produzia 23
+ghost misses — ou seja, ele vinha testando justamente uma situação em que o
+jogador já estaria morto no original.
+
+Agora:
+
+| Item | Original | Port |
+|---|---|---|
+| gatilho | `health <= HEALTH_MIN` (`PlayState.hx:1255`) | mesmo teste em `g_play.dead` |
+| ao morrer | pausa música/vozes, `songScore = 0`, `health = STARTING` | igual (`fnf_play_move_to_game_over`) |
+| transição | **sem fade** (`skipNextTransIn/Out = true`) | troca imediata de `ui_state`, sem fade |
+| tela | fundo preto opaco, texto "Game Over", BF em `firstDeath` | fundo preto + texto (a arte de morte não está no pacote) |
+| entrada | bloqueada 1 s (`canInput`), depois CROSS reinicia e CIRCLE sai | 60 quadros, depois CROSS reinicia e CIRCLE vai ao Story |
+| reinício | fecha o substate, `needsReset` | transporte, relógio, cursor do chart, tallies, câmera e contagem regressiva voltam ao início |
+
+Medido (`tools/run_gameover_harness.sh`, 5.000 quadros, duas passadas): morte
+no quadro 3.559 com **13 misses** (13 × 0,08 = 1,04 > 1,0 de vida), 120 quadros
+em `ui_state 10`, 21 quads desenhados na tela 10, reinício no quadro **3.679**,
+música começando **2 vezes** e **2 contagens regressivas** completas. O teste
+falha se o jogador não morrer, se a tela não desenhar, ou se a música não voltar
+a tocar depois do reinício.
+
+**Fechado também: o roteiro de teste deixou de ser aleatório.**
+
+`tools/harness_presses.py` lê o **próprio chart** e gera uma pressão por nota do
+jogador, no quadro em que ela chega (`quadro = quadro_zero + amostra/800`), com
+o `quadro_zero` tirado do log da primeira passada. Medido: 29 pressões, **29
+acertos**, 3 notas deixadas para trás de propósito (os 3 misses), placar
+**14.200**, conclusão **81 %** e rank **GREAT (2)** — que é exatamente
+`(29 − 3) / 32 = 81,25 %`, o número que o próprio `fnf_play_completion`
+devolve. Ou seja: o resultado da tela agora bate com a conta do original, e o
+teste compara os dois.
+
+**O que falta na Fase 3:** pausa (`PauseSubState.hx`), Freeplay
+(`FreeplayState.hx`) e a seleção de dificuldade dentro dela.
 
 ## Regra de trabalho desta rodada
 

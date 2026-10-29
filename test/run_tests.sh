@@ -352,6 +352,19 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -6 /tmp/fnf_gameplay.log
+
+    # GAME OVER: o caminho oposto. Aqui o roteiro NAO aperta nada, entao as
+    # notas viram MISS, a vida chega a zero e o jogo tem de abrir a tela de
+    # game over e voltar a tocar quando o jogador manda reiniciar.
+    echo
+    echo "== game over no harness (morte, tela, reinicio) =="
+    # Sem pipe, pelo mesmo motivo do teste acima.
+    if ! sh tools/run_gameover_harness.sh 5000 > /tmp/fnf_gameover.log 2>&1; then
+        tail -20 /tmp/fnf_gameover.log
+        echo "  FALHA: o game over nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_gameover.log
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

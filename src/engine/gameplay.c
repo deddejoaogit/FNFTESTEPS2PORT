@@ -275,6 +275,14 @@ fnf_rank_t fnf_play_rank(const fnf_play_t *play)
     return FNF_RANK_SHIT;
 }
 
+void fnf_play_move_to_game_over(fnf_play_t *play)
+{
+    if (!play) return;
+    play->score = 0;
+    play->health = FNF_HEALTH_STARTING;
+    play->dead = 0;
+}
+
 float fnf_play_health_ratio(const fnf_play_t *play)
 {
     if (!play) return 0.0f;
