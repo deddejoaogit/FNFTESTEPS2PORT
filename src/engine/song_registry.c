@@ -150,6 +150,16 @@ int sr_chart_path(char *out, unsigned int size, const char *root,
     return sr_chart_path_at(out, size, root, s, difficulty, 0u);
 }
 
+int sr_stems_path(char *out, unsigned int size, const char *root,
+                  const sr_song_t *s)
+{
+    const char *parts[5];
+    if (!root || !s) return -1;
+    parts[0] = root; parts[1] = "/songs/"; parts[2] = s->id;
+    parts[3] = "/stems.pcm"; parts[4] = NULL;
+    return join_path(out, size, parts);
+}
+
 int sr_instrumental_path(char *out, unsigned int size, const char *root,
                          const sr_song_t *s)
 {

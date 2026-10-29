@@ -119,4 +119,19 @@ int chart_note(u32 index, chart_note_t *out);
 const chart_event_t *chart_event(u32 index);
 u32 chart_step_at(u32 sample);
 
+/*
+ * Quantas amostras dura um passo (1/4 de batida) em `sample`.
+ *
+ * O original nao tem um valor fixo: `Conductor.stepLengthMs` sai de
+ * `Conductor.crochet` da secao de BPM vigente, e cada secao pode ter o seu
+ * tempo (o chart carrega a tabela). O port usava TUT_SAMPLES_PER_STEP = 7200
+ * para tudo, que e' o valor do Tutorial a 100 BPM (60/100/4 s = 150 ms =
+ * 7.200 amostras a 48 kHz) e fica errado para qualquer outra musica ou secao
+ * com BPM diferente. Esta funcao entrega o valor da secao que contem `sample`.
+ *
+ * Devolve 0 quando nenhum chart esta carregado -- o chamador tem de tratar
+ * isso, e nao usar um numero de reserva em silencio.
+ */
+u32 chart_samples_per_step(u32 sample);
+
 #endif

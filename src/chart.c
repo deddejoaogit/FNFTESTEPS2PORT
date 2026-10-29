@@ -179,6 +179,7 @@ int chart_note(u32 index,chart_note_t*out){
 }
 
 const chart_event_t *chart_event(u32 index){return index<chart_info.event_count?&chart_events[index]:0;}
+u32 chart_samples_per_step(u32 sample){u32 i=0;if(!chart_info.bpm_count)return 0;while(i+1u<chart_info.bpm_count&&sample>=chart_bpms[i+1u].start_sample)i++;return chart_bpms[i].samples_per_step;}
 u32 chart_step_at(u32 sample){u32 i=0;while(i+1u<chart_info.bpm_count&&sample>=chart_bpms[i+1u].start_sample)i++;return chart_info.bpm_count?chart_bpms[i].start_step+(sample-chart_bpms[i].start_sample)/chart_bpms[i].samples_per_step:0;}
 
 int chart_load_song(const char *root, const sr_song_t *song,

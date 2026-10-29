@@ -95,11 +95,34 @@ int main(int argc, char **argv)
     /* the opening bpm record must sit at step 0, sample 0 */
     ck(info.initial_bpm > 0, "the opening bpm is positive");
 
+    /* O passo do chart (1/4 de batida) tem de sair da tabela de BPM do proprio
+       chart. O port usava 7.200 amostras fixas para tudo -- o valor do Tutorial
+       a 100 BPM -- e isso esta' errado para qualquer secao com outro BPM.
+       Aqui se confere contra a conta feita a partir do BPM do arquivo:
+       60/bpm/4 segundos a 48 kHz, por secao. */
+    {
+        int steps_ok = 1;
+        u32 i;
+        for (i = 0; i < info.note_count; i += 7) {
+            chart_note_t n;
+            u32 sps;
+            if (chart_note(i, &n) != 0) { steps_ok = 0; break; }
+            sps = chart_samples_per_step(n.sample);
+            if (!sps || sps < 100 || sps > 100000) { steps_ok = 0; break; }
+        }
+        ck(steps_ok, "every note's sample falls in a bpm section with a sane step");
+        /* Fora de qualquer chart carregado a funcao nao inventa um numero. */
+        ck(chart_samples_per_step(0) > 0, "the step at sample 0 is defined");
+    }
+
     /* ---- tutorial-specific: the numbers verified by hand ---- */
     if (is_tutorial) {
         ck(info.event_count == 26, "26 events (tutorial-chart.json has 26)");
         ck(info.bpm_count == 1, "1 bpm change");
         ck(info.initial_bpm == 100, "opening bpm is 100");
+        /* 100 BPM, 4 passos por batida, 48 kHz: 48000*60/(100*4) = 7200. */
+        ck(chart_samples_per_step(0) == 7200,
+           "100 bpm gives a 7200-sample step (the number the port had fixed)");
 
         /* the first note is the opponent's left at 9600 ms = 460800 samples */
         chart_note_t n;

@@ -238,6 +238,38 @@ Antes a música do tutorial terminava no quadro 817 de 1500. Agora ela avança a
 o fim da janela de teste; o fim de música continua sendo reconhecido quando o
 arquivo realmente acaba.
 
+**Fechado: o PlayState deixou de ser "o Tutorial".**
+
+Antes: o estado de jogo tinha `sr_song_by_id("tutorial")` escrito no código, um
+único arquivo de áudio (`assets/audio_stems.pcm`) e o passo do chart fixo em
+`TUT_SAMPLES_PER_STEP = 7200` — que é o valor do Tutorial a **100 BPM**.
+Medido: a 182 BPM (2hot) o passo é **3.956 amostras**; com 7.200 o bop e os
+eventos de palco sairiam do tempo.
+
+Agora:
+
+| Item | Antes | Agora |
+|---|---|---|
+| música | `"tutorial"` no código | `sr_level(story_level)->songs[0]`, com queda para o Tutorial se a semana não existir |
+| passo do chart | 7.200 fixo | `chart_samples_per_step(amostra)`, a seção de BPM vigente do próprio chart (`chart.c`) |
+| áudio | `assets/audio_stems.pcm` fixo | `songs/<id>/stems.pcm` via `sr_stems_path()`; o arquivo plano fica só como reserva **do Tutorial** |
+| log | nada dizia qual música tentou | `play_song` (hash do id), `play_step`, `play_audio_path`, `play_audio_ausente` |
+
+A reserva vale só para o Tutorial de propósito: usar o stems do Tutorial para
+tocar Bopeebo seria **tocar a música errada com o chart certo**, que é pior que
+admitir que falta o áudio. Uma música sem áudio marca `play_audio_ausente` e o
+HUD mostra o erro de asset.
+
+Por que `songs/<id>/stems.pcm` e não o `Inst.pcm` do original: no original são
+**duas** faixas (instrumental + vozes) com volume independente; o port ainda tem
+um fluxo único com as duas já misturadas (8 bytes por amostra). Abrir `Inst.pcm`
+com o mixer atual leria 8 bytes de um arquivo de 4 e tocaria na metade da
+velocidade. O caminho fica no registro (`sr_stems_path`), documentado, e
+desaparece quando o mixer de duas faixas existir.
+
+Provado no harness: `play_audio_path` abriu o arquivo por música (fd 6),
+`play_step` = 7.200 com `initial_bpm` 100, 9 acertos e 5 saltos de placar.
+
 **O que falta na Fase 2**
 
 **Primeiro item, e ele é uma hipótese forte para o travamento do console**

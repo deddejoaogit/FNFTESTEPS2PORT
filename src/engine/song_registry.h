@@ -113,6 +113,25 @@ int sr_chart_path_at(char *out, unsigned int out_size, const char *root,
                      const sr_song_t *s, const char *difficulty,
                      unsigned int layout);
 
+/*
+ * Append "<root>/songs/<id>/stems.pcm": o arquivo de audio do port.
+ *
+ * Por que nao o Inst.pcm do original: no jogo original o instrumental e as
+ * vozes sao DUAS faixas PCM tocadas juntas (songs/<id>/Inst.ogg e
+ * Voices-<char>.ogg), e o volume de cada uma muda durante a musica. O port
+ * ainda tem um unico fluxo de audio, com instrumental e vozes ja' misturados
+ * por quadro, no formato de 8 bytes por amostra (inst L,R + vozes L,R) --
+ * que e' o que audio_stems.pcm sempre foi. Usar Inst.pcm aqui seria pior:
+ * o mixer leria 8 bytes por amostra de um arquivo de 4 e tocaria na metade
+ * da velocidade, com o canal errado.
+ *
+ * Quando o mixer passar a tocar duas faixas (item aberto na Fase 2), este
+ * caminho some e o port passa a usar sr_instrumental_path() e
+ * sr_vocals_path() sem conversao.
+ */
+int sr_stems_path(char *out, unsigned int out_size, const char *root,
+                  const sr_song_t *s);
+
 /* Append "<root>/songs/<id>/Inst.pcm". */
 int sr_instrumental_path(char *out, unsigned int out_size, const char *root,
                          const sr_song_t *s);

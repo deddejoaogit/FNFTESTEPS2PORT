@@ -284,6 +284,11 @@ def build(root, charts_src=None):
         # o jogo, corretamente, concluia "musica acabou" no quadro 817 e
         # congelava o transporte -- e as primeiras notas (a 9,6 s) nunca
         # chegavam ao receptor. Formato: inst L,R + voices L,R = 8 B/amostra.
+        # Audio POR MUSICA, no caminho que o jogo procura primeiro
+        # (<root>/songs/<id>/stems.pcm). O audio_stems.pcm plano continua sendo
+        # gerado porque e' a reserva que o codigo usa quando o do pendrive
+        # nao existe -- e as duas rotas precisam estar cobertas.
+        "songs/tutorial/stems.pcm": pcm(3225600 * 8, 196),
         "audio_stems.pcm": pcm(3225600 * 8, 196),
         "freakyMenu_48000.pcm": pcm(1 << 18, 330),
 
@@ -306,7 +311,10 @@ def build(root, charts_src=None):
     }
 
     for name, data in files.items():
-        with open(os.path.join(a, name), "wb") as f:
+        dest = os.path.join(a, name)
+        # Nomes com subpasta (songs/tutorial/stems.pcm) precisam do diretorio.
+        os.makedirs(os.path.dirname(dest) or a, exist_ok=True)
+        with open(dest, "wb") as f:
             f.write(data)
 
     # Os charts sao os DE VERDADE, convertidos pelo proprio conversor do

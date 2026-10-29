@@ -128,6 +128,9 @@ int main(void)
     /* ---- the registry's own asset paths --------------------------------- */
     /* These are what the scene layer will need next, and they are the ones
        that have to match the packaging. */
+    n = sr_stems_path(path, sizeof(path), root, song);
+    ok(n > 0 && strcmp(path, "build/paths/songs/tutorial/stems.pcm") == 0,
+       "the audio the port plays is <root>/songs/<id>/stems.pcm");
     n = sr_instrumental_path(path, sizeof(path), root, song);
     ok(n > 0 && strcmp(path, "build/paths/songs/tutorial/Inst.pcm") == 0,
        "the instrumental is <root>/songs/<id>/Inst.pcm");

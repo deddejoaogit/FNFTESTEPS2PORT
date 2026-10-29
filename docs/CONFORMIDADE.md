@@ -67,6 +67,7 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
 
 | Item | Fonte | Port |
 |---|---|---|
+| passo do chart por seção de BPM | `Conductor.stepLengthMs` sai do crochet da seção (`Conductor.hx`) | `chart_samples_per_step()` | teste: Tutorial 100 BPM → 7.200; 2hot 182 BPM → 3.956 |
 | espaçamento entre setas | `Strumline.NOTE_SPACING = STRUMLINE_SIZE+8 = 112` (`Strumline.hx:37-42`) | 56,0 px entre receptores (metade) |
 | barra de vida | `FlxBar(RIGHT_TO_LEFT, width 601−8=593, valor 0..2)` (`PlayState.hx:810-811`) | `468,25 − 296,5·(vida/2)`; confere com o 320,0 que estava fixo |
 | texto do placar | `updateScoreText()` + `formatMoney(score,false,true)` (`PlayState.hx:2748-2760`) | `fmt_score_line`, vírgula de milhar |

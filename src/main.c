@@ -152,6 +152,15 @@ static int g_tutorial_audio_status=-1,g_tutorial_audio_finished=0,g_chart_status
 /* Diagnostico do transporte de audio do tutorial, sem mudar o comportamento
    normal: quantos blocos vieram curtos e quantos quadros seguidos falharam. */
 static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up=0;
+/* Qual musica e' a da vez. Antes o estado de jogo tinha "tutorial" escrito no
+   codigo (sr_song_by_id("tutorial")) e um unico arquivo de audio
+   (assets/audio_stems.pcm), entao so' o Tutorial podia tocar. Agora a musica
+   vem do registro a partir do nivel do Story Menu, e o audio e' o daquela
+   musica. */
+static const sr_song_t *g_play_song=0;
+static unsigned g_play_level=0,g_play_song_index=0;
+/* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
+static u32 g_play_samples_per_step=0;
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
@@ -1787,8 +1796,26 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      "<root>/songs/tutorial/<difficulty>.chart", which is where the game keeps
      it -- so the asset packaging has to match, and that is now the registry's
      job rather than a string literal buried in main.c. */
-  {const sr_song_t*song=sr_song_by_id("tutorial");
+  /* A musica vem do registro, pelo nivel escolhido no Story Menu. Se aquele
+     nivel nao existir (ou nao tiver musica), cai no Tutorial -- que e' o que o
+     port sabia tocar -- em vez de nao tocar nada. O id vai para a telemetria
+     (FNV-1a do nome) para que o log do console diga qual musica tentou. */
+  {const sr_song_t*song=0;
    const char*diff=(story_diff==0)?"easy":(story_diff==2)?"hard":"normal";
+   const sr_level_t*lv;
+   /* O nivel vem do Story Menu (story_level), nao de um indice fixo. Uma
+      semana tem ate 4 musicas e o Story Menu ainda nao escolhe qual delas,
+      entao a 0 e' a da vez -- e isso vai dito na telemetria, em vez de
+      parecer que o port toca a semana inteira. */
+   g_play_level=(story_level<0)?0u:(unsigned)story_level;
+   if(g_play_level>=sr_level_count())g_play_level=0u;
+   g_play_song_index=0u;
+   lv=sr_level(g_play_level);
+   if(lv&&lv->song_count){if(g_play_song_index>=lv->song_count)g_play_song_index=0;song=lv->songs[g_play_song_index];}
+   if(!song)song=sr_song_by_id("tutorial");
+   g_play_song=song;
+   {u32 h=2166136261u;const char*q=song?song->id:"?";while(*q){h^=(unsigned char)*q++;h*=16777619u;}
+    telemetry_event("play_song",(int)(h&0x7fffffffu),(int)((g_play_level<<8)|g_play_song_index));}
    if(song){
     int layout=-1;
     /* NAO e so o caminho do jogo original: no console o arquivo estava la, no
@@ -1802,7 +1829,15 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   /* The event module reads the chart through the same loader, so it needs the
      info struct and the step length. The tutorial is 100 BPM, so a step is
      150 ms, which at 48 kHz is 7200 samples. */
-  chart_events_init(TUT_SAMPLES_PER_STEP);
+  /* O passo do chart vem do PROPRIO chart (tabela de BPM). Antes era
+     TUT_SAMPLES_PER_STEP = 7200 fixo, que so' vale para 100 BPM; a 182 BPM o
+     passo e' 3.956 amostras, e usar 7.200 punha o bop e os eventos fora do
+     tempo. chart_samples_per_step() devolve 0 sem chart carregado, e ai o
+     codigo usa o valor do Tutorial explicitamente, nao em silencio. */
+  g_play_samples_per_step=chart_samples_per_step(0);
+  if(!g_play_samples_per_step)g_play_samples_per_step=TUT_SAMPLES_PER_STEP;
+  telemetry_event("play_step",(int)g_play_samples_per_step,(int)g_chart_info.initial_bpm);
+  chart_events_init(g_play_samples_per_step);
   chart_events_bind(&g_chart_info);
   chart_rc=g_chart_status;
   capture_status("TUT_CHART_DONE",(int)frame_no,chart_rc);
@@ -1812,7 +1847,24 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   capture_status("TUT_FORMAT_DONE",(int)frame_no,format_rc);
   if(sr==0&&audio_ok&&format_rc==0){
    capture_status("TUT_PCM_OPEN_BEGIN",(int)frame_no,0);
-   audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);
+   /* Audio da musica: <root>/songs/<id>/Inst.pcm, o mesmo nome que o
+      sr_instrumental_path() usa e que o jogo original guarda em
+      songs/<id>/Inst.ogg. Se esse arquivo nao existir -- pendrive antigo, que
+      so' tem o stems do Tutorial -- cai no arquivo plano que o port usava,
+      sem esconder a diferenca: a telemetria diz qual dos dois abriu. */
+   audio_fd=-1;
+   if(g_play_song){
+    char ap[192];
+    if(sr_stems_path(ap,(unsigned)sizeof(ap),FNF_ASSET_ROOT,g_play_song)>0)audio_fd=open(ap,O_RDONLY);
+    telemetry_event("play_audio_path",audio_fd,(int)sizeof(ap));
+   }
+   /* A reserva so' vale para o Tutorial, que e' a musica a que aquele arquivo
+      pertence. Usar o stems do Tutorial para tocar Bopeebo seria tocar a musica
+      errada com o chart certo -- pior do que admitir que falta o audio. */
+   if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")==0)
+    audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);
+   if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")!=0)
+    telemetry_event("play_audio_ausente",0,(int)g_play_level);
    capture_status("TUT_PCM_OPEN_DONE",(int)frame_no,audio_fd);
    if(audio_fd>=0){
     capture_status("TUT_RING_BEGIN",(int)frame_no,audio_fd);
@@ -2074,7 +2126,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=rect(q,330,158,330+slider_value*15,174,245,70,150);
   }else if(ui_state==0){
    /* Official title atlas; no provisional menu rectangles. */
-  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();chart_events_tick(TUT_DT,music_clock/TUT_SAMPLES_PER_STEP);g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;}float sc=.5f*g_tut_zoom*g_tut_bop;const float bf_source_w=496.920f,bf_source_h=490.920f,bf_pack_scale=.5f,gf_source_w=703.300f,gf_source_h=674.850f,gf_pack_scale=.443623f;/* A GF ocupa o slot gf [751.5,787], provado pela captura do jogo real:
+  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();{u32 sp=g_play_samples_per_step;if(!sp)sp=TUT_SAMPLES_PER_STEP;chart_events_tick(TUT_DT,music_clock/sp);}g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;}float sc=.5f*g_tut_zoom*g_tut_bop;const float bf_source_w=496.920f,bf_source_h=490.920f,bf_pack_scale=.5f,gf_source_w=703.300f,gf_source_h=674.850f,gf_pack_scale=.443623f;/* A GF ocupa o slot gf [751.5,787], provado pela captura do jogo real:
    a arte dela comeca em 6 px dentro da tela de 255x245 do pack, o que
    da 6/0,35 = 17,14 unidades de mundo. No slot dad isso cairia em
    -181,5 de tela, fora do ecra; no slot gf cai em +47,6, visivel.

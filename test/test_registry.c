@@ -196,6 +196,9 @@ int main(void)
                   && path[0] != '\0' && strlen(path) < 4,
               "a short buffer is not overflowed and still reports the length");
     }
+    check(b && sr_stems_path(path, sizeof path, "mass:/FNFPS2", b) > 0
+              && strcmp(path, "mass:/FNFPS2/songs/bopeebo/stems.pcm") == 0,
+          "stems path convention (the port's own per-song audio)");
     check(b && sr_instrumental_path(path, sizeof path, "mass:/FNFPS2", b) > 0
               && strcmp(path, "mass:/FNFPS2/songs/bopeebo/Inst.pcm") == 0,
           "instrumental path convention");
@@ -211,6 +214,13 @@ int main(void)
     check(sr_chart_path(NULL, 0, NULL, b, "hard") == -1, "NULL root is rejected");
     check(sr_chart_path(NULL, 0, "mass:/FNFPS2", NULL, "hard") == -1, "NULL song is rejected");
     check(sr_vocals_path(NULL, 0, "mass:/FNFPS2", b, NULL) == -1, "NULL side is rejected");
+    /* NULL out NAO e' erro: a API dos caminhos aceita (NULL, 0) para medir o
+       tamanho necessario, igual ao sr_chart_path documentado. O que nao pode
+       e' devolver zero (nao mediu nada) nem escrever no buffer. */
+    check(sr_stems_path(NULL, 0, "mass:/FNFPS2", b) ==
+              (int)strlen("mass:/FNFPS2/songs/bopeebo/stems.pcm"),
+          "stems path with a NULL buffer reports the length to allocate");
+    check(sr_stems_path(path, sizeof path, NULL, b) == -1, "stems path rejects a NULL root");
 
     printf("\nsong_registry: validation against the official tables\n");
     pending_lines = 0;
