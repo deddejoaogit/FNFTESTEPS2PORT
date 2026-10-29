@@ -42,7 +42,10 @@
 #include <malloc.h>   /* memalign: prototipo real, nao um implicito */
 #include <sys/stat.h>  /* fstat: distinguir leitura curta legitima de anomalia */
 #include <kernel.h>   /* ee_thread_t: o CreateThread recebe este descritor */
-#include <libpad.h>   /* struct padButtonStatus REAL. Escrever no offset errado aqui
+#include <libpad.h>
+#include <gs_psm.h>   /* GS_PSM_*: usados por graph_vram_size (conta real) */
+#include <graph_vram.h>   /* GRAPH_VRAM_MAX_WORDS e os prototipos reais */
+#include <libpad.h>       /* struct padButtonStatus REAL. Escrever no offset errado aqui
                           fabricava START+SELECT e o jogo saia no quadro 1. */
 
 #ifndef AT_FDCWD
@@ -443,9 +446,61 @@ void graph_set_bgcolor(unsigned char r, unsigned char g, unsigned char b)
 void graph_set_framebuffer_filtered(int fbp, int width, int psm, int x, int y)
 { (void)fbp;(void)width;(void)psm;(void)x;(void)y; }
 
-void graph_vram_clear(void) { }
+/* graph_vram_allocate: AQUI RODA A CONTA DE VERDADE.
+ *
+ * Antes esta funcao devolvia 0 sempre -- o que fazia o jogo inteiro alocar
+ * todas as texturas no mesmo endereco no PC e nenhum teste notar. Com o
+ * regresso de VRAM mapeado em engine/vram_layout.c, o harness precisava da
+ * resposta certa: se a soma estourasse, graph_vram_allocate() devolve -1 no
+ * console e a textura fica num endereco invalido, em silencio.
+ *
+ * O corpo abaixo eh o de ee/graph/src/graph_vram.c do ps2sdk, copiado sem
+ * alteracao de logica (so' a forma: as chaves e a declaracao de 'size'
+ * juntaram numa linha). Nao eh uma reimplementacao: eh a mesma conta, e por
+ * isso o endereco que o log imprime como "calculado" pode ser comparado com
+ * o "alocado" tambem no PC, onde o ps2sdk de verdade nao roda.
+ */
+static int h_vram_pointer;
+
+int  graph_vram_size(int width, int height, int psm, int alignment)
+{
+    int size = 0;
+    /* Largura arredondada para 128 nos formatos de paleta, 64 nos demais. */
+    if (width > 16) {
+        switch (psm) {
+            case GS_PSM_8: case GS_PSM_4: case GS_PSM_8H:
+            case GS_PSM_4HL: case GS_PSM_4HH: width = -128 & (width + 127); break;
+            default: width = -64 & (width + 63); break;
+        }
+    }
+    switch (psm) {
+        case GS_PSM_4:  size = width * (height >> 3); break;
+        case GS_PSM_8:  size = width * (height >> 2); break;
+        case GS_PSM_24: case GS_PSM_32: case GS_PSM_8H:
+        case GS_PSM_4HL: case GS_PSM_4HH:
+        case GS_PSMZ_24: case GS_PSMZ_32: size = width * height; break;
+        case GS_PSM_16: case GS_PSM_16S:
+        case GS_PSMZ_16: case GS_PSMZ_16S: size = width * (height >> 1); break;
+        default: return 0;
+    }
+    size = -alignment & (size + (alignment - 1));
+    return size;
+}
+
 int  graph_vram_allocate(int width, int height, int psm, int align)
-{ (void)width;(void)height;(void)psm;(void)align; return 0; }
+{
+    int size = graph_vram_size(width, height, psm, align);
+    h_vram_pointer += size;
+    h_vram_pointer = -align & (h_vram_pointer + (align - 1));
+    if (h_vram_pointer > GRAPH_VRAM_MAX_WORDS) {   /* 1048576 palavras */
+        h_vram_pointer -= size;
+        return -1;
+    }
+    return h_vram_pointer - size;
+}
+
+void graph_vram_free(int address)  { h_vram_pointer = address; }
+void graph_vram_clear(void)        { h_vram_pointer = 0; }
 
 /* Ponto de checagem numero 2, e tambem o relogio do harness: cada chamada eh
    um quadro. Quando o limite de quadros chega, o harness pede a saida pelo

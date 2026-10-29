@@ -103,15 +103,55 @@ e pausa.
 **Falta:** três telas, cada uma com a geometria do original (o menu e o story
 já mostram o método: coordenadas de `camHUD` a metade de 1280×720).
 
-### Fase 4 — VRAM: o modelo quebrado e o cache sem uso
+### Fase 4 — VRAM: FECHADA EM PARTE (1 de 4 passos medidos)
 
-**Existe hoje:** 6 reservas de VRAM no init, zero liberações; 8 buffers =
-99,4 % da VRAM; 2.929.792 B de imagens embutidas para 2 de 4 telas.
+**Existia:** 8 reservas de VRAM no init, zero liberações; 8 buffers = 99,4 % da
+VRAM; 2.929.792 B de imagens embutidas para 2 de 4 telas.
 `src/engine/vram_cache.c` (LRU) existe, testado, e `vram_cache_init()` é
 chamado **zero** vezes em `main.c`.
 
 **Falta:** ligar o cache, fatiar as imagens grandes, 16 bpp nas folhas pequenas,
 frame buffers 512×384 PSMCT16, repack por palco.
+
+#### Fechado: o mapa de VRAM agora é uma tabela conferida contra o alocador
+
+Antes o mapa existia só na ordem de oito `graph_vram_allocate()` em `main.c` e
+num texto no documento ("99,4 % da VRAM") que nada verificava. Uma reserva que
+estourasse devolvia `-1` e o jogo desenhava num endereço inválido, em silêncio.
+
+Agora `src/engine/vram_layout.{h,c}` é o mapa, em tabela, e
+`test/test_vram_layout.c` (dentro de `test/run_tests.sh`) confere:
+
+| Conferência | Valor |
+|---|---|
+| conta de tamanho igual a `graph_vram_size()` do ps2sdk | 640×448 PSMCT32 = 286.720 palavras; 320×64 PSMCT16 = 10.240; largura arredondada em 64 |
+| endereços dos slots | `fb1` 286.720, `tex` 573.440, `tex2` 655.360, `gftex` 737.280, `gftex16` 802.816, `stagetex` 813.056, `fonttex` 944.128 |
+| total | 1.017.856 palavras = 4.071.424 B — **cabe** em 4.194.304 B |
+| livre | 30.720 palavras = 122.880 B |
+
+E o harness passou a rodar a **conta de verdade**: `graph_vram_allocate()` no
+`test/ps2harness/ps2h.c` devolvia `0` sempre, então no PC todas as texturas
+ficavam no mesmo endereço e nenhum teste notava. O corpo agora é o de
+`ee/graph/src/graph_vram.c` e, no boot, o jogo registra calculado × alocado por
+slot:
+
+```
+VRAM fb0       640x448  psm  0 calculado        0 alocado        0 igual
+VRAM fb1       640x448  psm  0 calculado   286720 alocado   286720 igual
+VRAM tex       320x256  psm  0 calculado   573440 alocado   573440 igual
+VRAM tex2      320x256  psm  0 calculado   655360 alocado   655360 igual
+VRAM gftex     256x256  psm  0 calculado   737280 alocado   737280 igual
+VRAM gftex16   320x64   psm  2 calculado   802816 alocado   802816 igual
+VRAM stagetex  512x256  psm  0 calculado   813056 alocado   813056 igual
+VRAM fonttex   384x192  psm  0 calculado   944128 alocado   944128 igual
+```
+
+E a primeira economia saiu de graça: `fonttex` era reservado 384×256 mas o atlas
+é `FONT_W × FONT_H` = 384×192 (células 24×32). **−24.576 palavras = 98.304 B**,
+antes só havia 24.576 B livres. Evento `vram_mapa` no log: `0` divergências.
+
+Medido: `tools/run_gameplay_harness.sh 5600` → PASSOU; `test/run_tests.sh`
+completo → `ALL SUITES PASSED`.
 
 ### Fase 5 — Otimização medida
 

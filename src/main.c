@@ -25,6 +25,7 @@
 #include "chart.h"
 #include "chart_events.h"
 #include "engine/gameplay.h"
+#include "engine/vram_layout.h"
 #include "song_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -1459,6 +1460,7 @@ typedef struct {
     u32 clock, frame, subm;
     float camy;
     unsigned short held, pressed;
+    u32 fb0, fb1;
     texbuffer_t *tex, *tex2, *fonttex, *gftex, *stagetex;
 } estado_t;
 
@@ -1571,8 +1573,33 @@ static void estado_dump(const estado_t *e)
                  FNF_PS2_VERSION, e->frame, e->ui, e->trans, e->alvo);
     write_all_fd(fd, b, k);
 
-    k = snprintf(b, sizeof(b), "[VRAM] total 4194304, framebuffers 2293760\n");
+    /* Mapa de VRAM calculado (engine/vram_layout.c), nao um numero escrito a
+       mao: o texto antigo dizia "total 4194304, framebuffers 2293760" e nada
+       mais, e ninguem podia conferir se a soma das texturas cabia. */
+    k = snprintf(b, sizeof(b),
+        "[VRAM] total %u bytes | usado %u | livre %u | cabe %d\n",
+        VL_TOTAL_WORDS * 4u, vl_used_words() * 4u, vl_free_words() * 4u, vl_fits());
     write_all_fd(fd, b, k);
+    /* Endereco CALCULADO ao lado do endereco que o alocador do ps2sdk deu de
+       verdade. Se as duas colunas divergirem em qualquer linha, o mapa do
+       projeto esta' errado e o log mostra onde -- nao ha' como "achar" que a
+       conta fecha. A coluna real sai do que esta' de fato alocado nos objetos
+       de textura; o par de buffers de quadro vem em e->fb0/e->fb1. */
+    {
+        unsigned int real[VL_SLOTS];
+        real[VL_FB0] = e->fb0; real[VL_FB1] = e->fb1;
+        real[VL_TEX] = e->tex->address;   real[VL_TEX2] = e->tex2->address;
+        real[VL_GFTEX] = e->gftex->address; real[VL_GFTEX16] = g_gftex16.address;
+        real[VL_STAGETEX] = e->stagetex->address; real[VL_FONTTEX] = e->fonttex->address;
+        for (i = 0; i < (int)vl_slot_count(); i++) {
+            const vl_slot_t *sl = &vl_slots()[i];
+            k = snprintf(b, sizeof(b),
+                "  %-9s %4ux%-4u psm %2u | calculado %8u | alocado %8u | %s\n",
+                sl->nome, sl->w, sl->h, sl->psm, vl_address((unsigned)i),
+                real[i], real[i] == vl_address((unsigned)i) ? "igual" : "DIVERGE");
+            write_all_fd(fd, b, k);
+        }
+    }
     ed_tex(fd, "tex", e->tex);
     ed_tex(fd, "tex2", e->tex2);
     ed_tex(fd, "gftex", e->gftex);
@@ -1748,7 +1775,40 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
  tex2=tex;tex2.address=graph_vram_allocate(320,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  gftex.width=256;gftex.psm=GS_PSM_32;gftex.address=graph_vram_allocate(256,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);g_gftex16=gftex;g_gftex16.width=320;g_gftex16.psm=GS_PSM_16;/* ANTES: g_gftex16 compartilhava o endereco da gftex (737280). Um upload PSMCT16 ali reinterpreta os dados PSMCT32 do MERCH: bytes de alfa viram lixo e pixels transparentes saem preto opaco -- a linha tracejada sob o MERCH. VRAM livre apos o fonttex: 163.840 B; este bloco usa 40.960 B. */g_gftex16.address=graph_vram_allocate(320,64,GS_PSM_16,GRAPH_ALIGN_BLOCK);
  stagetex.width=512;stagetex.psm=GS_PSM_32;stagetex.address=graph_vram_allocate(512,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
- fonttex.width=384;fonttex.psm=GS_PSM_32;fonttex.address=graph_vram_allocate(384,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
+ /* A fonte nunca foi maior que FONT_W x FONT_H (384x192): as 64 linhas a mais
+    da alocacao antiga (384x256) eram 98.304 bytes parados na VRAM. O mapa
+    completo, com teste, esta' em engine/vram_layout.c. */
+ fonttex.width=FONT_W;fonttex.psm=GS_PSM_32;fonttex.address=graph_vram_allocate(FONT_W,FONT_H,GS_PSM_32,GRAPH_ALIGN_BLOCK);
+ /* O mapa calculado em engine/vram_layout.c tem de dar os MESMOS enderecos que
+    o alocador do ps2sdk. Se divergir, o mapa do projeto (e a conta de quanto
+    sobra de VRAM) esta' errado -- e isso vale no log, nao no papel. */
+ {int bad=0;
+  if((unsigned)fb[0].address!=vl_address(VL_FB0))bad++;
+  if((unsigned)fb[1].address!=vl_address(VL_FB1))bad++;
+  if((unsigned)tex.address!=vl_address(VL_TEX))bad++;
+  if((unsigned)tex2.address!=vl_address(VL_TEX2))bad++;
+  if((unsigned)gftex.address!=vl_address(VL_GFTEX))bad++;
+  if((unsigned)g_gftex16.address!=vl_address(VL_GFTEX16))bad++;
+  if((unsigned)stagetex.address!=vl_address(VL_STAGETEX))bad++;
+  if((unsigned)fonttex.address!=vl_address(VL_FONTTEX))bad++;
+  telemetry_event("vram_mapa",bad,(int)vl_free_words());
+  {   /* Uma linha por slot, com calculado e alocado lado a lado. Uma escrita
+         so', no boot: nada disso entra no laco de quadro. */
+      char vb[1024]; int off=0; unsigned int si; u32 real_end[VL_SLOTS];
+      real_end[VL_FB0]=(u32)fb[0].address; real_end[VL_FB1]=(u32)fb[1].address;
+      real_end[VL_TEX]=(u32)tex.address; real_end[VL_TEX2]=(u32)tex2.address;
+      real_end[VL_GFTEX]=(u32)gftex.address; real_end[VL_GFTEX16]=(u32)g_gftex16.address;
+      real_end[VL_STAGETEX]=(u32)stagetex.address; real_end[VL_FONTTEX]=(u32)fonttex.address;
+      for(si=0;si<vl_slot_count();si++){
+        const vl_slot_t*sl=&vl_slots()[si];
+        off+=snprintf(vb+off,sizeof(vb)-(size_t)off,
+          "VRAM %-8s %4ux%-4u psm %2u calculado %8u alocado %8u %s\n",
+          sl->nome,sl->w,sl->h,sl->psm,vl_address(si),real_end[si],
+          real_end[si]==vl_address(si)?"igual":"DIVERGE");
+        if(off>=(int)sizeof(vb)-160)break;
+      }
+      telemetry_raw(vb);}
+  telemetry_event("vram_livre",(int)(vl_free_words()*4u),(int)(vl_used_words()*4u));}
  telemetry_event("fb0",(int)fb[0].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("fb1",(int)fb[1].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("tex",(int)tex.address,(320<<16)|256);telemetry_event("tex2",(int)tex2.address,(320<<16)|256);telemetry_event("gftex",(int)gftex.address,(256<<16)|256);telemetry_event("stagetex",(int)stagetex.address,(512<<16)|256);telemetry_event("fonttex",(int)fonttex.address,(384<<16)|256);telemetry_event("tex1_fix",LOD_MIPMAP_REGISTER,0);telemetry_event("stage_src",g_official_mainstage_props[0].z,g_official_mainstage_chars[2].z);telemetry_event("stage_zoom",(int)(g_official_mainstage_camera_zoom*1000.0f),(int)g_official_mainstage_chars[0].x);telemetry_event("idle_blend",1,2);telemetry_event("merch_trim",59,3);capture_status("GS_BEGIN",-1,0);graph_initialize(fb[0].address,SCREEN_W,SCREEN_H,GS_PSM_32,0,0);graph_set_bgcolor(0,0,0);packet=packet_init(4096,PACKET_NORMAL);setup_texture(&tex);setup_texture_dims(&tex2,320,256);setup_texture_dims(&gftex,g_gf.width,g_gf.height);setup_texture_dims(&stagetex,512,256);setup_texture_dims(&fonttex,FONT_W,FONT_H);capture_status("GS_ENV_READY",-1,0);if(read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_font_pixels,384*192*4)==0){setup_texture_dims(&fonttex,384,192);upload_raw(&fonttex,g_font_pixels,384,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_ALPHA,g_font_pixels,384*192*4);capture_status("TITLE_ALPHA_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_stage_pixels,512*192*4)==0){setup_texture_dims(&stagetex,512,192);upload_raw(&stagetex,g_stage_pixels,512,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,g_stage_pixels,512*192*4);capture_status("TITLE_PROMPT_L_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_hud_pixels,320*192*4)==0){setup_texture_dims(&tex2,320,192);upload_raw(&tex2,g_hud_pixels,320,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,g_hud_pixels,320*192*4);capture_status("TITLE_PROMPT_R_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;capture_status("TITLE_LOGO_GF_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_newgrounds.rgba",g_gf_pixels+TITLE_NG_STORE_OFFSET,181*175*4)==0){setup_texture_dims(&tex,181,175);upload_raw(&tex,g_gf_pixels+TITLE_NG_STORE_OFFSET,181,175);menu_anim_tick=-1;capture_status("TITLE_NG_READY",-1,0);} {int anim_rc=title_animation_cache_start();telemetry_event("title_anim_cache",anim_rc==0,anim_rc);telemetry_event("title_cache_policy",TITLE_CACHE_READ_CHUNK,TITLE_CACHE_AUDIO_RESERVE);}capture_status("FIRST_FRAME_PENDING",-1,0);{packet_t*tp=packet_init(8,PACKET_NORMAL);qword_t*tq=tp->data;tq->dw[0]=GIF_SET_TAG(1,1,0,0,GIF_FLG_PACKED,1);tq->dw[1]=GIF_REG_AD;tq++;tq->dw[0]=((u64)0x80<<32);tq->dw[1]=GS_REG_TEXA;tq++;dma_channel_send_normal(DMA_CHANNEL_GIF,tp->data,tq-tp->data,0,0);dma_wait_fast();packet_free(tp);telemetry_event("texa",0x80,0);}capture_status("F0_BLEND_BEGIN",-1,0);draw_enable_blending();capture_status("F0_BLEND_DONE",-1,0);
 /* O cao de guarda NAO nasce aqui: durante o boot (6,5 s de espera de
     dispositivo) o contador de quadros ainda esta em zero, ele contaria isso
@@ -1795,6 +1855,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     ed.aplay=audio_playing;ed.avol=audio_volume;ed.voices=voices_enabled;
     ed.ph=menu_placeholder;ed.tick=menu_anim_tick;ed.clock=music_clock;ed.frame=frame_no;
     ed.subm=audio_submitted;ed.camy=menu_cam_y;ed.held=g_held;ed.pressed=pressed;
+    ed.fb0=fb[0].address;ed.fb1=fb[1].address;
     ed.tex=&tex;ed.tex2=&tex2;ed.fonttex=&fonttex;ed.gftex=&gftex;
     ed.stagetex=&stagetex;
     estado_dump(&ed);
@@ -2178,7 +2239,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     g_pause_frame++;
     if(g_pause_frame>=2){
      /* Entradas visiveis neste modo. */
-     int n_sel=g_pause_mode?0:PAUSE_ENTRADAS_PADRAO,song_diffs=0,diff_list[3],n_ent,d,i;
+     int n_sel=g_pause_mode?0:PAUSE_ENTRADAS_PADRAO,song_diffs=0,diff_list[3],n_ent,d;
      const char*diff_names[3]={"EASY","NORMAL","HARD"};
      unsigned int mask=(g_play_song?g_play_song->difficulties:SR_DIFF_ALL);
      if(g_pause_mode){
@@ -2642,7 +2703,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      tambem faz e que e' observavel sem a arte: a tela parar (persistentUpdate
      = false), o placar voltar a zero e a entrada ficar bloqueada 1 s. */
   if(ui_state==10){
-   char lb[48];int n,q0=g_frame_texture_quads;
+   char lb[48];int q0=g_frame_texture_quads;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,255);

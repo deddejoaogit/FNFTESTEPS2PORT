@@ -97,7 +97,11 @@ positivos de placar, nenhum estouro de pacote, nenhuma escrita fora do limite.
   conferência evento a evento contra `source/funkin/play/event/` não foi feita;
 - palcos, personagens e props (46/21): os packs foram medidos por IoU, não por
   comparação de transformação com o `flxanimate`;
-- VRAM e alocação (`vram_cache_init` continua sem uso);
+- **o que desenha** com cada endereço de VRAM: o mapa (`engine/vram_layout.c`)
+  é tabela conferida contra o alocador real do ps2sdk, e o boot registra
+  calculado × alocado por slot (`vram_mapa 0` no log). Mas `vram_cache_init()`
+  continua sem uso, e nenhum teste confere se o conteúdo certo foi para o slot
+  certo;
 - geometria da tela de resultado (só o conteúdo foi ligado; posições e arte não
   foram conferidas contra `ResultState.hx`);
 - a ARTE e o SOM da contagem regressiva (o tempo e a curva são do original; o

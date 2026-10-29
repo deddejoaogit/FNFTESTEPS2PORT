@@ -38,6 +38,15 @@ echo "== compilacao contra os headers reais do ps2sdk =="
 ./tools/verificar_sdk.sh || exit 1
 echo
 
+# Mapa de VRAM: o total tem de caber em 4 MiB e cada endereco tem de bater com
+# a conta de graph_vram_size() do ps2sdk. Roda antes do resto porque uma
+# alocacao que estoura devolve -1 no console e o jogo desenha num endereco
+# invalido sem quebrar nada visivel aqui.
+echo "== mapa de VRAM (vram_layout) =="
+$CC $FLAGS test/test_vram_layout.c src/engine/vram_layout.c -o /tmp/fnf_test_vram
+/tmp/fnf_test_vram
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine
