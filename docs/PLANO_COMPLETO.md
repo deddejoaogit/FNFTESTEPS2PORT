@@ -83,25 +83,24 @@ resultado, não tem rank**. `src/chart_events.c` cuida dos eventos de palco.
 `Scoring.hx` + `Constants.hx` + `applyScore()`. É o que esta fase entrega:
 `src/engine/gameplay.c` / `.h`, sem dependência de console, com suíte própria.
 
-### Fase 2 — PlayState genérico (qualquer música, qualquer dificuldade)
+### Fase 2 — PlayState genérico (qualquer música, qualquer dificuldade): FECHADA
 
-**Existe hoje:** o estado `ui_state == 8` só sabe tocar `tutorial/song` com
-`assets/audio_stems.pcm` fixo no código e `FNF_ASSET_ROOT` para o chart.
+**Fechada** — detalhes e medições na seção "Fase 2 — PlayState genérico:
+FECHADA", abaixo. Em uma linha: música e dificuldade saem do
+`song_registry`/`story_level`, o chart e o áudio são por música
+(`songs/<id>/<dif>.chart`, `songs/<id>/stems.pcm`), a contagem regressiva tem os
+5 passos de `Countdown.hx` e o fim da música leva à tela de Resultado com rank e
+`%` das mesmas funções que julgaram. O que continua pendente é o **mixer de
+duas faixas** (`Inst` + `Voices`), que hoje é um `stems.pcm` já misturado.
 
-**Falta:** (a) escolher música e dificuldade e carregar
-`<root>/songs/<id>/<dif>.chart` (o loader já faz, `chart_load_song_layout`);
-(b) áudio por música em vez de um arquivo único — `audio_ring_start(fd)` já
-aceita um fd, então é trocar a origem; (c) contagem regressiva (5 ticks,
-`Countdown.hx`), (d) fim de música → resultado, sem depender do tutorial.
+### Fase 3 — Telas: Freeplay, seleção de dificuldade, pausa, Game Over, Resultado: FECHADA
 
-### Fase 3 — Telas: Freeplay, seleção de dificuldade, pausa, Game Over, Resultado
-
-**Existe hoje:** título (0), menu (6), story (7), jogo (8), **resultado (9)** e
-**game over (10)**. Faltam Freeplay, seleção de dificuldade própria da Freeplay
-e pausa.
-
-**Falta:** três telas, cada uma com a geometria do original (o menu e o story
-já mostram o método: coordenadas de `camHUD` a metade de 1280×720).
+**Fechada** — detalhes na seção "Fase 3 — Telas: FECHADA", abaixo. As quatro
+telas existem e cada uma tem harness próprio: `ui_state 9` (Resultado), `10`
+(Game Over, com reinício por CROSS), `11` (Freeplay: 27 músicas, 153 quads,
+dificuldade HARD, 48 notas, 506 quadros de volta) e a pausa (congela o relógio,
+73 quads de sobreposição, Resume/Restart/Change Difficulty). Falta só a **arte**
+dessas telas (cápsulas da Freeplay, ícone de pausa, `AtlasFont` e `firstDeath`).
 
 ### Fase 4 — VRAM: FECHADA EM PARTE (1 de 4 passos medidos)
 
@@ -196,6 +195,68 @@ prova que o GS recebeu os registradores certos, não que o dither ficou bom nem
 que a captura PSMCT16 sai legível. Isso só o console responde, e é a primeira
 coisa a olhar na próxima build (o log já traz `capture_status` e o
 `screen_capture_raw`).
+
+### Fase 6 — Palcos e personagens genéricos (o que falta para 21 e 46)
+
+**Estado medido:** o port desenha **um** palco (`mainStage`, embutido no código
+como `mainstage_tutorial_parallax.rgba`) e **dois** personagens (`bf`, `gf`, em
+pacotes `bf_frames.lz4f` / `gf_frames.lz4f`). Os dados dos outros 20 palcos e 44
+personagens **já existem e estão commitados**, só não há quem os consuma:
+
+| arquivo | o que tem | cabe? |
+|---|---|---|
+| `src/bs_dados.h` | 46 personagens (offsets, cameraOffsets, singTime) e 21 palcos (`cameraZoom` + posição dos três slots bf/gf/dad) | — |
+| `src/stage_dados.h` | 157 props: `tex` = `stages/<palco>/<nome>.cfz4`, `x/y`, `sx/sy`, `scrollx/y`, `z` (zIndex), `danceEvery`, `frames`, `sw/sh` (um quadro já na escala do palco) e a lista de animações com fps e loop | — |
+| `assets-data/stages/*.json` | a fonte de tudo acima (posições, escalas, scroll) | — |
+| `assets-data/characters/*.json` | 46 personagens: `renderType`, `offsets`, `cameraOffsets`, `singTime`, `death`, `animations` | — |
+| `assets-data/charts/` | 27 JSON de música (os 81 charts de 3 dificuldades saem do conversor `tools/fnf_to_fch3.py`) | — |
+
+**Os dois orçamentos, medidos** (`tools/vram_budget.py` + os dados acima):
+
+| palco (pior caso de cada) | VRAM só com o canvas de cada prop | RAM com o pacote inteiro |
+|---|---|---|
+| `phillyStreets` | 1.697.934 B | 5,25 MB |
+| `tankmanBattlefield` | 1.697.760 B | 14,4 MB |
+| `limoRideErect` | 1.697.420 B | **48,7 MB** |
+| `spookyMansion` | 1.696.282 B | **59,4 MB** |
+| `school` | 1.497.040 B | 21,6 MB |
+| `schoolEvilErect` (melhor) | 504.534 B | 0,5 MB |
+
+Duas conclusões que **mudam o plano**, as duas tiradas dos números e não de
+suposição:
+
+1. **VRAM:** o pior palco pede 1,70 MB e o jogo tem 1,27 MB livres com as
+   texturas de menu/título residentes. **18 dos 21 palcos não cabem** nesses
+   1,27 MB; cabe só **evictando** o que não é do jogo durante a música. É exatamente para isso que existem `vram_cache.c`
+   (LRU, testado, `vram_cache_init()` ainda com **zero** chamadas) e
+   `old_motor/asset_bank.c` (classes `AB_PALCO`/`AB_PERSONAGEM`, folha
+   compartilhada). Sem eles, 18 dos 21 palcos não cabem.
+2. **RAM:** o pacote inteiro do `spookyMansion` tem **59,4 MB** e o Emotion
+   Engine tem 32 MB. O empacotador dimensionou tudo por VRAM e **nunca conferiu
+   a RAM**. Quatro palcos (`limoRideErect` 46,5 MB, `spookyMansion` 56,6 MB,
+   `school` e `schoolErect` 20,6 MB) passam de 16 MB, ou seja, não caberiam
+   nem com o jogo vazio. Antes de escrever o
+   renderizador, o empacotador precisa de um orçamento de RAM por palco (baixar
+   a escala dos quadros grandes — a fidelidade da imagem é negociável, a RAM
+   não) ou de um decodificador que leia do pendrive por quadro sem manter o
+   pacote todo.
+
+**Ordem de trabalho proposta (um motivo por build):**
+
+1. `stage_layout.c`: função pura `palco → lista de props visíveis, ordenada por
+   z, com retângulo de tela`, a partir de `bs_stage_props`/`bs_props` e da
+   câmera (`scrollFactor` de `Stage.hx`, zoom por palco). Teste no PC contra os
+   JSON, como `test_vram_layout.c` faz com o mapa de VRAM.
+2. Orçamento de RAM no empacotador + regenerar `stage-props.json`/`*.cfz4`;
+   conferir `sw*sh*frames*2 <= ~16 MB` para os 21.
+3. `vram_cache_init()` de verdade, com `asset_bank` para palco e personagens;
+   medir o pior palco no harness (endereços e despejos no log).
+4. Estado 8 desenha o palco da música (não o `mainStage` fixo) e os
+   personagens do registro (`sr_level(n)->songs[0]->stage/player/opponent/
+   girlfriend`), com `danceEvery`, animações de sing/hit e a câmera do palco.
+5. Os 46 personagens: `bf_meta_t` (`MAX_ANIMS 8`) vira tabela gerada por
+   personagem, com `renderType` (`multianimateatlas` para boa parte deles) — é
+   o item mais caro e o único que ainda não tem formato de pacote definido.
 
 ### Fase 5 — Otimização medida
 
