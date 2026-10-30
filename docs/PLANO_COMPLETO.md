@@ -245,8 +245,9 @@ suposição:
 
 1. ~~`stage_layout.c`: função pura palco × câmera → props visíveis, ordenados
    por z, com retângulo de tela~~ — **FEITO** (ver abaixo).
-2. Orçamento de RAM no empacotador + regenerar `stage-props.json`/`*.cfz4`;
-   conferir `sw*sh*frames*2 <= ~16 MB` para os 21.
+2. ~~Orçamento de RAM no empacotador + conferir o plano~~ — **FEITO o
+   orçamento e a conferência** (abaixo); falta **reempacotar**, que precisa do
+   clone de 2,5 GB da arte e por isso não roda aqui.
 3. `vram_cache_init()` de verdade, com `asset_bank` para palco e personagens;
    medir o pior palco no harness (endereços e despejos no log).
 4. Estado 8 desenha o palco da música (não o `mainStage` fixo) e os
@@ -282,6 +283,52 @@ gerador (`tools/gen_stage_dados.py`) passou a emitir `src_w/src_h` e o
 
 **O que ele não prova:** que o desenho acontece. Este módulo decide *o quê*,
 *onde* e *em que ordem*; quem desenha é o passo 4.
+
+#### Fechado: orçamento de RAM do empacotador e conferência dos 21 palcos
+
+O empacotador só tinha orçamento de **VRAM**. O pacote CFZ4 de um palco, porém,
+fica **inteiro** na RAM do Emotion Engine enquanto a música toca, e a RAM nunca
+foi conferida — `spookyMansion` saiu com **59 MB** de pacote num console de
+**32 MiB**. Nada no repositório reclamava.
+
+Agora há dois orçamentos, e a escala de cada palco é a menor das duas:
+
+| Recurso | Paga por | Orçamento (medido) |
+|---|---|---|
+| VRAM | **um** quadro de cada prop | 1.337.520 B pelo modelo; **1.269.760 B** livres no log da 0.2.117 |
+| RAM | **todos** os quadros de **todos** os props | **16.182.527 B** = 32 MiB − ELF 5.278.492 − buffers 7.899.109 − staging 4 MiB |
+
+As três parcelas da RAM têm fonte, nenhuma é estimativa de planilha: o tamanho do
+ELF está no `docs/DIAGNOSTICO_TRAVA_CONSOLE.md`, a soma dos buffers sai do
+**próprio jogo** (evento `ram_buffers`, medido no boot: 7.899.109 B) e o staging
+é a janela de trabalho (um quadro descomprimido + bloco LZ4 + anel de áudio).
+
+Além disso o `tools/vram_budget.py` modelava framebuffers de **512×384**, que o
+port nunca usou: o console roda 640×448 PSMCT16 (573.440 B cada). O modelo
+passou a ser o do jogo — um orçamento calculado para uma tela que o jogo não tem
+é orçamento para outro jogo.
+
+`tools/check_stage_budget.py` (novo, offline, dentro de `test/run_tests.sh`)
+confere o **plano commitado** contra os dois orçamentos e diz a escala que
+fecharia cada um. Medido agora:
+
+```
+VRAM: 15 de 21 palcos acima do orçamento
+RAM:   4 de 21 palcos acima do orçamento -- limoRideErect, school, schoolErect, spookyMansion
+  spookyMansion   agora 0.367 -> VRAM 0.326 / RAM 0.192  => usar 0.192
+  limoRideErect   agora 0.335 -> VRAM 0.298 / RAM 0.193  => usar 0.193
+  school          agora 1.000 -> VRAM 0.945 / RAM 0.866  => usar 0.866
+```
+
+Ou seja: **o plano atual não cabe** e isso agora está medido e no relatório de
+todo teste, em vez de aparecer como "o jogo trava/tem buraco" no console. A
+dívida fecha com `python3 tools/pacotar_palcos.py --assets <clone>` (o
+empacotador já aplica a menor escala) e depois
+`python3 tools/check_stage_budget.py --strict`, que é o modo que falha.
+
+**O tutorial de hoje não é afetado**: ele desenha uma única textura de janela
+(`stagetex`, 512×256), não os três props — a troca para o renderizador genérico
+é o passo 4, e é ele que passa a depender deste orçamento.
 
 ### Fase 5 — Otimização medida
 

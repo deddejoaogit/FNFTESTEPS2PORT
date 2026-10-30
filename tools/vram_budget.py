@@ -47,13 +47,14 @@ SIZES = os.path.join(PROJECT, "assets-data", "image-sizes.json")
 # SCPH-90006, 4 MB of GS VRAM.
 VRAM_TOTAL = 4194304
 
-# Two 512x384 PSMCT16 framebuffers. The port draws 640x360 logical inside
-# 640x448 today at PSMCT32, which costs 2,293,760 B and leaves 1,900,544 -- the
-# reason the original budget was so tight. PSMCT16 framebuffers are the change
-# that buys the room for native-resolution characters, so they are the model
-# used here (and are on the standing work list).
-FB_W, FB_H = 512, 384
+# The framebuffers the port ACTUALLY allocates (src/engine/vram_layout.c): two
+# 640x448 PSMCT16. The previous version of this tool modelled 512x384, which the
+# port never used -- a budget computed on a screen the game does not have is a
+# budget for another game. Two 640x448 PSMCT16 = 1.146.880 B, and that is what
+# the console shows in the boot log (vram_livre 1.269.760 after every slot).
+FB_W, FB_H = 640, 448
 FB_COUNT = 2
+FB_PSM_BITS = 16
 
 FONT_W, FONT_H = 384, 192
 HUD_W, HUD_H = 320, 256
@@ -115,6 +116,69 @@ def max_scale(sid, budget, bpp):
     return lo
 
 
+# ---------------------------------------------------------------------------
+# Orcamento de RAM (o que o VRAM nao conta)
+#
+# O empacotador dimensionava tudo por VRAM e nunca olhou a RAM principal. O
+# pacote CFZ4 inteiro de um palco fica na memoria do Emotion Engine enquanto a
+# musica toca (tutorial_pack_load), e o EE tem 32 MiB no total.
+#
+# Cada parcela abaixo tem uma fonte, e nenhuma e' chute:
+#   EE_RAM_TOTAL       32 MiB do Emotion Engine.
+#   ELF_IMAGE_BYTES    tamanho do FNF_PS2.ELF da build 0.2.116, medido em
+#                      docs/DIAGNOSTICO_TRAVA_CONSOLE.md. Cresce com o jogo,
+#                      por isso o check_stage_budget compara com o ELF atual
+#                      quando ele existe em build/.
+#   RAM_BUFFERS_BYTES  soma dos buffers que o jogo aloca, lida do PROPRIO jogo:
+#                      evento ram_buffers do log (7.899.109 B no boot da
+#                      0.2.117). Nao e' uma estimativa de planilha.
+#   RAM_STAGING_BYTES  janela de trabalho: um quadro descomprimido do maior prop
+#                      + o bloco LZ4 + o anel de audio. 4 MiB, com folga.
+# ---------------------------------------------------------------------------
+EE_RAM_TOTAL = 32 * 1024 * 1024
+ELF_IMAGE_BYTES = 5278492
+RAM_BUFFERS_BYTES = 7899109
+RAM_STAGING_BYTES = 4 * 1024 * 1024
+
+
+def ram_limit_per_stage(elf_bytes=ELF_IMAGE_BYTES, buffers_bytes=RAM_BUFFERS_BYTES,
+                        staging_bytes=RAM_STAGING_BYTES):
+    """Quanto o pacote de UM palco pode ocupar na RAM principal."""
+    return EE_RAM_TOTAL - elf_bytes - buffers_bytes - staging_bytes
+
+
+def stage_ram_bytes(props):
+    """Pacote CFZ4 inteiro de um palco: sw*sh*2 por quadro, por prop."""
+    return sum(p["sw"] * p["sh"] * p["frames"] * 2 for p in props)
+
+
+def ram_scale_limit(native, frames, budget):
+    """Maior escala uniforme cujo pacote inteiro cabe em `budget` bytes.
+
+    `native` e' [(w, h)] do canvas de cada prop e `frames` a lista paralela com
+    o numero de quadros de cada um. A VRAM so' paga UM quadro por prop; a RAM
+    paga TODOS, e por isso a conta e' outra -- foi exatamente essa diferenca que
+    deixou o spookyMansion com 59 MB de pacote.
+    """
+    if not native:
+        return 1.0
+
+    def total(f):
+        return sum(max(1, int(round(w * f))) * max(1, int(round(h * f))) * 2 * n
+                   for (w, h), n in zip(native, frames))
+
+    if total(1.0) <= budget:
+        return 1.0
+    lo, hi = 0.0001, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if total(mid) <= budget:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 def char_frame_bytes(bpp):
     """Sum of one frame for each character slot, at native size."""
     # bf, gf and dad are the three the port always loads; measured native
@@ -133,7 +197,9 @@ def main():
     global SIZES_CACHE
     SIZES_CACHE = load_sizes()
 
-    fb_bytes = FB_W * FB_H * (bpp // 8)
+    # Os framebuffers sao de 16 bits na build que roda; --bpp 32 so' serve para
+    # comparar com o passado.
+    fb_bytes = FB_W * FB_H * (FB_PSM_BITS // 8)
     textures = VRAM_TOTAL - FB_COUNT * fb_bytes
     fixed = (FONT_W * FONT_H * 4 + HUD_W * HUD_H * (bpp // 8)
              + NOTE_W * NOTE_H * (bpp // 8))

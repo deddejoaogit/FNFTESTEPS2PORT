@@ -1613,6 +1613,38 @@ static void ed_tex(int fd, const char *nome, texbuffer_t *t)
     write_all_fd(fd, b, k);
 }
 
+/* A tabela de buffers que o estado e o despejo mostram, num lugar so'. O
+   tamanho de cada um e' o que foi pedido ao memalign; os dois packs do tutorial
+   entram com o tamanho REAL lido do arquivo. Isto e' a parte da RAM que o jogo
+   aloca, e ela e' usada tambem pelo orcamento de RAM do empacotador
+   (tools/check_stage_budget.py le o evento ram_buffers do log). */
+typedef struct { const char *n; void *p; unsigned int t; } heap_ent_t;
+static void heap_tab(heap_ent_t *hs, int *n)
+{
+    int i = 0;
+    hs[i].n = "g_menu_pixels";     hs[i].p = g_menu_pixels;     hs[i++].t = TITLE_SNAPSHOT_END;
+    hs[i].n = "g_menu_compressed"; hs[i].p = g_menu_compressed; hs[i++].t = PRELOAD_RLE_BYTES;
+    hs[i].n = "g_menu_sfx_pixels"; hs[i].p = g_menu_sfx_pixels; hs[i++].t = 281088u;
+    hs[i].n = "g_stage_pixels";    hs[i].p = g_stage_pixels;    hs[i++].t = 512u*256u*4u;
+    hs[i].n = "g_hud_pixels";      hs[i].p = g_hud_pixels;      hs[i++].t = 320u*256u*4u;
+    hs[i].n = "g_font_pixels";     hs[i].p = g_font_pixels;     hs[i++].t = FONT_W*256u*4u;
+    hs[i].n = "g_gf_pixels";       hs[i].p = g_gf_pixels;       hs[i++].t = TITLE_STORE_BYTES;
+    hs[i].n = "g_story_gf_pixels"; hs[i].p = g_story_gf_pixels; hs[i++].t = 170u*157u*4u;
+    hs[i].n = "g_story_bf_pixels"; hs[i].p = g_story_bf_pixels; hs[i++].t = 164u*165u*4u;
+    hs[i].n = "g_tutorial_bf_pack";hs[i].p = g_tutorial_bf_pack;hs[i++].t = g_tutorial_bf_pack_bytes;
+    hs[i].n = "g_tutorial_gf_pack";hs[i].p = g_tutorial_gf_pack;hs[i++].t = g_tutorial_gf_pack_bytes;
+    *n = i;
+}
+static unsigned int ram_buffers_total(void)
+{
+    heap_ent_t hs[16];
+    int n = 0, i;
+    unsigned int soma = 0;
+    heap_tab(hs, &n);
+    for (i = 0; i < n; i++) soma += hs[i].p ? hs[i].t : 0u;
+    return soma;
+}
+
 static void estado_dump(const estado_t *e)
 {
     char b[640];  /* 256 era pouco para a secao [GS]: pior caso ~331 B */
@@ -1665,27 +1697,14 @@ static void estado_dump(const estado_t *e)
     k = snprintf(b, sizeof(b), "\n[HEAP] ponteiro e tamanho de cada buffer\n");
     write_all_fd(fd, b, k);
     {
-        struct { const char *n; void *p; unsigned int t; } hs[] = {
-            {"g_menu_pixels",    g_menu_pixels,    TITLE_SNAPSHOT_END},
-            {"g_menu_compressed",g_menu_compressed,PRELOAD_RLE_BYTES},
-            {"g_menu_sfx_pixels",g_menu_sfx_pixels,281088u},
-            {"g_stage_pixels",   g_stage_pixels,   512u*256u*4u},
-            {"g_hud_pixels",     g_hud_pixels,     320u*256u*4u},
-            {"g_font_pixels",    g_font_pixels,    FONT_W*256u*4u},
-            {"g_gf_pixels",      g_gf_pixels,      TITLE_STORE_BYTES},
-            {"g_story_gf_pixels",g_story_gf_pixels,170u*157u*4u},
-            {"g_story_bf_pixels",g_story_bf_pixels,164u*165u*4u},
-            {"g_tutorial_bf_pack",g_tutorial_bf_pack,0},
-            {"g_tutorial_gf_pack",g_tutorial_gf_pack,0},
-        };
+        heap_ent_t hs[16];
+        int hn = 0;
         unsigned int soma = 0;
-        for (i = 0; i < (int)(sizeof(hs)/sizeof(hs[0])); i++) {
-            unsigned int t = hs[i].t;
-            if (i == 9) t = g_tutorial_bf_pack_bytes;
-            if (i == 10) t = g_tutorial_gf_pack_bytes;
-            soma += hs[i].p ? t : 0u;
+        heap_tab(hs, &hn);
+        for (i = 0; i < hn; i++) {
+            soma += hs[i].p ? hs[i].t : 0u;
             k = snprintf(b, sizeof(b), "  %-20s %s  %9u bytes\n",
-                         hs[i].n, hs[i].p ? "alocado" : "  NULO ", t);
+                         hs[i].n, hs[i].p ? "alocado" : "  NULO ", hs[i].t);
             write_all_fd(fd, b, k);
         }
         k = snprintf(b, sizeof(b), "  %-20s          %9u bytes\n", "SOMA", soma);
@@ -1864,7 +1883,11 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
       }
       telemetry_raw(vb);}
   telemetry_event("vram_livre",(int)(vl_free_words()*4u),(int)(vl_used_words()*4u));}
- telemetry_event("fb0",(int)fb[0].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("fb1",(int)fb[1].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("tex",(int)tex.address,(320<<16)|256);telemetry_event("tex2",(int)tex2.address,(320<<16)|256);telemetry_event("gftex",(int)gftex.address,(256<<16)|256);telemetry_event("stagetex",(int)stagetex.address,(512<<16)|256);telemetry_event("fonttex",(int)fonttex.address,(384<<16)|256);telemetry_event("tex1_fix",LOD_MIPMAP_REGISTER,0);telemetry_event("stage_src",g_official_mainstage_props[0].z,g_official_mainstage_chars[2].z);telemetry_event("stage_zoom",(int)(g_official_mainstage_camera_zoom*1000.0f),(int)g_official_mainstage_chars[0].x);telemetry_event("idle_blend",1,2);telemetry_event("merch_trim",59,3);capture_status("GS_BEGIN",-1,0);graph_initialize(fb[0].address,SCREEN_W,SCREEN_H,FB_PSM,0,0);graph_set_bgcolor(0,0,0);packet=packet_init(4096,PACKET_NORMAL);setup_texture(&tex);setup_texture_dims(&tex2,320,256);setup_texture_dims(&gftex,g_gf.width,g_gf.height);setup_texture_dims(&stagetex,512,256);setup_texture_dims(&fonttex,FONT_W,FONT_H);capture_status("GS_ENV_READY",-1,0);if(read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_font_pixels,384*192*4)==0){setup_texture_dims(&fonttex,384,192);upload_raw(&fonttex,g_font_pixels,384,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_ALPHA,g_font_pixels,384*192*4);capture_status("TITLE_ALPHA_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_stage_pixels,512*192*4)==0){setup_texture_dims(&stagetex,512,192);upload_raw(&stagetex,g_stage_pixels,512,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,g_stage_pixels,512*192*4);capture_status("TITLE_PROMPT_L_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_hud_pixels,320*192*4)==0){setup_texture_dims(&tex2,320,192);upload_raw(&tex2,g_hud_pixels,320,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,g_hud_pixels,320*192*4);capture_status("TITLE_PROMPT_R_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;capture_status("TITLE_LOGO_GF_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_newgrounds.rgba",g_gf_pixels+TITLE_NG_STORE_OFFSET,181*175*4)==0){setup_texture_dims(&tex,181,175);upload_raw(&tex,g_gf_pixels+TITLE_NG_STORE_OFFSET,181,175);menu_anim_tick=-1;capture_status("TITLE_NG_READY",-1,0);} {int anim_rc=title_animation_cache_start();telemetry_event("title_anim_cache",anim_rc==0,anim_rc);telemetry_event("title_cache_policy",TITLE_CACHE_READ_CHUNK,TITLE_CACHE_AUDIO_RESERVE);}capture_status("FIRST_FRAME_PENDING",-1,0);{packet_t*tp=packet_init(8,PACKET_NORMAL);qword_t*tq=tp->data;tq->dw[0]=GIF_SET_TAG(1,1,0,0,GIF_FLG_PACKED,1);tq->dw[1]=GIF_REG_AD;tq++;tq->dw[0]=((u64)0x80<<32);tq->dw[1]=GS_REG_TEXA;tq++;dma_channel_send_normal(DMA_CHANNEL_GIF,tp->data,tq-tp->data,0,0);dma_wait_fast();packet_free(tp);telemetry_event("texa",0x80,0);}capture_status("F0_BLEND_BEGIN",-1,0);draw_enable_blending();capture_status("F0_BLEND_DONE",-1,0);
+ telemetry_event("fb0",(int)fb[0].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("fb1",(int)fb[1].address,(SCREEN_W<<16)|SCREEN_H);telemetry_event("tex",(int)tex.address,(320<<16)|256);telemetry_event("tex2",(int)tex2.address,(320<<16)|256);telemetry_event("gftex",(int)gftex.address,(256<<16)|256);telemetry_event("stagetex",(int)stagetex.address,(512<<16)|256);telemetry_event("fonttex",(int)fonttex.address,(384<<16)|256);telemetry_event("tex1_fix",LOD_MIPMAP_REGISTER,0);telemetry_event("stage_src",g_official_mainstage_props[0].z,g_official_mainstage_chars[2].z);telemetry_event("stage_zoom",(int)(g_official_mainstage_camera_zoom*1000.0f),(int)g_official_mainstage_chars[0].x);telemetry_event("idle_blend",1,2);telemetry_event("merch_trim",59,3);capture_status("GS_BEGIN",-1,0);graph_initialize(fb[0].address,SCREEN_W,SCREEN_H,FB_PSM,0,0);graph_set_bgcolor(0,0,0);packet=packet_init(4096,PACKET_NORMAL);setup_texture(&tex);setup_texture_dims(&tex2,320,256);setup_texture_dims(&gftex,g_gf.width,g_gf.height);setup_texture_dims(&stagetex,512,256);setup_texture_dims(&fonttex,FONT_W,FONT_H);capture_status("GS_ENV_READY",-1,0);if(read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_font_pixels,384*192*4)==0){setup_texture_dims(&fonttex,384,192);upload_raw(&fonttex,g_font_pixels,384,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_ALPHA,g_font_pixels,384*192*4);capture_status("TITLE_ALPHA_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_stage_pixels,512*192*4)==0){setup_texture_dims(&stagetex,512,192);upload_raw(&stagetex,g_stage_pixels,512,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,g_stage_pixels,512*192*4);capture_status("TITLE_PROMPT_L_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_hud_pixels,320*192*4)==0){setup_texture_dims(&tex2,320,192);upload_raw(&tex2,g_hud_pixels,320,192);memcpy(g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,g_hud_pixels,320*192*4);capture_status("TITLE_PROMPT_R_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;capture_status("TITLE_LOGO_GF_READY",-1,0);}if(read_exact_path("mass:/FNFPS2/assets/title_newgrounds.rgba",g_gf_pixels+TITLE_NG_STORE_OFFSET,181*175*4)==0){setup_texture_dims(&tex,181,175);upload_raw(&tex,g_gf_pixels+TITLE_NG_STORE_OFFSET,181,175);menu_anim_tick=-1;capture_status("TITLE_NG_READY",-1,0);} {int anim_rc=title_animation_cache_start();telemetry_event("title_anim_cache",anim_rc==0,anim_rc);telemetry_event("title_cache_policy",TITLE_CACHE_READ_CHUNK,TITLE_CACHE_AUDIO_RESERVE);}capture_status("FIRST_FRAME_PENDING",-1,0);{packet_t*tp=packet_init(8,PACKET_NORMAL);qword_t*tq=tp->data;tq->dw[0]=GIF_SET_TAG(1,1,0,0,GIF_FLG_PACKED,1);tq->dw[1]=GIF_REG_AD;tq++;tq->dw[0]=((u64)0x80<<32);tq->dw[1]=GS_REG_TEXA;tq++;dma_channel_send_normal(DMA_CHANNEL_GIF,tp->data,tq-tp->data,0,0);dma_wait_fast();packet_free(tp);telemetry_event("texa",0x80,0);}/* RAM propria do jogo no boot: a soma dos buffers que ele aloca. E' o numero
+ que tools/check_stage_budget.py usa para saber quanto sobra para o pacote do
+ palco -- sem ele o orcamento de RAM seria um chute. */
+ {unsigned int rb=ram_buffers_total();telemetry_event("ram_buffers",(int)rb,(int)(rb/1024u));}
+ capture_status("F0_BLEND_BEGIN",-1,0);draw_enable_blending();capture_status("F0_BLEND_DONE",-1,0);
 /* O cao de guarda NAO nasce aqui: durante o boot (6,5 s de espera de
     dispositivo) o contador de quadros ainda esta em zero, ele contaria isso
     como "parado" e gastaria os tres despejos antes de o jogo comecar --

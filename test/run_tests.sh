@@ -79,6 +79,21 @@ print("  ok:   nenhum modulo chamado pelo jogo ficou fora do link")
 PYEOF2
 echo
 
+# Orcamento de VRAM e de RAM de cada palco, contra o plano commitado. Sem o
+# clone da arte o empacotador nao roda aqui, mas o plano (assets-data/
+# stage-props.json) tem sw/sh e frames de cada prop, que e' tudo que a conta
+# precisa. Nao-strict de proposito: o relatorio mostra a divida medida do plano
+# atual; o --strict e' o que vale depois do proximo empacotamento. Prop acima de
+# 1024 px FALHA sempre, porque o GS nao amostra.
+echo "== orcamento dos palcos (VRAM e RAM) =="
+if ! python3 tools/check_stage_budget.py > /tmp/fnf_orcamento.txt; then
+    tail -20 /tmp/fnf_orcamento.txt
+    echo "  FALHA: orcamento dos palcos (VRAM/RAM)"
+    exit 1
+fi
+grep -E "^(VRAM|RAM|plano conferido)" /tmp/fnf_orcamento.txt | sed "s/^/  /"
+echo
+
 # Layout dos palcos: quais props aparecem, onde, em que ordem de z. E' a conta
 # que o estado 8 do main.c faz a mao para um palco so'; aqui ela roda nos 21 e o
 # teste falha se as faixas de props de um palco pegarem o prop de outro.

@@ -109,8 +109,22 @@ def pack_stage(assets, sid, props, limit, out_root, bpp):
             continue
         prepared.append((p, name, anims, frames, cw, ch))
 
-    # Pass 2: the scale, from the real canvases.
-    f = _stage_scale([(cw, ch) for _p, _n, _a, _f, cw, ch in prepared], limit)
+    # Pass 2: a escala, dos canvas reais.
+    #
+    # DUAS contas, e a menor vence, porque sao dois recursos diferentes:
+    #   VRAM -> paga UM quadro por prop (o pacote mora na RAM);
+    #   RAM  -> paga TODOS os quadros de TODOS os props (o pacote inteiro fica
+    #           na memoria do EE enquanto a musica toca).
+    # O empacotador so' fazia a primeira. Com a segunda, os quatro palcos que
+    # saiam com 20 a 59 MB de pacote (school, schoolErect, limoRideErect,
+    # spookyMansion) num console de 32 MiB entram no orcamento.
+    canvas = [(cw, ch) for _p, _n, _a, _f, cw, ch in prepared]
+    nframes = [len(fr) for _p, _n, _a, fr, cw, ch in prepared]
+    f = min(_stage_scale(canvas, limit),
+            vb.ram_scale_limit(canvas, nframes, vb.ram_limit_per_stage()))
+    if f * max(cw for cw, _ in canvas) > 1024 or f * max(ch for _, ch in canvas) > 1024:
+        problems.append("%s: a escala %.3f passa do limite de 1024 px do GS"
+                        % (sid, f))
 
     entries = []
     written = 0
