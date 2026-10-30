@@ -35,6 +35,7 @@
 #define FNF_CHAR_LAYOUT_H
 
 #include "char_dados.h"
+#include "song_registry.h"
 #include "stage_dados.h"
 
 #ifdef __cplusplus
@@ -76,6 +77,32 @@ int ch_anim_dir(const char *nome);
 void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
                float canvas_w, float canvas_h, float pad, int usa_offsets,
                ch_anchor_t *out);
+
+/* QUEM ENTRA EM CENA, E EM QUE SLOT.
+   O original nao escolhe o slot pelo personagem, e sim pelo PAPEL: o
+   jogador no slot `bf`, o oponente no `dad` e a namorada no `gf`
+   (PlayState.hx L2200-2225, `currentStage.addCharacter(x, GF|BF|DAD)`,
+   e Stage.hx L400-490, que posiciona pelo tipo). Isso tem uma consequencia
+   que so' aparece quando se olha o dado: no Tutorial o OPONENTE e' a propria
+   GF (`assets-data/songs/tutorial-metadata.json` -> characters.opponent =
+   "gf", e nao ha `girlfriend`), entao ela entra pelo slot `dad`.
+   E' por isso que a funcao existe: o desenho nao pode deduzir isso do id. */
+#define CH_PAPEL_GF 0
+#define CH_PAPEL_BF 1
+#define CH_PAPEL_DAD 2
+#define CH_CENA_PAPEIS 3
+
+typedef struct {
+    int papel;          /* CH_PAPEL_*                          */
+    int ci;             /* indice em ch_chars[], -1 = slot vazio */
+    const char *slot;   /* "gf", "bf", "dad"                   */
+} ch_cena_t;
+
+/* Preenche out[0..2] (gf, bf, dad) a partir da musica. Devolve 0, ou -1 se a
+   musica ou a saida nao existem. Slot sem personagem fica com ci = -1 -- NAO
+   se inventa personagem para tampar buraco: 11 das 27 musicas nao tem
+   `girlfriend` no dado, e o slot fica vazio, como no original. */
+int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS]);
 
 /* Slot de um palco pelo papel ("bf", "gf", "dad"); 0 se nao existir. */
 const bs_slot_t *ch_slot(const char *stage, const char *role);

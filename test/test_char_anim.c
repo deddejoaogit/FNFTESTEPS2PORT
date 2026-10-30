@@ -11,6 +11,7 @@
 #include "char_anim.h"
 #include <stdlib.h>
 #include "char_layout.h"
+#include "song_registry.h"
 
 static int falhas;
 #define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
@@ -201,6 +202,56 @@ int main(void)
             CHECK_EQ(ch_anim_i(ci, "singUP"), ultima);
             CHECK(strcmp(ch_anims[c->anim_first + ultima].prefix, "BF NOTE UP0") == 0);
         }
+    }
+
+    printf("== quem entra em cena, nas 27 musicas ==\n");
+    {
+        /* O slot vem do PAPEL, nao do personagem (PlayState.hx L2200-2225). O
+           caso que prova a diferenca e' o Tutorial: o oponente dele e' a GF, e
+           nao ha `girlfriend` -- se o desenho deduzisse o slot pelo id, ela
+           entraria no slot errado. */
+        const sr_song_t *lista[32];
+        unsigned int n = 0, sem, k, i;
+        unsigned int com_gf = 0, sem_gf = 0, com_op = 0, oponente_e_gf = 0;
+        for (sem = 0; sem < sr_level_count(); sem++) {
+            const sr_level_t *lv = sr_level(sem);
+            if (!lv) continue;
+            for (k = 0; k < lv->song_count && n < 32; k++) lista[n++] = lv->songs[k];
+        }
+        CHECK_EQ(n, sr_song_count());
+        CHECK_EQ(n, 27);
+        for (i = 0; i < n; i++) {
+            ch_cena_t cena[CH_CENA_PAPEIS];
+            CHECK_EQ(ch_cena_plano(lista[i], cena), 0);
+            CHECK(strcmp(cena[CH_PAPEL_BF].slot, "bf") == 0);
+            CHECK(strcmp(cena[CH_PAPEL_GF].slot, "gf") == 0);
+            CHECK(strcmp(cena[CH_PAPEL_DAD].slot, "dad") == 0);
+            /* todas as 27 tem jogador e oponente; namorada e' opcional */
+            CHECK(cena[CH_PAPEL_BF].ci >= 0);
+            CHECK(cena[CH_PAPEL_DAD].ci >= 0);
+            CHECK(cena[CH_PAPEL_BF].ci < CH_CHAR_COUNT);
+            CHECK(cena[CH_PAPEL_DAD].ci < CH_CHAR_COUNT);
+            if (cena[CH_PAPEL_GF].ci >= 0) {
+                CHECK(cena[CH_PAPEL_GF].ci < CH_CHAR_COUNT);
+                com_gf++;
+            } else sem_gf++;
+            com_op++;
+            if (cena[CH_PAPEL_DAD].ci == ch_find("gf")) {
+                oponente_e_gf++;
+                /* A GF e' o OPONENTE nessa musica, entao ela nao entra tambem
+                   como namorada: seria o mesmo personagem desenhado duas vezes,
+                   um deles na posicao errada. */
+                CHECK_EQ(cena[CH_PAPEL_GF].ci, -1);
+            }
+        }
+        CHECK_EQ(com_op, 27);
+        CHECK_EQ(com_gf + sem_gf, 27);
+        CHECK(com_gf > 0);
+        CHECK(sem_gf > 0);
+        CHECK_EQ(oponente_e_gf, 1);   /* so' o Tutorial */
+        if (falhas == 0)
+            printf("  %u com namorada, %u sem (slot vazio), %u com oponente; "
+                   "oponente e' a GF em %u\n", com_gf, sem_gf, com_op, oponente_e_gf);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

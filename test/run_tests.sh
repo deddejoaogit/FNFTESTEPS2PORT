@@ -160,7 +160,7 @@ echo
 # dancar no fim do singTime e o danceLeft/danceRight de quem nao tem idle.
 echo "== animacao dos personagens (char_anim) =="
 $CC $FLAGS test/test_char_anim.c src/engine/char_anim.c src/engine/char_layout.c \
-    -o /tmp/fnf_test_char_anim -lm
+    src/engine/song_registry.c -o /tmp/fnf_test_char_anim -lm
 /tmp/fnf_test_char_anim
 echo
 

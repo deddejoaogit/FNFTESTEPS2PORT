@@ -700,6 +700,37 @@ que ele tem, **todo** quadro descomprime no tamanho exato, e os nomes batem com
 `assets-data/characters` (é o item que pega o erro mais provável de todos: um
 personagem empacotado com o atlas de outro).
 
+#### Fechado: quem entra em cena (`ch_cena_plano`), nas 27 músicas
+
+O desenho precisa saber três coisas antes de desenhar qualquer personagem: qual
+personagem, em qual **slot** do palco, e qual é o **papel** dele (quem canta as
+notas do oponente). Parece dedutível do id do personagem — não é.
+
+O original escolhe o slot pelo **papel**, não pelo personagem: `PlayState.hx`
+L2200-2225 chama `currentStage.addCharacter(x, GF|BF|DAD)`, e `Stage.hx`
+L400-490 posiciona pelo tipo. Daí uma consequência que só aparece olhando o
+dado: **no Tutorial o oponente é a própria GF** (`tutorial-metadata.json` →
+`characters.opponent = "gf"`, e não existe `girlfriend`). Ou seja, ela entra pelo
+slot `dad` — e é ela que canta as notas do oponente. O port já fazia a GF cantar
+essas notas (correto), mas por um caminho escrito à mão; agora o papel sai do
+dado.
+
+**Medido** (teste dentro da suíte, percorrendo as 27 músicas pelas semanas):
+26 têm namorada, **1 não** (o Tutorial — o slot fica vazio, não se inventa
+personagem para tampar buraco), todas as 27 têm jogador e oponente, e o oponente
+é a GF em **exatamente 1** música. Nesse caso o teste exige que o slot da
+namorada fique **vazio**: senão o mesmo personagem seria desenhado duas vezes,
+uma delas na posição errada.
+
+**Divergência aberta, e ela precisa do console:** o estado 8 do `main.c` desenha
+a GF do Tutorial no slot `gf` (x = 751,5 — número que a captura do console
+confirmou). Pela regra do original, sendo ela o **oponente**, o slot seria o
+`dad`. As duas coisas não podem estar certas ao mesmo tempo. Não vou trocar o
+número aprovado no hardware por dedução de código (regra 4/5): fica registrado
+como divergência a medir, e é barato — uma captura do Tutorial no console
+mostrando de que lado a GF está resolve. O `ch_cena_plano()` já devolve o papel,
+então quando o desenho genérico entrar, a decisão fica em um lugar só.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

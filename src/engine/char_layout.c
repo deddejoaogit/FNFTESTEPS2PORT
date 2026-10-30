@@ -121,3 +121,22 @@ void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
     out->cam_x = slot->x + c->ox + c->cx + slot->cx;
     out->cam_y = slot->y + c->oy - canvas_h * 0.5f + c->cy + slot->cy;
 }
+
+int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS])
+{
+    if (!song || !out) return -1;
+    /* Ordem: gf, bf, dad -- os tres slots que todo palco tem
+       (bs_slots[] = 21 palcos x bf/gf/dad, conferido em check_bs_dados). */
+    out[CH_PAPEL_GF].papel = CH_PAPEL_GF;
+    out[CH_PAPEL_GF].slot = "gf";
+    out[CH_PAPEL_GF].ci = song->girlfriend ? ch_find(song->girlfriend) : -1;
+
+    out[CH_PAPEL_BF].papel = CH_PAPEL_BF;
+    out[CH_PAPEL_BF].slot = "bf";
+    out[CH_PAPEL_BF].ci = song->player ? ch_find(song->player) : -1;
+
+    out[CH_PAPEL_DAD].papel = CH_PAPEL_DAD;
+    out[CH_PAPEL_DAD].slot = "dad";
+    out[CH_PAPEL_DAD].ci = song->opponent ? ch_find(song->opponent) : -1;
+    return 0;
+}
