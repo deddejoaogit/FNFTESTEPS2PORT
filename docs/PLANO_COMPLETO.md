@@ -772,6 +772,59 @@ pacote `assets/chars/<id>.chp4` do personagem de cada papel
 chamar `cc_quadro()` no laço de desenho e subir a textura quando ele devolver um
 quadro. As três peças de dado e lógica estão prontas e testadas.
 
+#### Fechado: o OPONENTE aparece na tela (o personagem do slot `dad`)
+
+Era o buraco mais visível do port: em **26 das 27 músicas** a tela mostrava o
+palco, o BF, a GF e **mais ninguém** — o oponente não era desenhado. Agora ele é:
+quem é sai do registro da música (`sr_song_t.opponent`) pelo papel
+(`ch_cena_plano`), os quadros do pacote `assets/chars/<id>.chp4`
+(`char_pack.c`), a animação de cada instante do `char_cena.c` e a posição do slot
+`dad` do palco (`ch_anchor` + `ch_slot`).
+
+VRAM: a textura vai para o **mesmo pool** do palco (chave `SP_CHAVE_TELA_BASE+2`),
+no **formato de pixel do próprio pacote** (PSMCT32 ou PSMCT16). Não se converte
+32→16 aqui: essa conta de cor não foi medida, e pixel inventado é pior que pixel
+caro. Se não couber, o evento é `char_sem_vram` — o oponente não entra, e o log
+diz por quê; nada é omitido em silêncio.
+
+Três defeitos que só apareceram executando:
+
+1. **`corrupted double-linked list`.** A primeira versão reservava `w*h*2` bytes
+   do staging (PSMCT16) e mandava o `cp_quadro` descomprimir `w*h*4` (o pacote é
+   PSMCT32): 8 KB de estouro no heap. O tamanho do staging **é**
+   `bytes_por_quadro`, e é isso que o teste com glibc/gcc pegou em segundos.
+2. **O nome do arquivo do pacote não é o `name` da JSON.** O gerador usava o
+   campo `name` ("Boyfriend (Holding GF)"), e o jogo procura pelo **id**
+   (`bf-holding-gf`): as 46 artes existiam e **nenhuma** abria. Corrigido no
+   gerador, na conferência e no comentário — o `name` é o nome de exibição.
+3. **A carga não podia morar só na transição de estado.** No caminho do harness
+   por música o `g_play_song` chega depois da transição, e o oponente nunca era
+   carregado (o sweep pegou: 78/81). A conferência passou para o desenho, onde
+   sempre se sabe qual é a música; ela sai na hora quando a música não mudou.
+
+**Medido** (harness, jogo real):
+
+| medida | resultado |
+|---|---|
+| sweep das 81 combinações | **81/81**, e agora cobrando `char_dad_primeiro` + `char_dad_animando` em cada uma |
+| palcos | 12/12 (o sweep continua conferindo o palco também) |
+| oponente animando | 10 quadros diferentes subiram para a VRAM; ~204 desenhos numa música |
+| VRAM do oponente (pacote sintético 64×64 PSMCT32) | 16.384 B no pool |
+| âncora medida (sintética) | (316, 824) — do slot `dad` do palco da música |
+| ASan + UBSan | suíte inteira verde, zero erro/UB/vazamento |
+| Story Mode (semana 1) | 3 músicas, 2 emendas, 1 resultado — inalterado |
+| gameplay (roteiro do chart) | passa — inalterado |
+
+O Tutorial continua **pulando** o oponente genérico (`char_dad_pulado`): ali o
+oponente é a própria GF, que já é desenhada pelo caminho antigo, e desenhá-la de
+novo seria vê-la duas vezes. É a divergência do slot registrada acima, que só uma
+captura do console resolve.
+
+**O que falta nesta frente:** o BF e a GF ainda vêm do caminho antigo (pacotes do
+tutorial, faixas de quadro fixas). Trocá-los é o próximo passo — e depois as
+animações de canto do oponente por evento de chart (`PlayAnimation`), que hoje
+só cobrem as notas.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

@@ -80,6 +80,21 @@ for sid in $LISTA; do
         naudio=$(awk -F, '$1=="E" && $3=="tutorial_audio_start" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nstate=$(awk -F, '$1=="S" && $3==8 {n++} END{print n+0}' "$LOG" 2>/dev/null)
         npalco=$(awk -F, '$1=="E" && $3=="palco_draw" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # O OPONENTE: o personagem do slot dad, do pacote CHP4. Antes desta
+        # build ele nao era desenhado em 26 das 27 musicas -- a tela mostrava
+        # palco, BF, GF e mais ninguem. "carregado" = o pacote abriu e a tabela
+        # de animacoes conferiu; "primeiro" = o sprite entrou no pacote de
+        # desenho; "animando" = 10 quadros diferentes ja' subiram para a VRAM
+        # (ou seja, nao e' um sprite congelado).
+        nchardraw=$(awk -F, '$1=="E" && $3=="char_dad_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        ncharanim=$(awk -F, '$1=="E" && $3=="char_dad_animando" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # O Tutorial e' o unico caso em que o oponente E' a GF, e a GF do
+        # tutorial ja' e' desenhada pelo caminho antigo (divergencia registrada
+        # no plano, a resolver com captura de console). Ali o oponente
+        # generico e' pulado de proposito: desenhar de novo seria ve-lo duas
+        # vezes. O evento `char_dad_pulado` diz que foi isso, e nao uma falha.
+        npulado=$(awk -F, '$1=="E" && $3=="char_dad_pulado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        charruim=$(awk -F, '$1=="E" && ($3=="char_pacote_ruim" || $3=="char_sem_vram" || $3=="char_sem_staging") {n++} END{print n+0}' "$LOG" 2>/dev/null)
         palco=$(campo palco_entra 4)
 
         [ "${hstart:--1}" -ge 0 ] 2>/dev/null || motivo="nao comecou${motivo:+, $motivo}"
@@ -91,6 +106,13 @@ for sid in $LISTA; do
         [ "${nsteps:-0}" -ge 4 ] 2>/dev/null || motivo="menos de 4 passos de contagem${motivo:+, $motivo}"
         [ "${nstate:-0}" -ge 1 ] 2>/dev/null || motivo="nao desenhou a tela de jogo${motivo:+, $motivo}"
         [ "${npalco:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum prop de palco desenhado${motivo:+, $motivo}"
+        if [ "${npulado:-0}" -ge 1 ]; then
+            :
+        else
+            [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
+            [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
+        fi
+        [ "${charruim:-0}" -eq 0 ] 2>/dev/null || motivo="pacote ou VRAM do oponente falhou${motivo:+, $motivo}"
 
         if [ "${naudio:-0}" -ge 1 ]; then
             AUDIO=$((AUDIO + 1))
@@ -137,7 +159,7 @@ if [ -n "$NAO_DESENHOU" ]; then
     echo "  FALHA: palco(s) que nenhuma musica conseguiu desenhar:$NAO_DESENHOU"
     exit 1
 fi
-echo "         (chart, notas, contagem, tela de jogo, palco e audio)"
+echo "         (chart, notas, contagem, tela de jogo, palco, oponente e audio)"
 if [ -n "$FALHOU" ]; then
     echo "  falharam:$FALHOU"
     exit 1

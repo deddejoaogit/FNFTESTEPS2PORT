@@ -1,0 +1,1 @@
+passo 3: TELEMETRIA_RESULTADO code=0

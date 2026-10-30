@@ -1,0 +1,20 @@
+# FNF PS2 TELEMETRIA CONTINUA build=0.2.35-official-element-geometry
+# elf=build/fnf_harness
+# physical=640x448 logical=1280x720 region=NTSC framebuffer=PSMCT32 buffering=double
+# scope=title,main_menu,story_menu,tutorial audio=audsrv pcm=s16le stereo=48000Hz
+# formato: uma linha por evento; tudo em texto, ordenado por emissao
+# colunas estado: quadro,ui,target,sel,nivel,diff,trans_frame,trans,transport,audio_on,audio_tocando,menu_susp,chart,tut_pronta,tut_audio,story_assets,menu_cache,title_anim,gf_up,bf_up,gf16_up,story_gf_up,story_bf_up,aspect169,vp360,music_clock,enviado,ring,underruns,fd_audio,fd_title,acertos,erros,combo,pontos,feedback,cursor_eventos
+# colunas quadro: quadro,begin,draw,vsync,draw_ticks,espera_ticks,total,fps,pressed,anim,anim_frame,asset_frame,quads,qwords,ui,trans,ouvido,fila_audio,ring,underruns
+# init ok caminho=1 modulos_carregados=1 falhas_modulo=0 aberto_direto=0
+P,META_BEGIN,-1,0
+P,META_DONE,-1,-6
+# FNF PS2 TELEMETRIA CONTINUA build=0.2.35-official-element-geometry
+# elf=./build/fnf_harness
+# physical=640x448 logical=1280x720 region=NTSC framebuffer=PSMCT32 buffering=double
+# scope=title,main_menu,story_menu,tutorial audio=audsrv pcm=s16le stereo=48000Hz
+# formato: uma linha por evento; tudo em texto, ordenado por emissao
+# colunas estado: quadro,ui,target,sel,nivel,diff,trans_frame,trans,transport,audio_on,audio_tocando,menu_susp,chart,tut_pronta,tut_audio,story_assets,menu_cache,title_anim,gf_up,bf_up,gf16_up,story_gf_up,story_bf_up,aspect169,vp360,music_clock,enviado,ring,underruns,fd_audio,fd_title,acertos,erros,combo,pontos,feedback,cursor_eventos
+# colunas quadro: quadro,begin,draw,vsync,draw_ticks,espera_ticks,total,fps,pressed,anim,anim_frame,asset_frame,quads,qwords,ui,trans,ouvido,fila_audio,ring,underruns
+# init ok caminho=1 modulos_carregados=1 falhas_modulo=0 aberto_direto=0
+P,META_BEGIN,-1,0
+P,META_DONE,-1,-6

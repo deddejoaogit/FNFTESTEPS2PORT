@@ -44,7 +44,9 @@ def dados_de_origem():
         if not arq.endswith(".json"):
             continue
         j = json.load(open(os.path.join(d, arq)))
-        cid = j.get("name") or arq[:-5]
+        # id do personagem = nome do arquivo (o `name` da JSON e' o nome de
+        # exibicao, com espacos e maiusculas).
+        cid = arq[:-5]
         origem[cid] = {a["name"] for a in j.get("animations", [])}
     return origem
 

@@ -384,7 +384,11 @@ def build(root, charts_src=None):
             if not arq.endswith(".json"):
                 continue
             dados = _json.load(open(os.path.join(chars_json, arq)))
-            cid = dados.get("name") or arq[:-5]
+            # O NOME DO ARQUIVO e' o id do personagem ("bf", "dad",
+            # "bf-holding-gf"): e' ele que as musicas e o char_dados usam. O
+            # campo `name` da JSON e' o nome de EXIBICAO ("Boyfriend (Holding
+            # GF)") -- usar o `name` gerava pacotes que o jogo nunca acharia.
+            cid = arq[:-5]
             anims, primeiro = [], 0
             for an in dados.get("animations", []):
                 quantos = len(an.get("frameIndices") or []) or 3

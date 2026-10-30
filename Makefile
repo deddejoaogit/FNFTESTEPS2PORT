@@ -2,7 +2,7 @@
 # esperam em mass:/FNFPS2/, e e' o nome que o alvo do make usa (make <nome> so
 # funciona quando <nome> e' o proprio EE_BIN).
 EE_BIN = FNF_PS2.ELF
-EE_OBJS = src/main.o src/title_packs.o src/story_packs.o src/audio_ring.o src/chart.o src/chart_events.o src/engine/song_registry.o src/engine/gameplay.o src/engine/vram_layout.o src/engine/vram_cache.o src/engine/stage_pool.o src/engine/stage_layout.o src/engine/char_layout.o src/engine/char_anim.o src/engine/lz4_bloco.o src/telemetry.o src/iomanX_irx.o src/fileXio_irx.o src/usbd_irx.o src/usbhdfsd_irx.o src/audsrv_irx.o
+EE_OBJS = src/main.o src/title_packs.o src/story_packs.o src/audio_ring.o src/chart.o src/chart_events.o src/engine/song_registry.o src/engine/gameplay.o src/engine/vram_layout.o src/engine/vram_cache.o src/engine/stage_pool.o src/engine/stage_layout.o src/engine/char_layout.o src/engine/char_anim.o src/engine/char_pack.o src/engine/char_cena.o src/engine/lz4_bloco.o src/telemetry.o src/iomanX_irx.o src/fileXio_irx.o src/usbd_irx.o src/usbhdfsd_irx.o src/audsrv_irx.o
 EE_LIBS = -ldraw -lgraph -lpacket -ldma -lmath3d -lpad -laudsrv -lfileXio -lpatches
 # FNF_VERSION e FNX_EXTRA existem para permitir gerar variantes comparaveis
 # sem sobrescrever EE_CFLAGS na linha de comando (isso descartaria o -D_EE
