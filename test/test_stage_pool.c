@@ -115,6 +115,27 @@ int main(void)
         CHECK_EQ(sp_chave(&pool, 0, 100, NULL), -1);   /* chave 0 e' invalida */
     }
 
+    printf("== pool: fixar e soltar (a gftex/stagetex na musica) ==\n");
+    {
+        /* O ciclo do jogo: no menu, gftex e stagetex nao podem ser despejadas;
+           durante a musica elas sao dispensaveis e o palco precisa do espaco.
+           Aqui: pool pequeno, as duas fixas, um prop grande que so' cabe se
+           elas sairem. Fixas -> falha. Soltas -> cabe. */
+        unsigned int a;
+        sp_init(&pool, 0, 512u * 1024u);
+        CHECK_EQ(sp_chave(&pool, SP_CHAVE_TELA_BASE + 0u, 256u * 256u * 4u, &a), 0);
+        sp_fixar(&pool, SP_CHAVE_TELA_BASE + 0u);
+        CHECK_EQ(sp_esta_fixo(&pool, SP_CHAVE_TELA_BASE + 0u), 1);
+        CHECK_EQ(sp_esta_fixo(&pool, SP_CHAVE_TELA_BASE + 1u), 0);   /* nao existe */
+        /* 262.144 B fixos: sobram 262.144, e o prop 0 pede 675.584. */
+        CHECK_EQ(sp_prop(&pool, 0, &a), -1);
+        sp_soltar(&pool, SP_CHAVE_TELA_BASE + 0u);
+        CHECK_EQ(sp_esta_fixo(&pool, SP_CHAVE_TELA_BASE + 0u), 0);
+        sp_init(&pool, 0, 1024u * 1024u);
+        CHECK_EQ(sp_prop(&pool, 0, &a), 0);
+        CHECK_EQ(sp_livre(&pool), 1024u * 1024u - sp_prop_bytes(0));
+    }
+
     printf("== pool: trocar de palco reaproveita a VRAM ==\n");
     {
         /* Duas musicas seguidas: limpar e' o que o jogo faz ao trocar de palco.

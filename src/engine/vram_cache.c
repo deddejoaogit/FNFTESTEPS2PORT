@@ -143,6 +143,18 @@ void vc_fixar(vc_t *c, unsigned int chave)
     if (i >= 0) c->b[i].fixo = 1;
 }
 
+void vc_soltar(vc_t *c, unsigned int chave)
+{
+    int i = achar(c, chave);
+    if (i >= 0) c->b[i].fixo = 0;
+}
+
+int vc_esta_fixo(const vc_t *c, unsigned int chave)
+{
+    int i = achar(c, chave);
+    return i >= 0 ? (int)c->b[i].fixo : 0;
+}
+
 void vc_limpar(vc_t *c)
 {
     int i;

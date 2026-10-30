@@ -65,6 +65,16 @@ void sp_fixar(sp_t *p, unsigned int chave)
     if (p) vc_fixar(&p->cache, chave);
 }
 
+void sp_soltar(sp_t *p, unsigned int chave)
+{
+    if (p) vc_soltar(&p->cache, chave);
+}
+
+int sp_esta_fixo(const sp_t *p, unsigned int chave)
+{
+    return p ? vc_esta_fixo(&p->cache, chave) : 0;
+}
+
 void sp_limpar(sp_t *p)
 {
     if (p) vc_limpar(&p->cache);

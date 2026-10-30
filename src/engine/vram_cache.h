@@ -61,6 +61,16 @@ int vc_pedir(vc_t *c, unsigned int chave, unsigned int bytes, unsigned int *said
 /* Marca como nunca despejavel. Use so para o que e realmente permanente. */
 void vc_fixar(vc_t *c, unsigned int chave);
 
+/* Desfaz a fixacao: o bloco passa a poder ser despejado como qualquer outro.
+   Existe porque "fixo" e' um estado de CENA, nao do bloco: gftex e stagetex sao
+   permanentes no titulo/menu/story e sao dispensaveis durante a musica, onde o
+   que precisa de VRAM e' o palco. Sem esta funcao a fixacao seria definitiva e
+   o pool nunca chegaria ao orcamento inteiro. */
+void vc_soltar(vc_t *c, unsigned int chave);
+
+/* 1 se a chave esta' fixa, 0 se nao. Para o teste e para a telemetria. */
+int vc_esta_fixo(const vc_t *c, unsigned int chave);
+
 /* Esquece tudo que nao for fixo. Usar ao trocar de cena. */
 void vc_limpar(vc_t *c);
 

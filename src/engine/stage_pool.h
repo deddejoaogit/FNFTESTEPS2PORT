@@ -83,6 +83,12 @@ int sp_chave(sp_t *p, unsigned int chave, unsigned int bytes, unsigned int *ende
 /* Marca uma chave como permanente (nunca despejada). */
 void sp_fixar(sp_t *p, unsigned int chave);
 
+/* Desfaz a fixacao: a textura volta a ser despejavel. Ver vc_soltar(). */
+void sp_soltar(sp_t *p, unsigned int chave);
+
+/* 1 se a chave esta' fixa. */
+int sp_esta_fixo(const sp_t *p, unsigned int chave);
+
 /* Esquece tudo que nao for fixo. Chamar ao trocar de musica/palco. */
 void sp_limpar(sp_t *p);
 
