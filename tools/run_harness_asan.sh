@@ -40,12 +40,20 @@ fi
 FLAGS="-O1 -g -std=gnu11 -D_EE -Itools/ps2shim $INC -Isrc -Isrc/engine -Itest/ps2harness \
       -Wall -Wextra -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unused-parameter -DPS2H=1"
 
+# Os fontes vem do PROPRIO Makefile (EE_OBJS), pelo mesmo motivo do
+# run_harness.sh: o console nao liga nesta maquina, entao este link e' a unica
+# prova de que o EE_OBJS esta' completo.
+OBJ_SRC=$(sed -n 's/^EE_OBJS *= *//p' Makefile | tr ' ' '\n' \
+    | grep '^src/' | grep -v '_irx\.o$' \
+    | grep -v 'title_packs\.o$' | grep -v 'story_packs\.o$' \
+    | sed 's/\.o$/.c/' \
+    | tr '\n' ' ')
+
 echo "== compilando o harness com ASan + UBSan =="
 # -fno-omit-frame-pointer: sem isso o backtrace do ASan sai truncado e nao da
 # para saber onde foi. Custa quase nada e a informacao vale muito.
 gcc $FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer \
-    src/main.c src/audio_ring.c src/chart.c src/chart_events.c src/telemetry.c \
-    $ENGINE_SRC \
+    $OBJ_SRC \
     src/iomanX_irx.c src/fileXio_irx.c src/usbd_irx.c src/usbhdfsd_irx.c src/audsrv_irx.c \
     src/title_packs.S src/story_packs.S test/ps2harness/ps2h.c \
     build/ps2sdk_host/draw.c build/ps2sdk_host/draw2d.c build/ps2sdk_host/draw_environment.c \

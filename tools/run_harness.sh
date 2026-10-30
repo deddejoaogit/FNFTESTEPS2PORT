@@ -108,18 +108,28 @@ print("  draw do ps2sdk: 1 linha adaptada (plzcw), 0 linhas de logica tocadas")
 PYEOF
 [ $? -eq 0 ] || exit 1
 
-# Os modulos de engine vem do proprio Makefile (src/engine/*.o de EE_OBJS -> .c).
-# Antes estavam escritos a mao aqui: um modulo novo (char_layout.o) entrava no
-# jogo, no teste e no link do console e NAO entrava no harness -- o harness
-# parava de compilar e o teste que "prova" o jogo nem rodava.
-ENGINE_SRC=$(sed -n 's/^EE_OBJS *= *//p' Makefile | tr ' ' '\n' | grep '^src/engine/' | sed 's/\.o$/.c/' | tr '\n' ' ')
+# Os fontes vem do PROPRIO Makefile (EE_OBJS -> .c/.S). Duas razoes, as duas
+# medidas:
+#   1. antes a lista estava escrita a mao aqui, e um modulo novo
+#      (char_layout.o) entrava no jogo, no teste e no link do console e NAO
+#      entrava no harness -- o harness parava de compilar e o teste que "prova"
+#      o jogo nem rodava;
+#   2. o console nao liga nesta maquina (nao ha ps2sdk instalado), entao este
+#      link e' a UNICA prova de que o EE_OBJS do Makefile esta' completo: se um
+#      objeto necessario faltar la', falta aqui tambem e o harness nao liga.
+#      Foi assim que o vram_cache.o apareceu faltando.
+# Os *_irx.o (bin2s) e os title_packs.S/story_packs.S entram explicitamente.
+OBJ_SRC=$(sed -n 's/^EE_OBJS *= *//p' Makefile | tr ' ' '\n' \
+    | grep '^src/' | grep -v '_irx\.o$' \
+    | grep -v 'title_packs\.o$' | grep -v 'story_packs\.o$' \
+    | sed 's/\.o$/.c/' \
+    | tr '\n' ' ')
 
 DRAWSRC="$HOSTDIR/draw.c $HOSTDIR/draw2d.c $HOSTDIR/draw_environment.c"
 
 echo "== compilando o harness (jogo real + draw real do ps2sdk) =="
 gcc $FLAGS \
-    src/main.c src/audio_ring.c src/chart.c src/chart_events.c src/telemetry.c \
-    $ENGINE_SRC \
+    $OBJ_SRC \
     src/iomanX_irx.c src/fileXio_irx.c src/usbd_irx.c src/usbhdfsd_irx.c src/audsrv_irx.c \
     src/title_packs.S src/story_packs.S \
     test/ps2harness/ps2h.c \

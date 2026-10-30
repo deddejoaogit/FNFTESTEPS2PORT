@@ -26,7 +26,10 @@ cd "$REPO" || exit 1
 
 FRAMES=${1:-1200}
 SOMENTE=${2:-}
-BIN=build/fnf_harness
+# PS2H_BIN permite rodar o MESMO sweep com o binario dos sanitizadores:
+# os 81 charts e os 12 palcos passam a ser exercitados com ASan/UBSan ligados,
+# que e' onde erro de memoria aparece.
+BIN=${PS2H_BIN:-build/fnf_harness}
 ROOT=build/harness_assets
 LOG="$ROOT/FNFPS2/FNF_COLHEITA.txt"
 

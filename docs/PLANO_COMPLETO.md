@@ -477,6 +477,15 @@ O que entrou para fechar isso:
 | `tools/preparar_sweep.py` | para cada música: o chart FCH3 (o que o console lê) e um `stems.pcm` de 20 s — o áudio tem de **abrir** para o relógio da música andar. Não finge a duração inteira: custaria 100 MB por música e não provaria nada a mais |
 | `tools/run_sweep_harness.sh` | roda as 81 combinações e cobra, em cada uma: `harness_start`, `chart_layout>=0`, `tutorial_chart` status 0 com checksum ≠ 0, `play_total_notes>0`, `countdown_begin` + 4 passos, tela de jogo desenhada, **prop de palco desenhado**, áudio começado e `RESULTADO: PASSOU` |
 | `gen_harness_assets.py` | passou a gerar pacote dos **21** palcos (eram 2). Com 2, 60 das 81 combinações morriam em "arquivo não abriu" |
+| lista de fontes do harness | agora vem do `EE_OBJS` do Makefile. O console não liga nesta máquina (não há ps2sdk instalado), então **este link é a única prova** de que o `EE_OBJS` está completo: se faltar um objeto lá, falta aqui e o harness não liga |
+
+O sweep roda **duas vezes**: com o binário normal e com o dos sanitizadores
+(`PS2H_BIN=build/fnf_harness_asan`), então os 81 charts e os 12 palcos passam
+com ASan + UBSan ligados — é onde um estouro de buffer ao ler um chart do week7
+aparece como erro, e não como arte estranha na tela. O harness com sanitizadores
+estava sendo **pulado em silêncio** desde que a lista de fontes mudou (uma
+variável indefinida com `set -u`); agora ele compila e roda: 1 401 quadros do
+jogo inteiro, **zero** erro de memória, comportamento indefinido ou vazamento.
 
 **Medido:** `sweep: 81/81 combinações música × dificuldade começaram`,
 `12/12 palcos usados pelas músicas desenharam`, cada música com as suas notas

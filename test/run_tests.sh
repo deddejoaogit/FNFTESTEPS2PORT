@@ -566,6 +566,20 @@ else
     grep -E "^(quadros executados|maior pacote|chamadas de desenho)" build/harness_asan.log | sed 's/^/    /'
     echo "  OK: 1401 quadros, jogo inteiro, zero erro de memoria," \
           "zero comportamento indefinido, zero vazamento"
+
+    # E os sanitizadores nas 81 combinacoes, nao so' nas telas do tutorial.
+    # Cada rodada e' barata (0,4 s), e e' o unico lugar onde um estouro de
+    # buffer no carregamento de um chart do week7 apareceria como erro e nao
+    # como arte estranha. 600 quadros: contagem + o comeco das notas.
+    echo
+    echo "== sweep das 81 combinacoes com ASan + UBSan =="
+    if ! PS2H_BIN=build/fnf_harness_asan sh tools/run_sweep_harness.sh 600 \
+            > /tmp/fnf_sweep_asan.log 2>&1; then
+        grep -E "FALHA|falharam|ERROR|runtime error" /tmp/fnf_sweep_asan.log | head -20
+        echo "  FALHA: o sweep com sanitizadores nao passou"
+        exit 1
+    fi
+    tail -4 /tmp/fnf_sweep_asan.log
 fi
 
 echo
