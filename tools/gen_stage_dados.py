@@ -189,6 +189,7 @@ def render(plan):
     w.append("  int dance;          /* danceEvery, 0 = nunca */")
     w.append("  int frames;         /* quadros no pacote CFZ4 */")
     w.append("  int sw,sh;          /* tamanho de UM quadro, ja na escala do palco */")
+    w.append("  int src_w,src_h;    /* tamanho do quadro no espaco do ORIGINAL (1280x720) */")
     w.append("  int anim_first,anim_count;  /* faixa em bs_prop_anims[] */")
     w.append("}bs_prop_t;")
     w.append("")
@@ -209,6 +210,7 @@ def render(plan):
                 "scrollx": p["scrollx"], "scrolly": p["scrolly"],
                 "z": p["z"], "dance": p["dance"], "frames": p["frames"],
                 "sw": p["sw"], "sh": p["sh"],
+                "src_w": p["src_w"], "src_h": p["src_h"],
                 "af": afirst, "ac": len(p["anims"]),
             })
         per_stage.append((sid, st["zoom"], st["scale"], first, len(rows) - first))
@@ -225,12 +227,13 @@ def render(plan):
     w.append("/* Todos os props, agrupados por palco. */")
     w.append("static const bs_prop_t bs_props[]={")
     for r in rows:
-        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d},'
+        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d},'
                  % (c_str(r["stage"]), c_str(r["name"]), c_str(r["tex"]),
                     c_float(r["x"]), c_float(r["y"]),
                     c_float(r["sx"]), c_float(r["sy"]),
                     c_float(r["scrollx"]), c_float(r["scrolly"]),
                     r["z"], r["dance"], r["frames"], r["sw"], r["sh"],
+                    r["src_w"], r["src_h"],
                     r["af"], r["ac"]))
     w.append("};")
     w.append("#define BS_PROP_COUNT %d" % len(rows))

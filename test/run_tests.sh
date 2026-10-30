@@ -47,6 +47,46 @@ $CC $FLAGS test/test_vram_layout.c src/engine/vram_layout.c -o /tmp/fnf_test_vra
 /tmp/fnf_test_vram
 echo
 
+# Todo modulo de engine que o main.c chama tem de estar no EE_OBJS do Makefile.
+# O harness compila os .c por nome, entao ele liga mesmo que o Makefile esqueca
+# um objeto -- e o console nao liga. Aconteceu com vram_layout.o: o jogo passou
+# a chamar vl_address() e o link do console teria morrido.
+echo "== Makefile: todo modulo usado pelo jogo esta' em EE_OBJS =="
+python3 - <<'PYEOF2' || exit 1
+import os, re, sys
+mk = open("Makefile").read()
+m = re.search(r"EE_OBJS\s*=\s*(.+)", mk)
+if not m:
+    sys.exit("  FALHA: nao achei EE_OBJS no Makefile")
+objs = m.group(1).split()
+main = open("src/main.c").read()
+chamadas = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", main))
+faltando = []
+for nome in sorted(os.listdir("src/engine")):
+    if not nome.endswith(".c"):
+        continue
+    obj = "src/engine/" + nome[:-2] + ".o"
+    defs = set(re.findall(r"^[a-zA-Z_][\w \t\*]*?\b([a-z_][a-z0-9_]*)\s*\(",
+                          open("src/engine/" + nome).read(), re.M))
+    usados = sorted(defs & chamadas - {"if", "for", "while", "switch", "return", "sizeof"})
+    if usados and obj not in objs:
+        faltando.append("  %s usa %s, mas %s nao esta' em EE_OBJS"
+                        % (nome, ", ".join(usados[:4]), obj))
+if faltando:
+    print("\n".join(faltando))
+    sys.exit(1)
+print("  ok:   nenhum modulo chamado pelo jogo ficou fora do link")
+PYEOF2
+echo
+
+# Layout dos palcos: quais props aparecem, onde, em que ordem de z. E' a conta
+# que o estado 8 do main.c faz a mao para um palco so'; aqui ela roda nos 21 e o
+# teste falha se as faixas de props de um palco pegarem o prop de outro.
+echo "== palcos (stage_layout) =="
+$CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c -o /tmp/fnf_test_stage
+/tmp/fnf_test_stage
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine

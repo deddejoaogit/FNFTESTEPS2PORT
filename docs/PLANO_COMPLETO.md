@@ -243,10 +243,8 @@ suposição:
 
 **Ordem de trabalho proposta (um motivo por build):**
 
-1. `stage_layout.c`: função pura `palco → lista de props visíveis, ordenada por
-   z, com retângulo de tela`, a partir de `bs_stage_props`/`bs_props` e da
-   câmera (`scrollFactor` de `Stage.hx`, zoom por palco). Teste no PC contra os
-   JSON, como `test_vram_layout.c` faz com o mapa de VRAM.
+1. ~~`stage_layout.c`: função pura palco × câmera → props visíveis, ordenados
+   por z, com retângulo de tela~~ — **FEITO** (ver abaixo).
 2. Orçamento de RAM no empacotador + regenerar `stage-props.json`/`*.cfz4`;
    conferir `sw*sh*frames*2 <= ~16 MB` para os 21.
 3. `vram_cache_init()` de verdade, com `asset_bank` para palco e personagens;
@@ -257,6 +255,33 @@ suposição:
 5. Os 46 personagens: `bf_meta_t` (`MAX_ANIMS 8`) vira tabela gerada por
    personagem, com `renderType` (`multianimateatlas` para boa parte deles) — é
    o item mais caro e o único que ainda não tem formato de pacote definido.
+
+#### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
+
+`src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de
+`test/run_tests.sh`). É C puro: nada de GS, nada de arquivo, nada de VRAM —
+por isso roda no PC, contra os mesmos dados que o console vai usar.
+
+| O que o teste prova | Número |
+|---|---|
+| os 21 palcos existem, e o id é o id inteiro (`mainStageXX` não acha nada) | 21 |
+| as faixas `first/count` de cada palco particionam `bs_props[]` sem buraco e cada prop pertence ao palco que diz | 157 props |
+| a conta de tela é a que o port já usava no tutorial | `stageBack` do `mainStage`, câmera no foco do BF (888,5 ; 589) e zoom 1,1: `x0 = -485,0075`, `y0 = -241,3550`, `w = 1408`, `h = 770` |
+| o fundo cobre a tela inteira | `x0 ≤ 0`, `y0 ≤ 0`, `x0+w ≥ 640`, `y0+h ≥ 360` |
+| ordem de desenho é zIndex crescente | 21 palcos |
+| prop fora da tela não entra no pacote | `fastCar` (x = −12600) nunca aparece; o fundo do mesmo palco sempre |
+| animação em loop volta ao zero; sem loop para no último quadro | 24 fps, 4 quadros |
+
+Um erro foi encontrado **ao escrever o teste**: o cabeçalho gerado
+(`stage_dados.h`) trazia `sw/sh`, o tamanho do quadro **já reduzido** para caber
+na VRAM (escala 0,31 no `mainStage`), e nenhum campo com o tamanho do quadro no
+espaço do original. Desenhar com `sw/sh` encolheria o palco inteiro em três
+vezes — e ninguém veria isso no PC, porque o teste não tinha como perguntar. O
+gerador (`tools/gen_stage_dados.py`) passou a emitir `src_w/src_h` e o
+`stage_layout` calcula a tela com eles, deixando `tex_w/tex_h` para a UV.
+
+**O que ele não prova:** que o desenho acontece. Este módulo decide *o quê*,
+*onde* e *em que ordem*; quem desenha é o passo 4.
 
 ### Fase 5 — Otimização medida
 
