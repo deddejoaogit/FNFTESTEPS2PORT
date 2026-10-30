@@ -461,6 +461,35 @@ O que o teste (`test/test_char_layout.c`, dentro do `run_tests.sh`) exige:
 **O que isto ainda NÃO prova:** que o personagem pareça certo na tela. Isso é o
 próximo passo (o desenho), e só a tela responde.
 
+#### Fechado: qual quadro cada personagem mostra (`char_anim.c`)
+
+Com os 46 personagens e os 63 slots resolvidos (passo 5), faltava a segunda
+metade da conta: **em que quadro** cada animação está. `src/engine/char_anim.{h,c}`
++ `test/test_char_anim.c`. As regras vêm do original, não do gosto:
+
+| regra | de onde vem |
+|---|---|
+| quadro = `floor(tempo × frameRate)`, com módulo quando é loop e preso no último quando não é | `FlxAnimation`/`FlxAnimationController` |
+| quem tem `idle` toca `idle`; quem não tem alterna `danceLeft`/`danceRight` pela batida | `Bopper.dance()` + `IdleCharacter` do v0.8.6 |
+| canto dura `singTime` passos e depois volta a dançar | `PlayState` chamando `dance()` no fim do tempo de canto |
+| erro de nota usa `singLEFTmiss` e, se não existir, cai no nome-base | troca de sufixo do `BaseCharacter` |
+| o mesmo canto pedido de novo **não** reinicia a animação | senão a perna da GF reiniciaria a cada batida |
+
+O teste cobre 24 fps e 29,97 fps (2997 centésimos), loop e não-loop, tempo
+negativo (o relógio do chart é negativo durante a contagem), taxa ausente (não
+divide por zero: mostra o primeiro quadro), `passos → ms` a 100 e 150 BPM, o
+ciclo canto → `singTime` → idle no BF, a alternância `danceLeft`/`danceRight` na
+GF (que **canta**, mas não tem `idle`), um personagem que **não canta**
+(`darnell-blazin`) não inventando animação, e os **46** atravessando o ciclo com
+índice de animação sempre dentro da faixa.
+
+**A peça que falta, e é dado, não código:** a taxa de quadro, o `looped` e a
+lista de quadros de cada animação **não estão** no `character.json` — eles vivem
+no atlas de cada personagem (`AnimationData`), que só o clone da arte tem. Por
+isso `ch_seq_t` é preenchido pelo **pacote**, e o pacote é construído pelo
+empacotador lendo o atlas. Sem o clone, este módulo continua correto e testado;
+o que falta é o dado, e dado faltando não vira número inventado (regra 4).
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de
