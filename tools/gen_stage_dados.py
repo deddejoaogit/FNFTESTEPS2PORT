@@ -238,6 +238,45 @@ def render(plan):
     w.append("};")
     w.append("#define BS_PROP_COUNT %d" % len(rows))
     w.append("")
+    # Slots de personagem: cada palco define a posicao e os cameraOffsets de
+    # tres papeis (bf/gf/dad). O cameraOffsets do slot ENTRA no foco de camera
+    # -- e' a parcela -100,-100 do BF no mainStage, que a captura do console
+    # confirmou. Faltava nos dados: so' o mainStage tinha isso, escrito a mao
+    # em official_tables.h.
+    slots = []
+    slot_first = []
+    for st in plan["stages"]:
+        slot_first.append(len(slots))
+        sid = st["id"]
+        d = json.load(open(os.path.join(STAGES, sid + ".json")))
+        chars = d.get("characters") or {}
+        for role in ("bf", "gf", "dad"):
+            c = chars.get(role) or {}
+            pos = c.get("position") or [0.0, 0.0]
+            cam = c.get("cameraOffsets") or [0.0, 0.0]
+            slots.append((sid, role, float(pos[0]), float(pos[1]),
+                          float(cam[0]), float(cam[1]), int(c.get("zIndex") or 0)))
+    w.append("")
+    w.append("/* Um slot de personagem de um palco: onde ele fica e o cameraOffsets")
+    w.append("   que entra no foco de camera (Stage.hx: cameraFollowPoint =")
+    w.append("   position + character.cameraOffsets + slot.cameraOffsets). */")
+    w.append("typedef struct{const char*stage;const char*role;")
+    w.append("  float x,y;      /* position, no espaco do original (1280x720) */")
+    w.append("  float cx,cy;    /* cameraOffsets do slot */")
+    w.append("  int z;          /* zIndex */")
+    w.append("}bs_slot_t;")
+    w.append("static const bs_slot_t bs_slots[]={")
+    for (sid, role, x, y, cx, cy, z) in slots:
+        w.append('  {%s,%s,%s,%s,%s,%s,%d},'
+                 % (c_str(sid), c_str(role), c_float(x), c_float(y),
+                    c_float(cx), c_float(cy), z))
+    w.append("};")
+    w.append("#define BS_SLOT_COUNT %d" % len(slots))
+    w.append("/* Primeiro slot de cada palco, na ordem de bs_stage_props[]. */")
+    w.append("static const int bs_stage_slot_first[]={")
+    w.append("  " + " ".join("%d," % v for v in slot_first))
+    w.append("};")
+    w.append("")
     w.append("/* Um palco: zoom da camera, escala aplicada aos props, e a faixa em")
     w.append("   bs_props[]. A escala fica aqui para o loader converter uma posicao do")
     w.append("   espaco original. */")

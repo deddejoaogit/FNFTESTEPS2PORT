@@ -401,6 +401,86 @@ static const bs_prop_t bs_props[]={
 };
 #define BS_PROP_COUNT 157
 
+
+/* Um slot de personagem de um palco: onde ele fica e o cameraOffsets
+   que entra no foco de camera (Stage.hx: cameraFollowPoint =
+   position + character.cameraOffsets + slot.cameraOffsets). */
+typedef struct{const char*stage;const char*role;
+  float x,y;      /* position, no espaco do original (1280x720) */
+  float cx,cy;    /* cameraOffsets do slot */
+  int z;          /* zIndex */
+}bs_slot_t;
+static const bs_slot_t bs_slots[]={
+  {"limoRide","bf",1217.500000f,592.000000f,-300.000000f,-100.000000f,300},
+  {"limoRide","gf",787.000000f,779.000000f,0.000000f,0.000000f,100},
+  {"limoRide","dad",329.500000f,913.000000f,150.000000f,0.000000f,200},
+  {"limoRideErect","bf",1217.500000f,592.000000f,-300.000000f,-100.000000f,300},
+  {"limoRideErect","gf",787.000000f,779.000000f,0.000000f,0.000000f,100},
+  {"limoRideErect","dad",329.500000f,913.000000f,150.000000f,0.000000f,200},
+  {"mainStage","bf",989.500000f,885.000000f,-100.000000f,-100.000000f,300},
+  {"mainStage","gf",751.500000f,787.000000f,0.000000f,0.000000f,100},
+  {"mainStage","dad",335.000000f,885.000000f,150.000000f,-100.000000f,200},
+  {"mainStageErect","bf",977.500000f,905.000000f,-170.000000f,-140.000000f,300},
+  {"mainStageErect","gf",501.500000f,815.000000f,0.000000f,0.000000f,100},
+  {"mainStageErect","dad",40.000000f,885.000000f,270.000000f,-100.000000f,200},
+  {"mallEvil","bf",1297.500000f,871.000000f,-100.000000f,-100.000000f,300},
+  {"mallEvil","gf",808.500000f,854.000000f,0.000000f,0.000000f,100},
+  {"mallEvil","dad",290.500000f,869.000000f,150.000000f,-100.000000f,200},
+  {"mallXmas","bf",1177.500000f,871.000000f,-300.000000f,-200.000000f,300},
+  {"mallXmas","gf",808.500000f,854.000000f,0.000000f,0.000000f,100},
+  {"mallXmas","dad",42.000000f,882.000000f,150.000000f,-100.000000f,200},
+  {"mallXmasErect","bf",1177.500000f,871.000000f,-300.000000f,-200.000000f,300},
+  {"mallXmasErect","gf",808.500000f,854.000000f,0.000000f,0.000000f,100},
+  {"mallXmasErect","dad",42.000000f,882.000000f,150.000000f,-100.000000f,200},
+  {"phillyBlazin","bf",-237.000000f,100.000000f,-350.000000f,-100.000000f,2000},
+  {"phillyBlazin","gf",1353.000000f,1125.000000f,0.000000f,20.000000f,1000},
+  {"phillyBlazin","dad",-237.000000f,150.000000f,500.000000f,200.000000f,3000},
+  {"phillyStreets","bf",2151.000000f,1228.000000f,-350.000000f,-100.000000f,400},
+  {"phillyStreets","gf",1453.000000f,1100.000000f,0.000000f,0.000000f,300},
+  {"phillyStreets","dad",920.000000f,1310.000000f,500.000000f,-100.000000f,350},
+  {"phillyStreetsErect","bf",2151.000000f,1228.000000f,-350.000000f,-100.000000f,400},
+  {"phillyStreetsErect","gf",1520.000000f,1080.000000f,0.000000f,0.000000f,300},
+  {"phillyStreetsErect","dad",920.000000f,1310.000000f,500.000000f,-100.000000f,350},
+  {"phillyTrain","bf",1020.500000f,885.000000f,-200.000000f,-100.000000f,300},
+  {"phillyTrain","gf",751.500000f,787.000000f,0.000000f,0.000000f,100},
+  {"phillyTrain","dad",468.000000f,885.000000f,200.000000f,-100.000000f,200},
+  {"phillyTrainErect","bf",1020.500000f,885.000000f,-200.000000f,-100.000000f,300},
+  {"phillyTrainErect","gf",751.500000f,787.000000f,0.000000f,0.000000f,100},
+  {"phillyTrainErect","dad",468.000000f,885.000000f,200.000000f,-100.000000f,200},
+  {"school","bf",1168.000000f,900.000000f,-200.000000f,-94.000000f,300},
+  {"school","gf",724.000000f,823.000000f,40.000000f,40.000000f,100},
+  {"school","dad",306.000000f,960.000000f,160.000000f,0.000000f,200},
+  {"schoolErect","bf",1168.000000f,900.000000f,-200.000000f,-94.000000f,300},
+  {"schoolErect","gf",724.000000f,763.000000f,40.000000f,40.000000f,100},
+  {"schoolErect","dad",306.000000f,960.000000f,160.000000f,0.000000f,200},
+  {"schoolEvil","bf",1168.000000f,900.000000f,-200.000000f,-94.000000f,300},
+  {"schoolEvil","gf",724.000000f,823.000000f,40.000000f,40.000000f,100},
+  {"schoolEvil","dad",0.000000f,648.000000f,440.000000f,270.000000f,200},
+  {"schoolEvilErect","bf",1168.000000f,900.000000f,-200.000000f,-94.000000f,300},
+  {"schoolEvilErect","gf",724.000000f,823.000000f,40.000000f,40.000000f,100},
+  {"schoolEvilErect","dad",0.000000f,648.000000f,440.000000f,270.000000f,200},
+  {"spookyMansion","bf",989.500000f,885.000000f,-100.000000f,-100.000000f,200},
+  {"spookyMansion","gf",751.500000f,787.000000f,0.000000f,0.000000f,100},
+  {"spookyMansion","dad",382.000000f,865.000000f,150.000000f,-100.000000f,200},
+  {"spookyMansionErect","bf",1250.000000f,885.000000f,-100.000000f,-100.000000f,200},
+  {"spookyMansionErect","gf",821.500000f,800.000000f,0.000000f,0.000000f,100},
+  {"spookyMansionErect","dad",382.000000f,865.000000f,150.000000f,-100.000000f,200},
+  {"sserafim","bf",1530.000000f,970.000000f,-100.000000f,-100.000000f,300},
+  {"sserafim","gf",938.500000f,392.000000f,0.000000f,0.000000f,300},
+  {"sserafim","dad",70.000000f,470.000000f,150.000000f,-100.000000f,200},
+  {"tankmanBattlefield","bf",1090.500000f,885.000000f,-220.000000f,-100.000000f,102},
+  {"tankmanBattlefield","gf",660.500000f,730.000000f,0.000000f,0.000000f,100},
+  {"tankmanBattlefield","dad",230.500000f,996.000000f,250.000000f,-100.000000f,102},
+  {"tankmanBattlefieldErect","bf",1340.500000f,885.000000f,-220.000000f,-100.000000f,200},
+  {"tankmanBattlefieldErect","gf",800.500000f,775.000000f,0.000000f,0.000000f,100},
+  {"tankmanBattlefieldErect","dad",230.500000f,996.000000f,250.000000f,-100.000000f,200},
+};
+#define BS_SLOT_COUNT 63
+/* Primeiro slot de cada palco, na ordem de bs_stage_props[]. */
+static const int bs_stage_slot_first[]={
+  0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
+};
+
 /* Um palco: zoom da camera, escala aplicada aos props, e a faixa em
    bs_props[]. A escala fica aqui para o loader converter uma posicao do
    espaco original. */

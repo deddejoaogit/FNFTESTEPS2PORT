@@ -420,6 +420,47 @@ posição, porque existe captura de tela do palco atual no console
    personagem, com `renderType` (`multianimateatlas` para boa parte deles) — é
    o item mais caro e o único que ainda não tem formato de pacote definido.
 
+#### Fechado: os 46 personagens (passo 5, os dados e a conta)
+
+Antes de desenhar qualquer personagem, o port precisava saber **qual** personagem,
+com **que** animação, **onde**. Isso virou três peças, todas medidas:
+
+| peça | o que é | o que prova |
+|---|---|---|
+| `tools/gen_char_dados.py` → `src/engine/char_dados.h` | os 46 personagens e **523 animações** lidos de `assets-data/characters` (o mesmo `CharacterData` do v0.8.6): `render` (tipo de desenho), `flipx`, `offsets`, `cameraOffsets`, `singTime` e a faixa de animações de cada um | o C é a renderização do JSON, e `--check` roda na suíte |
+| `tools/gen_stage_dados.py` (estendido) → `bs_slots[]` em `src/stage_dados.h` | **63 slots** = 21 palcos × bf/gf/dad, com posição, `cameraOffsets` e `zIndex` | todo palco tem os três papéis (o teste falha se faltar um) |
+| `src/engine/char_layout.{h,c}` | `ch_find`, `ch_anim_idle`, `ch_anim_sing`, `ch_anchor`, `ch_slot` — C puro, sem GS, sem arquivo | roda no PC contra os 46 reais |
+
+A conta de posição/câmera **não foi deduzida**; ela é a que o estado 8 do
+`main.c` já faz à mão para dois personagens e que a captura do console aprovou.
+Uma coisa que ela provou durante o teste: o foco de câmera **soma também o
+`cameraOffsets` do personagem**, não só o do slot. Com o `mainStage` e o BF:
+`989,5 + 17 − 18 − 100 = 888,50` e `885 + 14 − 246 + 36 − 100 = 589,00` — os dois
+números que o console já mostrou. O `BaseCharacter.hx` L350-355
+(`resetCameraFocusPoint`) confirma a origem da parcela.
+
+O que o teste (`test/test_char_layout.c`, dentro do `run_tests.sh`) exige:
+
+- **46 contra 46**: para cada personagem, `offsets`, `cameraOffsets` e `singTime`
+  do `char_dados.h` têm de ser iguais aos do `bs_dados.h`. São dois geradores
+  independentes sobre a mesma fonte, então um gerador velho de um lado é pego;
+- **todos têm o que desenhar**: ≥ 1 animação, tipo de desenho conhecido, faixa
+  de animações dentro da tabela;
+- **idle e canto**: 46 têm idle, 32 cantam, **14 não cantam** (as GFs e as de
+  fundo usam `danceLeft`/`danceRight`); quem não canta devolve `-1` e um canto
+  de direção inválida também;
+- **tipo de desenho contado**: 24 `animateatlas`, 10 `multianimateatlas`,
+  3 `multisparrow`, 8 `sparrow`, 1 `packer`. Os 8 `sparrow` e não 1 porque 7
+  JSON não têm `renderType` e caem no `DEFAULT_RENDERTYPE` do
+  `CharacterData.hx` (L463, L510-512) — o gerador **não inventa**, usa o padrão
+  do original;
+- **posições finitas**: 46 × 21 × 3 = **2.898** combinações de personagem × slot,
+  todas com coordenada finita. Coordenada `NaN` travava o GS, e no PC isso não
+  apareceria.
+
+**O que isto ainda NÃO prova:** que o personagem pareça certo na tela. Isso é o
+próximo passo (o desenho), e só a tela responde.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

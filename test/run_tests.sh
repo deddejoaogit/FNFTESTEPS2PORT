@@ -116,6 +116,19 @@ $CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c -o /tmp/fnf_test_s
 /tmp/fnf_test_stage
 echo
 
+# Personagens: os 46 do jogo, suas animacoes, e a conta de posicao/camera do
+# palco. E' o modulo que substitui as faixas de quadro escritas a mao no estado
+# 8 do main.c, entao ele e' conferido contra o bs_dados.h (mesma fonte, outro
+# gerador) e contra o foco de camera (888,50 ; 589,00) que a captura do console
+# aprovou.
+echo "== personagens (char_layout) =="
+if ! python3 tools/gen_char_dados.py --check; then
+    exit 1
+fi
+$CC $FLAGS test/test_char_layout.c src/engine/char_layout.c -o /tmp/fnf_test_char -lm
+/tmp/fnf_test_char
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine
