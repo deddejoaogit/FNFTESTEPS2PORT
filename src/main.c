@@ -190,9 +190,25 @@ static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up
 #ifdef PS2H
 const char *ps2h_musica_inicial(void);
 int ps2h_dificuldade_inicial(void);
+int ps2h_semana_inicial(void);
 #endif
 static const sr_song_t *g_play_song=0;
 static unsigned g_play_level=0,g_play_song_index=0;
+/* CAMPANHA DO STORY MODE (PlayStatePlaylist.hx).
+   O original NAO toca uma musica por semana: `selectLevel()` monta
+   playlistSongIds = allSongs da semana, toca a primeira, e cada fim de musica
+   faz shift() e carrega a proxima SEM passar pelo resultado -- o resultado so'
+   aparece quando a lista esvazia (PlayState.hx L3560-3660). O placar exibido no
+   fim e' o da campanha (L3885: isStoryMode ? campaignScore : songScore).
+   No port cada semana tocava so' a musica 0 e voltava ao menu: 20 das 27
+   musicas existiam e nunca eram alcancadas pelo Story Mode. */
+static int g_story_mode=0;        /* 1 = a musica atual faz parte de uma campanha */
+static int g_story_week=0;        /* a semana da campanha (o Story Menu pode estar
+                                     em outra quando a musica comeca: o
+                                     `story_level` do menu e' sobrescrito) */
+static int g_playlist_n=0;        /* musicas da semana */
+static int g_playlist_i=0;        /* qual delas esta' tocando */
+static long g_campaign_score=0;   /* soma dos placares das musicas ja' tocadas */
 /* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
 static u32 g_play_samples_per_step=0;
 /* Tela de resultado (ui_state 9). O original vai para ResultState quando a
@@ -2227,6 +2243,7 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
   if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
 #ifdef PS2H
+  if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;g_campaign_score=0;g_play_level=(unsigned)wk;g_play_song_index=0;target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
   if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
 #endif
   if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9||ui_state==10||ui_state==11);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
@@ -2432,7 +2449,19 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     telemetry_event("play_result",(int)rk,fnf_play_clear_percent(&g_play));
     telemetry_event("play_result_score",g_play.score,g_play.max_combo);
     telemetry_event("play_result_tallies",(g_play.sick<<24)|(g_play.good<<16)|(g_play.bad<<8)|(g_play.shit&0xff),g_play.missed);
-    target_state=9;transition_frame=1;transitions++;
+    g_campaign_score+=g_play.score;
+    if(g_story_mode&&g_playlist_i+1<g_playlist_n){
+     /* Proxima musica da semana, SEM tela de resultado e com o mesmo
+        corte de transicao que o original (skipNextTransIn/Out). */
+     g_playlist_i++;
+     g_play_song_index=(unsigned)g_playlist_i;
+     g_result_wait=0;g_result_drawn=0;
+     g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
+     target_state=8;transition_frame=1;transitions++;
+     telemetry_event("story_next",g_playlist_i,(int)g_campaign_score);
+    }else{
+     target_state=9;transition_frame=1;transitions++;
+    }
    }
   }
   if(ui_state==8&&audio_started&&audio_ring_eof()&&ring_bytes==0&&queued_bytes==0){
@@ -2511,9 +2540,15 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       semana tem ate 4 musicas e o Story Menu ainda nao escolhe qual delas,
       entao a 0 e' a da vez -- e isso vai dito na telemetria, em vez de
       parecer que o port toca a semana inteira. */
-   g_play_level=(story_level<0)?0u:(unsigned)story_level;
+   /* A semana da campanha NAO e' a que o Story Menu esta' mostrando: o menu
+      fica em 0 e a campanha pode ser de qualquer semana. Era isso que fazia o
+      Story Mode tocar o Tutorial em vez da musica escolhida. */
+   g_play_level=g_story_mode?(unsigned)g_story_week:((story_level<0)?0u:(unsigned)story_level);
    if(g_play_level>=sr_level_count())g_play_level=0u;
+   /* Em campanha a musica e' a da playlist (o original faz shift() a cada
+      fim de musica); fora dela, a 0 da semana. */
    g_play_song_index=0u;
+   if(g_story_mode)g_play_song_index=(g_playlist_i>=0&&g_playlist_i<g_playlist_n)?(unsigned)g_playlist_i:0u;
    if(g_fp_active&&g_fp_play_song){
     /* Veio da Freeplay: a musica e' a escolhida na lista, nao a da semana. */
     song=g_fp_play_song;g_play_level=0u;g_play_song_index=0u;
@@ -2623,7 +2658,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     g_fp_diff=d;telemetry_event("freeplay_diff",g_fp_diff,0);}
    if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
-    story_diff=g_fp_diff;g_fp_play_song=g_fp[g_fp_sel];g_fp_active=1;
+    story_diff=g_fp_diff;g_fp_play_song=g_fp[g_fp_sel];g_fp_active=1;g_story_mode=0;
     g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
     {u32 h=2166136261u;const char*q=g_fp_play_song->id;while(*q){h^=(unsigned char)*q++;h*=16777619u;}
      telemetry_event("freeplay_play",(int)(h&0x7fffffffu),g_fp_diff);}
@@ -2712,6 +2747,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     telemetry_event("gameover_restart",(int)frame_no,(int)g_play.health);
    }else if(pressed&PAD_CIRCLE&&g_gameover_frames>=60){
     g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;
+    g_story_mode=0;   /* semana abandonada: nao e' mais campanha */
     telemetry_event("gameover_exit",(int)frame_no,0);
    }
   }
@@ -2758,7 +2794,18 @@ tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;tra
     freeplay_build();g_fp_sel=0;g_fp_diff=freeplay_diff_valida(g_fp_n?g_fp[0]:0,story_diff);g_fp_active=0;g_fp_play_song=0;
     telemetry_event("freeplay_open",g_fp_n,0);target_state=11;transition_frame=1;transitions++;}
 else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&fonttex,FONT_W,FONT_H);upload_raw(&fonttex,g_font_pixels,FONT_W,FONT_H);}}}}menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
-  }else if(transition_frame==0&&ui_state==7){if(pressed&PAD_UP){int sr;story_level=(story_level+8)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_DOWN){int sr;story_level=(story_level+1)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_LEFT){story_diff=(story_diff+2)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_RIGHT){story_diff=(story_diff+1)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS&&story_level==0){g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;target_state=8;transition_frame=1;transitions++;}
+  }else if(transition_frame==0&&ui_state==7){if(pressed&PAD_UP){int sr;story_level=(story_level+8)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_DOWN){int sr;story_level=(story_level+1)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_LEFT){story_diff=(story_diff+2)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_RIGHT){story_diff=(story_diff+1)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){/* Campanha: monta a playlist da semana e comeca na primeira musica
+     (StoryMenuState.hx L571-598). Antes era `story_level==0`, entao so' a
+     semana do Tutorial podia ser jogada. */
+    const sr_level_t*lvsel=sr_level(story_level);
+    if(lvsel&&lvsel->song_count){
+     g_story_mode=1;g_story_week=story_level;g_fp_active=0;g_fp_play_song=0;
+     g_playlist_n=(int)lvsel->song_count;g_playlist_i=0;g_campaign_score=0;
+     g_play_level=(unsigned)story_level;g_play_song_index=0;
+     g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
+     target_state=8;transition_frame=1;transitions++;
+     telemetry_event("story_begin",story_level,g_playlist_n);
+    }else telemetry_event("story_sem_musicas",story_level,0);}
   }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}
    else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}
    else if(ui_state==10){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
@@ -3150,7 +3197,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=bind_texture_filter(q,&fonttex,1);
    q=text_draw(q,"RESULTS",320,72,1.6f,1);
    q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),320,104,1.4f,1);
-   snprintf(lb,sizeof(lb),"SCORE %d",(int)g_play.score);
+   /* Placar: no Story Mode e' o da CAMPANHA (PlayState.hx L3885), nao o da
+      musica isolada. Fora dele, o da musica. */
+   snprintf(lb,sizeof(lb),"SCORE %ld",g_story_mode?g_campaign_score:(long)g_play.score);
    q=text_draw(q,lb,320,140,1.1f,1);
    snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
    q=text_draw(q,lb,320,168,0.9f,1);

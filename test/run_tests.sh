@@ -528,6 +528,24 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -4 /tmp/fnf_sweep.log
+
+    # STORY MODE: uma SEMANA INTEIRA. Antes o Story Menu so' tocava a musica 0
+    # de cada semana e voltava ao menu -- 20 das 27 musicas existiam e nunca
+    # eram alcancadas por ele. O original encadeia as musicas da semana numa
+    # playlist e so' mostra o resultado no fim (PlayStatePlaylist.hx /
+    # PlayState.hx L3560-3660). Aqui a semana e' jogada de verdade, com o
+    # roteiro de teclas calculado do chart de cada musica.
+    echo
+    echo "== story mode: semanas inteiras em sequencia =="
+    for sem in 1 8 9; do
+        if ! sh tools/run_story_harness.sh "$sem" 1 12000 > /tmp/fnf_story_$sem.log 2>&1; then
+            tail -20 /tmp/fnf_story_$sem.log
+            echo "  FALHA: a semana $sem nao passou"
+            exit 1
+        fi
+        grep -E "^  (musicas tocadas|vezes que emendou|telas de resultado)" /tmp/fnf_story_$sem.log
+        tail -1 /tmp/fnf_story_$sem.log
+    done
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

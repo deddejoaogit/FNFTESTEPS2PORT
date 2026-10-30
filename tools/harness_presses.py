@@ -26,8 +26,14 @@ acertos); um roteiro em amostras aperta quando o jogo chega naquele ponto,
 independente de quantos quadros levou.
 
 Uso:
-    python3 tools/harness_presses.py <chart> [--pular N]
+    python3 tools/harness_presses.py <chart> [--pular N] [--onda K]
 Imprime "amostra:BOTAO,..." para cada nota do jogador.
+
+--onda K poe o indice da musica da campanha em cada aperto ("K:amostra:BOTAO").
+E' o que permite testar o Story Mode com 3 musicas seguidas: o relogio da
+musica volta a zero em cada uma, entao as amostras de uma musica nao podem
+disparar na outra -- sem o indice, o roteiro da segunda musica apertaria nas
+horas da primeira, virando ghost miss e matando o jogador.
 """
 import struct
 import sys
@@ -75,6 +81,9 @@ def main(argv):
     pular = 0
     if "--pular" in argv:
         pular = int(argv[argv.index("--pular") + 1])
+    onda = -1
+    if "--onda" in argv:
+        onda = int(argv[argv.index("--onda") + 1])
     notes, end, spb, bpms, sections, events = read_chart(path)
 
     player = [n for n in notes if n[3]]
@@ -92,7 +101,10 @@ def main(argv):
             continue
         itens.append((sample, LANES[lane]))
     itens.sort()
-    print(",".join(f"{f}:{k}" for f, k in itens))
+    if onda >= 0:
+        print(",".join(f"{onda}:{f}:{k}" for f, k in itens))
+    else:
+        print(",".join(f"{f}:{k}" for f, k in itens))
     sys.stderr.write(
         f"chart {path}: {len(notes)} notas ({len(player)} do jogador), "
         f"fim {end}, {spb} amostras/passo, {bpms} BPM(s), {sections} secao(oes), "

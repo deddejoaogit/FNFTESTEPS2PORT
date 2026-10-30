@@ -461,6 +461,54 @@ O que o teste (`test/test_char_layout.c`, dentro do `run_tests.sh`) exige:
 **O que isto ainda NÃO prova:** que o personagem pareça certo na tela. Isso é o
 próximo passo (o desenho), e só a tela responde.
 
+#### Fechado: Story Mode joga a SEMANA inteira (a campanha)
+
+O que estava errado, medido no código: o Story Menu só chamava o PlayState com
+`story_level==0` — **as semanas 1 a 8 eram inalcançáveis** — e mesmo na semana do
+Tutorial o `g_play_song_index` era sempre 0, então **cada semana tocava uma
+música só**. Somando: 20 das 27 músicas existiam e nenhum caminho do jogo
+chegava nelas (a Freeplay só toca a primeira da lista).
+
+O original (`PlayStatePlaylist.hx`, `StoryMenuState.hx` L571-598, `PlayState.hx`
+L3560-3660 e L3885) faz uma **playlist** da semana: toca a primeira, e a cada fim
+de música faz `shift()` e carrega a próxima **sem** passar pelo resultado — o
+resultado só aparece quando a lista esvazia, mostrando o placar **acumulado da
+campanha**. Foi isso que entrou:
+
+| peça | onde |
+|---|---|
+| playlist (`g_playlist_n`, `g_playlist_i`), campanha (`g_story_mode`, `g_story_week`) e placar acumulado (`g_campaign_score`) | `src/main.c` |
+| CROSS no Story Menu monta a playlist de **qualquer** semana | `ui_state==7` |
+| fim de música: `story_next` (próxima da semana) ou resultado (fim da lista) | bloco de fim de música |
+| resultado mostra o placar da campanha quando é Story Mode | `ui_state==9` |
+
+Um detalhe que só apareceu ao testar: `g_play_level` era derivado de
+`story_level` (a semana que o **menu** está mostrando), então a campanha da
+semana 1 tocava o Tutorial. Agora a semana vem de `g_story_week`, fixada no
+início da campanha.
+
+**O teste** (`tools/run_story_harness.sh`, dentro da suíte, semanas 1, 8 e 9):
+
+- o roteiro de teclas é calculado do chart de **cada** música e leva o índice da
+  música (`harness_presses.py --onda K`). Isso foi obrigatório: o relógio da
+  música volta a zero em cada uma, e sem o índice o roteiro da segunda música
+  aperta nas horas da primeira — vira ghost miss e mata o jogador;
+- o harness conta "música nova" pelo relógio voltar ao começo (não pelo jogo
+  avisar nada) e rearma o roteiro daquela música;
+- cobra: todas as músicas da semana tocadas, `N-1` emendas, **uma** tela de
+  resultado (no fim), músicas **distintas** e volta ao Story Menu.
+
+**Medido:** semana 1 (3 músicas) → 3 tocadas, 2 emendas, 1 resultado; semana 8
+(`weekend1`, **4** músicas) → 4 tocadas, 3 emendas, 1 resultado; semana 9 (1
+música) → 1 tocada, 0 emendas, 1 resultado. Todas voltam ao Story Menu.
+
+Dois bugs de teste que isso desenterrou, e que valem registro porque eram
+**silenciosos**: o roteiro de botões do harness era cortado em 512 eventos (uma
+semana de 4 músicas tem mais de mil) — o texto era truncado sem aviso e a música
+3 em diante ficava sem aperto nenhum; e o `PS2H_INPUT` padrão do harness aperta
+CIRCLE/CROSS no meio da música, o que vira ghost miss. Os dois agora **morrem
+dizendo o que houve** em vez de truncar.
+
 #### Fechado: as 81 combinacoes (27 musicas x 3 dificuldades) tocam no harness
 
 Medido antes: o harness provava **uma** música (o Tutorial) e a Freeplay do port

@@ -103,7 +103,7 @@ static void h_note_fail(const char *p)
 static u32 h_audio_submitted, h_audio_available_calls;
 static u32 h_upload_calls, h_upload_bytes;
 static u32 h_draw_filled, h_draw_textured, h_draw_env;
-typedef struct { unsigned frame; unsigned short btns; int por_amostra; int disparado; } ps2h_input_t;
+typedef struct { unsigned frame; unsigned short btns; int por_amostra; int disparado; int onda; } ps2h_input_t;
 /* Relogio da musica, em amostras, informado pelo jogo uma vez por quadro.
    Existe porque o roteiro por QUADRO nao serve para apertar nota: o relogio da
    musica anda por TEMPO, e no harness o tempo virtual tambem anda dentro dos
@@ -114,13 +114,19 @@ typedef struct { unsigned frame; unsigned short btns; int por_amostra; int dispa
    quantos quadros isso levou -- que e' o que interessa. */
 static unsigned h_song_clock;
 void ps2h_song_clock(unsigned int sample) { h_song_clock = sample; }
+/* CAMPANHA: em que musica da semana o jogo esta'. O relogio da musica volta a
+   zero quando a proxima comeca, entao esse "voltou para tras" e' o sinal de
+   musica nova; nenhum evento do jogo precisa ser inventado para isso. */
+static int h_onda_atual;          /* 0 = primeira musica da semana */
+static unsigned h_ultimo_clock;   /* relogio do quadro anterior */
+static int h_onda_viu_clock;
 
 /* Quantos eventos de botao o roteiro aceita, e o tamanho do buffer do texto.
    Eram 64 eventos e 512 caracteres: o roteiro de gameplay (pressoes continuas
    durante a musica, para chegar ao julgamento) tem mais de cem, e o excedente
    era DESCARTADO EM SILENCIO -- o teste falhava dizendo que o jogo nao
    julgava nada, quando na verdade o harness tinha parado de apertar no meio. */
-#define PS2H_MAX_INPUT 512
+#define PS2H_MAX_INPUT 8192
 static ps2h_input_t ps2h_input[PS2H_MAX_INPUT];
 static unsigned ps2h_input_n;
 static unsigned h_input_fired;
@@ -609,6 +615,7 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
                margem de 200 amostras (~4 ms) e' para o aperto nao ficar cedo
                demais quando o quadro pula por cima do valor exato. */
             if (ps2h_input[script].disparado) continue;
+            if (ps2h_input[script].onda >= 0 && ps2h_input[script].onda != h_onda_atual) continue;
             if (h_song_clock + 200u < ps2h_input[script].frame) continue;
             ps2h_input[script].disparado = 1;
         } else {
@@ -617,6 +624,22 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
         b->btns &= (unsigned short)~ps2h_input[script].btns;
         h_input_fired++;
     }
+
+    /* Musica nova na campanha: o relogio voltou para tras. Rearma o roteiro das
+       musicas que ainda vao tocar (as ja' tocadas ficam gastas). */
+    /* Musica nova = o relogio VOLTOU PARA O COMECO (de >= 1,3 s para perto de
+       zero). Nao basta "andou para tras": uma leitura atrasada no meio da
+       musica tambem anda para tras, e isso trocava de musica no roteiro e
+       parava de apertar (medido: 11 de 282 apercos executados). */
+    if (h_onda_viu_clock && h_song_clock < 200u && h_ultimo_clock > 60000u) {
+        unsigned k;
+        h_onda_atual++;
+        for (k = 0; k < ps2h_input_n; k++)
+            if (ps2h_input[k].por_amostra && (ps2h_input[k].onda < 0 || ps2h_input[k].onda >= h_onda_atual))
+                ps2h_input[k].disparado = 0;
+    }
+    if (h_song_clock) h_onda_viu_clock = 1;
+    h_ultimo_clock = h_song_clock;
 
     if (h_quit_requested) {
         if (h_quit_phase == 0) {
@@ -858,6 +881,10 @@ static unsigned ps2h_button_bit(const char *name)
         {"CROSS", PAD_CROSS},     {"SQUARE", PAD_SQUARE},
     };
     unsigned i;
+    /* "NONE" existe para DESLIGAR o roteiro padrao: PS2H_INPUT="0:NONE" aperta
+       nada, e e' o que o teste de campanha precisa (o roteiro padrao do harness
+       aperta CIRCLE/CROSS no meio da musica, o que vira ghost miss). */
+    if (strcmp(name, "NONE") == 0) return 0;
     for (i = 0; i < sizeof t / sizeof t[0]; i++)
         if (strcmp(name, t[i].n) == 0) return t[i].b;
     return 0;
@@ -870,20 +897,45 @@ static void ps2h_parse_input_ex(const char *spec, int por_amostra);
 static void ps2h_parse_input(const char *spec) { ps2h_parse_input_ex(spec, 0); }
 static void ps2h_parse_input_ex(const char *spec, int por_amostra)
 {
-    char buf[8192], *save = NULL, *tok;
+    /* 64 KB, e nao 8 KB: o roteiro de uma SEMANA do Story Mode tem mais de mil
+       apertos (4 musicas x ~300 notas), e o buffer cortava o texto em silencio
+       -- a musica 3 em diante ficava sem aperto nenhum, o jogador morria, e o
+       teste acusava "a semana nao tocou as 4 musicas". Agora, se nao couber,
+       o harness MORRE dizendo que nao coube. */
+    char buf[65536], *save = NULL, *tok;
+    size_t speclen;
     if (!spec || !*spec) return;
-    strncpy(buf, spec, sizeof buf - 1);
-    buf[sizeof buf - 1] = 0;
+    speclen = strlen(spec);
+    if (speclen >= sizeof buf) {
+        fprintf(stderr, "harness: ROTEIRO TRUNCADO (%zu bytes, cabem %zu). "
+                        "Aumente o buffer em test/ps2harness/ps2h.c.\n",
+                speclen, sizeof buf - 1);
+        exit(3);
+    }
+    memcpy(buf, spec, speclen + 1);
     for (tok = strtok_r(buf, ",", &save); tok && ps2h_input_n < PS2H_MAX_INPUT;
          tok = strtok_r(NULL, ",", &save)) {
         char *colon = strchr(tok, ':');
+        int onda = -1;
         char *names, *nsave = NULL, *nm;
         unsigned short bits = 0;
         if (!colon) continue;
         *colon = 0;
         names = colon + 1;
+        /* Formato de campanha: "onda:amostra:BOTAO". O primeiro numero diz em
+           qual musica da semana aquele aperto vale. */
+        {
+            char *c2 = strchr(names, ':');
+            if (c2) {
+                *c2 = 0;
+                onda = (int)strtol(tok, NULL, 10);
+                tok = names;
+                names = c2 + 1;
+            }
+        }
         for (nm = strtok_r(names, "+", &nsave); nm; nm = strtok_r(NULL, "+", &nsave)) {
             unsigned bit = ps2h_button_bit(nm);
+            if (!bit && strcmp(nm, "NONE") == 0) continue;   /* aperta nada */
             if (!bit) {
                 fprintf(stderr, "harness: botao desconhecido no roteiro: '%s'\n", nm);
                 continue;
@@ -894,7 +946,13 @@ static void ps2h_parse_input_ex(const char *spec, int por_amostra)
         ps2h_input[ps2h_input_n].btns  = bits;
         ps2h_input[ps2h_input_n].por_amostra = por_amostra;
         ps2h_input[ps2h_input_n].disparado = 0;
+        ps2h_input[ps2h_input_n].onda = onda;
         ps2h_input_n++;
+    }
+    if (ps2h_input_n >= PS2H_MAX_INPUT) {
+        fprintf(stderr, "harness: ROTEIRO TRUNCADO em %u eventos: o resto foi "
+                        "descartado. Aumente PS2H_MAX_INPUT.\n", ps2h_input_n);
+        exit(3);
     }
 }
 
@@ -1265,6 +1323,7 @@ qword_t *__wrap_draw_texture_transfer(qword_t *q, void *src, int width, int heig
  */
 const char *ps2h_musica_inicial(void);
 int ps2h_dificuldade_inicial(void);
+int ps2h_semana_inicial(void);
 
 const char *ps2h_musica_inicial(void)
 {
@@ -1276,4 +1335,13 @@ int ps2h_dificuldade_inicial(void)
 {
     const char *e = getenv("FNF_START_DIFF");
     return e ? atoi(e) : -1;
+}
+
+/* FNF_START_WEEK=<indice>: comeca a CAMPANHA de uma semana (as 3-4 musicas em
+   sequencia, como o Story Mode do original). E' o unico jeito de exercitar a
+   playlist de verdade: a Freeplay toca uma musica e para. */
+int ps2h_semana_inicial(void)
+{
+    const char *e = getenv("FNF_START_WEEK");
+    return (e && *e) ? atoi(e) : -1;
 }
