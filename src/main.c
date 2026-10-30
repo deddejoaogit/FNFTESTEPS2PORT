@@ -27,6 +27,7 @@
 #include "engine/gameplay.h"
 #include "engine/vram_layout.h"
 #include "engine/stage_pool.h"
+#include "engine/stage_layout.h"
 #include "song_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -872,6 +873,277 @@ static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,fl
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
  r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align);
+
+/* =====================================================================
+   PALCO GENERICO: os props do palco, do pacote para o pool de VRAM.
+
+   O tutorial desenhava o palco como UMA textura (mainstage_tutorial_
+   parallax.rgba, 512x256) composta fora do jogo. Isso servia para um palco
+   so'. Aqui cada prop do palco vem do seu proprio pacote CFZ4
+   (stages/<palco>/<prop>.cfz4), ganha um lugar no pool (engine/stage_pool.c)
+   e e' desenhado na posicao que o engine/stage_layout.c calculou.
+
+   ORCAMENTO: o pool tem 2.056.192 B e o mainStage pede 1.697.032 B. O
+   tutorial continua cabendo -- e' o primeiro palco que usa este caminho.
+
+   RAM: o pacote inteiro do prop fica na RAM principal (como o do BF/GF no
+   tutorial), e por isso existe PALCO_RAM_MAX. O plano do spookyMansion, por
+   exemplo, nao cabe -- ele e' o proximo item do orcamento de RAM
+   (tools/check_stage_budget.py), nao uma surpresa no console.
+
+   QUANDO DA' ERRADO: se um pacote nao abrir, o prop nao e' desenhado e o
+   evento palco_falha diz qual. O estado 8, nesse caso, volta para a textura
+   composta do tutorial (que continua no pool) -- nunca uma tela vazia.
+   ===================================================================== */
+static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
+#define PALCO_MAX_PROPS  32
+#define PALCO_RAM_MAX    (4u*1024u*1024u)   /* pacotes dos props, na RAM */
+
+typedef struct {
+    const char *stage;                  /* palco carregado, ou 0            */
+    int n;                              /* props do palco                   */
+    int first;                          /* primeiro indice em bs_props[]    */
+    unsigned char *pack[PALCO_MAX_PROPS];
+    unsigned int bytes[PALCO_MAX_PROPS];
+    unsigned int count[PALCO_MAX_PROPS];      /* quadros no pacote          */
+    unsigned int frame_bytes[PALCO_MAX_PROPS];
+    texbuffer_t tex[PALCO_MAX_PROPS];
+    int residente[PALCO_MAX_PROPS];     /* 1 = tem endereco no pool         */
+    int quadro[PALCO_MAX_PROPS];        /* ultimo quadro enviado, -1 = nenhum */
+    int tentou[PALCO_MAX_PROPS];        /* 1 = ja' tentou abrir o pacote    */
+    unsigned int ram_bytes;
+    unsigned int falhas;
+    unsigned int uploads;
+    int desenhou;                       /* props desenhados na ultima chamada */
+} palco_t;
+static palco_t g_palco;
+static unsigned char *g_palco_frame;    /* um quadro descomprimido */
+static unsigned int g_palco_frame_cap;
+static int g_palco_ok=0;                /* 1 = o palco desenha por props */
+
+static void palco_soltar(void)
+{
+    int i;
+    for (i = 0; i < PALCO_MAX_PROPS; i++) {
+        if (g_palco.pack[i]) free(g_palco.pack[i]);
+        g_palco.pack[i] = 0;
+        g_palco.bytes[i] = g_palco.count[i] = g_palco.frame_bytes[i] = 0;
+        g_palco.residente[i] = 0;
+        g_palco.quadro[i] = -1;
+        g_palco.tentou[i] = 0;
+    }
+    g_palco.ram_bytes = 0;
+    g_palco.desenhou = -1;
+    if (g_palco.stage) sp_limpar(&g_pool);   /* devolve os props ao pool */
+    g_palco.stage = 0;
+    g_palco.n = 0;
+    g_palco_ok = 0;
+}
+
+/* Cabecalho CFZ4: "CFZ4", versao 1, quadros, bytes por quadro. O mesmo formato
+   de tutorial_pack_load, mas SEM esperar contagem fixa: aqui o tamanho vem do
+   pacote, porque cada prop tem o seu. */
+static int palco_pack_abrir(const char *path, unsigned char **out, u32 *out_bytes,
+                            u32 *out_count, u32 *out_frame)
+{
+    int fd, n, done = 0;
+    off_t end;
+    unsigned char *p;
+    fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    end = lseek(fd, 0, SEEK_END);
+    if (end < 16 || end > 16 * 1024 * 1024 || lseek(fd, 0, SEEK_SET) < 0) { close(fd); return -2; }
+    if (g_palco.ram_bytes + (u32)end > PALCO_RAM_MAX) { close(fd); return -3; }
+    p = memalign(128, (u32)end);
+    if (!p) { close(fd); return -4; }
+    while (done < end) {
+        n = read(fd, p + done, (int)end - done);
+        if (n <= 0) { free(p); close(fd); return -5; }
+        done += n;
+    }
+    close(fd);
+    if (memcmp(p, "CFZ4", 4) || title_u32le(p + 4) != 1) { free(p); return -6; }
+    *out_count = title_u32le(p + 8);
+    *out_frame = title_u32le(p + 12);
+    if (!*out_count || !*out_frame || *out_frame > 1024u * 1024u * 4u) { free(p); return -7; }
+    if (16u + *out_count * 8u > (u32)end) { free(p); return -8; }
+    *out = p;
+    *out_bytes = (u32)end;
+    g_palco.ram_bytes += (u32)end;
+    return 0;
+}
+
+static void palco_carregar(const char *stage)
+{
+    int si, i;
+    palco_soltar();
+    si = sl_stage_find(stage);
+    if (si < 0) return;
+    g_palco.stage = stage;
+    g_palco.n = bs_stage_props[si].count;
+    g_palco.first = bs_stage_props[si].first;
+    if (g_palco.n > PALCO_MAX_PROPS) g_palco.n = PALCO_MAX_PROPS;
+    for (i = 0; i < g_palco.n; i++) g_palco.quadro[i] = -1;
+    telemetry_event("palco_entra", si, g_palco.n);
+}
+
+/* Abre o pacote do prop 'r' (indice relativo ao palco) na primeira vez que ele
+   e' necessario. Devolve 0 se esta' pronto. */
+static int palco_prop_pronto(const char *stage, int r)
+{
+    char path[128];
+    const bs_prop_t *p;
+    int rc;
+    if (r < 0 || r >= g_palco.n) return -1;
+    if (g_palco.pack[r]) return 0;
+    if (g_palco.tentou[r]) return -2;          /* falhou antes: nao insiste por quadro */
+    g_palco.tentou[r] = 1;
+    p = &bs_props[g_palco.first + r];
+    snprintf(path, sizeof(path), "mass:/FNFPS2/assets/%s", p->tex);
+    rc = palco_pack_abrir(path, &g_palco.pack[r], &g_palco.bytes[r],
+                          &g_palco.count[r], &g_palco.frame_bytes[r]);
+    p = &bs_props[g_palco.first + r];   /* bs_props nao muda, mas o caminho passou por snprintf */
+    (void)stage;
+    if (rc != 0) {
+        g_palco.falhas++;
+        telemetry_event("palco_falha", g_palco.first + r, rc);
+        return -3;
+    }
+    /* O pacote tem de casar com o tamanho que o pool reservou e com o que o
+       layout vai desenhar. Um pacote de outro prop passaria despercebido ate'
+       aparecer com a arte trocada na tela. */
+    if (g_palco.frame_bytes[r] != (unsigned int)p->sw * (unsigned int)p->sh * 2u) {
+        g_palco.falhas++;
+        telemetry_event("palco_falha", p - bs_props, -9);
+        free(g_palco.pack[r]);
+        g_palco.pack[r] = 0;
+        g_palco.ram_bytes -= g_palco.bytes[r];
+        return -4;
+    }
+    if (g_palco.frame_bytes[r] > g_palco_frame_cap) {
+        if (g_palco_frame) free(g_palco_frame);
+        g_palco_frame = memalign(128, g_palco.frame_bytes[r]);
+        g_palco_frame_cap = g_palco_frame ? g_palco.frame_bytes[r] : 0;
+        if (!g_palco_frame) { g_palco.falhas++; return -5; }
+    }
+    return 0;
+}
+
+/* Sobe o quadro 'q' do prop 'r' para o pool. Devolve o texbuffer do prop, ou 0
+   se nao deu. */
+static texbuffer_t *palco_prop_textura(int r, int q)
+{
+    const bs_prop_t *p = &bs_props[g_palco.first + r];
+    texbuffer_t *t = &g_palco.tex[r];
+    unsigned int addr = 0;
+    int rc;
+
+    if (!g_palco.residente[r]) {
+        rc = sp_prop(&g_pool, g_palco.first + r, &addr);
+        if (rc < 0) {
+            g_palco.falhas++;
+            telemetry_event("palco_sem_vram", g_palco.first + r, (int)sp_livre(&g_pool));
+            g_palco.tentou[r] = 1;   /* nao adianta insistir: nao cabe */
+            return 0;
+        }
+        g_palco.residente[r] = 1;
+        g_palco.quadro[r] = -1;
+        t->address = addr;
+        t->width = (p->sw + 63) & ~63;
+        t->psm = GS_PSM_16;
+        setup_texture_dims(t, p->sw, p->sh);
+    }
+    if (g_palco.quadro[r] != q) {
+        if (tutorial_pack_frame(g_palco.pack[r], g_palco.bytes[r], (u32)q,
+                                g_palco.count[r], g_palco.frame_bytes[r],
+                                g_palco_frame) != 0) {
+            g_palco.falhas++;
+            telemetry_event("palco_falha", g_palco.first + r, -10);
+            return 0;
+        }
+        upload_raw_psm(t, g_palco_frame, p->sw, p->sh, GS_PSM_16);
+        g_palco.quadro[r] = q;
+        g_palco.uploads++;
+    }
+    return t;
+}
+
+/* Troca de tela: quem manda na VRAM e' o estado.
+   Durante a musica o palco precisa de tudo (o pior palco pede 1.697.934 B e o
+   pool tem 2.056.192 B com gftex+stagetex fixas); no menu, no titulo e no story
+   quem precisa sao elas. Entao:
+     entrando no jogo -> solta as duas (o palco pode despeja-las);
+     saindo do jogo   -> limpa os props e volta a fixa-las, com endereco novo
+                         se elas tiverem sido despejadas.
+   Sem esse caminho de volta, uma textura de menu ficaria apontando para VRAM
+   que agora e' de um prop -- e o sintoma seria arte trocada na tela, sem log
+   nenhum dizendo por que. */
+static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, int novo_ui)
+{
+    unsigned int a = 0;
+    if (novo_ui == 8) {
+        sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 0u);
+        sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 1u);
+        telemetry_event("pool_cena", 8, (int)sp_livre(&g_pool));
+        return;
+    }
+    sp_limpar(&g_pool);       /* dois cliques: solta o que nao for fixo */
+    if (sp_chave(&g_pool, SP_CHAVE_TELA_BASE + 0u, 256u * 256u * 4u, &a) >= 0) {
+        gf->address = a;
+        sp_fixar(&g_pool, SP_CHAVE_TELA_BASE + 0u);
+    }
+    if (sp_chave(&g_pool, SP_CHAVE_TELA_BASE + 1u, 512u * 256u * 4u, &a) >= 0) {
+        stage->address = a;
+        sp_fixar(&g_pool, SP_CHAVE_TELA_BASE + 1u);
+    }
+    telemetry_event("pool_cena", novo_ui, (int)sp_livre(&g_pool));
+}
+
+/* Desenha o palco inteiro. Devolve o qword e, em *desenhados, quantos props
+   foram para a tela. Se nada pode ser desenhado, *desenhados fica 0 e o
+   chamador usa a textura composta do tutorial. */
+static qword_t *palco_draw(qword_t *q, const char *stage, float cam_x,
+                           float cam_y, float zoom, float bop, int beat,
+                           float t, int *desenhados)
+{
+    sl_item_t it[SL_MAX_ITENS];
+    int n, i, ok = 0;
+    if (desenhados) *desenhados = 0;
+    if (!stage) return q;
+    if (g_palco.stage != stage) palco_carregar(stage);
+    if (!g_palco.stage) return q;
+    n = sl_collect(stage, cam_x, cam_y, zoom, bop, beat, t, it, SL_MAX_ITENS);
+    if (n <= 0) return q;
+    for (i = 0; i < n; i++) {
+        const bs_prop_t *p = &bs_props[it[i].prop];
+        const bs_prop_anim_t *a;
+        texbuffer_t *tx;
+        int r = it[i].prop - g_palco.first;
+        int quadro;
+        if (palco_prop_pronto(stage, r) != 0) continue;
+        a = &bs_prop_anims[p->anim_first + it[i].anim];
+        /* sl_prop_frame devolve o quadro DENTRO da animacao; no pacote o
+           indice e' absoluto, por isso soma-se o primeiro quadro dela. */
+        quadro = a->first + it[i].frame;
+        if (quadro < 0 || (unsigned int)quadro >= g_palco.count[r]) continue;
+        tx = palco_prop_textura(r, quadro);
+        if (!tx) continue;
+        q = bind_texture_filter(q, tx, 1);
+        q = sprite_dims(q, it[i].x0, it[i].y0, it[i].w, it[i].h, it[i].tex_w, it[i].tex_h);
+        ok++;
+    }
+    if (desenhados) *desenhados = ok;
+    g_palco_ok = ok > 0;
+    /* Uma linha por MUDANCA de resultado, e nao por quadro: "desenhou 3 props"
+       precisa aparecer no log uma vez, nao 5.600. Se cair para 0 (pacote
+       faltando, VRAM sem lugar), aparece a queda com o total de falhas. */
+    if (ok != g_palco.desenhou) {
+        g_palco.desenhou = ok;
+        telemetry_event("palco_draw", ok, (int)g_palco.falhas);
+        telemetry_event("palco_pool", (int)sp_livre(&g_pool), (int)g_palco.uploads);
+    }
+    return q;
+}
 static unsigned short tutorial_lane_button(unsigned int lane){static const unsigned short masks[4]={PAD_LEFT,PAD_DOWN,PAD_UP,PAD_RIGHT};return lane<4?masks[lane]:0;}
 static void tutorial_notes_reset(void){
  u32 k,scorable=0;
@@ -1520,7 +1792,6 @@ typedef struct {
     texbuffer_t *tex, *tex2, *fonttex, *gftex, *stagetex;
 } estado_t;
 
-static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
 static int g_congelar = 0;
 static int g_cap_busy = 0;   /* 0.2.101: captura em andamento */
 static int g_cong_frames = 0;
@@ -2172,7 +2443,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   /* Story resources are restored while the fade is opaque. Stop the previous
    * stream first so blocking RLE/upload work cannot produce a held note after
    * Story becomes visible. */
-  if(target_state==7&&transition_frame==(menu_back_transition?42:15)&&!story_assets_ready){telemetry_event("story_transicao_inicio",transition_frame,menu_back_transition);if(ui_state==8||ui_state==10){telemetry_event("back_audsrv_begin",0,0);audsrv_stop_audio();telemetry_event("back_audsrv_done",0,0);audio_ring_stop();telemetry_event("back_ring_done",0,0);if(audio_fd>=0){close(audio_fd);audio_fd=-1;}telemetry_event("back_fd_closed",0,0);audio_started=0;audio_playing=0;audio_submitted=music_clock=0;music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;tutorial_packs_free();telemetry_event("back_packs_freed",0,0);telemetry_event("tutorial_back_transport",0,(int)frame_no);}int su,st,sf,tb=1;if(ui_state==1){if(g_title_audio_fd>=0){close(g_title_audio_fd);g_title_audio_fd=-1;}audsrv_stop_audio();tb=(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384*192*4)==0&&read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4)==0&&read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320*192*4)==0);telemetry_event("title_resident",tb,37);}telemetry_event("back_packs_begin",0,0);{int sr=story_packs_load(&tex2,&gftex);menu_anim_tick=-1;telemetry_event("back_packs_done",sr,0);if(sr)capture_status("BACK_STORY_PACKS_FAIL",-1,sr);g_story_static_ready=(sr==0);telemetry_event("story_anim_load",g_story_static_ready,sr);}telemetry_event("back_ui_begin",0,0);su=story_ui_restore();telemetry_event("back_ui_done",su,0);if(su)capture_status("BACK_UI_FAIL",-1,su);if(su==0){setup_texture_dims(&stagetex,512,256);upload_raw(&stagetex,g_stage_pixels,512,256);}telemetry_event("back_titles_begin",0,0);st=story_titles_restore();telemetry_event("back_titles_done",st,0);if(st)capture_status("BACK_TITLES_FAIL",-1,st);if(st==0){story_upload_title(&tex,0);telemetry_event("tex_story",(int)tex.address,0);}sf=story_font_alpha_decode(g_menu_sfx_pixels+241920u+22656u,7672u,g_font_pixels,160u*120u);if(sf==0){u32 fp;unsigned int amin=255,amax=0,nmin=128,nmax=0;for(fp=0;fp<160u*120u;fp++){unsigned int a=g_font_pixels[fp*4u+3],na=(a*128u+127u)/255u;if(a<amin)amin=a;if(a>amax)amax=a;g_font_pixels[fp*4u+3]=(unsigned char)na;if(na<nmin)nmin=na;if(na>nmax)nmax=na;}FlushCache(0);setup_texture_dims(&fonttex,160,120);upload_raw(&fonttex,g_font_pixels,160,120);telemetry_event("story_alpha_src",(int)amin,(int)amax);telemetry_event("story_alpha_gs",(int)nmin,(int)nmax);telemetry_event("story_vtx_alpha",90,128);telemetry_event("story_gs_contract",(TEXTURE_COMPONENTS_RGBA<<16)|TEXTURE_FUNCTION_MODULATE,(1<<16)|0x5A);}story_assets_ready=(su==0&&st==0&&sf==0&&tb);if(!story_assets_ready)capture_status("BACK_ASSETS_FAIL",(su&255)|((st&255)<<8)|((sf&255)<<16),0);telemetry_event("story_assets",story_assets_ready,(su&255)|((st&255)<<8)|((sf&255)<<16));}
+  if(target_state==7&&transition_frame==(menu_back_transition?42:15)&&!story_assets_ready){telemetry_event("story_transicao_inicio",transition_frame,menu_back_transition);if(ui_state==8||ui_state==10){telemetry_event("back_audsrv_begin",0,0);audsrv_stop_audio();telemetry_event("back_audsrv_done",0,0);audio_ring_stop();telemetry_event("back_ring_done",0,0);if(audio_fd>=0){close(audio_fd);audio_fd=-1;}telemetry_event("back_fd_closed",0,0);audio_started=0;audio_playing=0;audio_submitted=music_clock=0;music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;tutorial_packs_free();palco_soltar();telemetry_event("back_packs_freed",0,0);telemetry_event("tutorial_back_transport",0,(int)frame_no);}int su,st,sf,tb=1;if(ui_state==1){if(g_title_audio_fd>=0){close(g_title_audio_fd);g_title_audio_fd=-1;}audsrv_stop_audio();tb=(read_exact_path("mass:/FNFPS2/assets/title_logoBumpin.frames",g_gf_pixels,TITLE_LOGO_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_gfDanceTitle.frames",g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_FRAME_BYTES)==0&&read_exact_path("mass:/FNFPS2/assets/title_alphabet.rgba",g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384*192*4)==0&&read_exact_path("mass:/FNFPS2/assets/title_prompt_l.rgba",g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4)==0&&read_exact_path("mass:/FNFPS2/assets/title_prompt_r.rgba",g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320*192*4)==0);telemetry_event("title_resident",tb,37);}telemetry_event("back_packs_begin",0,0);{int sr=story_packs_load(&tex2,&gftex);menu_anim_tick=-1;telemetry_event("back_packs_done",sr,0);if(sr)capture_status("BACK_STORY_PACKS_FAIL",-1,sr);g_story_static_ready=(sr==0);telemetry_event("story_anim_load",g_story_static_ready,sr);}telemetry_event("back_ui_begin",0,0);su=story_ui_restore();telemetry_event("back_ui_done",su,0);if(su)capture_status("BACK_UI_FAIL",-1,su);if(su==0){setup_texture_dims(&stagetex,512,256);upload_raw(&stagetex,g_stage_pixels,512,256);}telemetry_event("back_titles_begin",0,0);st=story_titles_restore();telemetry_event("back_titles_done",st,0);if(st)capture_status("BACK_TITLES_FAIL",-1,st);if(st==0){story_upload_title(&tex,0);telemetry_event("tex_story",(int)tex.address,0);}sf=story_font_alpha_decode(g_menu_sfx_pixels+241920u+22656u,7672u,g_font_pixels,160u*120u);if(sf==0){u32 fp;unsigned int amin=255,amax=0,nmin=128,nmax=0;for(fp=0;fp<160u*120u;fp++){unsigned int a=g_font_pixels[fp*4u+3],na=(a*128u+127u)/255u;if(a<amin)amin=a;if(a>amax)amax=a;g_font_pixels[fp*4u+3]=(unsigned char)na;if(na<nmin)nmin=na;if(na>nmax)nmax=na;}FlushCache(0);setup_texture_dims(&fonttex,160,120);upload_raw(&fonttex,g_font_pixels,160,120);telemetry_event("story_alpha_src",(int)amin,(int)amax);telemetry_event("story_alpha_gs",(int)nmin,(int)nmax);telemetry_event("story_vtx_alpha",90,128);telemetry_event("story_gs_contract",(TEXTURE_COMPONENTS_RGBA<<16)|TEXTURE_FUNCTION_MODULATE,(1<<16)|0x5A);}story_assets_ready=(su==0&&st==0&&sf==0&&tb);if(!story_assets_ready)capture_status("BACK_ASSETS_FAIL",(su&255)|((st&255)<<8)|((sf&255)<<16),0);telemetry_event("story_assets",story_assets_ready,(su&255)|((st&255)<<8)|((sf&255)<<16));}
   if(target_state==8&&transition_frame==15&&!g_tutorial_scene_attempted){
   int fr,sr,chart_rc,format_rc=-99;
   capture_status("TUT_PREP_BEGIN",(int)frame_no,ui_state);
@@ -2307,10 +2578,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -2679,7 +2950,16 @@ float bf_cam_x=g_official_mainstage_chars[2].x+17.0f-18.0f+g_official_mainstage_
    (989,5+17)-18-100 = 888,50 ; (885+14-246)+36-100 = 589,00.
    GF no slot gf: (751,5-12+12)+0 = 751,50 ;
                   (787+4-338+8)+0 = 461,00 */
-float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy;float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
+float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy;float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
+   /* PALCO: os props do mainStage, um por um, do pacote para o pool.
+      O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
+      da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao
+      couber na VRAM, o tutorial desenha o palco como antes em vez de ficar sem
+      fundo. O evento palco_falha diz qual prop falhou e por que. */
+   {int pd=0;float st=(g_chart_clock<0?0.0f:(float)g_chart_clock/48000.0f);
+    int bt=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
+    q=palco_draw(q,"mainStage",cx,cy,g_tut_zoom,g_tut_bop,bt,st,&pd);
+    if(!pd){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}}q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
   }
   if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir

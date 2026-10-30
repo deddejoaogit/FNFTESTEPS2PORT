@@ -209,9 +209,14 @@ def make_cfz4(count, frame_bytes, seed=0):
     header = b"CFZ4" + struct.pack("<III", 1, count, frame_bytes)
     table_size = 16 + count * 8
     blocks = []
+    # O periodo nao pode passar do tamanho do quadro: prop pequeno (201x25,
+    # por exemplo) tem 10.050 bytes e isso ja' derrubou a geracao com
+    # "period invalido". O periodo so' muda o padrao sintetico; o formato do
+    # pacote e' o mesmo, e o decodificador do jogo nao sabe de periodo.
+    per = 4096 if frame_bytes >= 8192 else max(4, frame_bytes // 2)
     for f in range(count):
-        data = periodic_rgba(frame_bytes, 4096, seed + f)
-        blocks.append(lz4_compress_periodic(data, 4096))
+        data = periodic_rgba(frame_bytes, per, seed + f)
+        blocks.append(lz4_compress_periodic(data, per))
 
     entries = bytearray()
     blob = bytearray()
@@ -330,9 +335,33 @@ def build(root, charts_src=None):
                     f.write(data)
                 nchart += 1
 
+    # PALCOS: pacotes CFZ4 dos props, um por prop, no caminho que o jogo le'
+    # (assets/stages/<palco>/<prop>.cfz4). Sao gerados so' os palcos que o
+    # harness exercita: gerar os 21 daria centenas de MB, e o que este teste
+    # precisa provar e' que o caminho pacote -> pool -> tela roda, nao o
+    # conteudo artistico.
+    npalco = 0
+    if charts_src:
+        plan = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "assets-data", "stage-props.json")
+    else:
+        plan = None
+    if plan and os.path.isfile(plan):
+        import json as _json
+        dados = _json.load(open(plan))
+        for st in dados["stages"]:
+            if st["id"] not in ("mainStage", "schoolEvilErect"):
+                continue
+            for p in st["props"]:
+                destino = os.path.join(a, p["tex"])
+                os.makedirs(os.path.dirname(destino), exist_ok=True)
+                with open(destino, "wb") as f:
+                    f.write(make_cfz4(p["frames"], p["sw"] * p["sh"] * 2, seed=11))
+                npalco += 1
+
     total = sum(len(v) for v in files.values())
-    print(f"assets sinteticos: {len(files)} arquivos + {nchart} charts, "
-          f"{total:,} bytes, em {a}")
+    print(f"assets sinteticos: {len(files)} arquivos + {nchart} charts + "
+          f"{npalco} props de palco, {total:,} bytes, em {a}")
     for name in ("menu_cache.rle", "bf_frames.lz4f", "gf_frames.lz4f"):
         print(f"  {name:22s} {len(files[name]):>10,} bytes")
     if not nchart:

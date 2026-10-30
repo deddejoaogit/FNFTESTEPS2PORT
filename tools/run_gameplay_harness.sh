@@ -81,8 +81,13 @@ CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LO
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
 CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
 
+PALCODRAW=$(awk -F, '$1=="E" && $3=="palco_draw" {if ($4+0 > m) m = $4+0} END{print m+0}' "$LOG")
+PALCOFALHA=$(awk -F, '$1=="E" && ($3=="palco_falha" || $3=="palco_sem_vram") {n++} END{print n+0}' "$LOG")
+PALCOPOOL=$(awk -F, '$1=="E" && $3=="palco_pool" {print $4; exit}' "$LOG")
+
 echo
 echo "  musica iniciada ............. $INICIOU vez(es)"
+echo "  props do palco desenhados ... $PALCODRAW (falhas: $PALCOFALHA, livre no pool: ${PALCOPOOL:-?})"
 echo "  relogio maximo da musica ..... $CLOCK amostras"
 echo "  acertos julgados ............. $HITS de $NOTAS pressoes"
 echo "  placar (minimo..maximo) ...... $SCORE_MIN .. $SCORE_MAX"
@@ -109,6 +114,11 @@ FALHA=0
 [ "$RANK" != "-1" ]  || { echo "  FALHA: rank NONE -- o total de notas do chart chegou zerado no julgamento"; FALHA=1; }
 [ "${DRAW:-0}" -gt 0 ] || { echo "  FALHA: a tela de resultado nao desenhou nada"; FALHA=1; }
 [ "${CDPASSOS:-0}" -ge 5 ] || { echo "  FALHA: a contagem regressiva nao passou pelos cinco passos"; FALHA=1; }
+# O palco generico: os props do mainStage vem dos pacotes CFZ4 e moram no pool.
+# Zero props desenhados significa que o jogo caiu na textura composta -- o que
+# e' aceitavel como reserva, mas nao como resultado do teste.
+[ "${PALCODRAW:-0}" -ge 1 ] || { echo "  FALHA: nenhum prop do palco foi desenhado (o jogo ficou na textura composta)"; FALHA=1; }
+[ "${PALCOFALHA:-1}" -eq 0 ] || { echo "  FALHA: $PALCOFALHA falha(s) de prop de palco (pacote ou VRAM)"; FALHA=1; }
 [ -n "${CDBEAT:-}" ] && [ "$CDBEAT" -gt 0 ] || { echo "  FALHA: a batida da contagem saiu zero"; FALHA=1; }
 if [ -n "${CDFIM:-}" ]; then
     awk -F, -v fim="$CDFIM" '$1=="E" && $3=="tutorial_audio_start" {if ($2+0 <= fim+0) {print "  FALHA: a musica comecou antes do fim da contagem"; exit 1} exit 0}' "$LOG" || FALHA=1

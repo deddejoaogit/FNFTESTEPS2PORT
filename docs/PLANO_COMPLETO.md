@@ -251,7 +251,11 @@ suposição:
 3. ~~`vram_cache_init()` de verdade~~ → **o pool existe e está medido**
    (`src/engine/stage_pool.{h,c}`, abaixo). Falta pendurá-lo no `main.c` e tirar
    `gftex`/`stagetex` de fora dele, que é o que libera o orçamento inteiro.
-4. Estado 8 desenha o palco da música (não o `mainStage` fixo) e os
+4. ~~Estado 8 desenha o palco da música (não o `mainStage` fixo)~~ — **FEITO
+   para o `mainStage`** (abaixo). O palco vem do id da música pelo
+   `sr_level(n)->songs[0]->stage` quando os outros palcos tiverem pacote no
+   pendrive; hoje só o `mainStage` tem, e o resto cai na reserva. Falta também
+   os
    personagens do registro (`sr_level(n)->songs[0]->stage/player/opponent/
    girlfriend`), com `danceEvery`, animações de sing/hit e a câmera do palco.
 
@@ -352,6 +356,53 @@ teste do pool acusa "palco sem lugar" em vez de o jogo desenhar por cima.
 e `stagetex` no estado 8 (elas são de título/menu/story, e a reentrada nesses
 estados já reenvia as duas) e desenhar os props do palco com `sp_prop()`. É o
 passo 4, com o tutorial como primeiro caso de teste.
+
+#### Fechado: o palco genérico desenhando (passo 4, primeiro palco)
+
+O tutorial desenhava o palco como **uma** textura composta (512×256) feita fora
+do jogo. Agora o `main.c` desenha os **props** do `mainStage`, um a um:
+
+```
+pacote CFZ4 do prop  (assets/stages/mainStage/<prop>.cfz4)
+   -> stage_layout: onde cai, em que quadro, em que ordem de z
+   -> stage_pool:   endereço no pool (despeja o que não é fixo, se faltar)
+   -> upload_raw_psm 16 bpp
+   -> sprite_dims
+```
+
+E a VRAM passou a ser **do estado**, não do bloco: entrando no jogo o
+`palco_ui_entrou()` **solta** `gftex` e `stagetex` (o palco pode despejá-las);
+saindo, limpa os props e volta a fixá-las, com endereço novo se foram despejadas.
+Sem esse caminho de volta uma textura de menu ficaria apontando para VRAM que
+agora é de um prop — e o sintoma seria arte trocada na tela sem log nenhum.
+
+Medido no harness de gameplay (5.600 quadros, Tutorial normal):
+
+```
+pool_cena,8,1269760        entrou no jogo: gftex/stagetex deixam de ser fixas
+palco_entra,2,3            palco mainStage (índice 2), 3 props
+palco_draw,3,0             3 props desenhados, 0 falhas
+palco_pool,358656,3        358.656 B livres no pool, 3 uploads
+pool_cena,9,1269760        saiu para o resultado: props soltos, telas refixadas
+```
+
+O `run_gameplay_harness.sh` passou a **falhar** se nenhum prop for desenhado
+(cair na textura composta é reserva aceitável, não resultado de teste) ou se
+houver qualquer `palco_falha`/`palco_sem_vram`.
+
+**Reserva, de propósito:** se um pacote não abrir, ou não couber na VRAM, o
+estado 8 volta para a textura composta do tutorial — nunca tela vazia. O evento
+`palco_falha` diz qual prop e por quê. É por isso que `stagetex` continua
+existindo.
+
+**O que ainda não está provado:** que o desenho *pareça* o palco. O harness não
+tem rasterizador: ele prova que os 3 props saíram, no quadro certo, com a
+geometria do `stage_layout` e sem falha de VRAM. Comparar com a captura do
+console (`evidencia-console/`) é o teste de aceitação que falta.
+
+**O que falta aqui:** os outros 20 palcos, que dependem do reempacotamento com a
+nova escala (orçamento de VRAM/RAM acima) e de o estado 8 escolher o palco pelo
+registro da música (`sr_level(n)->songs[0]->stage`) em vez do `mainStage` fixo.
 
 **Primeiro teste do renderizador novo é o próprio tutorial**: o `mainStage` tem
 3 props e 1.697.032 B, cabe no pool, e o resultado tem de ser o mesmo que a
