@@ -248,11 +248,42 @@ suposição:
 2. ~~Orçamento de RAM no empacotador + conferir o plano~~ — **FEITO o
    orçamento e a conferência** (abaixo); falta **reempacotar**, que precisa do
    clone de 2,5 GB da arte e por isso não roda aqui.
-3. `vram_cache_init()` de verdade, com `asset_bank` para palco e personagens;
-   medir o pior palco no harness (endereços e despejos no log).
+3. ~~`vram_cache_init()` de verdade~~ → **passa a ser um pool de props**, e o
+   desenho (passo 4) vem junto, porque um cache sem consumidor é código morto.
 4. Estado 8 desenha o palco da música (não o `mainStage` fixo) e os
    personagens do registro (`sr_level(n)->songs[0]->stage/player/opponent/
    girlfriend`), com `danceEvery`, animações de sing/hit e a câmera do palco.
+
+**Decisão tomada para os passos 3 e 4 (medida, não escolhida no gosto):**
+
+Hoje o jogo tem 1.269.760 B livres de VRAM e o pior palco precisa de 1.697.934 B,
+então não cabe sem devolver algum slot. Os slots que o **estado 8 realmente
+liga** foram levantados lendo o próprio bloco de desenho do jogo:
+
+| textura | quem usa no estado 8 | tamanho |
+|---|---|---|
+| `fonttex` | HUD (texto) | 294.912 B |
+| `g_gftex16` | GF | 40.960 B |
+| `tex` | BF | 327.680 B |
+| `tex2` | notas/receptores | 327.680 B |
+| `stagetex` | a janela do palco do tutorial | 524.288 B |
+| `gftex` | **ninguém** no gameplay (é do título) | 262.144 B |
+
+Então, durante a música, `gftex` (262.144) e `stagetex` (524.288) podem ser
+devolvidos — `stagetex` justamente porque o palco genérico o substitui. Com
+isso o pool de props fica em **1.269.760 + 786.432 = 2.056.192 B**, maior que o
+pior palco (1.697.934 B), sobrando ~358 KB para os personagens.
+
+O `vc_*` (`src/engine/vram_cache.h`, LRU, já testado) passa a ser esse pool:
+chave = índice do prop em `bs_props[]`, tamanho = `sw*sh*2`, despejo por LRU
+quando não couber. Prop que não cabe de jeito nenhum vira evento
+`stage_over` no log — nunca é omitido em silêncio.
+
+**Primeiro teste do renderizador novo é o próprio tutorial**: o `mainStage` tem
+3 props e 1.697.032 B, cabe no pool, e o resultado tem de ser o mesmo que a
+textura composta que está lá hoje. É o caminho mais barato para achar erro de
+posição, porque existe captura de tela do palco atual no console
+(`evidencia-console/`) para comparar.
 5. Os 46 personagens: `bf_meta_t` (`MAX_ANIMS 8`) vira tabela gerada por
    personagem, com `renderType` (`multianimateatlas` para boa parte deles) — é
    o item mais caro e o único que ainda não tem formato de pacote definido.
