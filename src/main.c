@@ -28,6 +28,7 @@
 #include "engine/vram_layout.h"
 #include "engine/stage_pool.h"
 #include "engine/stage_layout.h"
+#include "engine/lz4_bloco.h"
 #include "song_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -417,8 +418,11 @@ static int read_exact_path(const char *path, void *dst, int bytes){
 }
 
 typedef struct {u32 offset,size;} title_lz4_entry_t;
-static u32 title_u32le(const unsigned char*p){return(u32)p[0]|((u32)p[1]<<8)|((u32)p[2]<<16)|((u32)p[3]<<24);}
-static int title_lz4_decode(const unsigned char*src,u32 src_size,unsigned char*dst,u32 dst_size){const unsigned char*ip=src,*iend=src+src_size;unsigned char*op=dst,*oend=dst+dst_size;while(ip<iend){u32 lit,match,off;unsigned token=*ip++;lit=token>>4;if(lit==15){unsigned v;do{if(ip>=iend)return-1;v=*ip++;lit+=v;}while(v==255);}if((u32)(iend-ip)<lit||(u32)(oend-op)<lit)return-2;memcpy(op,ip,lit);ip+=lit;op+=lit;if(ip==iend)break;if((u32)(iend-ip)<2)return-3;off=(u32)ip[0]|((u32)ip[1]<<8);ip+=2;if(!off||off>(u32)(op-dst))return-4;match=token&15;if(match==15){unsigned v;do{if(ip>=iend)return-5;v=*ip++;match+=v;}while(v==255);}match+=4;if((u32)(oend-op)<match)return-6;while(match--){*op=*(op-off);op++;}}return op==oend?0:-7;}
+static u32 title_u32le(const unsigned char*p){return lz4_u32le(p);}
+/* O decodificador fica em src/engine/lz4_bloco.c (C puro, com teste proprio
+   contra o codificador do empacotador). Aqui havia TRES copias desta mesma
+   funcao, uma por familia de pacote; a quarta seria a dos personagens. */
+static int title_lz4_decode(const unsigned char*src,u32 src_size,unsigned char*dst,u32 dst_size){return lz4_bloco_decode(src,src_size,dst,dst_size);}
 static int tutorial_pack_load(const char*path,unsigned char**out,u32*out_bytes,u32 expected_count,u32 expected_frame){int fd,n,done=0;off_t end;unsigned char*p;if(*out)return 0;fd=open(path,O_RDONLY);if(fd<0)return-1;end=lseek(fd,0,SEEK_END);if(end<16||end>8*1024*1024||lseek(fd,0,SEEK_SET)<0){close(fd);return-2;}p=memalign(128,(u32)end);if(!p){close(fd);return-3;}while(done<end){n=read(fd,p+done,(int)end-done);if(n<=0){free(p);close(fd);return-4;}done+=n;}close(fd);if(memcmp(p,"CFZ4",4)||title_u32le(p+4)!=1||title_u32le(p+8)!=expected_count||title_u32le(p+12)!=expected_frame){free(p);return-5;}*out=p;*out_bytes=(u32)end;return 0;}
 static int tutorial_pack_frame(const unsigned char*pack,u32 bytes,u32 frame,u32 count,u32 frame_bytes,unsigned char*dst){u32 table=16u+count*8u,off,size;if(!pack||frame>=count||bytes<table)return-1;off=title_u32le(pack+16u+frame*8u);size=title_u32le(pack+20u+frame*8u);if(off>bytes||size>bytes-off)return-2;return title_lz4_decode(pack+off,size,dst,frame_bytes);}
 static void tutorial_packs_free(void){if(g_tutorial_bf_pack)free(g_tutorial_bf_pack);if(g_tutorial_gf_pack)free(g_tutorial_gf_pack);g_tutorial_bf_pack=g_tutorial_gf_pack=0;g_tutorial_bf_pack_bytes=g_tutorial_gf_pack_bytes=0;g_tutorial_bf_uploaded=g_tutorial_gf_uploaded=-1;}

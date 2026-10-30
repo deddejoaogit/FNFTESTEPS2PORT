@@ -108,12 +108,18 @@ print("  draw do ps2sdk: 1 linha adaptada (plzcw), 0 linhas de logica tocadas")
 PYEOF
 [ $? -eq 0 ] || exit 1
 
+# Os modulos de engine vem do proprio Makefile (src/engine/*.o de EE_OBJS -> .c).
+# Antes estavam escritos a mao aqui: um modulo novo (char_layout.o) entrava no
+# jogo, no teste e no link do console e NAO entrava no harness -- o harness
+# parava de compilar e o teste que "prova" o jogo nem rodava.
+ENGINE_SRC=$(sed -n 's/^EE_OBJS *= *//p' Makefile | tr ' ' '\n' | grep '^src/engine/' | sed 's/\.o$/.c/' | tr '\n' ' ')
+
 DRAWSRC="$HOSTDIR/draw.c $HOSTDIR/draw2d.c $HOSTDIR/draw_environment.c"
 
 echo "== compilando o harness (jogo real + draw real do ps2sdk) =="
 gcc $FLAGS \
     src/main.c src/audio_ring.c src/chart.c src/chart_events.c src/telemetry.c \
-    src/engine/song_registry.c src/engine/gameplay.c src/engine/vram_cache.c src/engine/vram_layout.c src/engine/stage_pool.c src/engine/stage_layout.c src/engine/io_fila.c \
+    $ENGINE_SRC \
     src/iomanX_irx.c src/fileXio_irx.c src/usbd_irx.c src/usbhdfsd_irx.c src/audsrv_irx.c \
     src/title_packs.S src/story_packs.S \
     test/ps2harness/ps2h.c \

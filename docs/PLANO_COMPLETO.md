@@ -461,6 +461,36 @@ O que o teste (`test/test_char_layout.c`, dentro do `run_tests.sh`) exige:
 **O que isto ainda NÃO prova:** que o personagem pareça certo na tela. Isso é o
 próximo passo (o desenho), e só a tela responde.
 
+#### Fechado: um decodificador de pacote so', conferido contra o empacotador
+
+Antes de escrever a quarta copia do decodificador LZ4 (a dos personagens), as
+três cópias que estavam dentro do `main.c` foram para
+`src/engine/lz4_bloco.{h,c}` — C puro, com teste. E o teste não compara o
+decodificador com ele mesmo: `tools/lz4py.py` é o lado que **comprime** (é o que
+o empacotador usa), e `tools/gen_lz4_vetores.py` grava em `test/lz4_vetores.h`
+nove fluxos reais comprimidos por ele — vazio, 1 byte, literais longos com
+extensão de 255 em 255, **match sobreposto** (offset menor que o match, que é o
+que comprime cor chapada), período de 4 KB, aleatório e um quadro de 8 KB.
+`test/test_lz4.c` decodifica cada um e exige igualdade byte a byte. É a única
+forma de pegar os dois lados concordando sobre o **formato errado**.
+
+A segunda metade do teste é o caminho do erro: saída maior ou menor que o fluxo
+produz, extensão truncada, offset 0, offset antes do início, match maior que o
+espaço restante, ponteiro nulo. O decodificador tem de **recusar**; um quadro
+meio decodificado chega ao GS como arte rasgada, não como erro.
+
+Duas coisas apareceram ao fazer isso, e são o tipo de coisa que só aparece
+quando se procura:
+
+1. **`vram_cache.o` não estava no `EE_OBJS`** e `stage_pool.c` chama `vc_*`. O
+   link do console teria morrido; a checagem antiga só olhava o que o `main.c`
+   chama direto, e o harness liga os `.c` por nome, então passava. A checagem
+   agora faz **fechamento transitivo**: quem entra no jogo arrasta quem chama.
+2. A lista de fontes de engine dos dois `run_harness*.sh` estava **escrita à
+   mão**. Ao entrar `char_layout.c`/`char_anim.c`/`lz4_bloco.c`, o harness parou
+   de compilar e o teste que "prova o jogo" nem rodava. Agora ela é derivada do
+   `EE_OBJS` do Makefile — uma fonte de verdade só.
+
 #### Fechado: qual quadro cada personagem mostra (`char_anim.c`)
 
 Com os 46 personagens e os 63 slots resolvidos (passo 5), faltava a segunda

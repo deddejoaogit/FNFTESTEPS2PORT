@@ -52,6 +52,10 @@ echo
 # um objeto -- e o console nao liga. Aconteceu com vram_layout.o: o jogo passou
 # a chamar vl_address() e o link do console teria morrido.
 echo "== Makefile: todo modulo usado pelo jogo esta' em EE_OBJS =="
+# Fechamento transitivo, e nao so' o que o main.c chama direto: stage_pool.c
+# chama vc_* e o vram_cache.o nao estava em EE_OBJS. O link do console teria
+# morrido, e a checagem antiga (so' main.c) nao via isso -- o teste do PC liga
+# os .c por nome e passava. Agora quem entra no jogo arrasta quem ele chama.
 python3 - <<'PYEOF2' || exit 1
 import os, re, sys
 mk = open("Makefile").read()
@@ -59,23 +63,36 @@ m = re.search(r"EE_OBJS\s*=\s*(.+)", mk)
 if not m:
     sys.exit("  FALHA: nao achei EE_OBJS no Makefile")
 objs = m.group(1).split()
-main = open("src/main.c").read()
-chamadas = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", main))
-faltando = []
+modulos = {}
 for nome in sorted(os.listdir("src/engine")):
     if not nome.endswith(".c"):
         continue
+    texto = open("src/engine/" + nome).read()
+    defs = set(re.findall(r"^[a-zA-Z_][\w \t\*]*?\b([a-z_][a-z0-9_]*)\s*\(", texto, re.M))
+    modulos[nome] = (defs, texto)
+# estado inicial: o que o main.c chama
+main = open("src/main.c").read()
+chamadas = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", main))
+em_jogo = set()
+mudou = True
+while mudou:
+    mudou = False
+    for nome, (defs, texto) in modulos.items():
+        if nome in em_jogo:
+            continue
+        if defs & (chamadas | set().union(*[modulos[o][0] for o in em_jogo]) if em_jogo else chamadas):
+            em_jogo.add(nome)
+            mudou = True
+faltando = []
+for nome in sorted(em_jogo):
     obj = "src/engine/" + nome[:-2] + ".o"
-    defs = set(re.findall(r"^[a-zA-Z_][\w \t\*]*?\b([a-z_][a-z0-9_]*)\s*\(",
-                          open("src/engine/" + nome).read(), re.M))
-    usados = sorted(defs & chamadas - {"if", "for", "while", "switch", "return", "sizeof"})
-    if usados and obj not in objs:
-        faltando.append("  %s usa %s, mas %s nao esta' em EE_OBJS"
-                        % (nome, ", ".join(usados[:4]), obj))
+    if obj not in objs:
+        faltando.append("  %s entra no jogo (por chamada direta ou indireta) e %s "
+                        "nao esta' em EE_OBJS" % (nome, obj))
 if faltando:
     print("\n".join(faltando))
     sys.exit(1)
-print("  ok:   nenhum modulo chamado pelo jogo ficou fora do link")
+print("  ok:   %d modulos de engine no jogo, todos no link" % len(em_jogo))
 PYEOF2
 echo
 
@@ -121,6 +138,15 @@ echo
 # 8 do main.c, entao ele e' conferido contra o bs_dados.h (mesma fonte, outro
 # gerador) e contra o foco de camera (888,50 ; 589,00) que a captura do console
 # aprovou.
+# O decodificador dos pacotes contra o codificador do empacotador. Roda antes
+# dos testes que abrem pacote: se o LZ4 estiver errado, todo o resto le' lixo.
+echo "== lz4 dos pacotes (decodificador do jogo x codificador do empacotador) =="
+python3 tools/lz4py.py
+python3 tools/gen_lz4_vetores.py --check
+$CC $FLAGS -Itest test/test_lz4.c src/engine/lz4_bloco.c -o /tmp/fnf_test_lz4
+/tmp/fnf_test_lz4
+echo
+
 echo "== personagens (char_layout) =="
 if ! python3 tools/gen_char_dados.py --check; then
     exit 1
