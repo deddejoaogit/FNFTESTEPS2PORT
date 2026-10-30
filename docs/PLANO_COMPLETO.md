@@ -731,6 +731,47 @@ como divergência a medir, e é barato — uma captura do Tutorial no console
 mostrando de que lado a GF está resolve. O `ch_cena_plano()` já devolve o papel,
 então quando o desenho genérico entrar, a decisão fica em um lugar só.
 
+#### Fechado: um personagem em cena (`char_cena.c`) — a ligação que faltava
+
+`char_pack.c` lê os quadros, `char_anim.c` sabe qual quadro de uma sequência
+mostrar. Faltava a máquina de estado entre os dois, e ela tem uma decisão que
+vale dinheiro no PS2: **quando reenviar a textura**. O custo do port não é
+decidir o quadro, é decodificar LZ4 e subir pixels para a VRAM — então
+`cc_quadro()` devolve o quadro novo **só quando ele mudou** (ou -1), em vez de um
+número por quadro para o chamador comparar.
+
+As regras, todas do original: dança em `idle`, ou alterna `danceLeft`/`danceRight`
+pela batida quando não tem `idle` (`Bopper.dance` + `IdleCharacter`); canta por
+`singTime` e volta (o mesmo canto pedido de novo **não reinicia**, mas
+**estende** o tempo — senão a perna da GF reiniciaria a cada nota escrita no
+mesmo instante); erro de nota usa `...miss` e cai no nome-base quando não existe.
+
+Dois comportamentos que os testes acharam, e que teriam virado defeito na tela:
+
+1. **Quem não tem `idle` congelava no primeiro lado.** A troca
+   `danceLeft`/`danceRight` só acontecia quando o canto acabava — então um
+   personagem de fundo (que nunca canta) ficaria parado no lado 0 a música
+   inteira. Agora a troca é conferida a cada quadro, e para quem tem `idle` a
+   conta devolve sempre o mesmo valor.
+2. **Papel sem pacote não desenha nada** — e isso é o comportamento certo: arte
+   não se inventa (regra 4). Um pacote que não confere deixa o papel inativo, em
+   vez de desenhar lixo.
+
+**Medido** (`test/test_char_cena.c`, dentro da suíte): papel sem pacote devolve
+-1 sempre; pacote com a tabela estragada ou com magic errado deixa o papel
+inativo; o idle troca de quadro a 24 fps (41,7 ms) e volta no loop em 167 ms;
+o canto segura o quadro e termina no `singTime` (200 ms) voltando a dançar; o
+mesmo canto estende de 300 para 360 ms sem reiniciar; `miss` cai no nome-base na
+GF; `danceLeft`/`danceRight` alterna pela batida; personagem sem canto não
+inventa animação. Suíte inteira depois: **`ALL SUITES PASSED`**, sweep **81/81**,
+**12/12** palcos.
+
+**O que falta para entrar em cena de verdade:** o `main.c` precisa (1) abrir o
+pacote `assets/chars/<id>.chp4` do personagem de cada papel
+(`ch_cena_plano()` já diz qual é), (2) dar-lhe lugar na VRAM no pool, e (3)
+chamar `cc_quadro()` no laço de desenho e subir a textura quando ele devolver um
+quadro. As três peças de dado e lógica estão prontas e testadas.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

@@ -172,6 +172,16 @@ $CC $FLAGS test/test_char_pack.c src/engine/char_pack.c src/engine/lz4_bloco.c \
 /tmp/fnf_test_char_pack
 echo
 
+# A maquina de estado de UM personagem em cena: danca pela batida, canta por
+# singTime, erro usa `miss` e cai no nome-base, e o quadro so' e' pedido quando
+# muda (que e' o custo: decodificar LZ4 e subir para a VRAM).
+echo "== cena: um personagem em cena (char_cena) =="
+$CC $FLAGS test/test_char_cena.c src/engine/char_cena.c src/engine/char_pack.c \
+    src/engine/char_anim.c src/engine/char_layout.c src/engine/song_registry.c \
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_char_cena -lm
+/tmp/fnf_test_char_cena
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine
