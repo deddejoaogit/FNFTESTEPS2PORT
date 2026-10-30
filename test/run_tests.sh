@@ -164,6 +164,14 @@ $CC $FLAGS test/test_char_anim.c src/engine/char_anim.c src/engine/char_layout.c
 /tmp/fnf_test_char_anim
 echo
 
+# Pacote de personagem (CHP4): o leitor recusa com erro nomeado todo arquivo que
+# nao fecha, e um quadro descomprimido sai byte a byte igual ao empacotado.
+echo "== pacote de personagem (char_pack) =="
+$CC $FLAGS test/test_char_pack.c src/engine/char_pack.c src/engine/lz4_bloco.c \
+    -o /tmp/fnf_test_char_pack
+/tmp/fnf_test_char_pack
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine

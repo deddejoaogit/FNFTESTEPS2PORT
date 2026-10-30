@@ -362,9 +362,56 @@ def build(root, charts_src=None):
                     f.write(make_cfz4(p["frames"], p["sw"] * p["sh"] * 2, seed=11))
                 npalco += 1
 
+    # PERSONAGENS: um pacote CHP4 por personagem, no caminho que o jogo le'
+    # (assets/chars/<id>.chp4), com a tabela de animacoes junto dos quadros.
+    #
+    # O CONTEUDO E' SINTETICO, e o que ele prova e' o encanamento: abrir, tirar
+    # a animacao certa da tabela, descomprimir o quadro, achar lugar na VRAM e
+    # desenhar -- nos 46 personagens, nao nos dois escritos no codigo. Nao prova
+    # arte. O numero de quadros de cada animacao TAMBEM e' sintetico (3, ou o
+    # `frameIndices` quando a JSON ja' traz), porque a contagem real vive no
+    # atlas; quem a preenche de verdade e' tools/pacote_personagem.py, que le' o
+    # clone da arte. O jogo CONFERE a tabela contra os quadros (cp_conferir), e
+    # aqui o gerador faz a mesma conferencia em Python antes de escrever.
+    nchar = 0
+    chars_json = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "assets-data", "characters")
+    if os.path.isdir(chars_json):
+        import json as _json
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import chp4 as _chp4
+        for arq in sorted(os.listdir(chars_json)):
+            if not arq.endswith(".json"):
+                continue
+            dados = _json.load(open(os.path.join(chars_json, arq)))
+            cid = dados.get("name") or arq[:-5]
+            anims, primeiro = [], 0
+            for an in dados.get("animations", []):
+                quantos = len(an.get("frameIndices") or []) or 3
+                looped = 1 if an.get("looped", True) else 0
+                anims.append({"nome": an["name"], "primeiro": primeiro,
+                              "quantos": quantos, "fps100": 2400, "looped": looped})
+                primeiro += quantos
+            if not anims:
+                continue
+            # Canvas pequeno de proposito: 46 personagens x N quadros precisa
+            # caber num build/ de teste, e o que se mede aqui e' o caminho, nao
+            # os bytes.
+            w, h = 64, 64
+            quadros = [bytes(((q * 7 + i) & 0xff) for i in range(w * h * 4))
+                       for q in range(primeiro)]
+            pacote = _chp4.escrever(quadros, w, h, 32, anims)
+            cab = _chp4.ler(pacote)
+            _chp4.conferir(cab)
+            destino = os.path.join(a, "chars", cid + ".chp4")
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            with open(destino, "wb") as f:
+                f.write(pacote)
+            nchar += 1
+
     total = sum(len(v) for v in files.values())
     print(f"assets sinteticos: {len(files)} arquivos + {nchart} charts + "
-          f"{npalco} props de palco, {total:,} bytes, em {a}")
+          f"{npalco} props de palco + {nchar} personagens, {total:,} bytes, em {a}")
     for name in ("menu_cache.rle", "bf_frames.lz4f", "gf_frames.lz4f"):
         print(f"  {name:22s} {len(files[name]):>10,} bytes")
     if not nchart:

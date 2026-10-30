@@ -2717,6 +2717,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        if(g_pause_sel<song_diffs){
         /* Trocar a dificuldade recarrega o chart: a entrada do PlayState
            recarrega cena, chart e audio, como o restartPlayState do original. */
+        /* Trocar de dificuldade ZERA o placar da campanha no original, mas
+           so' quando a dificuldade realmente muda -- "para que trocar na ultima
+           musica da semana nao de' um placar geral baixissimo"
+           (PauseSubState.hx L1046-1056). Nao era o caso do reinicio: parar e
+           recoemecar a MESMA musica nao apaga o que as musicas anteriores
+           somaram. */
+        if(diff_list[g_pause_sel]!=story_diff)g_campaign_score=0;
         story_diff=diff_list[g_pause_sel];
         g_paused=0;g_pause_mode=0;g_pause_sel=0;
         g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;

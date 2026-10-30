@@ -613,6 +613,66 @@ isso `ch_seq_t` é preenchido pelo **pacote**, e o pacote é construído pelo
 empacotador lendo o atlas. Sem o clone, este módulo continua correto e testado;
 o que falta é o dado, e dado faltando não vira número inventado (regra 4).
 
+#### Fechado: o pacote de UM personagem (`char_pack.c`), passo 6 do palco/personagem
+
+O palco já era genérico: `stage_pool.c` lê CFZ4, `stage_layout.c` decide o que
+aparece, e o sweep prova os **12** palcos desenhando. Personagem não era — o
+jogo conhece **dois** pacotes escritos no código (`bf_frames.lz4f`,
+`gf_frames.lz4f`) e escolhe o quadro por duas tabelas fixas. São 46 personagens.
+
+O que faltava era o **arquivo**: onde guardar, por personagem, os quadros
+comprimidos **e** a tabela que diz quantos quadros cada animação tem, a que taxa
+e se volta ao começo. Duas medições mandaram no desenho:
+
+1. **A tabela não pode ficar no `char_dados.h`.** `assets-data/characters` tem o
+   nome e o prefixo de cada animação e, em algumas, `frameIndices`/`looped`; a
+   taxa e a contagem de quadros vivem no atlas (`AnimationData`), que só o clone
+   da arte tem. Inventar isso no gerador seria divergência (regra 4).
+2. **Não dá para reusar o CFZ4 do palco.** O CFZ4 tem um tamanho de quadro para
+   o arquivo inteiro e nenhuma tabela de animação — o palco tira isso do
+   `stage_dados.h`, gerado de JSON que **tem** a taxa e o loop de cada prop. Para
+   personagem esse dado não existe fora da arte, então ele viaja no pacote.
+
+Daí o **CHP4** (`src/engine/char_pack.h`, 36 bytes de cabeçalho): canvas, psm,
+quantos quadros, tabela de quadros, **tabela de animações** (`nome[24]`,
+`primeiro`, `quantos`, `fps*100`, `looped`) e os blocos LZ4 — o mesmo
+decodificador `lz4_bloco.c` que o resto do jogo usa.
+
+Duas coisas que só apareceram ao gerar os 46 de verdade:
+
+- **`nome[16]` não cabia.** O maior nome do original tem **23** letras
+  (`singRIGHTmiss-beautiful`, `singLEFTmiss-beautiful`). O gerador falhou no
+  primeiro pacote e o campo virou `nome[24]` (entrada de 40 bytes). Nome cortado
+  em silêncio seria animação perdida sem ninguém ver.
+- **`cp_conferir()` é obrigatório no carregamento**, não só no teste: nenhuma
+  animação pode apontar para um quadro que o pacote não tem. É barato (46
+  personagens × ~20 animações) e impede o quadro errado aparecer no meio de uma
+  música — arte rasgada é o pior defeito possível de diagnosticar na tela.
+
+**Medido:**
+`test/test_char_pack.c` (dentro de `test/run_tests.sh`) monta pacotes no próprio
+teste, com blocos LZ4 "só literais", e confere: o pacote bom abre, o quadro sai
+**byte a byte** igual ao empacotado nos 4 quadros, PSMCT16 com 2 bytes por
+pixel, a animação vira `ch_seq_t`, e **12** arquivos errados são recusados cada
+um com o seu erro nomeado (magic, versão, cabeçalho curto, tabela, número de
+animações, canvas, psm, tamanho que não bate com o canvas, bloco fora do
+arquivo, LZ4 corrompido, `quantos = 0`, animação passando do fim). Um bloco
+corrompido **não contamina** o resto do pacote.
+
+`tools/chp4.py` é o escritor e o leitor em Python — o mesmo formato, para o
+empacotador e para o gerador de teste não terem duas cópias. Com ele
+`tools/gen_harness_assets.py` passou a produzir **46** pacotes
+(`assets/chars/<id>.chp4`, canvas 64×64, quadros sintéticos, contagem 3 ou o
+`frameIndices` quando a JSON já traz) e faz `chp4.conferir()` antes de escrever:
+a conferência do Python e a do C existem para discordar uma da outra se alguém
+mudar o formato de um lado só.
+
+**O que falta para os 46 aparecerem na tela:** o estado 8 ainda desenha BF e GF
+pelos pacotes do tutorial. O próximo passo é pendurar `cp_pack_t` no lugar do
+`tutorial_pack_frame`, com um pool de texturas de personagem (o `vc_*` já
+existe) — o caminho é o mesmo que o palco genérico já faz, e o pacote já está
+pronto e conferido.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de
