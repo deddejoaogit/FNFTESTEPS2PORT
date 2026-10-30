@@ -84,11 +84,19 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         x0 = SL_VIEW_W * 0.5f + (p->x - cam_x * p->scrollx + 640.0f * p->scrollx - 640.0f) * sc;
         y0 = SL_VIEW_H * 0.5f + (p->y - cam_y * p->scrolly + 360.0f * p->scrolly - 360.0f) * sc;
         /* O tamanho NA TELA vem de src_w/src_h (o tamanho do quadro no espaco
-           do original), nao de sw/sh. sw/sh e' a resolucao do pacote, que o
-           empacotador reduziu para caber na VRAM (escala 0,31 no mainStage):
-           desenhar com sw/sh encolheria o palco inteiro em tres vezes. */
-        w = (float)p->src_w * sc;
-        h = (float)p->src_h * sc;
+           do original) VEZES o `scale` do prop, nao de sw/sh. Duas escalas
+           diferentes, e trocar uma pela outra ja' custou duas vezes:
+             sw/sh    -> resolucao do PACOTE, reduzida pelo empacotador para
+                         caber na VRAM (0,31 no mainStage);
+             src_w/h  -> tamanho do quadro no jogo original;
+             sx/sy    -> o `scale` do JSON do palco (Stage.hx L234-240 faz
+                         propSprite.scale.set(value)), que nos palcos de pixel
+                         vale 6.
+           Sem o sx/sy, os palcos de pixel (school, schoolEvil, ...) saiam seis
+           vezes menores e FORA da tela: medido no sweep, `palco_entra` sem
+           nenhum `palco_draw` -- nada era desenhado e nada dizia por que. */
+        w = (float)p->src_w * p->sx * sc;
+        h = (float)p->src_h * p->sy * sc;
 
         /* Fora da tela nao entra no pacote. 'fastCar' do limoRide fica em
            x=-12600: sem este corte, um prop invisivel custaria uma textura

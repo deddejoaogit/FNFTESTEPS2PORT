@@ -47,7 +47,7 @@ if [ ! -f "$SDK/common/include/tamtypes.h" ]; then
 fi
 
 INC=$(find "$SDK" -type d -name include | sed 's|^|-I|' | tr '\n' ' ')
-FLAGS="-O1 -g -std=gnu11 -D_EE -Itools/ps2shim $INC -Isrc -Isrc/engine -Itest/ps2harness -Wall -Wextra -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unused-parameter"
+FLAGS="-O1 -g -std=gnu11 -D_EE -Itools/ps2shim $INC -Isrc -Isrc/engine -Itest/ps2harness -Wall -Wextra -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unused-parameter -DPS2H=1"
 # --wrap: conta as chamadas de desenho do ps2sdk sem alterar uma linha do draw.c
 WRAPS="-Wl,--wrap=draw_rect_filled -Wl,--wrap=draw_rect_textured -Wl,--wrap=draw_setup_environment -Wl,--wrap=draw_texture_transfer"
 

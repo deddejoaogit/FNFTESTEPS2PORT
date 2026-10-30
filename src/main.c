@@ -180,6 +180,17 @@ static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up
    (assets/audio_stems.pcm), entao so' o Tutorial podia tocar. Agora a musica
    vem do registro a partir do nivel do Story Menu, e o audio e' o daquela
    musica. */
+/* GANCHO DO HARNESS (e SO' dele).
+   O define PS2H so' existe quando o jogo e' compilado como harness no PC
+   (tools/run_harness*.sh). No console ele nao existe, nada disto entra no
+   binario, e o caminho do jogador continua sendo o menu.
+   Serve para o teste conseguir comecar QUALQUER uma das 27 musicas sem
+   atravessar a Freeplay: a Freeplay do port so' toca a primeira da lista, e
+   as outras 26 nunca tinham sido iniciadas no PC. */
+#ifdef PS2H
+const char *ps2h_musica_inicial(void);
+int ps2h_dificuldade_inicial(void);
+#endif
 static const sr_song_t *g_play_song=0;
 static unsigned g_play_level=0,g_play_song_index=0;
 /* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
@@ -2214,7 +2225,11 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
   g_fn_frame=frame_no;
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
-  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9||ui_state==10||ui_state==11);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
+  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
+#ifdef PS2H
+  if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
+#endif
+  if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9||ui_state==10||ui_state==11);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
   if(g_title_anim_thread_id>=0&&g_title_anim_status!=2)g_title_anim_thread_id=-1;
  /* START sozinho encerrava o jogo em qualquer tela fora do Tutorial.
    No oficial START confirma, nunca sai. Sair exige SELECT+START, que

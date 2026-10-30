@@ -1250,3 +1250,30 @@ qword_t *__wrap_draw_texture_transfer(qword_t *q, void *src, int width, int heig
     h_upload_bytes += (unsigned)(width * height * 4);
     return __real_draw_texture_transfer(q, src, width, height, psm, dest, dest_width);
 }
+
+/* ---------------------------------------------------------------- inicio --
+ *
+ * O jogo no PC precisa poder comecar QUALQUER musica, e nao so' a primeira da
+ * Freeplay: sem isto, 26 das 27 musicas nunca foram tocadas no teste, e um erro
+ * de caminho de chart numa musica do week7 so' apareceria no console.
+ *
+ * FNF_START_SONG=<id>   comeca direto nessa musica (id do registro)
+ * FNF_START_DIFF=<0..2> dificuldade (0 easy, 1 normal, 2 hard)
+ *
+ * Quem le' isto e' o main.c, e so' quando compilado com -DPS2H=1 -- ou seja,
+ * nunca no console.
+ */
+const char *ps2h_musica_inicial(void);
+int ps2h_dificuldade_inicial(void);
+
+const char *ps2h_musica_inicial(void)
+{
+    const char *e = getenv("FNF_START_SONG");
+    return (e && *e) ? e : NULL;
+}
+
+int ps2h_dificuldade_inicial(void)
+{
+    const char *e = getenv("FNF_START_DIFF");
+    return e ? atoi(e) : -1;
+}

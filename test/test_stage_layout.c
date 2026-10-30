@@ -10,6 +10,7 @@
 #include <string.h>
 #include "bs_dados.h"
 #include "stage_layout.h"
+#include "char_layout.h"
 
 static int falhas;
 #define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
@@ -92,6 +93,64 @@ int main(void)
             CHECK(nz > 0);
             CHECK(zo[0].w > it[0].w);
             CHECK(zo[0].x0 < it[0].x0);   /* cresce em torno do centro */
+        }
+    }
+
+
+    printf("== palcos: o `scale` do prop entra no tamanho (palco de pixel) ==\n");
+    {
+        /* O `scale` do JSON do palco (Stage.hx L234-240) e' 6 nos palcos de
+           pixel e 1 no mainStage. Ele FALTAVA na conta: `school` saia seis
+           vezes menor e inteiro fora da tela, e o sweep pegou isso como
+           "palco_entra sem nenhum palco_draw" -- nada desenhado, nada no log
+           dizendo por que. */
+        int si = sl_stage_find("school");
+        const bs_stage_props_t *st = &bs_stage_props[si];
+        const bs_slot_t *slot = ch_slot("school", "bf");
+        ch_anchor_t a;
+        sl_item_t it[SL_MAX_ITENS];
+        int n = 0, viu = 0, k2;
+        CHECK(st != NULL && slot != NULL);
+        if (st && slot) {
+            /* Confere o campo antes de confiar nele: se o gerador perder o
+               scale, isto falha aqui e nao na tela. */
+            for (k2 = 0; k2 < st->count; k2++) {
+                const bs_prop_t *p = &bs_props[st->first + k2];
+                if (strcmp(p->name, "sky") == 0) {
+                    CHECK_NEAR(p->sx, 6.0);
+                    CHECK_NEAR(p->sy, 6.0);
+                    CHECK_EQ(p->src_w, 466);
+                }
+                if (strcmp(p->name, "street") == 0) {
+                    CHECK_NEAR(p->sx, 6.0);   /* o palco inteiro e' de pixel */
+                }
+            }
+            /* E o mainStage, que nao e' de pixel, tem scale perto de 1 (o JSON
+               dele traz 1,1 e 0,9 por prop). Se o gerador passasse a escrever
+               6 em todo mundo, isto falha -- e o palco do tutorial cresceria
+               seis vezes na tela. */
+            {
+                int msi = sl_stage_find("mainStage");
+                const bs_stage_props_t *mst = &bs_stage_props[msi];
+                for (k2 = 0; k2 < mst->count; k2++) {
+                    CHECK(bs_props[mst->first + k2].sx > 0.5f);
+                    CHECK(bs_props[mst->first + k2].sx < 2.0f);
+                }
+            }
+            ch_anchor(&ch_chars[ch_find("bf")], slot, 496.920f, 490.920f, 8.0f, 1, &a);
+            n = sl_collect("school", a.cam_x, a.cam_y, 1.0f, 1.0f, 0, 0.0f, it, SL_MAX_ITENS);
+            CHECK(n > 0);
+            for (k2 = 0; k2 < n; k2++) {
+                const bs_prop_t *p = &bs_props[it[k2].prop];
+                float esperado_w = (float)p->src_w * p->sx * 0.5f;
+                float esperado_h = (float)p->src_h * p->sy * 0.5f;
+                CHECK_NEAR(it[k2].w, esperado_w);
+                CHECK_NEAR(it[k2].h, esperado_h);
+                if (it[k2].x0 < 320.0f && it[k2].x0 + it[k2].w > 320.0f) viu++;
+            }
+            /* E o palco tem de aparecer: pelo menos um prop cobrindo o centro
+               da tela. Sem o scale isto dava zero. */
+            CHECK(viu > 0);
         }
     }
 

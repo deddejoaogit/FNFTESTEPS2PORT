@@ -38,7 +38,7 @@ if ! diff -u "$SDK/ee/draw/src/draw.c" build/ps2sdk_host/draw.c | grep -q '^-[#]
 fi
 
 FLAGS="-O1 -g -std=gnu11 -D_EE -Itools/ps2shim $INC -Isrc -Isrc/engine -Itest/ps2harness \
-      -Wall -Wextra -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unused-parameter"
+      -Wall -Wextra -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-unused-parameter -DPS2H=1"
 
 echo "== compilando o harness com ASan + UBSan =="
 # -fno-omit-frame-pointer: sem isso o backtrace do ASan sai truncado e nao da

@@ -336,10 +336,15 @@ def build(root, charts_src=None):
                 nchart += 1
 
     # PALCOS: pacotes CFZ4 dos props, um por prop, no caminho que o jogo le'
-    # (assets/stages/<palco>/<prop>.cfz4). Sao gerados so' os palcos que o
-    # harness exercita: gerar os 21 daria centenas de MB, e o que este teste
-    # precisa provar e' que o caminho pacote -> pool -> tela roda, nao o
-    # conteudo artistico.
+    # (assets/stages/<palco>/<prop>.cfz4).
+    #
+    # Sao gerados TODOS os 21 (eram 2, "os que o harness exercita"). O motivo
+    # de serem todos e' medido: o sweep (`tools/run_sweep_harness.sh`) toca as
+    # 27 musicas, e cada musica mora num palco. Com 2 palcos, 60 das 81
+    # combinacoes morriam em "arquivo nao abriu" -- os outros 19 palcos nunca
+    # tinham passado pelo caminho pacote -> pool -> tela. O conteudo sintetico
+    # nao prova arte; prova o encanamento de todos eles, que era o buraco.
+    # Custo: ~157 props de ~28 KB = 4,4 MB (o build/ nao e' versionado).
     npalco = 0
     if charts_src:
         plan = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -350,8 +355,6 @@ def build(root, charts_src=None):
         import json as _json
         dados = _json.load(open(plan))
         for st in dados["stages"]:
-            if st["id"] not in ("mainStage", "schoolEvilErect"):
-                continue
             for p in st["props"]:
                 destino = os.path.join(a, p["tex"])
                 os.makedirs(os.path.dirname(destino), exist_ok=True)

@@ -129,7 +129,8 @@ echo
 # que o estado 8 do main.c faz a mao para um palco so'; aqui ela roda nos 21 e o
 # teste falha se as faixas de props de um palco pegarem o prop de outro.
 echo "== palcos (stage_layout) =="
-$CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c -o /tmp/fnf_test_stage
+$CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c src/engine/char_layout.c \
+    -o /tmp/fnf_test_stage -lm
 /tmp/fnf_test_stage
 echo
 
@@ -513,6 +514,20 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -6 /tmp/fnf_freeplay.log
+
+    # SWEEP: as 27 musicas x 3 dificuldades, uma por uma. Antes disto o harness
+    # provava UMA musica (o Tutorial) e a Freeplay do port so' toca a primeira
+    # da lista: 54 dos 81 charts nunca tinham sido carregados pelo jogo. Um
+    # caminho de chart errado, um BPM exotico ou um palco que nao desenha so'
+    # apareceria no console, com o jogo parado.
+    echo
+    echo "== sweep: 27 musicas x 3 dificuldades no jogo real =="
+    if ! sh tools/run_sweep_harness.sh 1200 > /tmp/fnf_sweep.log 2>&1; then
+        grep -E "FALHA|falharam" /tmp/fnf_sweep.log | head -20
+        echo "  FALHA: o sweep das 81 combinacoes nao passou"
+        exit 1
+    fi
+    tail -4 /tmp/fnf_sweep.log
 else
     echo "  SKIP: precisa do clone do ps2sdk (PS2SDK_HEADERS)"
 fi

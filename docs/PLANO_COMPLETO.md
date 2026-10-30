@@ -461,6 +461,42 @@ O que o teste (`test/test_char_layout.c`, dentro do `run_tests.sh`) exige:
 **O que isto ainda NÃO prova:** que o personagem pareça certo na tela. Isso é o
 próximo passo (o desenho), e só a tela responde.
 
+#### Fechado: as 81 combinacoes (27 musicas x 3 dificuldades) tocam no harness
+
+Medido antes: o harness provava **uma** música (o Tutorial) e a Freeplay do port
+toca a primeira da lista. Resultado: **26 das 27 músicas e 54 dos 81 charts
+nunca tinham sido carregadas pelo jogo**. Um caminho de chart errado, um BPM
+exótico ou um palco que não desenha só apareceria no console, com o jogo parado.
+
+O que entrou para fechar isso:
+
+| peça | o que faz |
+|---|---|
+| gancho `PS2H` no `main.c` | compilado **só** no harness (`-DPS2H=1`), começa direto numa música. No console o define não existe e nada disso entra no binário |
+| `FNF_START_SONG=<id>` / `FNF_START_DIFF=<0..2>` | escolhem música e dificuldade para o teste |
+| `tools/preparar_sweep.py` | para cada música: o chart FCH3 (o que o console lê) e um `stems.pcm` de 20 s — o áudio tem de **abrir** para o relógio da música andar. Não finge a duração inteira: custaria 100 MB por música e não provaria nada a mais |
+| `tools/run_sweep_harness.sh` | roda as 81 combinações e cobra, em cada uma: `harness_start`, `chart_layout>=0`, `tutorial_chart` status 0 com checksum ≠ 0, `play_total_notes>0`, `countdown_begin` + 4 passos, tela de jogo desenhada, **prop de palco desenhado**, áudio começado e `RESULTADO: PASSOU` |
+| `gen_harness_assets.py` | passou a gerar pacote dos **21** palcos (eram 2). Com 2, 60 das 81 combinações morriam em "arquivo não abriu" |
+
+**Medido:** `sweep: 81/81 combinações música × dificuldade começaram`,
+`12/12 palcos usados pelas músicas desenharam`, cada música com as suas notas
+(ex.: `2hot/hard` 585 notas, `bopeebo/easy` 44, `winter-horrorland/hard` 224) e
+com os seus eventos de chart. A suíte inteira (`test/run_tests.sh`) leva ~2 min.
+
+**O bug que o sweep encontrou, e ele é de fidelidade:** nos palcos de pixel
+(`school`, `schoolEvil`, ...) o JSON do palco traz `"scale": [6, 6]` em cada
+prop, e o `Stage.hx` (L234-240) faz `propSprite.scale.set(value)`. O
+`sl_collect()` **ignorava** esse campo: o tamanho na tela era
+`src_w * 0.5 * zoom`, sem o 6. Resultado medido no sweep: `roses`, `senpai` e
+`thorns` entravam no estado 8, carregavam o chart, tocavam — e **nenhum prop de
+palco era desenhado**, sem nada no log dizendo por quê. Agora o tamanho é
+`src_w * sx * 0,5 * zoom * bop`, e o teste de `stage_layout` exige o `scale`
+por prop (6 em `school`, 1,1 e 0,9 no `mainStage`).
+
+Ou seja: o palco do tutorial, que já estava aprovado no hardware, passa a ser
+desenhado **10 % maior/11 % menor** nos props cujo JSON diz 1,1/0,9 — é a
+correção do original, não um ajuste novo.
+
 #### Fechado: um decodificador de pacote so', conferido contra o empacotador
 
 Antes de escrever a quarta copia do decodificador LZ4 (a dos personagens), as
