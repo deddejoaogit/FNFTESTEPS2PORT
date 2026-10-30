@@ -94,6 +94,20 @@ fi
 grep -E "^(VRAM|RAM|plano conferido)" /tmp/fnf_orcamento.txt | sed "s/^/  /"
 echo
 
+# stage_vram_data.h e' gerado do plano; se ficar velho, o pool reserva o tamanho
+# errado para um prop e o upload estoura a VRAM -- em silencio.
+echo "== stage_vram_data.h confere com o plano =="
+python3 tools/gen_stage_vram.py --check
+echo
+
+# Pool de texturas do palco: a demanda real dos 21 palcos contra o orcamento de
+# VRAM que sobra depois dos framebuffers e das texturas fixas.
+echo "== pool de palco (stage_pool) =="
+$CC $FLAGS test/test_stage_pool.c src/engine/stage_pool.c src/engine/stage_layout.c \
+    src/engine/vram_cache.c -o /tmp/fnf_test_pool
+/tmp/fnf_test_pool
+echo
+
 # Layout dos palcos: quais props aparecem, onde, em que ordem de z. E' a conta
 # que o estado 8 do main.c faz a mao para um palco so'; aqui ela roda nos 21 e o
 # teste falha se as faixas de props de um palco pegarem o prop de outro.

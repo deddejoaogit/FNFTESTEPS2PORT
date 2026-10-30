@@ -248,8 +248,9 @@ suposição:
 2. ~~Orçamento de RAM no empacotador + conferir o plano~~ — **FEITO o
    orçamento e a conferência** (abaixo); falta **reempacotar**, que precisa do
    clone de 2,5 GB da arte e por isso não roda aqui.
-3. ~~`vram_cache_init()` de verdade~~ → **passa a ser um pool de props**, e o
-   desenho (passo 4) vem junto, porque um cache sem consumidor é código morto.
+3. ~~`vram_cache_init()` de verdade~~ → **o pool existe e está medido**
+   (`src/engine/stage_pool.{h,c}`, abaixo). Falta pendurá-lo no `main.c` e tirar
+   `gftex`/`stagetex` de fora dele, que é o que libera o orçamento inteiro.
 4. Estado 8 desenha o palco da música (não o `mainStage` fixo) e os
    personagens do registro (`sr_level(n)->songs[0]->stage/player/opponent/
    girlfriend`), com `danceEvery`, animações de sing/hit e a câmera do palco.
@@ -278,6 +279,42 @@ O `vc_*` (`src/engine/vram_cache.h`, LRU, já testado) passa a ser esse pool:
 chave = índice do prop em `bs_props[]`, tamanho = `sw*sh*2`, despejo por LRU
 quando não couber. Prop que não cabe de jeito nenhum vira evento
 `stage_over` no log — nunca é omitido em silêncio.
+
+#### Fechado: o pool de texturas do palco (`stage_pool.c`)
+
+`src/engine/stage_pool.{h,c}` + `test/test_stage_pool.c` (dentro de
+`test/run_tests.sh`). Quem desenha pede a textura **por chave** (o índice do prop
+em `bs_props[]`); residente custa zero, não coube despeja a menos usada
+recentemente, e não caber de jeito nenhum é falha contada — nunca um desenho com
+endereço inválido. O trabalho de alocar/despejar é do `vc_*`
+(`vram_cache.c`, que já tinha teste); aqui fica a chave derivada do prop, o
+tamanho vindo de **tabela gerada** e a contabilidade.
+
+A tabela é `src/engine/stage_vram_data.h`, gerada por
+`tools/gen_stage_vram.py` do mesmo `assets-data/stage-props.json` que gera o
+`stage_dados.h` — e o `run_tests.sh` roda `gen_stage_vram.py --check`, então ela
+não pode envelhecer sem o teste falhar.
+
+Medido, com os 157 props reais:
+
+| | |
+|---|---|
+| orçamento do pool (`SP_POOL_BYTES`) | 2.056.192 B = 4.194.304 − 1.146.880 (2 framebuffers) − 991.232 (fonttex + gftex16 + tex + tex2) |
+| pior palco (`tankmanBattlefield`) | **1.700.352 B** |
+| sobra no pior caso | **355.840 B** |
+| palcos que não cabem | **0 de 21** |
+
+O teste também prende o que já errou antes: unidade de endereço vs de tamanho
+(o `vc_*` trabalha em **bytes** e o GS em **palavras** — misturar os dois passava
+com o pool pela metade; agora a conversão mora dentro do `stage_pool` e o teste
+compara em bytes), palco que não cabe falhando limpo (`-1`, sem endereço), e
+troca de palco devolvendo o pool inteiro.
+
+**O que ainda não vale:** o jogo **não usa** esse pool. Hoje o `main.c` aloca
+`gftex` (262.144 B) e `stagetex` (524.288 B) fora dele, e só 1.269.760 B
+sobrariam — 15 palcos não caberiam. O passo seguinte move as duas para dentro do
+pool (mesmo cache, chaves da faixa `SP_CHAVE_TELA_BASE`) e aí o orçamento de
+2.056.192 B vira real.
 
 **Primeiro teste do renderizador novo é o próprio tutorial**: o `mainStage` tem
 3 props e 1.697.032 B, cabe no pool, e o resultado tem de ser o mesmo que a
