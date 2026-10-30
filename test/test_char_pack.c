@@ -163,6 +163,24 @@ int main(void)
         }
     }
 
+    printf("== nome repetido: vale a ULTIMA, como o Map do original ==\n");
+    {
+        /* Caso real da arte: "Boyfriend (Holding GF)" tem dois `singUP`. */
+        anim_t anims[3] = {
+            { "singUP", 0, 1, 2400, 0 },
+            { "idle", 1, 1, 2400, 1 },
+            { "singUP", 2, 2, 2400, 0 },
+        };
+        cp_pack_t p;
+        unsigned int n = montar(g_pacote, 4, 3, anims, 32, CANVAS_W, CANVAS_H);
+        ch_seq_t s;
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_EQ(cp_anim_i(&p, "singUP"), 2);
+        CHECK_EQ(cp_seq(&p, cp_anim_i(&p, "singUP"), &s), 0);
+        CHECK_EQ(s.first, 2);
+        CHECK_EQ(s.count, 2);
+    }
+
     printf("== PSMCT16: 2 bytes por pixel, e o canvas continua valendo ==\n");
     {
         anim_t anims[1] = { { "idle", 0, 2, 2400, 1 } };

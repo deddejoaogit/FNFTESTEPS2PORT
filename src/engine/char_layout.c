@@ -14,13 +14,17 @@ int ch_find(const char *id)
 
 int ch_anim_i(int ci, const char *nome)
 {
-    int i;
+    int i, achou = -1;
     const ch_dados_t *c;
     if (ci < 0 || ci >= CH_CHAR_COUNT || !nome) return -1;
     c = &ch_chars[ci];
+    /* A ULTIMA de mesmo nome: o original guarda as animacoes num Map por nome
+       (FlxAnimationUtil.addByPrefix -> FlxAnimationController._animations.set),
+       entao um nome repetido SOBRESCREVE o anterior. Existe um caso real na
+       arte: "Boyfriend (Holding GF)" tem dois `singUP`. */
     for (i = 0; i < c->anim_count; i++)
-        if (strcmp(ch_anims[c->anim_first + i].name, nome) == 0) return i;
-    return -1;
+        if (strcmp(ch_anims[c->anim_first + i].name, nome) == 0) achou = i;
+    return achou;
 }
 
 int ch_anim(const char *id, const char *nome)

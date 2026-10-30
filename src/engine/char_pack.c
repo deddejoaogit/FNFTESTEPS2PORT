@@ -92,11 +92,19 @@ int cp_quadro(const cp_pack_t *p, unsigned int q, unsigned char *dst)
 
 int cp_anim_i(const cp_pack_t *p, const char *nome)
 {
-    int i;
+    int i, achou = -1;
     if (!p || !nome) return -1;
+    /* A ULTIMA de mesmo nome, e nao a primeira. Medido na arte do original:
+       "Boyfriend (Holding GF)" tem DUAS animacoes chamadas `singUP` (uma e' o
+       "BF Dead with GF Loop", a outra o "BF NOTE UP0"). O jogo original carrega
+       as animacoes num Map por nome (FlxAnimationUtil.addByPrefix ->
+       FlxAnimationController._animations.set), entao a segunda SOBRESCREVE a
+       primeira e e' ela que toca. Devolver a primeira aqui poria em cena o
+       quadro errado nesse personagem -- e so' nele, o que e' o tipo de defeito
+       que passa por todos os testes e aparece uma vez na tela. */
     for (i = 0; i < p->n_anims; i++)
-        if (strncmp(p->anim[i].nome, nome, CHP_NOME) == 0) return i;
-    return -1;
+        if (strncmp(p->anim[i].nome, nome, CHP_NOME) == 0) achou = i;
+    return achou;
 }
 
 int cp_seq(const cp_pack_t *p, int anim, ch_seq_t *out)

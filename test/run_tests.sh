@@ -361,6 +361,10 @@ echo "== harness de link + execucao (jogo real + draw real do ps2sdk) =="
 # exercitar nada. Este verificador replica cada decodificador do jogo em
 # Python e exige que o arquivo consuma exatamente o tamanho previsto e produza
 # exatamente o tamanho decodificado.
+python3 tools/check_char_packs.py || {
+    echo "  FALHA: os pacotes de personagem gerados nao passaram na conferencia"
+    exit 1
+}
 python3 tools/check_harness_assets.py || {
     echo "  FAIL: os assets sinteticos do harness nao decodificam como o jogo espera"
     exit 1

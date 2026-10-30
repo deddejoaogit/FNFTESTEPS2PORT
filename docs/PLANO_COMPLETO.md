@@ -673,6 +673,33 @@ pelos pacotes do tutorial. O próximo passo é pendurar `cp_pack_t` no lugar do
 existe) — o caminho é o mesmo que o palco genérico já faz, e o pacote já está
 pronto e conferido.
 
+#### Achado: nome de animação repetido — vale a **última**, como no original
+
+Saiu da conferência dos 46 pacotes (`tools/check_char_packs.py`, agora dentro da
+suíte): o personagem **"Boyfriend (Holding GF)" tem DUAS animações chamadas
+`singUP`** — a primeira é "BF Dead with GF Loop", a segunda é "BF NOTE UP0". É
+dado real da arte, não erro de geração.
+
+O que o original faz: `FlxAnimationUtil.addAtlasAnimations` chama
+`animation.addByPrefix(anim.name, ...)` para cada animação, na ordem da JSON, e o
+`FlxAnimationController` guarda tudo num `Map` por nome — então **a segunda
+sobrescreve a primeira** e é ela que toca. O port devolvia a **primeira** (parava
+no primeiro nome igual). Era uma divergência silenciosa que poria em cena o
+quadro errado **só nesse personagem** — o tipo de defeito que passa por todos os
+testes e aparece uma vez na tela.
+
+Corrigido nos dois lugares onde há busca por nome (`cp_anim_i` no pacote e
+`ch_anim_i` no `char_dados`), com o motivo escrito ao lado, e com teste que usa o
+caso real: pega o índice da primeira e da última ocorrência, exige duas
+distintas, e exige que a busca devolva a **última** — e que o prefixo dela seja o
+`BF NOTE UP0`.
+
+**Medido nesta rodada (os 46 pacotes gerados):** 46 arquivos, **2.516 quadros**,
+**523 animações**, 872.984 B; cada pacote abre, toda animação cabe nos quadros
+que ele tem, **todo** quadro descomprime no tamanho exato, e os nomes batem com
+`assets-data/characters` (é o item que pega o erro mais provável de todos: um
+personagem empacotado com o atlas de outro).
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

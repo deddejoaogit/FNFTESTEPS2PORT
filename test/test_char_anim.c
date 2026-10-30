@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "char_anim.h"
+#include <stdlib.h>
 #include "char_layout.h"
 
 static int falhas;
@@ -175,6 +176,31 @@ int main(void)
             CHECK(s.anim < c->anim_count);
         }
         CHECK_EQ(cycle_ok, 46);
+    }
+
+    printf("== nome de animacao repetido: vale a ULTIMA, como no Map do original ==\n");
+    {
+        /* Medido na arte: o "Boyfriend (Holding GF)" tem dois `singUP` -- o
+           primeiro e' "BF Dead with GF Loop", o segundo e' "BF NOTE UP0". O
+           original guarda as animacoes por nome num Map e a segunda sobrescreve
+           a primeira, entao e' a segunda que toca. Um lookup que devolvesse a
+           primeira poria em cena o quadro errado SO' nesse personagem. */
+        int ci = ch_find("bf-holding-gf");
+        int i, primeira = -1, ultima = -1, distintas = 0;
+        CHECK(ci >= 0);
+        if (ci >= 0) {
+            const ch_dados_t *c = &ch_chars[ci];
+            for (i = 0; i < c->anim_count; i++) {
+                if (strcmp(ch_anims[c->anim_first + i].name, "singUP") != 0) continue;
+                if (primeira < 0) primeira = i;
+                ultima = i;
+                distintas++;
+            }
+            CHECK_EQ(distintas, 2);
+            CHECK(primeira != ultima);
+            CHECK_EQ(ch_anim_i(ci, "singUP"), ultima);
+            CHECK(strcmp(ch_anims[c->anim_first + ultima].prefix, "BF NOTE UP0") == 0);
+        }
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
