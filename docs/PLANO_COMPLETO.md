@@ -310,11 +310,48 @@ com o pool pela metade; agora a conversão mora dentro do `stage_pool` e o teste
 compara em bytes), palco que não cabe falhando limpo (`-1`, sem endereço), e
 troca de palco devolvendo o pool inteiro.
 
-**O que ainda não vale:** o jogo **não usa** esse pool. Hoje o `main.c` aloca
-`gftex` (262.144 B) e `stagetex` (524.288 B) fora dele, e só 1.269.760 B
-sobrariam — 15 palcos não caberiam. O passo seguinte move as duas para dentro do
-pool (mesmo cache, chaves da faixa `SP_CHAVE_TELA_BASE`) e aí o orçamento de
-2.056.192 B vira real.
+#### Fechado: o pool no jogo, e o orçamento inteiro de 2.056.192 B
+
+O `main.c` mudou a **ordem** de alocação para o mapa ficar com os slots que o
+gameplay liga sempre no começo e todo o resto como pool:
+
+```
+0        fb0 (640x448 PSMCT16)      143.360 palavras
+143.360  fb1                        143.360
+286.720  tex  (BF)                   81.920
+368.640  tex2 (notas)                81.920
+450.560  fonttex (HUD)               73.728
+524.288  gftex16 (GF no jogo)        10.240
+534.528  <-- pool: 514.048 palavras = 2.056.192 B
+           gftex    534.528 (fixa nesta build)
+           stagetex 600.064 (fixa nesta build)
+           livres   731.136 .. 1.048.575  -> 1.269.760 B para props
+```
+
+`gftex` e `stagetex` deixaram de ser reservas do `graph_vram_allocate` e passaram
+a ser **entradas do pool** (chaves `SP_CHAVE_TELA_BASE+0/1`), fixadas para não
+serem despejadas nesta build — os endereços mudaram de lugar, mas continuam
+imutáveis durante a sessão, então nada do que desenha hoje precisou mudar.
+
+Medido no harness (`tools/run_harness.sh 300`), no boot:
+
+```
+VRAM fb0/fb1/tex/tex2/fonttex/gftex16 ... calculado == alocado  (6 slots)
+E,...,pool,534528,2056192          pool comeca em 534.528, tem 2.056.192 B
+E,...,pool_tela,534528,600064      gftex em 534.528, stagetex em 600.064
+E,...,pool_livre,1269760,0         1.269.760 B livres, 0 despejos
+E,...,vram_mapa,0,514048           0 divergencias no mapa
+```
+
+E `test/test_vram_layout.c` passou a prender os dois números que unem os dois
+módulos: `vl_pool_base() == 534.528` e `vl_pool_size_bytes() == 2.056.192`,
+que é exatamente o `SP_POOL_BYTES` do `stage_pool`. Se um slot fixo crescer, o
+teste do pool acusa "palco sem lugar" em vez de o jogo desenhar por cima.
+
+**O que falta para o pool valer os 2 MB inteiros:** soltar a fixação de `gftex`
+e `stagetex` no estado 8 (elas são de título/menu/story, e a reentrada nesses
+estados já reenvia as duas) e desenhar os props do palco com `sp_prop()`. É o
+passo 4, com o tutorial como primeiro caso de teste.
 
 **Primeiro teste do renderizador novo é o próprio tutorial**: o `mainStage` tem
 3 props e 1.697.032 B, cabe no pool, e o resultado tem de ser o mesmo que a

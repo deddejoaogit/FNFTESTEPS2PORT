@@ -45,7 +45,7 @@ echo "== compilando o harness com ASan + UBSan =="
 # para saber onde foi. Custa quase nada e a informacao vale muito.
 gcc $FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer \
     src/main.c src/audio_ring.c src/chart.c src/chart_events.c src/telemetry.c \
-    src/engine/song_registry.c src/engine/vram_cache.c src/engine/vram_layout.c src/engine/io_fila.c \
+    src/engine/song_registry.c src/engine/vram_cache.c src/engine/vram_layout.c src/engine/stage_pool.c src/engine/stage_layout.c src/engine/io_fila.c \
     src/iomanX_irx.c src/fileXio_irx.c src/usbd_irx.c src/usbhdfsd_irx.c src/audsrv_irx.c \
     src/title_packs.S src/story_packs.S test/ps2harness/ps2h.c \
     build/ps2sdk_host/draw.c build/ps2sdk_host/draw2d.c build/ps2sdk_host/draw_environment.c \

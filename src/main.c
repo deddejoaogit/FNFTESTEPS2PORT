@@ -26,6 +26,7 @@
 #include "chart_events.h"
 #include "engine/gameplay.h"
 #include "engine/vram_layout.h"
+#include "engine/stage_pool.h"
 #include "song_registry.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -1519,6 +1520,7 @@ typedef struct {
     texbuffer_t *tex, *tex2, *fonttex, *gftex, *stagetex;
 } estado_t;
 
+static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
 static int g_congelar = 0;
 static int g_cap_busy = 0;   /* 0.2.101: captura em andamento */
 static int g_cong_frames = 0;
@@ -1676,8 +1678,8 @@ static void estado_dump(const estado_t *e)
         unsigned int real[VL_SLOTS];
         real[VL_FB0] = e->fb0; real[VL_FB1] = e->fb1;
         real[VL_TEX] = e->tex->address;   real[VL_TEX2] = e->tex2->address;
-        real[VL_GFTEX] = e->gftex->address; real[VL_GFTEX16] = g_gftex16.address;
-        real[VL_STAGETEX] = e->stagetex->address; real[VL_FONTTEX] = e->fonttex->address;
+        real[VL_FONTTEX] = e->fonttex->address;
+        real[VL_GFTEX16] = g_gftex16.address;
         for (i = 0; i < (int)vl_slot_count(); i++) {
             const vl_slot_t *sl = &vl_slots()[i];
             k = snprintf(b, sizeof(b),
@@ -1847,12 +1849,43 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
  tex.width=320;tex.psm=GS_PSM_32;tex.address=graph_vram_allocate(320,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  tex2=tex;tex2.address=graph_vram_allocate(320,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
- gftex.width=256;gftex.psm=GS_PSM_32;gftex.address=graph_vram_allocate(256,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);g_gftex16=gftex;g_gftex16.width=320;g_gftex16.psm=GS_PSM_16;/* ANTES: g_gftex16 compartilhava o endereco da gftex (737280). Um upload PSMCT16 ali reinterpreta os dados PSMCT32 do MERCH: bytes de alfa viram lixo e pixels transparentes saem preto opaco -- a linha tracejada sob o MERCH. VRAM livre apos o fonttex: 163.840 B; este bloco usa 40.960 B. */g_gftex16.address=graph_vram_allocate(320,64,GS_PSM_16,GRAPH_ALIGN_BLOCK);
- stagetex.width=512;stagetex.psm=GS_PSM_32;stagetex.address=graph_vram_allocate(512,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  /* A fonte nunca foi maior que FONT_W x FONT_H (384x192): as 64 linhas a mais
     da alocacao antiga (384x256) eram 98.304 bytes parados na VRAM. O mapa
     completo, com teste, esta' em engine/vram_layout.c. */
  fonttex.width=FONT_W;fonttex.psm=GS_PSM_32;fonttex.address=graph_vram_allocate(FONT_W,FONT_H,GS_PSM_32,GRAPH_ALIGN_BLOCK);
+ /* gftex16 (320x64 PSMCT16, 40.960 B) e' a GF no gameplay: fica FORA do pool,
+    fixa, e por isso e' alocada aqui, antes de o pool comecar -- se viesse
+    depois, o graph_vram_allocate a poria exatamente no inicio do pool e as
+    duas coisas se sobreporiam. O motivo de ela nao compartilhar o endereco da
+    gftex continua valendo: um upload PSMCT16 sobre dados PSMCT32 reinterpreta
+    os bytes e o MERCH ganha uma linha tracejada. */
+ g_gftex16=gftex;g_gftex16.width=320;g_gftex16.psm=GS_PSM_16;
+ g_gftex16.address=graph_vram_allocate(320,64,GS_PSM_16,GRAPH_ALIGN_BLOCK);
+ /* ===== POOL DE TEXTURAS (engine/stage_pool.c) =====
+    A ordem das alocacoes acima E' o mapa de engine/vram_layout.c: os quatro
+    slots que o gameplay liga sempre (tex, tex2, fonttex, gftex16) vem
+    primeiro, e TODO o resto da VRAM vira o pool -- que o graph_vram_allocate
+    nao conhece, porque quem aloca dentro dele e' o stage_pool.
+
+    Antes, gftex (262.144 B) e stagetex (524.288 B) eram reservas fixas fora do
+    pool, e sobravam 1.269.760 B -- 15 dos 21 palcos nao cabiam. Dentro do pool
+    o orcamento e' 2.056.192 B (test/test_stage_pool.c prova que os 21 cabem, o
+    pior com 355.840 B de sobra).
+
+    Nesta build gftex e stagetex entram no pool FIXAS: os enderecos mudam de
+    lugar, mas continuam imutaveis durante a sessao, entao nada do que desenha
+    hoje precisa saber que o pool existe. O passo seguinte (palco generico) e'
+    que passa a pedir os props ao mesmo pool, e ai' as duas viram despejaveis. */
+ sp_init(&g_pool, vl_pool_base(), vl_pool_size_bytes());
+ {unsigned int a=0;
+  gftex.width=256;gftex.psm=GS_PSM_32;
+  if(sp_chave(&g_pool,SP_CHAVE_TELA_BASE+0u,256u*256u*4u,&a)<0)a=0u;
+  gftex.address=a;
+  stagetex.width=512;stagetex.psm=GS_PSM_32;
+  if(sp_chave(&g_pool,SP_CHAVE_TELA_BASE+1u,512u*256u*4u,&a)<0)a=0u;
+  stagetex.address=a;
+  sp_fixar(&g_pool,SP_CHAVE_TELA_BASE+0u);
+  sp_fixar(&g_pool,SP_CHAVE_TELA_BASE+1u);}
  /* O mapa calculado em engine/vram_layout.c tem de dar os MESMOS enderecos que
     o alocador do ps2sdk. Se divergir, o mapa do projeto (e a conta de quanto
     sobra de VRAM) esta' errado -- e isso vale no log, nao no papel. */
@@ -1861,18 +1894,23 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
   if((unsigned)fb[1].address!=vl_address(VL_FB1))bad++;
   if((unsigned)tex.address!=vl_address(VL_TEX))bad++;
   if((unsigned)tex2.address!=vl_address(VL_TEX2))bad++;
-  if((unsigned)gftex.address!=vl_address(VL_GFTEX))bad++;
-  if((unsigned)g_gftex16.address!=vl_address(VL_GFTEX16))bad++;
-  if((unsigned)stagetex.address!=vl_address(VL_STAGETEX))bad++;
   if((unsigned)fonttex.address!=vl_address(VL_FONTTEX))bad++;
+  if((unsigned)g_gftex16.address!=vl_address(VL_GFTEX16))bad++;
+  /* O pool comeca onde o alocador do ps2sdk parou. Se divergir, o pool esta'
+     por cima de uma textura fixa. */
+  if(g_pool.base!=vl_pool_base())bad++;
   telemetry_event("vram_mapa",bad,(int)vl_free_words());
+  telemetry_event("pool",(int)g_pool.base,(int)g_pool.tamanho);
+  /* Onde gftex e stagetex cairam dentro do pool, e quanto sobra. Sem isto, um
+     pool mal iniciado so' apareceria como textura borrada no console. */
+  telemetry_event("pool_tela",(int)gftex.address,(int)stagetex.address);
+  telemetry_event("pool_livre",(int)sp_livre(&g_pool),(int)g_pool.cache.despejos);
   {   /* Uma linha por slot, com calculado e alocado lado a lado. Uma escrita
          so', no boot: nada disso entra no laco de quadro. */
       char vb[1024]; int off=0; unsigned int si; u32 real_end[VL_SLOTS];
       real_end[VL_FB0]=(u32)fb[0].address; real_end[VL_FB1]=(u32)fb[1].address;
       real_end[VL_TEX]=(u32)tex.address; real_end[VL_TEX2]=(u32)tex2.address;
-      real_end[VL_GFTEX]=(u32)gftex.address; real_end[VL_GFTEX16]=(u32)g_gftex16.address;
-      real_end[VL_STAGETEX]=(u32)stagetex.address; real_end[VL_FONTTEX]=(u32)fonttex.address;
+      real_end[VL_FONTTEX]=(u32)fonttex.address; real_end[VL_GFTEX16]=(u32)g_gftex16.address;
       for(si=0;si<vl_slot_count();si++){
         const vl_slot_t*sl=&vl_slots()[si];
         off+=snprintf(vb+off,sizeof(vb)-(size_t)off,

@@ -40,16 +40,21 @@ typedef struct {
     unsigned int w, h, psm, alinhamento;
 } vl_slot_t;
 
-/* Indices fixos: quem desenha pede por nome do slot e nao por numero solto. */
+/* Indices fixos: quem desenha pede por nome do slot e nao por numero solto.
+ *
+ * ORDEM = ORDEM DE ALOCACAO em main.c. As texturas que o GAMEPLAY usa ficam
+ * fixas e no comeco; o resto da VRAM e' o POOL (engine/stage_pool.c), que
+ * acomoda gftex, stagetex e as texturas dos props de palco com despejo por
+ * menos-usado-recentemente. Antes gftex e stagetex eram fixas e ficavam fora do
+ * pool: sobravam 1.269.760 B e 15 dos 21 palcos nao cabiam. Dentro do pool, o
+ * orcamento e' 2.056.192 B e todos os 21 cabem (test/test_stage_pool.c). */
 enum {
     VL_FB0 = 0,
     VL_FB1,
     VL_TEX,
     VL_TEX2,
-    VL_GFTEX,
-    VL_GFTEX16,
-    VL_STAGETEX,
-    VL_FONTTEX,
+    VL_FONTTEX,    /* HUD: texto do jogo inteiro */
+    VL_GFTEX16,    /* a GF no gameplay */
     VL_SLOTS
 };
 
@@ -69,6 +74,12 @@ unsigned int vl_bytes(unsigned int slot);
 
 /* Somatorio em palavras, e quanto sobra. */
 unsigned int vl_used_words(void);
+
+/* O pool comeca aqui (palavras) e vai ate' o fim da VRAM (bytes). O vram_layout
+   NAO aloca o pool: so' diz onde ele comeca e quanto tem, para o main.c pedir
+   ao graph_vram_allocate um bloco que caiba exatamente nesse buraco. */
+unsigned int vl_pool_base(void);
+unsigned int vl_pool_size_bytes(void);
 unsigned int vl_free_words(void);
 
 /* 1 quando o mapa cabe na VRAM. */

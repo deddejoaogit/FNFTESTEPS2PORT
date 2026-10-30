@@ -40,21 +40,29 @@ int main(void)
     CHECK_EQ(vl_address(VL_FB1), 143360u);
     CHECK_EQ(vl_address(VL_TEX), 286720u);
     CHECK_EQ(vl_address(VL_TEX2), 368640u);
-    CHECK_EQ(vl_address(VL_GFTEX), 450560u);
-    CHECK_EQ(vl_address(VL_GFTEX16), 516096u);
-    CHECK_EQ(vl_address(VL_STAGETEX), 526336u);
-    CHECK_EQ(vl_address(VL_FONTTEX), 657408u);
+    CHECK_EQ(vl_address(VL_FONTTEX), 450560u);
+    CHECK_EQ(vl_address(VL_GFTEX16), 524288u);
 
     printf("== vram: cabe em 4 MiB ==\n");
     CHECK(vl_fits());
     CHECK(vl_used_words() <= VL_TOTAL_WORDS);
-    /* Medido: o mapa usa 731.136 palavras (2.924.544 bytes) e sobram 317.440
-       palavras (1.269.760 bytes). Antes dos dois passos da Fase 4 -- fonte
-       384x192 e framebuffer de 16 bits -- eram 4.071.424 bytes usados e 122.880
-       livres. O ganho total e' 1.245.184 bytes. */
-    CHECK_EQ(vl_used_words(), 731136u);
-    CHECK_EQ(vl_free_words(), 317440u);
-    CHECK_EQ(vl_free_words() * 4u, 1269760u);
+    /* Medido: os slots FIXOS ocupam 534.528 palavras (2.138.112 bytes) e o
+       resto -- 514.048 palavras = 2.056.192 bytes -- e' o POOL de texturas.
+       Antes dos dois passos da Fase 4 (fonte 384x192 e framebuffer de 16 bits)
+       eram 4.071.424 bytes usados e 122.880 livres; com gftex e stagetex ainda
+       fixas eram 2.924.544 usados. Agora elas moram dentro do pool. */
+    CHECK_EQ(vl_used_words(), 534528u);
+    CHECK_EQ(vl_free_words(), 514048u);
+    CHECK_EQ(vl_free_words() * 4u, 2056192u);
+
+    printf("== vram: o pool de texturas comeca no fim dos slots fixos ==\n");
+    /* O pool e' TODO o resto da VRAM, e o numero tem de ser o mesmo que o
+       stage_pool usa (SP_POOL_BYTES = 2.056.192). Se um slot fixo crescer, o
+       pool encolhe aqui e o teste do pool passa a relatar um palco sem lugar. */
+    CHECK_EQ(vl_pool_base(), 534528u);
+    CHECK_EQ(vl_pool_size_bytes(), 2056192u);
+    CHECK_EQ(vl_pool_base(), vl_used_words());
+    CHECK_EQ(vl_pool_size_bytes(), vl_free_words() * 4u);
 
     printf("== vram: o que o framebuffer de 16 bits devolveu ==\n");
     /* O par de buffers sai de 573.440 palavras (dois de 640x448 PSMCT32) para

@@ -10,15 +10,15 @@ static const vl_slot_t g_slots[VL_SLOTS] = {
        profundidade de cor da tela (dithering ligado por quadro). */
     { "fb0",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
     { "fb1",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
+    /* Texturas que o GAMEPLAY usa: BF, notas/receptores, fonte do HUD e a GF.
+       Elas nunca saem, entao ficam antes do pool (que e' o resto da VRAM). */
     { "tex",      320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
     { "tex2",     320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
-    { "gftex",    256, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
-    { "gftex16",  320,  64, VL_PSM_16, VL_ALINHAMENTO_BLOCO  },
     /* fonttex era 384x256 (98.304 palavras) e o atlas da fonte e' 384x192
        (FONT_W x FONT_H em main.c). As 64 linhas a mais nunca eram enviadas nem
        lidas: eram 24.576 palavras -- 98.304 bytes -- paradas. */
-    { "stagetex", 512, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
-    { "fonttex",  384, 192, VL_PSM_32, VL_ALINHAMENTO_BLOCO  }
+    { "fonttex",  384, 192, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
+    { "gftex16",  320,  64, VL_PSM_16, VL_ALINHAMENTO_BLOCO  }
 };
 
 const vl_slot_t *vl_slots(void) { return g_slots; }
@@ -58,6 +58,17 @@ unsigned int vl_address(unsigned int slot)
         cursor = (cursor + (g_slots[i].alinhamento - 1u)) & ~(g_slots[i].alinhamento - 1u);
     }
     return cursor;
+}
+
+unsigned int vl_pool_base(void)
+{
+    return vl_used_words();
+}
+
+unsigned int vl_pool_size_bytes(void)
+{
+    unsigned int usadas = vl_used_words();
+    return usadas >= VL_TOTAL_WORDS ? 0u : (VL_TOTAL_WORDS - usadas) * 4u;
 }
 
 unsigned int vl_used_words(void)
