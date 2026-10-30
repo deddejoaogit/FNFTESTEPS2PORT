@@ -400,9 +400,16 @@ tem rasterizador: ele prova que os 3 props saíram, no quadro certo, com a
 geometria do `stage_layout` e sem falha de VRAM. Comparar com a captura do
 console (`evidencia-console/`) é o teste de aceitação que falta.
 
+O palco já **não é fixo no código**: o estado 8 pede
+`g_play_song->stage`, o id do registro da música. Hoje só o `mainStage` tem
+pacote no pendrive, então os outros 20 caem na reserva e o log diz qual palco
+foi tentado.
+
 **O que falta aqui:** os outros 20 palcos, que dependem do reempacotamento com a
-nova escala (orçamento de VRAM/RAM acima) e de o estado 8 escolher o palco pelo
-registro da música (`sr_level(n)->songs[0]->stage`) em vez do `mainStage` fixo.
+nova escala (orçamento de VRAM/RAM acima) — e, para o
+`tankmanBattlefield` (1.700.352 B), do pool ter os 2 MB inteiros, o que já
+acontece a partir desta build porque `gftex`/`stagetex` são soltas durante a
+música.
 
 **Primeiro teste do renderizador novo é o próprio tutorial**: o `mainStage` tem
 3 props e 1.697.032 B, cabe no pool, e o resultado tem de ser o mesmo que a
