@@ -477,7 +477,15 @@ MAGIC_V3 = b"FCH3"
 VERSION_V3 = 3
 MAGIC_V4 = b"FCH4"
 VERSION_V4 = 4
+# v5 keeps every byte of v4 and gives each note a note-kind string index: the
+# `k` field of the chart JSON, which v3 and v4 threw away. 12 B -> 16 B.
+MAGIC_V5 = b"FCH5"
+VERSION_V5 = 5
 NOTE_STRIDE = 12
+NOTE_STRIDE_V5 = 16
+# 0xFFFF means "no kind": the note is an ordinary note and the port must take
+# the ordinary path. Using 0 would alias the first string in the table.
+NOTE_KIND_NONE = 0xFFFF
 BPM_STRIDE = 16
 SECTION_STRIDE = 8
 EVENT_STRIDE = 16
@@ -556,7 +564,11 @@ class Timeline:
 # chart extraction
 # ----------------------------------------------------------------------------
 def _legacy_notes(song):
-    """Yield (time_ms, data, sustain_ms) from a legacy FNF chart."""
+    """Yield (time_ms, data, sustain_ms, kind) from a legacy FNF chart.
+
+    Legacy charts have no note kinds at all: `None` is the honest value, and
+    v5 will write it as NOTE_KIND_NONE.
+    """
     for section in song.get("notes", []):
         must_hit = bool(section.get("mustHitSection", False))
         for entry in section.get("sectionNotes", []):
@@ -571,7 +583,7 @@ def _legacy_notes(song):
                 data = data % (2 * STRUMLINE_SIZE)
             if not must_hit:  # flip: player notes are 4..7 in non-must-hit sections
                 data = data - STRUMLINE_SIZE if data >= STRUMLINE_SIZE else data + STRUMLINE_SIZE
-            yield t, data, length
+            yield t, data, length, None
 
 
 def _legacy_time_changes(song):
@@ -622,7 +634,14 @@ def _v2_notes(chart, difficulty):
         t = float(n.get("t", n.get("time", 0.0)))
         data = int(n.get("d", n.get("data", 0)))
         length = float(n.get("l", n.get("length", 0.0)) or 0.0)
-        notes.append((t, data, length))
+        # `k` is the note kind (NoteKindManager). Absent means "no kind", which
+        # is a real state and not the same as an empty kind name.
+        kind = n.get("k")
+        if kind is not None:
+            kind = str(kind)
+            if not kind:
+                kind = None
+        notes.append((t, data, length, kind))
     return notes
 
 
@@ -672,13 +691,13 @@ def _sections_derived(notes, timeline):
     """Derive 16-step sections for v2 charts (which carry no section list)."""
     if not notes:
         return [(0, 1, SECTION_STEPS)]
-    last_sample = max(s for s, _, _, _ in notes)
+    last_sample = max(s for s, _, _, _, _ in notes)
     last_step = int(timeline.step_at_ms(last_sample * 1000.0 / SAMPLE_RATE) // SECTION_STEPS)
     out = []
     for idx in range(last_step + 1):
         lo = timeline.sample_at_ms(timeline.ms_at_step(idx * SECTION_STEPS))
         hi = timeline.sample_at_ms(timeline.ms_at_step((idx + 1) * SECTION_STEPS))
-        has_player = any(mp == 1 and lo <= s < hi for _, s, _, mp in notes)
+        has_player = any(mp == 1 and lo <= s < hi for _, s, _, mp, _k in notes)
         out.append((idx * SECTION_STEPS, 1 if has_player else 0, SECTION_STEPS))
     return out
 
@@ -687,19 +706,20 @@ def _sections_derived(notes, timeline):
 # conversion
 # ----------------------------------------------------------------------------
 def _build_notes(notes_ms, timeline):
-    """[(time_ms, data, sustain_ms)] -> [(sample, sustain_samples, lane, must_press)].
+    """[(time_ms, data, sustain_ms, kind)] -> [(sample, sustain, lane, press, kind)].
 
     `data` is the v2 strumline index: 0..3 the player's, 4..7 the opponent's
     (SongNoteDataRaw: floor(d / strumlineSize) picks the strumline).
     """
     notes = []
-    for t, data, length in notes_ms:
+    for t, data, length, kind in notes_ms:
         notes.append((timeline.sample_at_ms(t),
                       timeline.sample_at_ms(length) if length > 0 else 0,
                       data % STRUMLINE_SIZE,
-                      1 if data < STRUMLINE_SIZE else 0))
+                      1 if data < STRUMLINE_SIZE else 0,
+                      kind))
     notes.sort(key=lambda n: (n[0], n[2]))
-    for s, d, _, _ in notes:
+    for s, d, _, _, _ in notes:
         assert 0 <= s <= 0xFFFFFFFF and 0 <= d <= 0xFFFFFFFF
     return notes
 
@@ -764,15 +784,17 @@ def _positional_v4(v):
 
 
 def build_chart(notes_ms, time_changes, events, sections_ms=None, fmt="v4"):
-    """Serialise one chart. fmt is "v3" (the proven 16-byte event record) or
-    "v4" (32-byte record plus string and block tables).
+    """Serialise one chart. fmt is "v3" (the proven 16-byte event record),
+    "v4" (32-byte record plus string and block tables) or "v5" (v4 plus a
+    note-kind string index in every note record).
 
     `events` is [(time_ms, name, v)] with `v` the raw parameter value: a dict
     for v2 charts, a positional list for legacy ones.
     """
-    if fmt not in ("v3", "v4"):
+    if fmt not in ("v3", "v4", "v5"):
         raise ValueError("unknown format %r" % fmt)
-    v4 = fmt == "v4"
+    v4 = fmt in ("v4", "v5")
+    v5 = fmt == "v5"
     timeline = Timeline(time_changes)
 
     # ---- notes, bpm changes, sections (identical in both formats) --------
@@ -783,6 +805,13 @@ def build_chart(notes_ms, time_changes, events, sections_ms=None, fmt="v4"):
     # ---- events ----------------------------------------------------------
     evs = []
     tables = V4Tables() if v4 else None
+    # The note kinds go into the same string table as the event names: both are
+    # small, both are per-file, and one table keeps the loader to one reader.
+    kind_index = {}
+    if v5:
+        for _s, _d, _l, _mp, kind in notes:
+            if kind is not None and kind not in kind_index:
+                kind_index[kind] = tables.string(kind)
     unrepresentable = 0
     for t, name, v in events:
         etype = event_type_id(name)
@@ -804,7 +833,7 @@ def build_chart(notes_ms, time_changes, events, sections_ms=None, fmt="v4"):
 
     # ---- song end --------------------------------------------------------
     end_sample = 0
-    for s, d, _, _ in notes:
+    for s, d, _, _, _ in notes:
         end_sample = max(end_sample, s + d)
     for e in evs:
         end_sample = max(end_sample, e[0])
@@ -818,8 +847,12 @@ def build_chart(notes_ms, time_changes, events, sections_ms=None, fmt="v4"):
     # enforces this as a corruption check (tutorial_chart.c returns -9 for
     # notes, -12 for sections, -14 for events), so writing 0 here produced
     # files the PS2 rejected. Only the real loader catches this.
-    for i, (s, d, lane, mp) in enumerate(notes):
-        payload += struct.pack("<IIBBH", s, d, lane, mp, i)
+    for i, (s, d, lane, mp, kind) in enumerate(notes):
+        if v5:
+            payload += struct.pack("<IIBBHI", s, d, lane, mp,
+                                   NOTE_KIND_NONE if kind is None else kind_index[kind], i)
+        else:
+            payload += struct.pack("<IIBBH", s, d, lane, mp, i)
     for st, ss, sps, bpm in bpms:
         payload += struct.pack("<IIII", st, ss, sps, bpm)
     for i, (st, mh, ln) in enumerate(sections):
@@ -858,9 +891,10 @@ def build_chart(notes_ms, time_changes, events, sections_ms=None, fmt="v4"):
     # v3's header is 40 B and ends with a reserved u32. v4's is 48 B and spends
     # that reserved word on string_count, so the common part is 4 B shorter.
     if v4:
-        header = MAGIC_V4 + struct.pack(
+        header = (MAGIC_V5 if v5 else MAGIC_V4) + struct.pack(
             "<HHIHHHHHHHHII",
-            VERSION_V4, NOTE_STRIDE, len(notes),
+            VERSION_V5 if v5 else VERSION_V4,
+            NOTE_STRIDE_V5 if v5 else NOTE_STRIDE, len(notes),
             len(bpms), len(sections), len(evs), flags,
             BPM_STRIDE, SECTION_STRIDE, EVENT_STRIDE_V4, 0,
             fnv1a(bytes(payload) + string_blob + block_blob), end_sample)
@@ -889,7 +923,7 @@ def build_fch3(*args, **kwargs):
     return build_chart(*args, **kwargs)
 
 
-def convert_legacy(path, difficulty, fmt="v4"):
+def convert_legacy(path, difficulty, fmt="v5"):
     with open(path, encoding="utf-8") as f:
         doc = json.load(f)
     song = doc.get("song", doc)
@@ -915,7 +949,7 @@ def _v2_scroll_speed(chart, difficulty):
         return 1.0
 
 
-def convert_v2(metadata_path, chart_path, difficulty, fmt="v4"):
+def convert_v2(metadata_path, chart_path, difficulty, fmt="v5"):
     with open(metadata_path, encoding="utf-8") as f:
         meta = json.load(f)
     with open(chart_path, encoding="utf-8") as f:
@@ -945,11 +979,14 @@ def _parse_chart(data):
     elif magic == MAGIC_V4:
         ver_expected, ev_stride = VERSION_V4, EVENT_STRIDE_V4
         header_len = 48
+    elif magic == MAGIC_V5:
+        ver_expected, ev_stride = VERSION_V5, EVENT_STRIDE_V4
+        header_len = 48
     else:
         raise AssertionError("bad magic %r" % magic)
     # v3: ... | fnv1a | end_sample | rsv          (40 B total)
     # v4: ... | fnv1a | end_sample | str_cnt | str_bytes | blk_cnt  (48 B total)
-    if magic == MAGIC_V4:
+    if magic in (MAGIC_V4, MAGIC_V5):
         (ver, stride, count, bc, sc, ec, flags,
          bs, ss, es, _r2, checksum, end_sample) = struct.unpack_from(
             "<HHIHHHHHHHHII", data, 4)
@@ -957,16 +994,21 @@ def _parse_chart(data):
         (ver, stride, count, bc, sc, ec, flags,
          bs, ss, es, _r2, checksum, end_sample, _r3) = struct.unpack_from(
             "<HHIHHHHHHHHIII", data, 4)
-    assert ver == ver_expected and stride == NOTE_STRIDE
+    note_stride = NOTE_STRIDE_V5 if magic == MAGIC_V5 else NOTE_STRIDE
+    assert ver == ver_expected and stride == note_stride
     assert bs == BPM_STRIDE and ss == SECTION_STRIDE and es == ev_stride
     string_count = block_count = string_bytes = 0
-    if magic == MAGIC_V4:
+    if magic in (MAGIC_V4, MAGIC_V5):
         string_count, string_bytes, block_count = struct.unpack_from("<III", data, 36)
 
     payload = data[header_len:]
     assert fnv1a(payload) == checksum, "checksum mismatch"
-    notes = [struct.unpack_from("<IIBBH", payload, i * 12) for i in range(count)]
-    off = count * 12
+    if magic == MAGIC_V5:
+        notes = [struct.unpack_from("<IIBBHI", payload, i * NOTE_STRIDE_V5)
+                 for i in range(count)]
+    else:
+        notes = [struct.unpack_from("<IIBBH", payload, i * NOTE_STRIDE) for i in range(count)]
+    off = count * note_stride
     bpms = [struct.unpack_from("<IIII", payload, off + i * 16) for i in range(bc)]
     off += bc * 16
     secs = [struct.unpack_from("<IBBH", payload, off + i * 8) for i in range(sc)]
@@ -978,7 +1020,7 @@ def _parse_chart(data):
     off += ec * ev_stride
 
     strings, blocks = [], []
-    if magic == MAGIC_V4:
+    if magic in (MAGIC_V4, MAGIC_V5):
         # `off` is relative to payload; the tables live in the file after it.
         base = header_len + off
         for i in range(string_count):
@@ -1089,9 +1131,10 @@ def main(argv=None):
     p.add_argument("--difficulty", default=DEFAULT_DIFFICULTY)
     p.add_argument("-o", "--output", help="output .chart path")
     p.add_argument("--selftest", action="store_true")
-    p.add_argument("--format", choices=("v3", "v4"), default="v4",
+    p.add_argument("--format", choices=("v3", "v4", "v5"), default="v5",
                    help="v3 is the 16-byte event record the PS2 already loads; "
-                        "v4 adds named parameters (default)")
+                        "v4 adds named parameters; v5 adds the per-note note "
+                        "kind (the chart JSON's `k`) (default)")
     p.add_argument("--v3", action="store_true",
                    help="shorthand for --format v3")
     a = p.parse_args(argv)

@@ -958,38 +958,79 @@ conta só os `-hold` que o port tem caminho para tocar. Os outros — `taunt-hol
 `uppercut-hold`, `shoot1..4-hold` — são pedidos por **note kinds**, e é o achado
 seguinte.
 
-#### Achado aberto: **note kinds** (`k` nas notas) não existem no port
+#### Fechado (em parte): **note kinds** (`k` nas notas) — formato FCH5 e os dois kinds de código
 
-As notas do JSON trazem `"k"`, o *note kind*. O conversor joga o campo fora e o
-`chart_note_t` não tem onde guardá-lo, então o port trata toda nota igual. Nove
-das 81 combinações usam kinds, 34 kinds distintos:
+As notas do JSON trazem `"k"`, o *note kind*. O conversor jogava o campo fora e
+o `chart_note_t` não tinha onde guardá-lo, então o port tratava toda nota igual.
+Nove das 81 combinações usam kinds, 34 kinds distintos:
 
-| música | kinds | notas |
+| música | kinds | notas (easy / normal / hard) |
 |---|---|---|
-| `blazin` | `weekend-1-*` (21 tipos: blockhigh, punchhighblocked, taunt, picouppercut…) | 1.257 |
-| `2hot` | `weekend-1-lightcan/kickcan/cockgun/kneecan/firegun` | 90 |
-| `spaghetti` | `sakura-joint`, `sakura-bf1/2`, `non_scoreable` | 1.100 |
-| `cocoa`, `eggnog` | `mom` | 545 |
-| `spookeez` | `noanim` | 12 |
-| `stress` | `hehPrettyGood` | 3 |
-| `ugh` | `ugh` | 12 |
+| `blazin` | `weekend-1-*` (21 tipos: blockhigh, punchhighblocked, taunt, picouppercut…) | 422 / 426 / 440 |
+| `2hot` | `weekend-1-lightcan/kickcan/cockgun/kneecan/firegun` | 30 / 30 / 30 |
+| `spaghetti` | `sakura-joint`, `sakura-bf1/2`, `non_scoreable` | 274 / 354 / 472 |
+| `cocoa`, `eggnog` | `mom` | 80 / 96 / 137 (cocoa) |
+| `spookeez` | `noanim` | 4 / 4 / 4 |
+| `stress` | `hehPrettyGood` | 1 / 1 / 1 |
+| `ugh` | `ugh` | 4 / 4 / 4 |
 
-Dois desses kinds são **de código, não de script** e o comportamento está na
-fonte, sem invenção nenhuma: `noanim` (`NoAnimNoteKind.hx`: `noanim = true`, e
-`BaseCharacter.hx` L561/577 deixa de tocar o canto quando o kind tem `noanim`) e
-`non_scoreable` (`NonScoreableNoteKind.hx`: `scoreable = false`, não conta em
-notas/pontos/combos). Os outros 32 são scripts de mod (`Weekend 1`, `mom`,
-`ugh`, `hehPrettyGood`) que **não estão no pacote de dados** deste repositório:
-sem o script não dá para saber o que cada um toca, e inventar seria divergência.
-O que acontece hoje é o pior dos dois mundos: as animações `taunt`, `uppercut` e
-`shoot1..4` do `pico-blazin`, `pico-speaker` e `darnell-blazin` estão nos pacotes
-e **nunca tocam**, porque quem as pede é o kind.
+**O formato.** FCH5 é o FCH4 com a nota de 12 → 16 B:
 
-Para fechar isso é preciso **dado**, não código: os arquivos de note kind do
-jogo original (`mods/.../noteKinds/*.hx` ou `assets/shared/data/noteKinds/`),
-que é o que o port não tem. Pedido ao usuário: mandar essa pasta junto com os
-assets. Enquanto ela não chega, o próximo passo é o formato (a nota precisa
-carregar o kind) e os dois kinds de código, que já estão provados pela fonte.
+```
+nota FCH5 (16 B): u32 sample | u32 duration | u8 lane | u8 must_press |
+                  u16 kind | u32 order
+```
+
+`kind` é índice na **mesma** tabela de strings dos eventos (0xFFFF = "sem
+kind"). A tabela já existia no FCH4; usar a mesma poupa um leitor e um
+verificador de tamanho. O conversor passou a **emitir v5 por padrão**
+(`--format v3|v4|v5` continua aceitando os antigos), e o loader lê os três. O
+v3 e o v4 devolvem `CHART_KIND_NONE` em toda nota, que é a verdade: aqueles
+containers não têm onde guardar o campo.
+
+**Os dois kinds que são código, não script** — comportamento provado pela fonte,
+sem invenção:
+
+- `noanim` (`NoAnimNoteKind.hx`, `noanim = true`): o canto não toca no acerto —
+  `BaseCharacter.hx` L561/L577 — e a nota pontua normalmente;
+- `non_scoreable` (`NonScoreableNoteKind.hx`, `scoreable = false`): não entra em
+  `tallies.totalNotes` (`PlayState.hx` L2538-2554), o acerto não soma pontos,
+  vida nem combo (L3159 põe todo o `applyScore()` dentro de `if
+  (note.scoreable)`, e L3143 não incrementa o combo), e no miss o kind esconde a
+  nota e **cancela** o evento (`onNoteMiss`: `note.visible = false;
+  event.cancel()`), então não há dano nem miss contado.
+
+**O que continua aberto, e por falta de dado.** Os outros 32 kinds
+(`weekend-1-*`, `mom`, `ugh`, `hehPrettyGood`) são scripts de mod que **não
+estão neste repositório**: sem eles não há como saber o que cada um toca, e
+inventar seria divergência. O formato agora **carrega o nome** até o runtime, o
+que era o pré-requisito: quando os scripts chegarem, não é preciso mexer no
+formato outra vez. As animações `taunt`, `uppercut` e `shoot1..4` do
+`pico-blazin`, `pico-speaker` e `darnell-blazin` continuam sem tocar, e é por
+isso: quem as pede é o kind, não o chart. Pedido ao usuário: mandar a pasta de
+note kinds do jogo original (`mods/.../noteKinds/` ou
+`assets/shared/data/noteKinds/`).
+
+**Medido.** `test/test_note_kinds.c` (novo) confere nota por nota nos charts
+reais: `spookeez` 4 `noanim`, `spaghetti` 1 `non_scoreable`, `cocoa` 80 `mom`,
+`blazin` 4 `weekend-1-taunt`, `2hot` 30 `weekend-1-firegun`, `tutorial` e os
+charts FCH4 sem kind nenhum. A suíte converte os 81 charts nos três formatos e
+carrega os três no loader real. O sweep ganhou um passe **v5** das sete músicas
+com kinds, que cobra do log do jogo o **número exato de notas com kind do
+JSON** (`chart_notas_com_kind`): 21/21 combinações. Sem esse passe, um formato
+que voltasse a perder o campo passaria despercebido — foi exatamente o que
+aconteceu até esta build.
+
+Três armadilhas que o trabalho desenterrou, e as três eram do teste:
+
+1. `preparar_sweep.py` **reaproveitava** o chart já instalado, então trocar
+   `FNF_SWEEP_FMT` não mudava nada e o "passe v3" podia rodar v5. Agora o
+   fourcc do próprio arquivo é conferido (`FCH3`/`FCH4`/`FCH5`), além de um
+   marcador de formato no diretório de assets;
+2. `harness_presses.py` recusava `FCH5` — o roteiro de teclas do gameplay
+   parava de ser gerado, e o teste falhava por isso, não por um bug do jogo;
+3. `test_chart_limits.c` só conhecia `FCH3`/`FCH4`, e chamava os 81 charts de
+   "ilegíveis" quando o default virou v5.
 
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 

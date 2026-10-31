@@ -1442,18 +1442,41 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int bati
 }
 
 static unsigned short tutorial_lane_button(unsigned int lane){static const unsigned short masks[4]={PAD_LEFT,PAD_DOWN,PAD_UP,PAD_RIGHT};return lane<4?masks[lane]:0;}
+/* NOTE KINDS. Nove das 81 combinacoes trazem `k` na nota, e o port jogava o
+   campo fora. Dois desses kinds sao CODIGO, nao script, e por isso o
+   comportamento deles esta' provado pela fonte, sem invencao:
+     `noanim`        -> NoAnimNoteKind.hx: `noanim = true`, e BaseCharacter.hx
+                        L561/L577 deixa de tocar o canto quando o kind tem
+                        `noanim`. A nota ainda pontua normalmente.
+     `non_scoreable` -> NonScoreableNoteKind.hx: `scoreable = false`. Nao entra
+                        em tallies.totalNotes (PlayState.hx L2538-2554), o hit
+                        nao soma pontos/vida (L3159) nem combo (L3143), e no
+                        miss o kind esconde a nota e cancela o evento.
+   Os outros 32 kinds (weekend-1-*, mom, ugh, hehPrettyGood) sao scripts que
+   nao estao no pacote de dados; nao ha' o que portar sem eles. */
+static int nota_noanim(const chart_note_t *n){return n&&chart_note_kind_is(n->kind,"noanim");}
+static int nota_nonscoreable(const chart_note_t *n){return n&&chart_note_kind_is(n->kind,"non_scoreable");}
 static void tutorial_notes_reset(void){
- u32 k,scorable=0;
+ u32 k,scorable=0,comkind=0,sempontos=0,noanim=0;
  memset(g_tutorial_note_state,0,sizeof(g_tutorial_note_state));
  g_tutorial_note_score=0;g_tutorial_note_hits=0;g_tutorial_note_misses=0;g_tutorial_note_combo=0;
  g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;
  /* tallies.totalNotes do original: quantas notas do chart contam para o
-    resultado. Sao as notas do jogador (must_press), nao as do oponente. */
+    resultado. Sao as notas do jogador (must_press), nao as do oponente -- e
+    NonScoreableNoteKind.scoreable = false tira as dela do total
+    (PlayState.hx L2538-2554). */
  for(k=0;k<g_chart_info.note_count&&k<CHART_MAX_NOTE_STATES;k++){
   chart_note_t nt;
   if(chart_note(k,&nt)<0)continue;
-  if(nt.must_press)scorable++;
+  if(nt.must_press&&!nota_nonscoreable(&nt))scorable++;
+  /* Quantas notas chegaram com nome de kind, e quantas sao dos dois kinds que
+     o port implementa. E' o que o sweep usa para provar que o `k` sobreviveu
+     do JSON ao runtime -- sem isso, um formato que perdesse o campo de novo
+     passaria despercebido (foi o que aconteceu ate' a 0.2.128). */
+  if(nt.kind!=CHART_KIND_NONE){comkind++;if(nota_nonscoreable(&nt))sempontos++;if(nota_noanim(&nt))noanim++;}
  }
+ telemetry_event("chart_notas_com_kind",(int)comkind,(int)sempontos);
+ if(noanim)telemetry_event("chart_notas_noanim",(int)noanim,0);
  fnf_play_reset(&g_play,FNF_SCORING_PBOT1,(int)scorable);
 }
 static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
@@ -1462,7 +1485,12 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
-  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;if(g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){
+   /* NonScoreableNoteKind.onNoteMiss: esconde a nota e CANCELA o evento --
+      sem dano, sem miss, sem canto de erro. Estado 4 = "cancelada": o
+      desenho ja' pula qualquer estado diferente de 0. */
+   if(nota_nonscoreable(&note)){g_tutorial_note_state[i]=4;telemetry_event("nota_kind_cancelada",(int)i,note.kind);continue;}
+   g_tutorial_note_state[i]=2;if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
@@ -1472,8 +1500,10 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
   if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;/* o OPONENTE generico canta a mesma nota: o slot dad e' o papel de quem nao e' o jogador (ch_cena_plano) */if(note.lane<=3){
    long ms=(long)(sample/48u);
    long cm=cena_canto_ms(CH_PAPEL_DAD,0),cg=cena_canto_ms(CH_PAPEL_GF,0);
-   if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
-   if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
+   if(!nota_noanim(&note)){
+    if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
+    if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
+   }
   }}
  }
  for(lane=0;lane<4;lane++)if(pressed&tutorial_lane_button(lane)){
@@ -1493,7 +1523,12 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     * already bounds it, but "already bounds it" is not a contract. */
    if(chart_note((u32)best,&note)<0)best=-1;
    else{fnf_judge_t judge;
-    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;if(g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,0));
+    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;
+    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,0));
+    /* NonScoreableNoteKind: a nota e' consumida, o strum reage, mas nada
+       entra em pontos, vida, combo ou acerto -- PlayState.hx L3159 poe todo
+       o applyScore() dentro de `if (note.scoreable)`. */
+    if(nota_nonscoreable(&note)){telemetry_event("nota_kind_sem_pontos",best,(int)offset);continue;}
     /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
        noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);

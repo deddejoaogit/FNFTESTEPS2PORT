@@ -62,6 +62,21 @@ d = json.load(open("assets-data/stage-props.json"))
 for i, st in enumerate(d["stages"]):
     print(i, st["id"])
 PYMAPA
+# Quantas notas de cada chart trazem NOTE KIND (`k`). O log do jogo tem de
+# concordar com o JSON: no v5 o numero e' o do JSON, no v3/v4 e' zero, porque
+# esses containers nao tem onde guardar o campo.
+python3 - <<'PYKINDS' > build/sweep/kinds.txt
+import json, glob, os
+for f in sorted(glob.glob("assets-data/charts/*-chart.json")):
+    sid = os.path.basename(f)[:-len("-chart.json")]
+    d = json.load(open(f))
+    for diff in ("easy", "normal", "hard"):
+        notas = d.get("notes", {}).get(diff, []) or []
+        com = sum(1 for n in notas if n.get("k"))
+        sem = sum(1 for n in notas if n.get("k") == "non_scoreable")
+        noa = sum(1 for n in notas if n.get("k") == "noanim")
+        print(sid, diff, com, sem, noa)
+PYKINDS
 TOTAL=0
 OK=0
 FALHOU=""
@@ -124,6 +139,19 @@ for sid in $LISTA; do
         nholdtem=$(awk -F, '$1=="E" && $3=="char_hold_tem" && $5+0>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nhold=$(awk -F, '$1=="E" && $3=="char_hold" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         npulado=$(awk -F, '$1=="E" && $3=="char_dad_pulado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # NOTE KINDS: quantas notas chegaram com nome de kind, e quantas sao
+        # `non_scoreable`/`noanim`. O esperado sai do JSON; ver build/sweep/kinds.txt.
+        kcom=$(awk -F, '$1=="E" && $3=="chart_notas_com_kind" {print $4; exit}' "$LOG" 2>/dev/null)
+        ksem=$(awk -F, '$1=="E" && $3=="chart_notas_com_kind" {print $5; exit}' "$LOG" 2>/dev/null)
+        knoa=$(awk -F, '$1=="E" && $3=="chart_notas_noanim" {print $4; exit}' "$LOG" 2>/dev/null)
+        case "$diff" in
+            0) dn=easy ;;
+            1) dn=normal ;;
+            *) dn=hard ;;
+        esac
+        kexp=$(awk -v s="$sid" -v d="$dn" '$1==s && $2==d {print $3; exit}' build/sweep/kinds.txt 2>/dev/null)
+        kexp=${kexp:-0}
+        [ "${FNF_SWEEP_FMT:-v3}" = "v5" ] || kexp=0
         charruim=$(awk -F, '$1=="E" && ($3=="char_pacote_ruim" || $3=="char_sem_vram" || $3=="char_sem_staging") {n++} END{print n+0}' "$LOG" 2>/dev/null)
         palco=$(campo palco_entra 4)
 
@@ -135,6 +163,10 @@ for sid in $LISTA; do
         [ "${cbegin:-0}" -gt 0 ] 2>/dev/null || motivo="sem contagem${motivo:+, $motivo}"
         [ "${nsteps:-0}" -ge 4 ] 2>/dev/null || motivo="menos de 4 passos de contagem${motivo:+, $motivo}"
         [ "${nstate:-0}" -ge 1 ] 2>/dev/null || motivo="nao desenhou a tela de jogo${motivo:+, $motivo}"
+        # O `k` do JSON tem de chegar ao runtime: no v5, o numero de notas com
+        # kind e' o do JSON; nos outros formatos ele TEM de ser zero (o campo
+        # nao existe la'), e um zero no v5 seria o campo perdido de novo.
+        [ "${kcom:-0}" -eq "${kexp:-0}" ] 2>/dev/null || motivo="note kinds: $kcom nota(s) com kind, esperado ${kexp:-0}${motivo:+, $motivo}"
         [ "${npalco:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum prop de palco desenhado${motivo:+, $motivo}"
         if [ "${nholdtem:-0}" -ge 1 ] && [ "${nhold:-0}" -eq 0 ]; then
             motivo="o personagem tem animacao -hold e nunca entrou nela${motivo:+, $motivo}"

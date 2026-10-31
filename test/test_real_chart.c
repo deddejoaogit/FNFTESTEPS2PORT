@@ -154,7 +154,9 @@ int main(int argc, char **argv)
         float zoom_to = 0.0f, scroll_to = 0.0f;
         for (u32 i = 0; i < info.event_count; i++) {
             const chart_event_t *e = chart_event(i);
-            u32 raw = info.version == 4u ? e->p1 : (e->value & 0xFFFFu);
+            /* v4 and v5 share the event record: only the note record changed
+               in v5, so both give the parameter as p1. */
+            u32 raw = info.version >= 4u ? e->p1 : (e->value & 0xFFFFu);
             if (e->type == 2 && zoom_to == 0.0f)
                 zoom_to = (float)raw / 1000.0f;
             if (e->type == 4)

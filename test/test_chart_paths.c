@@ -96,7 +96,10 @@ int main(void)
         ok(rc == 0, "chart_load_song loads the tutorial's normal chart");
         ok(info.note_count > 0, "and it has notes");
         ok(info.event_count == 26u, "and the 26 events the tutorial chart carries");
-        ok(info.version == 4u, "and it is an FCH4 file");
+        /* build/charts is converted with the converter's default format, which
+           is v5 since the note kinds arrived. The assertion is "the newest
+           format", so it keeps pointing at the default as it moves. */
+        ok(info.version == 5u, "and it is an FCH5 file");
         ok(info.initial_bpm == 100u, "and it opens at 100 bpm");
 
         /* The other two difficulties resolve too, and they are different files. */

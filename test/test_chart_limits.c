@@ -67,10 +67,12 @@ int main(int argc, char **argv)
         if (!f) { bad++; continue; }
         got = fread(header, 1, sizeof header, f);
         fclose(f);
-        /* both containers: the first 28 bytes of the header mean the same
-           thing in each, so only the magic and the event stride differ */
+        /* all three containers: the first 28 bytes of the header mean the same
+           thing in each, so only the magic, the note stride (v5) and the event
+           stride differ */
         if (got != sizeof header
-            || (memcmp(header, "FCH3", 4) != 0 && memcmp(header, "FCH4", 4) != 0)) {
+            || (memcmp(header, "FCH3", 4) != 0 && memcmp(header, "FCH4", 4) != 0
+                && memcmp(header, "FCH5", 4) != 0)) {
             bad++;
             continue;
         }
@@ -83,6 +85,9 @@ int main(int argc, char **argv)
         /* v4 events are 32 B, v3 events 16 B; the counts are what matter here */
         stride = rd16(header + 24);
         if (stride != 16 && stride != 32) { bad++; continue; }
+        /* v5 grows the note record to 16 B; v3/v4 keep 12 B */
+        if (memcmp(header, "FCH5", 4) == 0 ? rd16(header + 6) != 16
+                                          : rd16(header + 6) != 12) { bad++; continue; }
 
         if (notes > max_notes) { max_notes = notes; snprintf(who_notes, sizeof who_notes, "%s", ent->d_name); }
         if (bpms > max_bpms) { max_bpms = bpms; snprintf(who_bpms, sizeof who_bpms, "%s", ent->d_name); }
@@ -111,7 +116,7 @@ int main(int argc, char **argv)
     printf("  max sections %4lu  (limit %4u)  %s\n", max_sections, CHART_MAX_SECTIONS, who_sections);
     printf("  max events   %4lu  (limit %4u)  %s\n", max_events, CHART_MAX_EVENTS, who_events);
 
-    ck(bad == 0, "every .chart file in the directory is a readable FCH3/FCH4");
+    ck(bad == 0, "every .chart file in the directory is a readable FCH3/FCH4/FCH5");
     ck(files > 0, "at least one chart was scanned");
     ck(fails == 0, "no chart exceeds any loader limit");
 

@@ -68,18 +68,54 @@ def musicas():
     return ids
 
 
+def formato_atual():
+    """O formato que esta' instalado nos assets do harness, ou "" se nao se sabe.
+
+    Sem isto, trocar FNF_SWEEP_FMT entre dois passes nao mudava nada: o
+    `destino` ja' existia e o script reaproveitava o chart do passe anterior,
+    entao o "passe v3" rodava v5 (ou o contrario) sem ninguem ver. O marcador
+    fica no diretorio de assets e e' escrito pelo caminho que de fato grava.
+    """
+    try:
+        with open(os.path.join(RAIZ, ".formato"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+MAGIC = {"v3": b"FCH3", "v4": b"FCH4", "v5": b"FCH5"}
+
+
+def magia(caminho):
+    """O fourcc do chart no disco, ou b"" se ele nao existe/nao abre."""
+    try:
+        with open(caminho, "rb") as f:
+            return f.read(4)
+    except OSError:
+        return b""
+
+
 def chart(assets, sid, diff, forcar):
     """Converte o chart dessa musica/dificuldade, ou reaproveita o ja' feito."""
     destino = os.path.join(RAIZ, "songs", sid, diff + ".chart")
-    if os.path.isfile(destino) and not forcar:
-        return 0
     # FORMATO: por padrao v3, que e' o container que o console ja' provou. v4
     # e' necessario para os eventos que carregam TEXTO (PlayAnimation: o nome da
     # animacao): o v3 tem um u32 por evento e o nome se perde, entao no v3 o
     # port nao tem como saber que animacao tocar. FNF_SWEEP_FMT=v4 gera os
     # mesmos charts no container novo, e o sweep roda um passe nos dois.
+    # FNF_SWEEP_FMT=v5 e' o v4 mais o NOTE KIND por nota (o `k` do JSON), que e'
+    # o que faz `noanim` e `non_scoreable` chegarem ao jogo.
     fmt = os.environ.get("FNF_SWEEP_FMT", "v3")
+    if formato_atual() != fmt:
+        forcar = True
+    # O marcador sozinho nao basta: um diretorio reaproveitado de outro passe
+    # pode ter charts de outro formato com o marcador certo. O fourcc no proprio
+    # arquivo e' a verdade, e um chart no formato errado e' reescrito.
+    if not forcar and magia(destino) == MAGIC[fmt]:
+        return 0
     pronto = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
+    if os.path.isfile(pronto) and magia(pronto) != MAGIC[fmt]:
+        os.unlink(pronto)
     if os.path.isfile(pronto):
         with open(pronto, "rb") as f:
             dados = f.read()
@@ -91,7 +127,7 @@ def chart(assets, sid, diff, forcar):
         tmp = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
         r = subprocess.run([sys.executable, os.path.join(HERE, "fnf_to_fch3.py")]
-                           + (["--v3"] if fmt == "v3" else ["--format", "v4"])
+                           + (["--v3"] if fmt == "v3" else ["--format", fmt])
                            + ["--metadata", meta, "--chart", fonte,
                             "--difficulty", diff, "-o", tmp],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -102,6 +138,8 @@ def chart(assets, sid, diff, forcar):
     os.makedirs(os.path.dirname(destino), exist_ok=True)
     with open(destino, "wb") as f:
         f.write(dados)
+    with open(os.path.join(RAIZ, ".formato"), "w", encoding="utf-8") as f:
+        f.write(fmt)
     return 0
 
 

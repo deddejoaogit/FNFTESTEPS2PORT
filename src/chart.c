@@ -26,7 +26,12 @@
 /* v3 events are 16 B, v4 events are 32 B. The buffer holds the worst case. */
 #define CHART_EVENT_STRIDE_V3 16u
 #define CHART_EVENT_STRIDE_V4 32u
-#define CHART_MAX_PAYLOAD (CHART_MAX_NOTES*12u+CHART_MAX_BPMS*16u+CHART_MAX_SECTIONS*8u+CHART_MAX_EVENTS*CHART_EVENT_STRIDE_V4)
+/* v3/v4 notes are 12 B; v5 grows them to 16 B so a note can carry its note
+   kind (the chart JSON's `k`). The payload buffer is sized for the worst case,
+   v5, so one loader serves all three. */
+#define CHART_NOTE_STRIDE 12u
+#define CHART_NOTE_STRIDE_V5 16u
+#define CHART_MAX_PAYLOAD (CHART_MAX_NOTES*CHART_NOTE_STRIDE_V5+CHART_MAX_BPMS*16u+CHART_MAX_SECTIONS*8u+CHART_MAX_EVENTS*CHART_EVENT_STRIDE_V4)
 
 typedef struct { u32 start_step,start_sample,samples_per_step,bpm; } chart_bpm_t;
 static unsigned char chart_payload[CHART_MAX_PAYLOAD] __attribute__((aligned(16)));
@@ -67,30 +72,31 @@ static u32 string_bytes_of(const unsigned char*base,u32 count,u32 limit){
 static int read_exact(int fd,unsigned char *dst,u32 bytes){u32 done=0;while(done<bytes){int n=read(fd,dst+done,(int)(bytes-done));if(n<=0)return -1;done+=(u32)n;}return 0;}
 
 int chart_load(const char *path,chart_info_t *out){
- unsigned char header[CHART_HEADER_BYTES_V4];u32 notes,bpms,sections,events,end,payload_bytes,tail_bytes,checksum,off,i,version,ev_stride,header_bytes,string_count,block_count,cursor,k;int fd,file_bytes;
- static const char magic3[4]={'F','C','H','3'},magic4[4]={'F','C','H','4'};
+ unsigned char header[CHART_HEADER_BYTES_V4];u32 notes,bpms,sections,events,end,payload_bytes,tail_bytes,checksum,off,i,version,ev_stride,note_stride,header_bytes,string_count,block_count,cursor,k;int fd,file_bytes;
+ static const char magic3[4]={'F','C','H','3'},magic4[4]={'F','C','H','4'},magic5[4]={'F','C','H','5'};
  memset(&chart_info,0,sizeof(chart_info));
  fd=open(path,O_RDONLY);if(fd<0)return -1;
  file_bytes=(int)lseek(fd,0,SEEK_END);if(file_bytes<(int)CHART_HEADER_BYTES_V3||lseek(fd,0,SEEK_SET)<0){close(fd);return -2;}
  /* The first 28 bytes mean the same thing in both versions, so the magic picks
     the version and the strides and header size follow from it. */
  if(read_exact(fd,header,CHART_HEADER_BYTES_V3)<0){close(fd);return -3;}
- if(!memcmp(header,magic3,4)){version=3u;ev_stride=CHART_EVENT_STRIDE_V3;header_bytes=CHART_HEADER_BYTES_V3;}
- else if(!memcmp(header,magic4,4)){version=4u;ev_stride=CHART_EVENT_STRIDE_V4;header_bytes=CHART_HEADER_BYTES_V4;}
+ if(!memcmp(header,magic3,4)){version=3u;ev_stride=CHART_EVENT_STRIDE_V3;note_stride=CHART_NOTE_STRIDE;header_bytes=CHART_HEADER_BYTES_V3;}
+ else if(!memcmp(header,magic4,4)){version=4u;ev_stride=CHART_EVENT_STRIDE_V4;note_stride=CHART_NOTE_STRIDE;header_bytes=CHART_HEADER_BYTES_V4;}
+ else if(!memcmp(header,magic5,4)){version=5u;ev_stride=CHART_EVENT_STRIDE_V4;note_stride=CHART_NOTE_STRIDE_V5;header_bytes=CHART_HEADER_BYTES_V4;}
  else{close(fd);return -4;}
  if(header_bytes>CHART_HEADER_BYTES_V3){if(read_exact(fd,header+CHART_HEADER_BYTES_V3,header_bytes-CHART_HEADER_BYTES_V3)<0){close(fd);return -3;}}
  /* v4's flags word says which tables are present (bit 0 strings, bit 1 blocks);
     any other bit set is a version this loader does not know. */
- if(chart_u16(header+4)!=version||chart_u16(header+6)!=12u||chart_u16(header+20)!=16u||chart_u16(header+22)!=8u||chart_u16(header+24)!=ev_stride||chart_u16(header+26)!=0u||(version==4u&&(chart_u16(header+18)&~(u16)3u))||(version==3u&&chart_u16(header+18)!=0u)){close(fd);return -4;}
+ if(chart_u16(header+4)!=version||chart_u16(header+6)!=note_stride||chart_u16(header+20)!=16u||chart_u16(header+22)!=8u||chart_u16(header+24)!=ev_stride||chart_u16(header+26)!=0u||((version==4u||version==5u)&&(chart_u16(header+18)&~(u16)3u))||(version==3u&&chart_u16(header+18)!=0u)){close(fd);return -4;}
  if(version==3u&&chart_u32(header+36)!=0u){close(fd);return -4;}
  notes=chart_u32(header+8);bpms=chart_u16(header+12);sections=chart_u16(header+14);events=chart_u16(header+16);checksum=chart_u32(header+28);end=chart_u32(header+32);
  if(!notes||notes>CHART_MAX_NOTES||!bpms||bpms>CHART_MAX_BPMS||!sections||sections>CHART_MAX_SECTIONS||events>CHART_MAX_EVENTS||!end){close(fd);return -5;}
  string_count=0u;block_count=0u;
- if(version==4u){
+ if(version>=4u){
   string_count=chart_u32(header+36);block_count=chart_u32(header+44);
   if(string_count>CHART_MAX_STRINGS||block_count>CHART_MAX_STRINGS){close(fd);return -5;}
  }
- payload_bytes=notes*12u+bpms*16u+sections*8u+events*ev_stride;
+ payload_bytes=notes*note_stride+bpms*16u+sections*8u+events*ev_stride;
  if(payload_bytes>CHART_MAX_PAYLOAD){close(fd);return -5;}
  if((u32)file_bytes<(u32)(header_bytes+payload_bytes)){close(fd);return -6;}
  tail_bytes=(u32)file_bytes-header_bytes-payload_bytes;
@@ -102,7 +108,7 @@ int chart_load(const char *path,chart_info_t *out){
  {u32 h=chart_fnv1a(chart_payload,payload_bytes);
   if(tail_bytes)h=chart_fnv1a_more(chart_tables,tail_bytes,h);
   if(h!=checksum)return -8;}
- if(version==4u&&tail_bytes){
+ if(version>=4u&&tail_bytes){
   /* string table: string_count u32 offsets into the data that follows them */
   const unsigned char*base=chart_tables;u32 data_start=string_count*4u;
   if(string_count*4u>tail_bytes)return -15;
@@ -128,8 +134,15 @@ int chart_load(const char *path,chart_info_t *out){
    }}
   if(cursor!=tail_bytes)return -15;
  }
- for(i=0;i<notes;i++){const unsigned char*r=chart_payload+i*12u;u32 sample=chart_u32(r),duration=chart_u32(r+4);if(r[8]>3||r[9]>1||chart_u16(r+10)!=i||sample>end||duration>end-sample||(i&&sample<chart_u32(chart_payload+(i-1u)*12u)))return -9;}
- off=notes*12u;
+ for(i=0;i<notes;i++){
+  const unsigned char*r=chart_payload+i*note_stride;u32 sample=chart_u32(r),duration=chart_u32(r+4);
+  if(r[8]>3||r[9]>1||sample>end||duration>end-sample||(i&&sample<chart_u32(chart_payload+(i-1u)*note_stride)))return -9;
+  /* v5 puts the note kind at +10 and the order word at +12; v3/v4 keep the
+     12-byte record with the order at +10. */
+  if(version==5u){if(chart_u32(r+12)!=i)return -9;if(chart_u16(r+10)!=CHART_KIND_NONE&&chart_u16(r+10)>=string_count)return -15;}
+  else if(chart_u16(r+10)!=i)return -9;
+ }
+ off=notes*note_stride;
  for(i=0;i<bpms;i++){const unsigned char*r=chart_payload+off+i*16u;chart_bpm_t*b=&chart_bpms[i];b->start_step=chart_u32(r);b->start_sample=chart_u32(r+4);b->samples_per_step=chart_u32(r+8);b->bpm=chart_u32(r+12);if(!b->samples_per_step||!b->bpm||b->start_sample>end||(i&&(b->start_step<=chart_bpms[i-1].start_step||b->start_sample<=chart_bpms[i-1].start_sample)))return -10;}
  if(chart_bpms[0].start_step||chart_bpms[0].start_sample)return -11;
  off+=bpms*16u;
@@ -144,8 +157,8 @@ int chart_load(const char *path,chart_info_t *out){
   else{e->p0=chart_u32(r+8);e->p1=chart_u32(r+12);e->p2=chart_u32(r+16);e->a=chart_u32(r+20);e->b=chart_u32(r+24);e->ref=chart_u32(r+28);}
   if(!e->type||e->sample>end||(i&&e->sample<chart_events[i-1].sample))return -14;
   if(version==3u&&e->order!=i)return -14;
-  if(version==4u&&(e->b&CHART_B_REF_IS_STRING)&&e->ref>=string_count)return -15;
-  if(version==4u&&(e->b&CHART_B_REF_IS_BLOCK)&&e->ref>=block_count)return -15;
+  if(version>=4u&&(e->b&CHART_B_REF_IS_STRING)&&e->ref>=string_count)return -15;
+  if(version>=4u&&(e->b&CHART_B_REF_IS_BLOCK)&&e->ref>=block_count)return -15;
  }
  chart_info.note_count=notes;chart_info.bpm_count=bpms;chart_info.section_count=sections;chart_info.event_count=events;chart_info.song_end_sample=end;chart_info.checksum=checksum;chart_info.initial_bpm=chart_bpms[0].bpm;
  chart_info.version=version;chart_info.string_count=string_count;chart_info.block_count=block_count;
@@ -156,12 +169,26 @@ int chart_load(const char *path,chart_info_t *out){
 /* v4's string and block tables. Both accessors return 0 for a v3 file, which
    has no tables, and for an out-of-range index. */
 const char *chart_event_string(u32 index){
- if(chart_info.version!=4u||index>=chart_info.string_count)return 0;
+ if(chart_info.version<4u||index>=chart_info.string_count)return 0;
  return chart_strings[index];
 }
 
+/* v5's note kinds use the same string table as the event names, so this is a
+   thin wrapper that also spells out the "no kind" answer. */
+const char *chart_note_kind_name(u16 kind){
+ if(kind==CHART_KIND_NONE)return 0;
+ return chart_event_string(kind);
+}
+
+int chart_note_kind_is(u16 kind,const char *name){
+ const char *k;
+ if(!name||kind==CHART_KIND_NONE)return 0;
+ k=chart_note_kind_name(kind);
+ return k&&strcmp(k,name)==0;
+}
+
 const unsigned char *chart_event_block(u32 index,u32 *length){
- if(chart_info.version!=4u||index>=chart_info.block_count)return 0;
+ if(chart_info.version<4u||index>=chart_info.block_count)return 0;
  if(length)*length=chart_block_lengths[index];
  return chart_tables+chart_block_offsets[index];
 }
@@ -169,11 +196,22 @@ const unsigned char *chart_event_block(u32 index,u32 *length){
 int chart_note(u32 index,chart_note_t*out){
  const unsigned char*r;
  if(!out||index>=chart_info.note_count)return -1;
- r=chart_payload+index*12u;
+ if(chart_info.version==5u){
+  r=chart_payload+index*CHART_NOTE_STRIDE_V5;
+  out->sample=chart_u32(r);
+  out->duration=chart_u32(r+4);
+  out->lane=r[8];
+  out->must_press=r[9];
+  out->kind=chart_u16(r+10);
+  out->order=chart_u16(r+12);
+  return 0;
+ }
+ r=chart_payload+index*CHART_NOTE_STRIDE;
  out->sample=chart_u32(r);
  out->duration=chart_u32(r+4);
  out->lane=r[8];
  out->must_press=r[9];
+ out->kind=CHART_KIND_NONE;
  out->order=chart_u16(r+10);
  return 0;
 }

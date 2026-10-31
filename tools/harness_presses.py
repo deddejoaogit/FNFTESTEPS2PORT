@@ -39,16 +39,19 @@ import struct
 import sys
 
 NOTES_STRIDE = 12
+# v5 grows the note record to 16 B (it carries the note-kind string index).
+NOTES_STRIDE_V5 = 16
 LANES = ["LEFT", "DOWN", "UP", "RIGHT"]  # g_receptor_x ordem do port
 
 
 def read_chart(path):
-    """Le o cabecalho e as notas de um .chart FCH3/FCH4 do port."""
+    """Le o cabecalho e as notas de um .chart FCH3/FCH4/FCH5 do port."""
     with open(path, "rb") as f:
         data = f.read()
     magic = data[:4]
-    if magic not in (b"FCH3", b"FCH4"):
-        raise SystemExit(f"{path}: nao e' um chart FCH3/FCH4 ({magic!r})")
+    if magic not in (b"FCH3", b"FCH4", b"FCH5"):
+        raise SystemExit(f"{path}: nao e' um chart FCH3/FCH4/FCH5 ({magic!r})")
+    stride = NOTES_STRIDE_V5 if magic == b"FCH5" else NOTES_STRIDE
     version = struct.unpack_from("<H", data, 4)[0]
     notes = struct.unpack_from("<I", data, 8)[0]
     bpms = struct.unpack_from("<H", data, 12)[0]
@@ -61,16 +64,18 @@ def read_chart(path):
     out = []
     off = header
     for i in range(notes):
-        rec = data[off + i * NOTES_STRIDE: off + (i + 1) * NOTES_STRIDE]
-        if len(rec) < NOTES_STRIDE:
+        rec = data[off + i * stride: off + (i + 1) * stride]
+        if len(rec) < stride:
             raise SystemExit(f"{path}: nota {i} truncada")
         sample, duration = struct.unpack_from("<II", rec, 0)
         lane, must_press = rec[8], rec[9]
-        order = struct.unpack_from("<H", rec, 10)[0]
+        # v5 moves the order word to +12 because +10 is the kind index
+        order = struct.unpack_from("<I" if stride == NOTES_STRIDE_V5 else "<H",
+                                   rec, 12 if stride == NOTES_STRIDE_V5 else 10)[0]
         if order != i or lane > 3 or must_press > 1:
             raise SystemExit(f"{path}: nota {i} invalida (order {order}, lane {lane})")
         out.append((sample, duration, lane, must_press))
-    spb = struct.unpack_from("<I", data, off + notes * 12 + 8)[0]
+    spb = struct.unpack_from("<I", data, off + notes * stride + 8)[0]
     return out, end, spb, bpms, sections, events
 
 

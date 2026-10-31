@@ -19,7 +19,7 @@ typedef struct {
     u32 song_end_sample;
     u32 checksum;
     u32 initial_bpm;
-    u32 version;         /* 3 or 4 */
+    u32 version;         /* 3, 4 or 5 (5 = 4 plus a note kind per note) */
     u32 string_count;    /* v4 only, 0 for v3 */
     u32 block_count;     /* v4 only, 0 for v3 */
 } chart_info_t;
@@ -88,8 +88,28 @@ typedef struct {
     u32 duration;
     u8 lane;
     u8 must_press;
+    /* FCH5: index into the string table of this note's note kind (`k` in the
+       chart JSON), or CHART_KIND_NONE. FCH3/FCH4 notes always come back with
+       CHART_KIND_NONE, because those formats have nowhere to put it. */
+    u16 kind;
     u16 order;
 } chart_note_t;
+
+/* "This note has no note kind" -- the ordinary note. The value cannot be a
+   valid string index: CHART_MAX_STRINGS is 64. */
+#define CHART_KIND_NONE 0xFFFFu
+
+/* The note kind's name, or NULL for CHART_KIND_NONE and for v3/v4 charts. The
+   string lives in the loader's static table, so it is valid until the next
+   chart_load(). */
+const char *chart_note_kind_name(u16 kind);
+
+/* 1 when this note's kind is exactly `name`. The comparison lives here, next to
+   the string table, so the game code never has to know where the name came
+   from -- and so a test can prove "noanim" is matched and "mom" is not without
+   linking main.c. Returns 0 for CHART_KIND_NONE, for a NULL name, and for v3/v4
+   charts. */
+int chart_note_kind_is(u16 kind,const char *name);
 
 int chart_load(const char *path, chart_info_t *info);
 

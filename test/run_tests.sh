@@ -287,11 +287,12 @@ echo
 # REAL loader, so the two halves of the pipeline are checked against each
 # other and against the game's own data.
 #
-# Both formats are built and both are loaded: v3 is what the PS2 already runs,
-# v4 is the lossless one. If they ever disagree about a chart, that is a bug in
-# one of them.
-echo "== real charts -> FCH3 and FCH4 -> real loader =="
-mkdir -p build/charts build/charts-v3
+# All three formats are built and all three are loaded. v3 is what the PS2
+# already runs, v4 is the lossless event format, and v5 (the converter's
+# default) adds the note kind per note. If two of them ever disagree about a
+# chart, that is a bug in one of them.
+echo "== real charts -> FCH5 (default), FCH4 and FCH3 -> real loader =="
+mkdir -p build/charts build/charts-v4 build/charts-v3
 for f in assets-data/charts/*-chart.json; do
     sid=$(basename "$f" -chart.json)
     for diff in easy normal hard; do
@@ -299,6 +300,10 @@ for f in assets-data/charts/*-chart.json; do
             --metadata "assets-data/songs/$sid-metadata.json" \
             --chart "$f" \
             --difficulty "$diff" -o "build/charts/$sid-$diff.chart" >/dev/null
+        python3 tools/fnf_to_fch3.py --format v4 \
+            --metadata "assets-data/songs/$sid-metadata.json" \
+            --chart "$f" \
+            --difficulty "$diff" -o "build/charts-v4/$sid-$diff.chart" >/dev/null
         python3 tools/fnf_to_fch3.py --v3 \
             --metadata "assets-data/songs/$sid-metadata.json" \
             --chart "$f" \
@@ -306,13 +311,44 @@ for f in assets-data/charts/*-chart.json; do
     done
 done
 
-echo "-- FCH4 --"
+echo "-- FCH5 (converter default) --"
 $CC $FLAGS test/test_chart_limits.c src/chart.c src/engine/song_registry.c -o /tmp/fnf_test_chart_limits
 /tmp/fnf_test_chart_limits build/charts
 echo
 
+echo "-- FCH4 (the event format before the note kinds) --"
+/tmp/fnf_test_chart_limits build/charts-v4
+echo
+
 echo "-- FCH3 (must stay byte-identical to what the PS2 already loads) --"
 /tmp/fnf_test_chart_limits build/charts-v3
+echo
+
+# `k` used to be dropped by the converter. Now it travels JSON -> FCH5 -> the
+# loader, checked note by note against the count in the JSON itself.
+echo "== note kinds (\`k\`): JSON -> FCH5 -> loader =="
+$CC $FLAGS test/test_note_kinds.c src/chart.c src/engine/song_registry.c \
+    -o /tmp/fnf_test_note_kinds
+nk=0
+for pair in "spookeez:easy:noanim" "spaghetti:easy:non_scoreable" "cocoa:easy:mom" \
+            "blazin:easy:weekend-1-taunt" "2hot:easy:weekend-1-firegun"; do
+    sid=${pair%%:*}; rest=${pair#*:}; diff=${rest%%:*}; kind=${rest#*:}
+    want=$(python3 -c "
+import json
+d = json.load(open('assets-data/charts/$sid-chart.json'))
+print(sum(1 for n in d['notes'].get('$diff', []) if n.get('k') == '$kind'))")
+    if ! /tmp/fnf_test_note_kinds "build/charts/$sid-$diff.chart" "$kind" "$want"; then
+        echo "  FAIL: $sid/$diff kind $kind (expected $want)"
+        exit 1
+    fi
+    nk=$((nk+1))
+done
+# A chart with no `k` anywhere must come back with "no kind" on every note: the
+# absence of a kind is a state, not an empty string.
+/tmp/fnf_test_note_kinds build/charts/tutorial-easy.chart --all-none 0 || exit 1
+# The old formats have nowhere to put a kind, so they must answer "none" too.
+/tmp/fnf_test_note_kinds build/charts-v4/spookeez-easy.chart --all-none 0 || exit 1
+echo "  $nk chart(s) with kinds + 2 without: all correct"
 echo
 
 # FCH4 must carry every parameter of every event; v3 could not. This is the
@@ -341,7 +377,7 @@ $CC $FLAGS test/test_chart_paths.c src/chart.c src/engine/song_registry.c \
 /tmp/fnf_test_chart_paths
 echo
 
-for dir in build/charts build/charts-v3; do
+for dir in build/charts build/charts-v4 build/charts-v3; do
     n=0
     for f in $dir/*.chart; do
         base=$(basename "$f" .chart)
@@ -550,6 +586,24 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -4 /tmp/fnf_sweep.log
+
+    # FCH5: o NOTE KIND (`k`) do JSON tem de chegar ao runtime. O passe
+    # principal roda v3 (o container provado no console), onde o campo nao
+    # existe; este passe roda o mesmo jogo nos charts que TEM kinds, no
+    # formato v5, e cobra do log o numero exato de notas com kind do JSON.
+    echo
+    echo "== sweep v5: note kinds do JSON chegam ao jogo =="
+    if ! FNF_SWEEP_FMT=v5 sh tools/run_sweep_harness.sh 1200 \
+            spookeez,spaghetti,cocoa,blazin,2hot,ugh,stress \
+            > /tmp/fnf_sweep_v5.log 2>&1; then
+        grep -E "FALHA|falharam" /tmp/fnf_sweep_v5.log | head -20
+        echo "  FALHA: o passe v5 dos note kinds nao passou"
+        exit 1
+    fi
+    tail -4 /tmp/fnf_sweep_v5.log
+    # O passe v5 deixa os charts do harness em FCH5; o Teste de Story e o de
+    # sanitizadores abaixo esperam o v3 que o console roda. Volta o formato.
+    FNF_SWEEP_FMT=v3 python3 tools/preparar_sweep.py --forcar >/dev/null || exit 1
 
     # STORY MODE: uma SEMANA INTEIRA. Antes o Story Menu so' tocava a musica 0
     # de cada semana e voltava ao menu -- 20 das 27 musicas existiam e nunca
