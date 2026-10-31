@@ -53,6 +53,17 @@
 #define CHART_FOCUS_MODE_TWEEN   2
 #define CHART_FOCUS_DEFAULT_DURATION 4.0f   /* FocusCameraSongEvent L63 */
 
+/* `b` bit 24: the chart carried no `duration`. Every one of these event classes
+   declares `var duration:Float = 4.0` and only tweens when the value is `> 0`,
+   so ABSENT (4 steps) and an explicit 0 (instant) are different things. Measured
+   over the 81 charts: 520 FocusCamera events have no duration (all of them
+   CLASSIC, where the duration is unused), 144 have one, 11 tween -- and exactly
+   ONE ZoomCamera event has no duration (2hot, and it is INSTANT, so again
+   unused). So this bit changes nothing in the current data; it exists so the
+   port stops treating "absent" as "instant", which is what it used to do. */
+#define CHART_B_DUR_ABSENT (1u << 24)
+#define CHART_EVENT_DEFAULT_DURATION 4.0f
+
 /* FocusCamera char values, FocusCameraSongEvent.hx. */
 #define CHART_FOCUS_STATIC (-1)
 #define CHART_FOCUS_BF       0

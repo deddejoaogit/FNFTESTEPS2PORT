@@ -111,16 +111,12 @@ def chart(assets, sid, diff, forcar):
     # O marcador sozinho nao basta: um diretorio reaproveitado de outro passe
     # pode ter charts de outro formato com o marcador certo. O fourcc no proprio
     # arquivo e' a verdade, e um chart no formato errado e' reescrito.
-    if not forcar and magia(destino) == MAGIC[fmt]:
-        return 0
     pronto = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
-    if os.path.isfile(pronto) and magia(pronto) != MAGIC[fmt]:
-        os.unlink(pronto)
-    # O conversor mudou depois que o chart foi gerado? Entao o chart esta'
-    # velho, mesmo que o fourcc esteja certo. Aconteceu: um bit novo no campo
-    # `b` (ease ausente) entrou no fnf_to_fch3.py, o sweep reaproveitou os
-    # charts de build/charts-v5 e o jogo continuou lendo o que o conversor
-    # antigo escreveu -- o teste do modulo passava e o harness nao.
+    # A INVALIDACAO VEM ANTES DO "ja' esta' pronto". Ela estava DEPOIS, depois
+    # de um `return 0` quando o chart de destino tinha o fourcc certo -- ou seja,
+    # com o destino no lugar ela nunca rodava, e um chart gerado pelo conversor
+    # de antes era reaproveitado para sempre. Foi assim que um bit novo no campo
+    # `b` passou despercebido: o teste do modulo via o bit, o harness nao.
     if os.path.isfile(pronto):
         fonte_conversor = os.path.join(HERE, "fnf_to_fch3.py")
         try:
@@ -128,6 +124,15 @@ def chart(assets, sid, diff, forcar):
                 os.unlink(pronto)
         except OSError:
             pass
+    if not forcar and magia(destino) == MAGIC[fmt] and os.path.isfile(pronto):
+        return 0
+    if os.path.isfile(pronto) and magia(pronto) != MAGIC[fmt]:
+        os.unlink(pronto)
+    # O conversor mudou depois que o chart foi gerado? Entao o chart esta'
+    # velho, mesmo que o fourcc esteja certo. Aconteceu: um bit novo no campo
+    # `b` (ease ausente) entrou no fnf_to_fch3.py, o sweep reaproveitou os
+    # charts de build/charts-v5 e o jogo continuou lendo o que o conversor
+    # antigo escreveu -- o teste do modulo passava e o harness nao.
     if os.path.isfile(pronto):
         with open(pronto, "rb") as f:
             dados = f.read()

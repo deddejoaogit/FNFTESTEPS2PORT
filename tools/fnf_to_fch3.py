@@ -124,6 +124,13 @@ B_REF_IS_BLOCK = 1 << 22
 # (FocusCamera 'CLASSIC', ZoomCamera/ScrollSpeed 'linear'), not whichever string
 # the table happened to intern first.
 B_EASE_ABSENT = 1 << 23
+# `b` bit 24: the chart carried no `duration`. The class default is 4 steps
+# (ZoomCameraSongEvent/ScrollSpeedSongEvent `var duration:Float = 4.0`), and
+# "absent" is not the same as "0" -- an explicit 0 means the camera/scroll
+# changes at once, while absent means a 4-step tween. Writing the default here
+# would be inventing a value in the file; the bit says exactly what the chart
+# said, and the port applies the class default itself.
+B_DUR_ABSENT = 1 << 24
 
 # value kinds in a parameter block
 BLOCK_FLOAT, BLOCK_INT, BLOCK_RGB, BLOCK_BOOL = 0, 1, 2, 3
@@ -464,6 +471,8 @@ def encode_event_v4(name, v, tables):
             b |= (tables.string(ease_name) & B_EASE_MASK) << B_EASE_SHIFT
         else:
             b |= B_EASE_ABSENT
+    if any(k == "duration" for k, _ in spec.get("p") or []) and "duration" not in d:
+        b |= B_DUR_ABSENT
     if spec.get("easeDir"):
         b |= small_id(EASEDIR_IDS, d.get("easeDir"), "easeDir") << B_EASEDIR_SHIFT
     if spec.get("force"):

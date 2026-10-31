@@ -286,7 +286,9 @@ void chart_events_apply(const chart_event_t *e)
                depends on the ease: FocusCameraSongEvent.hx L138-160. */
             const char *en = (e->b & CHART_B_EASE_ABSENT)
                              ? 0 : chart_event_string(e->b & CHART_B_EASE_MASK);
-            float dur = fx(e->p0);
+            /* Absent duration = 4 steps (FocusCameraSongEvent L63), not instant. */
+            float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
+                                                    : fx(e->p0);
             st.cam_char = (int)e->a;
             st.cam_x = fx(e->p1);
             st.cam_y = fx(e->p2);
@@ -306,15 +308,20 @@ void chart_events_apply(const chart_event_t *e)
             } else {
                 st.cam_mode = CHART_FOCUS_MODE_TWEEN;
                 st.cam_ease = chart_events_ease_id(en);
+                /* Tween de duracao ZERO leva a camera ao ponto no mesmo quadro:
+                   e' o mesmo que INSTANT, e nao um tween que nunca termina. */
+                if (dur <= 0.0f) st.cam_mode = CHART_FOCUS_MODE_INSTANT;
             }
-            if (dur <= 0.0f) dur = CHART_FOCUS_DEFAULT_DURATION;
+            if (dur < 0.0f) dur = 0.0f;
             st.cam_dur_s = steps_to_seconds(dur);
             st.cam_seq++;
             break;
         }
 
         case CHART_EV_ZOOM_CAMERA: {
-            float dur = fx(e->p0);
+            /* Absent duration = the class default (4 steps), NOT instant. */
+            float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
+                                                    : fx(e->p0);
             float zoom = fx(e->p1);
             /* mode 'stage' (a == 1) multiplies the stage's own zoom rather than
                replacing it, so 1.0 means "the stage's zoom". The port has one
@@ -337,7 +344,8 @@ void chart_events_apply(const chart_event_t *e)
         }
 
         case CHART_EV_SCROLL_SPEED: {
-            float dur = fx(e->p0);
+            float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
+                                                    : fx(e->p0);
             float scroll = fx(e->p1);
             /* absolute false means scroll * the chart's own scrollSpeed. The
                chart's value is what chart_events_reset was given. */

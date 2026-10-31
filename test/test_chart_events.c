@@ -317,6 +317,47 @@ int main(void)
         ok(tween_seen && instant_seen, "spaghetti has both a tween and an INSTANT focus");
     }
 
+    /* ---- Zoom/Scroll sem `duration`: o padrao da CLASSE (4 passos) ------
+       ZoomCameraSongEvent e ScrollSpeedSongEvent declaram
+       `var duration:Float = 4.0` e so' fazem tween quando duration > 0. Entao
+       "nao veio duration" e "duration = 0" sao coisas diferentes: o primeiro
+       anda 4 passos, o segundo salta no mesmo quadro. O bit B_DUR_ABSENT diz
+       qual e' qual -- sem ele o port tratava os dois como "salta".
+       Medido nos 81 charts: nenhum evento depende disso hoje (o unico
+       ZoomCamera sem duration e' INSTANT), por isso a prova e' aqui. */
+    chart_events_init(7200u);              /* 150 ms por passo (bpm 100) */
+    chart_events_reset(1.1f, 1.0f);
+    {
+        chart_event_t ev;
+        memset(&ev, 0, sizeof ev);
+        ev.sample = 0;
+        ev.type = CHART_EV_ZOOM_CAMERA;
+        ev.b = CHART_B_EASE_ABSENT | CHART_B_DUR_ABSENT;
+        ev.p1 = (u32)1100u;                /* zoom 1,1 */
+        chart_events_apply(&ev);
+        s = chart_events_state();
+        near(s->zoom_dur_s, 0.6f, "no duration -> 4 steps = 0.6 s");
+        ok(s->zoom_t < 1.0f, "no duration -> it TWEEENS, it does not jump");
+
+        memset(&ev, 0, sizeof ev);
+        ev.type = CHART_EV_ZOOM_CAMERA;
+        ev.b = CHART_B_EASE_ABSENT;        /* duration = 0 explicito */
+        ev.p1 = (u32)2000u;
+        chart_events_apply(&ev);
+        s = chart_events_state();
+        near(s->zoom_dur_s, 0.0f, "duration 0 -> 0 s");
+        near(s->zoom_t, 1.0f, "duration 0 -> lands in the same frame");
+
+        memset(&ev, 0, sizeof ev);
+        ev.type = CHART_EV_SCROLL_SPEED;
+        ev.b = CHART_B_EASE_ABSENT | CHART_B_DUR_ABSENT | CHART_B_ABSOLUTE;
+        ev.p1 = (u32)1300u;
+        chart_events_apply(&ev);
+        s = chart_events_state();
+        near(s->scroll_dur_s, 0.6f, "scroll: no duration -> 4 steps too");
+        ok(s->scroll_t < 1.0f, "scroll: no duration tweens");
+    }
+
     load(SPAGHETTI);
     chart_events_reset(1.1f, 1.0f);
     {

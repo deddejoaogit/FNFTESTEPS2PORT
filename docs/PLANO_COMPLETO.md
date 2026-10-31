@@ -1950,3 +1950,36 @@ console desenhe o `.chp4` de verdade (`char_tamanho`/`char_escala` são o númer
 que se confere na captura) e que o `.chp4` do caminho Animate saia com as
 animações certas nos 34 personagens — ele foi exercitado só no caminho
 sparrow/packer com arte sintética; os 34 dependem do clone da arte.
+
+## Duração ausente em ZoomCamera/ScrollSpeed: 4 passos, não "instantâneo"
+
+**O defeito.** `ZoomCameraSongEvent` e `ScrollSpeedSongEvent` declaram
+`var duration:Float = 4.0` e só fazem tween quando `duration > 0`. O conversor
+gravava `duration` ausente como 0, e o port lia 0 como "muda no mesmo quadro".
+Ou seja: **ausente virava instantâneo**, o oposto do original.
+
+**A correção.** O campo `b` do evento ganhou o bit 24 (`B_DUR_ABSENT` no
+`tools/fnf_to_fch3.py`, `CHART_B_DUR_ABSENT` em `src/chart_events.h`). Ele diz
+exatamente o que o chart disse — não grava um valor que o chart não tinha — e o
+port aplica o padrão da classe (`CHART_EVENT_DEFAULT_DURATION` 4,0 passos), que
+passa por `steps_to_seconds()` com o `stepLengthMs` da seção. Um `duration: 0`
+explícito continua significando "no mesmo quadro", e um tween de duração zero em
+`FocusCamera` agora vira `INSTANT` (um `FlxTween` de 0 leva a câmera ao ponto no
+mesmo quadro, não fica pendurado para sempre).
+
+**Medido, e o resultado é desconfortável de propósito:** nos 81 charts isto muda
+**zero** eventos hoje. 520 eventos `FocusCamera` não têm `duration` e todos são
+CLASSIC (onde a duração não é usada); dos 207 `ZoomCamera`, exatamente **um** não
+tem `duration` (`2hot`, e é `INSTANT`); `ScrollSpeed` tem um único evento, e ele
+traz `duration`. Então a prova não pode vir do sweep — vem do teste:
+`test/test_chart_events.c` monta os dois casos de `ZoomCamera` (sem duração →
+`zoom_dur_s` 0,6 s e `zoom_t < 1`, ou seja, interpola; com `duration: 0` →
+`zoom_dur_s` 0 e `zoom_t == 1`, ou seja, salta) e o mesmo para `ScrollSpeed`.
+São 120 conferências, 0 falhas, no lugar de 114.
+
+**E a armadilha que apareceu no caminho.** `tools/preparar_sweep.py` tinha
+invalidação por mtime do conversor, mas ela rodava **depois** de um
+`return 0` para "o chart de destino já está pronto" — ou seja, com o destino no
+lugar ela nunca rodava. Um chart gerado pelo conversor antigo era reaproveitado
+para sempre: o teste do módulo via o bit novo e o harness não. A invalidação
+passou para antes do atalho, e o atalho agora exige que o chart em cache exista.
