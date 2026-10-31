@@ -64,11 +64,16 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t);
 
 /* Preenche 'out' (ate' 'max') com os props VISIVEIS do palco, ordenados por
    zIndex crescente -- que e' a ordem de desenho do original. Devolve quantos
-   foram escritos, ou -1 se o palco nao existe. 'beat' escolhe danceLeft /
-   danceRight (paridade), como o danceEvery do Stage.hx: no original a troca
-   acontece a cada batida, e quem conta as batidas e' o chamador. */
+   foram escritos, ou -1 se o palco nao existe.
+
+   'step' e' o passo do chart (uma batida = 4 passos; negativo antes da
+   musica), 'beat_s' a duracao de UMA batida na secao de BPM vigente e 't' o
+   tempo de musica em segundos. E' com eles que sai a animacao de cada prop:
+   ver sl_escolhe_anim() em .c para as duas regras do Bopper.hx (danceEvery > 0
+   reinicia a cada danceEvery batidas; danceEvery == 0 toca so' o
+   startingAnimation do JSON, e nada sem ele). */
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
-               float bop, int beat, float t, sl_item_t *out, int max);
+               float bop, int step, float beat_s, float t, sl_item_t *out, int max);
 
 #ifdef __cplusplus
 }

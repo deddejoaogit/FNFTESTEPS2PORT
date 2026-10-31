@@ -1019,6 +1019,23 @@ static void palco_carregar(const char *stage)
     if (g_palco.n > PALCO_MAX_PROPS) g_palco.n = PALCO_MAX_PROPS;
     for (i = 0; i < g_palco.n; i++) g_palco.quadro[i] = -1;
     telemetry_event("palco_entra", si, g_palco.n);
+    /* PROPS QUE O JSON NAO MANDARIA ANIMAR: `danceEvery == 0` e sem
+       `startingAnimation`, mas com mais de um quadro. No original eles NAO
+       tocam nada por si: quem os anima e' um script de palco (phillyTraffic e'
+       um), e esse script nao esta' neste repositorio. O stage_layout os deixa
+       no primeiro quadro -- o que o dado diz -- e este evento e' o registro de
+       que ha' movimento faltando por dado, nao por esquecimento. */
+    {int congelados = 0, j;
+     for (j = 0; j < g_palco.n; j++) {
+         const bs_prop_t *p = &bs_props[g_palco.first + j];
+         if (p->dance == 0 && p->start < 0 && p->anim_count > 0 &&
+             bs_prop_anims[p->anim_first].count > 1) {
+             telemetry_event("prop_sem_inicio", g_palco.first + j, p->frames);
+             congelados++;
+         }
+     }
+     if (congelados) telemetry_event("palco_props_sem_inicio", congelados, si);
+    }
 }
 
 /* Abre o pacote do prop 'r' (indice relativo ao palco) na primeira vez que ele
@@ -1137,8 +1154,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, int novo_ui)
    foram para a tela. Se nada pode ser desenhado, *desenhados fica 0 e o
    chamador usa a textura composta do tutorial. */
 static qword_t *palco_draw(qword_t *q, const char *stage, float cam_x,
-                           float cam_y, float zoom, float bop, int beat,
-                           float t, int *desenhados)
+                           float cam_y, float zoom, float bop, int step,
+                           float beat_s, float t, int *desenhados)
 {
     sl_item_t it[SL_MAX_ITENS];
     int n, i, ok = 0;
@@ -1146,7 +1163,7 @@ static qword_t *palco_draw(qword_t *q, const char *stage, float cam_x,
     if (!stage) return q;
     if (g_palco.stage != stage) palco_carregar(stage);
     if (!g_palco.stage) return q;
-    n = sl_collect(stage, cam_x, cam_y, zoom, bop, beat, t, it, SL_MAX_ITENS);
+    n = sl_collect(stage, cam_x, cam_y, zoom, bop, step, beat_s, t, it, SL_MAX_ITENS);
     if (n <= 0) return q;
     for (i = 0; i < n; i++) {
         const bs_prop_t *p = &bs_props[it[i].prop];
@@ -3356,12 +3373,18 @@ float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_
       couber na VRAM, o tutorial desenha o palco como antes em vez de ficar sem
       fundo. O evento palco_falha diz qual prop falhou e por que. */
    {int pd=0;float st=(g_chart_clock<0?0.0f:(float)g_chart_clock/48000.0f);
-    int bt=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
+    /* O passo do chart (uma batida = 4 passos) e a duracao da batida na secao
+       de BPM vigente: sao eles que decidem a animacao de cada prop do palco
+       (Bopper.hx). Antes da musica o passo e' negativo de proposito -- e' a
+       janela em que vale o `startingAnimation` do prop. */
+    {s32 spv=(s32)(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP);
+     int bt=(int)(g_chart_clock/spv);
+     float bts=(float)(4.0f*(float)spv/48000.0f);
     /* O palco vem do REGISTRO da musica (src->stage), nao de um id escrito
        aqui. Hoje so' o mainStage tem pacote no pendrive; para os outros o
        palco_ui volta 0 props e o desenho cai na reserva -- o evento
        palco_entra/palco_draw diz qual palco foi tentado. */
-    q=palco_draw(q,g_play_song?g_play_song->stage:"mainStage",cx,cy,g_tut_zoom,g_tut_bop,bt,st,&pd);
+    q=palco_draw(q,g_play_song?g_play_song->stage:"mainStage",cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st,&pd);}
     if(!pd){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}}/* OPONENTE generico: quem a musica diz que e' (paper dad), o quadro que a
    char_cena diz que e', e a ancora que o slot dad do palco da'. Entra ANTES
    do BF e da GF porque, no original, o palco e' ordenado por zIndex e o

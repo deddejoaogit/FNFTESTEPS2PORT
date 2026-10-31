@@ -39,24 +39,77 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t)
     return f < n ? f : n - 1;
 }
 
-/* Qual animacao tocar. O original escolhe pelo NOME ("danceLeft"/"danceRight"
-   alternando a cada batida, "idle" quando o prop nao tem dance). Se o prop nao
-   tem nenhuma das duas, fica a primeira animacao do pacote -- que e' o que o
-   empacotador gravou primeiro e o que o sprite mostra parado. */
-static int sl_escolhe_anim(const bs_prop_t *p, int beat)
+/* Qual animacao tocar, e em que instante comecou -- Bopper.hx.
+
+   Sao dois regimes, e o dado separa os props exatamente assim:
+
+   `danceEvery > 0` (25 props com danceEvery 1, 2 com 2): `onStepHit` chama
+   `dance()` quando `step % (danceEvery * STEPS_PER_BEAT) == 0`, com
+   `forceRestart = shouldBop`, que nos props e' TRUE. Ou seja: a animacao
+   REINICIA a cada danceEvery batidas. Alterna `danceLeft`/`danceRight` quando
+   o prop tem as duas (`shouldAlternate = hasAnimation('danceLeft')`), senao
+   toca `idle`. O contador comeca em `hasDanced = false`, e a primeira chamada
+   (passo 0) toca `danceLeft`.
+
+   `danceEvery == 0` (132 props): `dance()` NUNCA e' chamado. O que toca e'
+   so' o `startingAnimation` do JSON (Stage.hx L308-311), em loop desde o
+   comeco da musica; sem `startingAnimation`, nada e' tocado e o sprite mostra
+   o PRIMEIRO quadro do atlas, parado. 107 dos props nessa situacao tem um
+   quadro so', logo a diferenca nao aparece neles; 7 tem varios quadros e sao
+   animados por script de palco do original (phillyTraffic e' um deles), script
+   que este repositorio nao tem -- por isso eles ficam parados e aparecem no
+   log como `prop_sem_inicio`, em vez de o port inventar um movimento que o
+   dado nao pede.
+
+   Antes desta build o port escolhia danceLeft/danceRight pela PARIDADE da
+   batida para todo prop, e calculava o quadro pelo tempo global: nenhuma
+   animacao reiniciava, entao as 25 de danceEvery 1 andavam fora de fase com o
+   resto da musica, e as 2 de danceEvery 2 trocavam de lado duas vezes mais
+   rapido que o original. */
+static int sl_escolhe_anim(const bs_prop_t *p, int step, float beat_s,
+                           float t, float *fase)
 {
-    int i, esq = -1, dir = -1;
+    int i, esq = -1, dir = -1, idle = -1;
+    int janela, resto, chamadas;
+
     for (i = 0; i < p->anim_count; i++) {
         const char *n = bs_prop_anims[p->anim_first + i].name;
         if (strcmp(n, "danceLeft") == 0) esq = i;
         else if (strcmp(n, "danceRight") == 0) dir = i;
+        else if (strcmp(n, "idle") == 0) idle = i;
     }
-    if (esq >= 0 && dir >= 0) return (beat & 1) ? dir : esq;
-    return 0;
+
+    /* Antes do passo 0 (contagem regressiva) vale o `startingAnimation`, que e'
+       o que o palco tocou ao ser construido. */
+    if (step < 0) {
+        *fase = t > 0.0f ? t : 0.0f;
+        return p->start >= 0 ? p->start : (idle >= 0 ? idle : 0);
+    }
+
+    if (p->dance > 0) {
+        janela = p->dance * 4;             /* STEPS_PER_BEAT = 4 */
+        resto = step % janela;
+        chamadas = step / janela;
+        /* Tempo dentro da janela: `beat_s` e' a duracao de UMA batida na
+           secao de BPM vigente, entao um passo e' beat_s/4. */
+        *fase = beat_s > 0.0f ? (float)resto * (beat_s * 0.25f) : 0.0f;
+        if (esq >= 0 && dir >= 0) return (chamadas & 1) ? dir : esq;
+        if (idle >= 0) return idle;
+        return 0;
+    }
+
+    /* Sem danca: o `startingAnimation`, em loop desde o inicio. Sem ele, o
+       primeiro quadro do atlas e nada mais. */
+    if (p->start < 0) {
+        *fase = 0.0f;
+        return idle >= 0 ? idle : 0;
+    }
+    *fase = t > 0.0f ? t : 0.0f;
+    return p->start;
 }
 
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
-               float bop, int beat, float t, sl_item_t *out, int max)
+               float bop, int step, float beat_s, float t, sl_item_t *out, int max)
 {
     const bs_stage_props_t *st;
     int si, i, n = 0, j;
@@ -76,7 +129,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         const bs_prop_t *p = &bs_props[st->first + i];
         sl_item_t *it = &out[n];
         int anim;
-        float x0, y0, w, h;
+        float fase, x0, y0, w, h;
 
         /* Formula do port (ver o cabecalho): o termo (640*f - 640) existe
            porque o scrollFactor menor que 1 desloca o prop em relacao ao
@@ -104,10 +157,10 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (x0 + w <= 0.0f || x0 >= SL_VIEW_W) continue;
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
 
-        anim = sl_escolhe_anim(p, beat);
+        anim = sl_escolhe_anim(p, step, beat_s, t, &fase);
         it->prop = st->first + i;
         it->anim = anim;
-        it->frame = sl_prop_frame(p, anim, t);
+        it->frame = sl_prop_frame(p, anim, fase);
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = p->sw; it->tex_h = p->sh;
         n++;

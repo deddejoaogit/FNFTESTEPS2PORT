@@ -1059,6 +1059,45 @@ gerador (`tools/gen_stage_dados.py`) passou a emitir `src_w/src_h` e o
 **O que ele não prova:** que o desenho acontece. Este módulo decide *o quê*,
 *onde* e *em que ordem*; quem desenha é o passo 4.
 
+#### Fechado: `danceEvery` e `startingAnimation` dos props (Bopper.hx)
+
+O `stage_layout` escolhia `danceLeft`/`danceRight` pela **paridade da batida**
+para todo prop, e calculava o quadro pelo tempo global. O `Bopper.hx` faz
+outra coisa, e o dado dos 157 props separa os casos com precisão:
+
+| `danceEvery` | props | o que o original faz | o que o port fazia |
+|---|---|---|---|
+| **1** | **25** | `dance()` a cada batida, com `forceRestart` (`shouldBop = true` nos props) e alternando `danceLeft`/`danceRight`; sem as duas, toca `idle` | alternava certo, mas **nunca reiniciava**: o quadro vinha do tempo global, então as 25 animações andavam fora de fase com a música |
+| **2** | **2** | idem a cada **duas** batidas | alternava/reiniciava a cada batida |
+| **0** | **130** | `dance()` **nunca** é chamado; toca só o `startingAnimation` do JSON (Stage.hx L308-311), em loop desde o início — **e nada sem ele** | animava a primeira animação de todo prop |
+
+Detalhes que o código agora segue, todos de `Bopper.hx`:
+
+- `onStepHit`: `danceEvery > 0 && step % (danceEvery * STEPS_PER_BEAT) == 0`,
+  com `STEPS_PER_BEAT = 4`; o passo 0 é a **primeira** chamada, e
+  `hasDanced` começa `false`, então o passo 0 toca `danceLeft`;
+- a fase do quadro é o tempo **desde a última chamada** (passos desde ela ×
+  `beat_s/4`), não o tempo global — é o que faz a animação reiniciar na batida;
+- antes do passo 0 (contagem regressiva) vale o `startingAnimation`, que é o
+  que o palco tocou ao ser construído.
+
+**Medido, e o que ficou faltando por dado:** dos 7 props que têm mais de um
+quadro e **nenhum** `startingAnimation` com `danceEvery == 0`, todos são
+animados por **script de palco** do original (`phillyCars`, `phillyCars2`,
+`phillyTraffic`, `lightning`) — scripts que este repositório não tem. Eles
+ficam no primeiro quadro, que é o que o dado manda, e o jogo grava
+`prop_sem_inicio` **por prop** e `palco_props_sem_inicio` **por palco** no log:
+medido no harness, `darnell`/`phillyStreets` reporta 3 (props 60, 61 e 62;
+`phillyTraffic` com 154 quadros). Movimento inventado seria pior que ausência
+declarada.
+
+O teste (`test/test_stage_layout.c`) agora prova a regra, e não a aparência:
+`limoDancer1` toca `danceLeft` no quadro 0 no passo 0, **`danceRight` no quadro
+0** no passo 4 (reiniciou) e `danceLeft` no passo 8; `bgLimo` (dance 0 com
+`startingAnimation`) anda com o tempo; `phillyTraffic` fica no quadro 0 aos
+10 s; `sniper` (`danceEvery 2`) está no quadro 0 no passo 8, no 9 no passo 11 e
+para no 14 (o `idle` dele tem 15 quadros e não é em loop).
+
 #### Fechado: orçamento de RAM do empacotador e conferência dos 21 palcos
 
 O empacotador só tinha orçamento de **VRAM**. O pacote CFZ4 de um palco, porém,

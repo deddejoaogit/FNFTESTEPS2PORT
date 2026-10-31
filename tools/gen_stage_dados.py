@@ -186,7 +186,8 @@ def render(plan):
     w.append("  float sx,sy;        /* scale, do JSON */")
     w.append("  float scrollx,scrolly;")
     w.append("  int z;              /* zIndex */")
-    w.append("  int dance;          /* danceEvery, 0 = nunca */")
+    w.append("  int dance;          /* danceEvery em batidas, 0 = nunca danca */")
+    w.append("  int start;          /* animacao inicial do JSON, -1 = o jogo nao diz */")
     w.append("  int frames;         /* quadros no pacote CFZ4 */")
     w.append("  int sw,sh;          /* tamanho de UM quadro, ja na escala do palco */")
     w.append("  int src_w,src_h;    /* tamanho do quadro no espaco do ORIGINAL (1280x720) */")
@@ -200,15 +201,28 @@ def render(plan):
     for st in plan["stages"]:
         sid = st["id"]
         first = len(rows)
+        # startingAnimation (Stage.hx L308-311): o prop so' toca algo no inicio
+        # se o JSON disser QUAL animacao. Guardar o INDICE dela aqui e' o que
+        # permite ao stage_layout mostrar a animacao certa em vez de assumir a
+        # primeira -- e -1 (ausente ou nome que nao existe no pacote) e' dado,
+        # nao um palpite.
+        sj = json.load(open(os.path.join(STAGES, sid + ".json")))
+        inicio = {}
+        for sp in sj.get("props") or []:
+            inicio[sp.get("name")] = sp.get("startingAnimation")
         for p in st["props"]:
             afirst = len(anims)
             for a in p["anims"]:
                 anims.append(a)
+            nomes = [a["name"] for a in p["anims"]]
+            sa = inicio.get(p["name"])
+            start = nomes.index(sa) if sa in nomes else -1
             rows.append({
                 "stage": sid, "name": p["name"], "tex": p["tex"],
                 "x": p["x"], "y": p["y"], "sx": p["sx"], "sy": p["sy"],
                 "scrollx": p["scrollx"], "scrolly": p["scrolly"],
-                "z": p["z"], "dance": p["dance"], "frames": p["frames"],
+                "z": p["z"], "dance": p["dance"], "start": start,
+                "frames": p["frames"],
                 "sw": p["sw"], "sh": p["sh"],
                 "src_w": p["src_w"], "src_h": p["src_h"],
                 "af": afirst, "ac": len(p["anims"]),
@@ -227,12 +241,12 @@ def render(plan):
     w.append("/* Todos os props, agrupados por palco. */")
     w.append("static const bs_prop_t bs_props[]={")
     for r in rows:
-        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d},'
+        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d},'
                  % (c_str(r["stage"]), c_str(r["name"]), c_str(r["tex"]),
                     c_float(r["x"]), c_float(r["y"]),
                     c_float(r["sx"]), c_float(r["sy"]),
                     c_float(r["scrollx"]), c_float(r["scrolly"]),
-                    r["z"], r["dance"], r["frames"], r["sw"], r["sh"],
+                    r["z"], r["dance"], r["start"], r["frames"], r["sw"], r["sh"],
                     r["src_w"], r["src_h"],
                     r["af"], r["ac"]))
     w.append("};")

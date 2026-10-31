@@ -19,6 +19,15 @@ static int falhas;
 #define CHECK_NEAR(a, b) do { double _a = (double)(a), _b = (double)(b); \
     if (_a < _b - 0.01 || _a > _b + 0.01) { printf("  FALHA: %s ~= %s: %.3f != %.3f (linha %d)\n", #a, #b, _a, _b, __LINE__); falhas++; } } while (0)
 
+/* O item coletado cujo prop tem este nome, ou NULL. */
+static const sl_item_t *item_por_nome(const sl_item_t *it, int n, const char *nome)
+{
+    int i;
+    for (i = 0; i < n; i++)
+        if (strcmp(bs_props[it[i].prop].name, nome) == 0) return &it[i];
+    return NULL;
+}
+
 int main(void)
 {
     int i, k;
@@ -69,7 +78,7 @@ int main(void)
            Os numeros estao escritos aqui a mao, e nao recalculados com a mesma
            formula do modulo: senao o teste concordaria com qualquer erro. */
         sl_item_t it[SL_MAX_ITENS];
-        int n = sl_collect("mainStage", 888.5f, 589.0f, 1.1f, 1.0f, 0, 0.0f, it, SL_MAX_ITENS);
+        int n = sl_collect("mainStage", 888.5f, 589.0f, 1.1f, 1.0f, 0, 0.5f, 0.0f, it, SL_MAX_ITENS);
         CHECK_EQ(n, 3);
         CHECK_EQ(it[0].prop, bs_stage_props[2].first);   /* zIndex 10 = fundo */
         CHECK(strcmp(bs_props[it[0].prop].name, "stageBack") == 0);
@@ -89,7 +98,7 @@ int main(void)
            teste e' so' de monotonia, e ele pega troca de sinal. */
         {
             sl_item_t zo[SL_MAX_ITENS];
-            int nz = sl_collect("mainStage", 888.5f, 589.0f, 1.2f, 1.0f, 0, 0.0f, zo, SL_MAX_ITENS);
+            int nz = sl_collect("mainStage", 888.5f, 589.0f, 1.2f, 1.0f, 0, 0.5f, 0.0f, zo, SL_MAX_ITENS);
             CHECK(nz > 0);
             CHECK(zo[0].w > it[0].w);
             CHECK(zo[0].x0 < it[0].x0);   /* cresce em torno do centro */
@@ -138,7 +147,7 @@ int main(void)
                 }
             }
             ch_anchor(&ch_chars[ch_find("bf")], slot, 496.920f, 490.920f, 8.0f, 1, &a);
-            n = sl_collect("school", a.cam_x, a.cam_y, 1.0f, 1.0f, 0, 0.0f, it, SL_MAX_ITENS);
+            n = sl_collect("school", a.cam_x, a.cam_y, 1.0f, 1.0f, 0, 0.5f, 0.0f, it, SL_MAX_ITENS);
             CHECK(n > 0);
             for (k2 = 0; k2 < n; k2++) {
                 const bs_prop_t *p = &bs_props[it[k2].prop];
@@ -157,7 +166,7 @@ int main(void)
     printf("== palcos: z crescente na ordem de desenho ==\n");
     for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
         sl_item_t it[SL_MAX_ITENS];
-        int n = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 0, 1.0f, it, SL_MAX_ITENS);
+        int n = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f, 1.0f, it, SL_MAX_ITENS);
         CHECK(n >= 0);
         for (k = 1; k < n; k++) CHECK(bs_props[it[k - 1].prop].z <= bs_props[it[k].prop].z);
     }
@@ -167,7 +176,7 @@ int main(void)
         /* fastCar do limoRide fica em x=-12600: nunca visivel, nunca deve sair
            deste laco. Em contrapartida o fundo do mesmo palco tem de aparecer. */
         sl_item_t it[SL_MAX_ITENS];
-        int n = sl_collect("limoRide", 1000.0f, 800.0f, 0.9f, 1.0f, 0, 0.0f, it, SL_MAX_ITENS);
+        int n = sl_collect("limoRide", 1000.0f, 800.0f, 0.9f, 1.0f, 0, 0.5f, 0.0f, it, SL_MAX_ITENS);
         int tem_fastcar = 0, tem_fundo = 0;
         CHECK(n > 0);
         for (k = 0; k < n; k++) {
@@ -178,7 +187,7 @@ int main(void)
         CHECK_EQ(tem_fastcar, 0);
         CHECK_EQ(tem_fundo, 1);
         /* E 'max' menor que o numero de props corta, nao estoura. */
-        CHECK_EQ(sl_collect("tankmanBattlefield", 1000.0f, 800.0f, 0.9f, 1.0f, 0, 0.0f, it, 1), 1);
+        CHECK_EQ(sl_collect("tankmanBattlefield", 1000.0f, 800.0f, 0.9f, 1.0f, 0, 0.5f, 0.0f, it, 1), 1);
     }
 
     printf("== palcos: animacao e quadro ==\n");
@@ -209,23 +218,109 @@ int main(void)
         if (p) CHECK_EQ(sl_prop_frame(p, 0, 100.0f), bs_prop_anims[p->anim_first].count - 1);
     }
 
-    printf("== palcos: danceLeft/danceRight alternam por batida ==\n");
+    printf("== palcos: danceEvery e startingAnimation (Bopper.hx) ==\n");
     {
-        /* Procura o primeiro palco em que algum prop visivel tenha as duas
-           animacoes; recolhe na batida par e na impar e exige que o quadro
-           escolhido mude. Sem isso, o danceEvery do Stage.hx nao teria efeito
-           nenhum e o palco ficaria parado. */
-        int achou = 0;
-        for (i = 0; i < BS_STAGE_PROPS_COUNT && !achou; i++) {
-            sl_item_t a[SL_MAX_ITENS], b[SL_MAX_ITENS];
-            int na = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.0f, a, SL_MAX_ITENS);
-            int nb = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 1, 0.0f, b, SL_MAX_ITENS);
-            CHECK_EQ(na, nb);
-            for (k = 0; k < na && k < nb; k++) {
-                if (a[k].prop == b[k].prop && a[k].anim != b[k].anim) { achou = 1; break; }
-            }
+        /* As duas regras saem do Bopper.hx, e o dado separa os props assim:
+             danceEvery > 0 -> dance() a cada danceEvery batidas, com
+               forceRestart (shouldBop = true nos props);
+             danceEvery == 0 -> dance() NUNCA; so' o startingAnimation do JSON
+               toca, em loop desde o comeco, e sem ele nada toca.
+           Antes desta build o port escolhia danceLeft/danceRight pela paridade
+           da batida e nunca reiniciava, entao as 25 de danceEvery 1 andavam
+           fora de fase. */
+        sl_item_t a[SL_MAX_ITENS], b[SL_MAX_ITENS];
+        const sl_item_t *x, *y;
+        int n;
+        const bs_prop_anim_t *an;
+
+        /* --- danceEvery 1 com danceLeft/danceRight (limoDancer1 do limoRide):
+               passo 0 toca danceLeft no quadro 0; uma batida depois (passo 4)
+               toca danceRight DE NOVO NO QUADRO 0 (reiniciou); duas batidas
+               depois (passo 8) volta ao danceLeft. --- */
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f, a, SL_MAX_ITENS);
+        x = item_por_nome(a, n, "limoDancer1");
+        CHECK(x != NULL);
+        if (x) {
+            CHECK_EQ(x->anim, 0);
+            CHECK(strcmp(bs_prop_anims[bs_props[x->prop].anim_first + x->anim].name,
+                         "danceLeft") == 0);
+            CHECK_EQ(x->frame, 0);
         }
-        CHECK_EQ(achou, 1);
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 2, 0.5f, 0.25f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "limoDancer1");
+        CHECK(y != NULL);
+        if (y) { CHECK_EQ(y->anim, 0); CHECK_EQ(y->frame, 6); }   /* 0,25 s a 24 fps */
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 4, 0.5f, 0.5f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "limoDancer1");
+        CHECK(y != NULL);
+        if (y) {
+            CHECK_EQ(y->anim, 1);                                  /* danceRight */
+            CHECK_EQ(y->frame, 0);                                 /* reiniciou */
+            CHECK(strcmp(bs_prop_anims[bs_props[y->prop].anim_first + y->anim].name,
+                         "danceRight") == 0);
+        }
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 8, 0.5f, 1.0f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "limoDancer1");
+        CHECK(y != NULL);
+        if (y) { CHECK_EQ(y->anim, 0); CHECK_EQ(y->frame, 0); }
+
+        /* --- danceEvery 0 COM startingAnimation (bgLimo): toca em loop desde o
+               inicio, e o quadro anda com o tempo de musica. --- */
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f, a, SL_MAX_ITENS);
+        x = item_por_nome(a, n, "bgLimo");
+        CHECK(x != NULL);
+        if (x) {
+            an = &bs_prop_anims[bs_props[x->prop].anim_first + x->anim];
+            CHECK_EQ(x->frame, 0);
+            n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f,
+                           (float)(1.5 / (double)an->fps), b, SL_MAX_ITENS);
+            y = item_por_nome(b, n, "bgLimo");
+            CHECK(y != NULL);
+            if (y) CHECK_EQ(y->frame, 1);
+        }
+
+        /* --- danceEvery 0 SEM startingAnimation (phillyTraffic): o JSON nao
+               manda tocar nada, entao fica no primeiro quadro. A animacao de
+               77 quadros desse prop vem de um script de palco do original, que
+               este repositorio nao tem -- e' dado faltando, nao um chute. --- */
+        n = sl_collect("phillyStreets", 1840.0f, 608.0f, 1.0f, 1.0f, 40, 0.5f, 10.0f, a, SL_MAX_ITENS);
+        x = item_por_nome(a, n, "phillyTraffic");
+        CHECK(x != NULL);
+        if (x) {
+            CHECK_EQ(x->anim, 0);
+            CHECK_EQ(x->frame, 0);
+            CHECK_EQ(bs_prop_anims[bs_props[x->prop].anim_first].count > 1, 1);
+        }
+
+        /* --- danceEvery 2 (sniper do tankmanBattlefieldErect): reinicia a cada
+               DUAS batidas, e `idle` nao e' em loop (15 quadros), entao passa
+               do fim para no ultimo quadro. --- */
+        n = sl_collect("tankmanBattlefieldErect", -240.0f, -165.0f, 1.0f, 1.0f,
+                       8, 0.5f, 1.0f, a, SL_MAX_ITENS);
+        x = item_por_nome(a, n, "sniper");
+        CHECK(x != NULL);
+        if (x) { CHECK_EQ(x->anim, 0); CHECK_EQ(x->frame, 0); }
+        n = sl_collect("tankmanBattlefieldErect", -240.0f, -165.0f, 1.0f, 1.0f,
+                       11, 0.5f, 1.375f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "sniper");
+        if (y) CHECK_EQ(y->frame, 9);                              /* 0,375 s * 24 */
+        n = sl_collect("tankmanBattlefieldErect", -240.0f, -165.0f, 1.0f, 1.0f,
+                       15, 0.5f, 1.875f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "sniper");
+        if (y) CHECK_EQ(y->frame, 14);                             /* parou no ultimo */
+        /* e no meio da janela (passo 4) o quadro e' o do tempo decorrido */
+        n = sl_collect("tankmanBattlefieldErect", -240.0f, -165.0f, 1.0f, 1.0f,
+                       4, 0.5f, 0.5f, b, SL_MAX_ITENS);
+        y = item_por_nome(b, n, "sniper");
+        if (y) CHECK_EQ(y->frame, 12);
+
+        /* --- antes da musica (passo negativo) vale o startingAnimation do
+               JSON, que e' o que o palco tocou ao ser construido. O
+               limoDancer1 do limoRide comeca em danceRight (indice 1). --- */
+        n = sl_collect("limoRide", 1000.0f, 800.0f, 1.0f, 1.0f, -4, 0.5f, -0.5f, a, SL_MAX_ITENS);
+        x = item_por_nome(a, n, "limoDancer1");
+        CHECK(x != NULL);
+        if (x) CHECK_EQ(x->anim, 1);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
