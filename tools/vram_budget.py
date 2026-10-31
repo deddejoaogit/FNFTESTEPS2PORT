@@ -152,6 +152,20 @@ def stage_ram_bytes(props):
     return sum(p["sw"] * p["sh"] * p["frames"] * 2 for p in props)
 
 
+def stage_stream_ram_bytes(props):
+    """RAM de um palco com o leitor por quadro (engine/pack_stream.c).
+
+    O pacote NAO fica na RAM: ficam a TABELA de (offset, tamanho) de cada
+    quadro -- 8 bytes por quadro, que o `pst_abrir` copia para dois vetores de
+    u32, ou seja 16 B por quadro no pior caso -- mais UM bloco comprimido, cujo
+    tamanho real so' o empacotador conhece. Aqui o bloco entra pelo PIOR caso,
+    frame_bytes: dado incompressivel. E' limite superior, nao estimativa.
+    """
+    tabela = sum(16 * p["frames"] for p in props)
+    bloco = max([p["sw"] * p["sh"] * 2 for p in props] or [0])
+    return tabela + bloco
+
+
 def ram_scale_limit(native, frames, budget):
     """Maior escala uniforme cujo pacote inteiro cabe em `budget` bytes.
 

@@ -99,11 +99,14 @@ echo
 # Orcamento de VRAM e de RAM de cada palco, contra o plano commitado. Sem o
 # clone da arte o empacotador nao roda aqui, mas o plano (assets-data/
 # stage-props.json) tem sw/sh e frames de cada prop, que e' tudo que a conta
-# precisa. Nao-strict de proposito: o relatorio mostra a divida medida do plano
-# atual; o --strict e' o que vale depois do proximo empacotamento. Prop acima de
-# 1024 px FALHA sempre, porque o GS nao amostra.
+# precisa. Era nao-strict porque 15 dos 21 palcos apareciam acima do orcamento
+# contra um modelo de VRAM que o jogo NAO usa. Com o orcamento medido (o
+# `vram_livre` do proprio log = 2.056.192 B, o mesmo que test_stage_pool.c
+# prova) e com o streaming do pacote (engine/pack_stream.c, que troca "pacote
+# inteiro na RAM" por "tabela + 1 bloco"), os 21 passam nos dois orcamentos --
+# entao agora e' --strict: deixa de ser relatorio e vira porta.
 echo "== orcamento dos palcos (VRAM e RAM) =="
-if ! python3 tools/check_stage_budget.py > /tmp/fnf_orcamento.txt; then
+if ! python3 tools/check_stage_budget.py --strict > /tmp/fnf_orcamento.txt; then
     tail -20 /tmp/fnf_orcamento.txt
     echo "  FALHA: orcamento dos palcos (VRAM/RAM)"
     exit 1
@@ -363,6 +366,14 @@ echo
 
 # FCH4 must carry every parameter of every event; v3 could not. This is the
 # test that would have caught the lossy conversion.
+# O leitor de pacote por quadro: o palco le' do pendrive em vez de manter o
+# pacote inteiro na RAM (era o teto de 4 MB que barrava 8 dos 21 palcos).
+echo "== pack_stream: pacote lido quadro a quadro, com erro nomeado =="
+$CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco.c \
+    -o /tmp/fnf_test_pack_stream
+/tmp/fnf_test_pack_stream || exit 1
+echo
+
 echo "== FCH4 round trip: no parameter is dropped =="
 python3 tools/test_fch4.py
 echo

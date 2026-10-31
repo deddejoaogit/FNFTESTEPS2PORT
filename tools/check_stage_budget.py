@@ -10,13 +10,16 @@ precisa: tamanho de um quadro (sw/sh), número de quadros e a escala usada.
 Este script lê o plano e responde duas perguntas, com números:
 
   1. VRAM: um quadro de cada prop do palco cabe na região de textura?
-     (a VRAM paga UM quadro por prop; o pacote fica na RAM)
-  2. RAM: o pacote inteiro do palco cabe na RAM principal?
-     (a RAM paga TODOS os quadros de TODOS os props)
+     (a VRAM paga UM quadro por prop)
+  2. RAM: a TABELA dos quadros + UM bloco comprimido cabem na RAM principal?
+     (o jogo lê o pacote quadro a quadro -- engine/pack_stream.c -- então o
+     pacote inteiro não precisa estar na RAM)
 
-A segunda pergunta nunca tinha sido feita: o empacotador dimensionou tudo por
-VRAM. Foi por isso que o `spookyMansion` saiu com 59 MB de pacote num console de
-32 MiB -- e nada no repositório reclamava.
+A segunda pergunta nunca tinha sido feita e, quando foi, o empacotador tinha
+dimensionado tudo por VRAM: o `spookyMansion` saiu com 59 MB de pacote num
+console de 32 MiB. A resposta foi trocar a leitura por streaming, e é por isso
+que a coluna de RAM hoje é "tabela + 1 bloco" e a antiga ("pacote inteiro")
+aparece ao lado, só como dívida histórica medida.
 
 Uso:
     python3 tools/check_stage_budget.py            # relatório, sai 0
@@ -74,27 +77,40 @@ def main(argv):
     fb = vb.FB_W * vb.FB_H * (vb.FB_PSM_BITS // 8)
     fixed = (vb.FONT_W * vb.FONT_H * 4 + vb.HUD_W * vb.HUD_H * (BPP // 8)
              + vb.NOTE_W * vb.NOTE_H * (BPP // 8))
-    vram_budget = vb.VRAM_TOTAL - vb.FB_COUNT * fb - fixed - vb.char_frame_bytes(BPP)
     vram_medido = measured_vram_free()
+    # O ORÇAMENTO DE VRAM VEM DO JOGO, não do modelo. O modelo acima é uma
+    # estimativa (font+HUD+notas+3 personagens no tamanho nativo) e dava
+    # 1.337.520 B, enquanto o pool que o `main.c` realmente monta tem 2.056.192 B
+    # -- e `test/test_stage_pool.c` prova que os 21 palcos cabem nesses
+    # 2.056.192. Reportar 15 de 21 palcos "acima do orçamento" contra um número
+    # que o jogo não usa é medir a coisa errada: o log do harness traz o
+    # `vram_livre` de verdade, e é ele que vale. O modelo fica só como reserva
+    # para quando não houver log.
+    vram_budget = vram_medido if vram_medido else (
+        vb.VRAM_TOTAL - vb.FB_COUNT * fb - fixed - vb.char_frame_bytes(BPP))
     ram_budget = vb.ram_limit_per_stage(elf_bytes=args.elf)
 
     print("BPP %d | framebuffers %d x %dx%d PSMCT%d = %d B"
           % (BPP, vb.FB_COUNT, vb.FB_W, vb.FB_H, vb.FB_PSM_BITS, vb.FB_COUNT * fb))
-    print("VRAM para o palco: modelo %d B | medido no ultimo log %s"
-          % (vram_budget, ("%d B" % vram_medido) if vram_medido else "ausente"))
+    print("VRAM para o palco: %d B%s"
+          % (vram_budget, "" if vram_medido else " (modelo: sem log do harness)"))
     print("RAM  para o pacote do palco: %d B  (32 MiB - ELF %d - buffers %d - staging %d)"
           % (ram_budget, args.elf, vb.RAM_BUFFERS_BYTES, vb.RAM_STAGING_BYTES))
     print()
-    print("%-26s %6s %7s %11s %11s %s"
-          % ("palco", "props", "escala", "VRAM 1 quadro", "RAM pacote", "situação"))
-    print("-" * 96)
+    print("%-26s %6s %7s %11s %11s %11s %s"
+          % ("palco", "props", "escala", "VRAM 1 quadro", "RAM tabela+bloco",
+             "pacote inteiro", "situação"))
+    print("-" * 116)
 
-    over_vram, over_ram, over_tex = [], [], []
+    over_vram, over_ram, over_tex, over_pacote = [], [], [], []
     for st in plan["stages"]:
         sid = st["id"]
         props = st["props"]
         vram = sum(p["sw"] * p["sh"] * (BPP // 8) for p in props)
-        ram = vb.stage_ram_bytes(props)
+        ram = vb.stage_stream_ram_bytes(props)      # o que o jogo usa hoje
+        pacote = vb.stage_ram_bytes(props)          # o que ele usava antes
+        if pacote > ram_budget:
+            over_pacote.append(sid)
         notas = []
         if vram > vram_budget:
             over_vram.append(sid)
@@ -105,8 +121,8 @@ def main(argv):
         for p in props:
             if p["sw"] > MAX_TEX or p["sh"] > MAX_TEX:
                 over_tex.append("%s/%s %dx%d" % (sid, p["name"], p["sw"], p["sh"]))
-        print("%-26s %6d %7.3f %11d %11d %s"
-              % (sid, len(props), st["scale"], vram, ram,
+        print("%-26s %6d %7.3f %11d %11d %11d %s"
+              % (sid, len(props), st["scale"], vram, ram, pacote,
                  ", ".join(notas) if notas else "ok"))
 
     print()
@@ -117,8 +133,12 @@ def main(argv):
         print("VRAM: %d de %d palcos acima do orçamento -- %s"
               % (len(over_vram), len(plan["stages"]), ", ".join(over_vram[:6])))
     if over_ram:
-        print("RAM: %d de %d palcos acima do orçamento -- %s"
+        print("RAM: %d de %d palcos acima do orçamento (tabela + 1 bloco) -- %s"
               % (len(over_ram), len(plan["stages"]), ", ".join(over_ram[:6])))
+    if over_pacote:
+        print("  (histórico: %d palcos não caberiam se o pacote inteiro ficasse "
+              "na RAM -- é o que o streaming resolveu: %s)"
+              % (len(over_pacote), ", ".join(over_pacote[:6])))
 
     # A escala que cada palco teria de usar, para o relatório ser acionável.
     if over_ram or over_vram:

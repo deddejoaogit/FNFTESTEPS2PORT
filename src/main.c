@@ -28,6 +28,7 @@
 #include "engine/vram_layout.h"
 #include "engine/stage_pool.h"
 #include "engine/audio_mix.h"
+#include "engine/pack_stream.h"
 #include "engine/stage_layout.h"
 #include "engine/lz4_bloco.h"
 #include "engine/char_pack.h"
@@ -952,10 +953,13 @@ static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int
    ORCAMENTO: o pool tem 2.056.192 B e o mainStage pede 1.697.032 B. O
    tutorial continua cabendo -- e' o primeiro palco que usa este caminho.
 
-   RAM: o pacote inteiro do prop fica na RAM principal (como o do BF/GF no
-   tutorial), e por isso existe PALCO_RAM_MAX. O plano do spookyMansion, por
-   exemplo, nao cabe -- ele e' o proximo item do orcamento de RAM
-   (tools/check_stage_budget.py), nao uma surpresa no console.
+   RAM: o pacote NAO fica mais na RAM principal. Cada prop mantem aberto o
+   arquivo mais a TABELA de (offset, tamanho) por quadro, e le' um bloco LZ4 por
+   vez (engine/pack_stream.c) -- medido no teste: arquivo de 66.384 B custa
+   2.053 B de RAM. Antes o arquivo inteiro era lido e mantido, e o teto
+   PALCO_RAM_MAX 4 MB barrava oito dos 21 palcos com a arte real (o pior pacote,
+   spookyMansion, tem 59,4 MB e a maquina tem 32 MB). O teto continua existindo,
+   agora contando TABELAS: e' uma rede de seguranca, nao o orcamento.
 
    QUANDO DA' ERRADO: se um pacote nao abrir, o prop nao e' desenhado e o
    evento palco_falha diz qual. O estado 8, nesse caso, volta para a textura
@@ -963,13 +967,17 @@ static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int
    ===================================================================== */
 static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
 #define PALCO_MAX_PROPS  32
-#define PALCO_RAM_MAX    (4u*1024u*1024u)   /* pacotes dos props, na RAM */
+#define PALCO_RAM_MAX    (4u*1024u*1024u)   /* TABELAS dos props abertos, na RAM */
 
 typedef struct {
     const char *stage;                  /* palco carregado, ou 0            */
     int n;                              /* props do palco                   */
     int first;                          /* primeiro indice em bs_props[]    */
-    unsigned char *pack[PALCO_MAX_PROPS];
+    /* O pacote NAO fica na RAM: fica a TABELA dele aberta (fd + offsets) e um
+       bloco comprimido por vez (engine/pack_stream.c). Antes o arquivo inteiro
+       era lido para a RAM e mantido, e por isso existia o teto
+       PALCO_RAM_MAX 4 MB -- com a arte real, oito dos 21 palcos nao abriam. */
+    pst_pack_t pst[PALCO_MAX_PROPS];
     unsigned int bytes[PALCO_MAX_PROPS];
     unsigned int count[PALCO_MAX_PROPS];      /* quadros no pacote          */
     unsigned int frame_bytes[PALCO_MAX_PROPS];
@@ -987,17 +995,24 @@ static unsigned char *g_palco_frame;    /* um quadro descomprimido */
 static unsigned int g_palco_frame_cap;
 static int g_palco_ok=0;                /* 1 = o palco desenha por props */
 
+static int g_palco_fds_ok = 0;   /* 0 = os fds do vetor ainda nao foram zerados */
+
 static void palco_soltar(void)
 {
     int i;
     for (i = 0; i < PALCO_MAX_PROPS; i++) {
-        if (g_palco.pack[i]) free(g_palco.pack[i]);
-        g_palco.pack[i] = 0;
+        /* fd ZERO nao e' "fechado": e' a entrada padrao. Na primeira chamada o
+           vetor esta' zerado pela inicializacao estatica, entao ele e' marcado
+           como fechado (-1) em vez de passar pelo close(). Sem isso o primeiro
+           palco fecharia o stdin do processo. */
+        if (g_palco_fds_ok) pst_fechar(&g_palco.pst[i]);
+        else g_palco.pst[i].fd = -1;
         g_palco.bytes[i] = g_palco.count[i] = g_palco.frame_bytes[i] = 0;
         g_palco.residente[i] = 0;
         g_palco.quadro[i] = -1;
         g_palco.tentou[i] = 0;
     }
+    g_palco_fds_ok = 1;
     g_palco.ram_bytes = 0;
     g_palco.desenhou = -1;
     if (g_palco.stage) sp_limpar(&g_pool);   /* devolve os props ao pool */
@@ -1006,36 +1021,32 @@ static void palco_soltar(void)
     g_palco_ok = 0;
 }
 
-/* Cabecalho CFZ4: "CFZ4", versao 1, quadros, bytes por quadro. O mesmo formato
-   de tutorial_pack_load, mas SEM esperar contagem fixa: aqui o tamanho vem do
-   pacote, porque cada prop tem o seu. */
-static int palco_pack_abrir(const char *path, unsigned char **out, u32 *out_bytes,
-                            u32 *out_count, u32 *out_frame)
+/* Abre o pacote de UM prop pelo leitor de streaming (engine/pack_stream.c):
+   cabecalho + TABELA ficam na RAM, os quadros nao. Os erros sao os mesmos de
+   antes, agora com nome (`pst_erro`) em vez de numero solto:
+     -1 abrir  -2 cabecalho  -3 tabela  -4 quadro  -5 memoria
+     -6 leitura  -7 bloco fora do arquivo  -8 LZ4
+   O teto PALCO_RAM_MAX continua existindo, mas agora ele conta TABELAS: o
+   pacote inteiro nao entra mais na conta. */
+static int palco_pack_abrir(const char *path, int r)
 {
-    int fd, n, done = 0;
-    off_t end;
-    unsigned char *p;
-    fd = open(path, O_RDONLY);
-    if (fd < 0) return -1;
-    end = lseek(fd, 0, SEEK_END);
-    if (end < 16 || end > 16 * 1024 * 1024 || lseek(fd, 0, SEEK_SET) < 0) { close(fd); return -2; }
-    if (g_palco.ram_bytes + (u32)end > PALCO_RAM_MAX) { close(fd); return -3; }
-    p = memalign(128, (u32)end);
-    if (!p) { close(fd); return -4; }
-    while (done < end) {
-        n = read(fd, p + done, (int)end - done);
-        if (n <= 0) { free(p); close(fd); return -5; }
-        done += n;
+    int rc;
+    pst_pack_t *pk = &g_palco.pst[r];
+    rc = pst_abrir(path, pk);
+    if (rc != PST_OK) {
+        telemetry_event("palco_pacote", r, rc);
+        return rc;
     }
-    close(fd);
-    if (memcmp(p, "CFZ4", 4) || title_u32le(p + 4) != 1) { free(p); return -6; }
-    *out_count = title_u32le(p + 8);
-    *out_frame = title_u32le(p + 12);
-    if (!*out_count || !*out_frame || *out_frame > 1024u * 1024u * 4u) { free(p); return -7; }
-    if (16u + *out_count * 8u > (u32)end) { free(p); return -8; }
-    *out = p;
-    *out_bytes = (u32)end;
-    g_palco.ram_bytes += (u32)end;
+    if (g_palco.ram_bytes + pk->ram > PALCO_RAM_MAX) {
+        pst_fechar(pk);
+        telemetry_event("palco_pacote", r, -9);
+        return -9;
+    }
+    g_palco.ram_bytes += pk->ram;
+    g_palco.bytes[r] = pk->bytes;
+    g_palco.count[r] = pk->count;
+    g_palco.frame_bytes[r] = pk->frame_bytes;
+    telemetry_event("palco_aberto", r, (int)(pk->bytes ? pk->ram * 100u / pk->bytes : 0u));
     return 0;
 }
 
@@ -1078,13 +1089,12 @@ static int palco_prop_pronto(const char *stage, int r)
     const bs_prop_t *p;
     int rc;
     if (r < 0 || r >= g_palco.n) return -1;
-    if (g_palco.pack[r]) return 0;
+    if (g_palco.pst[r].fd >= 0) return 0;
     if (g_palco.tentou[r]) return -2;          /* falhou antes: nao insiste por quadro */
     g_palco.tentou[r] = 1;
     p = &bs_props[g_palco.first + r];
     snprintf(path, sizeof(path), "mass:/FNFPS2/assets/%s", p->tex);
-    rc = palco_pack_abrir(path, &g_palco.pack[r], &g_palco.bytes[r],
-                          &g_palco.count[r], &g_palco.frame_bytes[r]);
+    rc = palco_pack_abrir(path, r);
     p = &bs_props[g_palco.first + r];   /* bs_props nao muda, mas o caminho passou por snprintf */
     (void)stage;
     if (rc != 0) {
@@ -1098,9 +1108,9 @@ static int palco_prop_pronto(const char *stage, int r)
     if (g_palco.frame_bytes[r] != (unsigned int)p->sw * (unsigned int)p->sh * 2u) {
         g_palco.falhas++;
         telemetry_event("palco_falha", p - bs_props, -9);
-        free(g_palco.pack[r]);
-        g_palco.pack[r] = 0;
-        g_palco.ram_bytes -= g_palco.bytes[r];
+        g_palco.ram_bytes -= g_palco.pst[r].ram;
+        pst_fechar(&g_palco.pst[r]);
+        g_palco.bytes[r] = g_palco.count[r] = g_palco.frame_bytes[r] = 0;
         return -4;
     }
     if (g_palco.frame_bytes[r] > g_palco_frame_cap) {
@@ -1137,9 +1147,7 @@ static texbuffer_t *palco_prop_textura(int r, int q)
         setup_texture_dims(t, p->sw, p->sh);
     }
     if (g_palco.quadro[r] != q) {
-        if (tutorial_pack_frame(g_palco.pack[r], g_palco.bytes[r], (u32)q,
-                                g_palco.count[r], g_palco.frame_bytes[r],
-                                g_palco_frame) != 0) {
+        if (pst_quadro(&g_palco.pst[r], (unsigned int)q, g_palco_frame) != PST_OK) {
             g_palco.falhas++;
             telemetry_event("palco_falha", g_palco.first + r, -10);
             return 0;

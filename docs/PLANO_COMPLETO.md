@@ -1983,3 +1983,63 @@ invalidação por mtime do conversor, mas ela rodava **depois** de um
 lugar ela nunca rodava. Um chart gerado pelo conversor antigo era reaproveitado
 para sempre: o teste do módulo via o bit novo e o harness não. A invalidação
 passou para antes do atalho, e o atalho agora exige que o chart em cache exista.
+
+## Pacote de palco lido quadro a quadro: a RAM deixa de ser o teto
+
+**A dívida medida.** O `main.c` lia cada `.cfz4` **inteiro** para a RAM principal
+e o mantinha lá, com um teto de 4 MB para todos os props juntos. Com a arte real,
+quatro palcos não caberiam nem com o jogo vazio — `spookyMansion` tem **59,4 MB**
+de pacote num console de **32 MiB** — e oito ficavam no limite do teto. Isso
+estava documentado e era o item 2 da Fase 6.
+
+**O que já existia no formato e ninguém usava.** O CFZ4 guarda uma **tabela**
+`(offset, tamanho)` por quadro, e cada quadro é um bloco LZ4 **independente**.
+Ou seja: não é preciso o arquivo inteiro para desenhar um quadro — é preciso a
+tabela e o bloco daquele quadro.
+
+**O módulo** `src/engine/pack_stream.{h,c}`: `pst_abrir()` lê cabeçalho + tabela
+e mantém o **descritor do arquivo** aberto; `pst_quadro()` faz `lseek` +
+`read` de um bloco e descomprime no destino; `pst_fechar()` devolve tudo. Todo
+erro é negativo e **nomeado** (`pst_erro()`), e a tabela é conferida inteira na
+abertura — entrada fora do arquivo é recusada ali, não na tela.
+
+**Medido** (`test/test_pack_stream.c`, dentro da suíte): arquivo de **66.384 B**
+aberto custa **2.053 B** de RAM (tabela + o maior bloco + os vetores), — 3 % do
+arquivo; cada quadro sai byte a byte igual ao empacotado, fora de ordem e
+repetido; e oito arquivos estragados são recusados com erro nomeado (magic,
+versão, contagem zero, bytes por quadro absurdo, tabela fora do arquivo, bloco
+fora do arquivo, LZ4 que não fecha no tamanho, e leitura de pacote já fechado).
+Um bloco ruim **não contamina** o resto do pacote (o quadro seguinte continua
+saindo certo).
+
+**No jogo.** `g_palco.pack[]` deixou de existir: o vetor de pacotes virou um
+vetor de `pst_pack_t`, e `palco_prop_textura()` chama `pst_quadro()`. O teto
+`PALCO_RAM_MAX` (4 MB) continua como rede de segurança, agora contando
+**tabelas**. Um detalhe que só aparece no console: o vetor é estático, então na
+primeira `palco_soltar()` os `fd` valem **0** — e 0 é a entrada padrão, não
+"fechado". O primeiro palco fechava o `stdin` do processo. Agora a primeira
+passagem marca `-1` em vez de fechar.
+
+**Efeito no orçamento, medido por `tools/check_stage_budget.py --strict`:**
+
+| pergunta | antes | agora |
+|---|---|---|
+| RAM (pacote inteiro de cada palco) | 4 palcos estouravam (até 59,4 MB) | **21 de 21** cabem (pior: `spookyMansion` 1.696.842 B, tabela + 1 bloco) |
+| VRAM (um quadro por prop) | 15 de 21 "acima" | **21 de 21** cabem (pior: 1.697.934 B de 2.056.192 B) |
+
+A segunda linha mudou por um motivo diferente e vale registrar: o script
+comparava contra um **modelo** de VRAM (1.337.520 B) que o jogo não usa. O
+orçamento real é o pool que o `main.c` monta — **2.056.192 B**, o mesmo número
+que `test/test_stage_pool.c` já provava. Reportar 15 palcos "acima" contra um
+número que ninguém usa é medir a coisa errada; agora o script usa o `vram_livre`
+do log do próprio jogo (e cai no modelo só quando não há log). Com isso
+`test/run_tests.sh` passou a rodar o script em `--strict`: deixou de ser relatório
+e virou porta.
+
+**O que NÃO está provado:** (1) que a leitura de blocos do pendrive USB 1.1
+(~1,5 MB/s, blocos de 8 KB) chega a tempo — um bloco de prop tem ordem de 5 a
+40 KB, ou seja 3 a 27 ms, e isso só o console mede; (2) que abrir 157
+descritores (um por prop, 21 palcos) não esbarra em limite do `fileXio` — nos
+palcos maiores são 17 props abertos ao mesmo tempo. As duas são medíveis no log:
+`palco_aberto` traz o custo em RAM por prop, e uma falha de `open` viraria
+`palco_pacote` com `PST_ERR_ABRIR`.
