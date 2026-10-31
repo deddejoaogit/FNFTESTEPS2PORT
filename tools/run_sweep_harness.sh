@@ -37,6 +37,15 @@ if [ ! -x "$BIN" ]; then
     echo "  sweep: sem harness construido; rode tools/run_harness.sh primeiro"
     exit 1
 fi
+# Volta os charts dessas tres ao FCH3 antes do passe principal: o passe de
+# eventos de animacao (mais abaixo) grava FCH4 no MESMO destino, e sem isto o
+# "passe v3" seguinte rodaria v4 nessas tres sem ninguem notar.
+restaurar_v3() {
+    rm -f "$ROOT"/FNFPS2/assets/songs/{bopeebo,philly-nice,spookeez}/*.chart 2>/dev/null
+    FNF_SWEEP_FMT=v3 python3 tools/preparar_sweep.py --musicas bopeebo,philly-nice,spookeez \
+        >/dev/null 2>&1 || true
+}
+restaurar_v3
 python3 tools/preparar_sweep.py || exit 1
 
 LISTA=$(ls assets-data/charts/*-chart.json | sed 's|.*/||; s|-chart.json||')
@@ -86,6 +95,12 @@ for sid in $LISTA; do
         # de animacoes conferiu; "primeiro" = o sprite entrou no pacote de
         # desenho; "animando" = 10 quadros diferentes ja' subiram para a VRAM
         # (ou seja, nao e' um sprite congelado).
+        # Animacao por EVENTO de chart (PlayAnimation: hey, cheer...). Conta as
+        # que tocaram e as que o pacote nao tem -- as duas coisas sao verdade, e
+        # a segunda e' dado, nao defeito: um chart pede 'cheer' no oponente e o
+        # personagem daquela musica pode nao ter essa animacao.
+        nanimtocou=$(awk -F, '$1=="E" && $3=="play_anim_tocou" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nanimsem=$(awk -F, '$1=="E" && $3=="play_anim_sem_frame" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nbfdraw=$(awk -F, '$1=="E" && $3=="char_bf_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         ngfdraw=$(awk -F, '$1=="E" && $3=="char_gf_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nbfanim=$(awk -F, '$1=="E" && $3=="char_bf_animando" {n++} END{print n+0}' "$LOG" 2>/dev/null)
@@ -121,6 +136,11 @@ for sid in $LISTA; do
             [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
             [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
         fi
+        # Toda musica tem evento de animacao? Nao: so' algumas. Mas SOMA tem de
+        # ser maior que zero nas 81, e isso e' conferido no fim (ANIM_TOTAL),
+        # porque por combinacao o chart pode nao ter nenhum.
+        ANIM_TOCou=$(( ${ANIM_TOCou:-0} + ${nanimtocou:-0} ))
+        ANIM_SEM=$(( ${ANIM_SEM:-0} + ${nanimsem:-0} ))
         if [ "${nlegado:-0}" -eq 0 ]; then
             [ "${nbfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao foi desenhado${motivo:+, $motivo}"
             [ "${ngfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="a GF nao foi desenhada${motivo:+, $motivo}"
@@ -174,6 +194,50 @@ if [ -n "$NAO_DESENHOU" ]; then
     exit 1
 fi
 echo "         (chart, notas, contagem, tela de jogo, palco, os tres personagens e audio)"
+echo
+echo "== eventos de animacao (PlayAnimation), com chart FCH4 =="
+# O FCH3 (v3) tem UM u32 por evento: o nome da animacao se perde, entao no v3 o
+# port sabe que houve o evento mas nao o que tocar. O FCH4 carrega a tabela de
+# strings, e e' por ele que o nome chega. Aqui roda um passe separado nas
+# musicas que TEM PlayAnimation (medido: bopeebo, philly-nice, spookeez; o
+# tutorial tambem tem, mas ele esta' de proposito no caminho antigo).
+ANIM_OK=0
+ANIM_TOTAL=0
+# --forcar: o `preparar_sweep` reaproveita o que ja' esta' no destino, e o
+# destino tem os FCH3 do passe anterior. Sem isto o "passe v4" rodaria v3.
+# --segundos 32 e --musicas: so' as tres musicas que TEM PlayAnimation, e com
+# audio que alcanca o evento (o da philly-nice cai em 13,7 s; com 20 s de audio a
+# musica terminava antes de chegar nele, e o port pulava o relogio para o FIM do
+# chart quando o arquivo acabava -- o que parecia "evento nao consumido").
+FNF_SWEEP_FMT=v4 python3 tools/preparar_sweep.py --forcar --segundos 32 \
+    --musicas bopeebo,philly-nice,spookeez >/dev/null 2>&1 || {
+    echo "  FALHA: nao consegui gerar os charts FCH4"; exit 1; }
+for sid in bopeebo philly-nice spookeez; do
+    for diff in 0 1 2; do
+        ANIM_TOTAL=$((ANIM_TOTAL + 1))
+        rm -f "$LOG"
+        # O roteiro de teclas vem do PROPRIO chart: sem ele o jogador morre na
+        # primeira sequencia de notas e o evento de animacao (em 13,7 s na
+        # philly-nice) nunca chega a acontecer -- foi exatamente o que aconteceu
+        # na primeira tentativa deste passe.
+        DIFNOME=$(awk -v d="$diff" 'BEGIN{n=split("easy normal hard",v," ");print v[d+1]}')
+        TECLAS=$(python3 tools/harness_presses.py \
+                 "build/harness_assets/FNFPS2/assets/songs/$sid/$DIFNOME.chart" 2>/dev/null) || TECLAS=""
+        out=$(FNF_START_SONG="$sid" FNF_START_DIFF="$diff" PS2H_FRAMES=1800 \
+              PS2H_ROOT="$ROOT" PS2H_WATCHDOG=300 PS2H_INPUT="0:NONE" \
+              PS2H_INPUT_AMOSTRAS="$TECLAS" timeout 300 "$BIN" 2>&1)
+        echo "$out" | grep -q "RESULTADO: PASSOU" || { echo "  FALHA: $sid/$diff nao passou com FCH4"; exit 1; }
+        n=$(awk -F, '$1=="E" && $3=="play_anim_tocou" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        sem=$(awk -F, '$1=="E" && $3=="play_anim_sem_frame" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        printf "  %-14s %s: %d animacao(oes) por evento tocaram, %d sem quadro\n" "$sid" "$diff" "${n:-0}" "${sem:-0}"
+        [ "${n:-0}" -ge 1 ] || { echo "  FALHA: $sid/$diff nao tocou nenhuma animacao por evento"; exit 1; }
+        ANIM_OK=$((ANIM_OK + 1))
+    done
+done
+echo "  $ANIM_OK/$ANIM_TOTAL combinacoes tocaram animacao vinda do chart (FCH4)"
+# e devolve essas tres ao FCH3, que e' o container do passe principal e do jogo
+# que o console ja' provou.
+restaurar_v3
 if [ -n "$FALHOU" ]; then
     echo "  falharam:$FALHOU"
     exit 1

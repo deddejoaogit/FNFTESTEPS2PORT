@@ -1367,6 +1367,20 @@ static int cena_carregar(const sr_song_t *song)
 }
 
 
+/* Quanto tempo o canto de UM papel dura, em ms, pela regra do original:
+   singTime do personagem (passos) x stepLengthMs do chart, e o DOBRO quando a
+   animacao e' de erro. O `TUT_SING_MS` fixo de antes era um numero do tutorial
+   aplicado a todas as 27 musicas -- errado em duas frentes (passos e bpm). */
+static long cena_canto_ms(int papel,int missing)
+{
+ int ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+ float passos,bpm;
+ if(ci<0||ci>=CH_CHAR_COUNT)return 0;
+ passos=ch_chars[ci].sing>0.0f?ch_chars[ci].sing:8.0f;   /* CharacterData DEFAULT_SINGTIME */
+ bpm=(g_play_song&&g_play_song->bpm>0.0f)?g_play_song->bpm:100.0f;
+ return ca_canto_ms(passos,bpm,missing);
+}
+
 /* Desenha UM papel generico: pega o quadro quando ele muda, sobe para a VRAM
    e posiciona pelo slot do palco. Devolve o qword do pacote. Sem pacote, sem
    slot ou sem quadro, devolve o pacote como esta' -- nada em silencio: o
@@ -1421,7 +1435,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
-  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;if(g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),(long)TUT_SING_MS);fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;if(g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
@@ -1430,8 +1444,9 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
   if(chart_note(i,&note)<0||note.must_press||g_tutorial_note_state[i]||note.lane>3)continue;
   if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;/* o OPONENTE generico canta a mesma nota: o slot dad e' o papel de quem nao e' o jogador (ch_cena_plano) */if(note.lane<=3){
    long ms=(long)(sample/48u);
-   if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,(long)TUT_SING_MS);
-   if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,(long)TUT_SING_MS);
+   long cm=cena_canto_ms(CH_PAPEL_DAD,0),cg=cena_canto_ms(CH_PAPEL_GF,0);
+   if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
+   if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
   }}
  }
  for(lane=0;lane<4;lane++)if(pressed&tutorial_lane_button(lane)){
@@ -1451,7 +1466,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     * already bounds it, but "already bounds it" is not a contract. */
    if(chart_note((u32)best,&note)<0)best=-1;
    else{fnf_judge_t judge;
-    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;if(g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),(long)TUT_SING_MS);
+    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;if(g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,0));
     /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
        noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);
@@ -2636,19 +2651,27 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     chart_events_apply(event);
     g_chart_last_type=event->type;g_chart_last_value=event->value;g_chart_last_sample=event->sample;
     g_chart_cursor++;g_chart_seen++;
+
     telemetry_event("tutorial_chart_event",(int)event->type,(int)event->sample);
    }
   }
   {u32 aref=0;int at=-1,af2=0;
    while(chart_events_take_anim(&aref,&at,&af2)){
     const char*an=chart_event_string(aref);
-    /* PlayAnimationSongEvent.hx: target 0 is bf/boyfriend, 2 is dad, 3 is gf,
-       and force also decides whether the character plays vocals. The tutorial
-       fires 'hey' on boyfriend and 'cheer' on dad; neither exists as a frame in
-       the tutorial's packs, so the port reports the event instead of dropping
-       it. A song whose packs carry those anims is where this becomes visible. */
-    /* the anim name's first byte and the force flag, packed into one word */
-    telemetry_event("tut_play_anim",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
+    /* PlayAnimationSongEvent.hx L41-69: o alvo do evento e' um PERSONAGEM
+       nomeado ("bf"/"boyfriend" -> 0, "dad" -> 2, "gf" -> 3; nomes de prop do
+       palco para o resto). Os tres primeiros viram `cc_toca`; prop de palco
+       ainda nao existe no port e vira log, nao invencao. */
+    {
+     int papel=-1,tocou=0;
+     if(at==0)papel=CH_PAPEL_BF;else if(at==2)papel=CH_PAPEL_DAD;else if(at==3)papel=CH_PAPEL_GF;
+     if(papel>=0&&an)tocou=cc_toca(&g_cena,papel,an,(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)));
+     /* O log sai de TODO evento, com ou sem animacao tocada: e' ele que
+        denuncia um chart pedindo animacao que o pacote nao tem (o tutorial pede
+        'hey' no BF e 'cheer' no dad, e nenhum dos dois existe nos pacotes do
+        tutorial). */
+     telemetry_event(tocou?"play_anim_tocou":"play_anim_sem_frame",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
+    }
    }}
   if(ui_state==8&&audio_started&&!g_paused)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* MORTE -> GAME OVER.

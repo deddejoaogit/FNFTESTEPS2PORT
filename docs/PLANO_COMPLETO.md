@@ -876,6 +876,57 @@ E a duplicação saiu: o desenho do oponente virou a mesma função
 (`PlayAnimation` — `hey`, `cheer`, `scared` etc.), que hoje só reagem a notas; e a
 divergência do slot da GF no Tutorial, que espera uma captura do console.
 
+#### Fechado: animação por evento de chart (`PlayAnimation`), e dois erros de tempo que ela revelou
+
+O `main.c` recebia os eventos `PlayAnimation` desde a v0.2.105 e **só escrevia
+log** (`tut_play_anim`). O comentário no código dizia que os pacotes do tutorial
+não têm `hey` nem `cheer`, o que é verdade — mas isso escondia o resto: nas 27
+músicas, 4 têm esses eventos (`bopeebo` 17, `philly-nice` 7, `spookeez` 4,
+`tutorial` 4), e **nenhuma** das que têm era tocada.
+
+Agora o evento vira `cc_toca()` no papel certo (`PlayAnimationSongEvent.hx`
+L41-69: `bf`/`boyfriend` → 0, `dad` → 2, `gf` → 3), com o nome vindo da tabela
+de strings do chart. E a animação nomeada **não é interrompida** pela dança até
+terminar, que é a regra do `BaseCharacter.dance()` L479-497 ("quem está numa
+animação que não começa com `dance`/`idle` e não terminou não dança").
+
+**Dois erros de tempo, achados ao ligar isso, e os dois eram meus:**
+
+1. **Um passo não é uma batida.** `ca_passos_ms()` fazia
+   `passos * 60000/bpm`. O original é `stepLengthMs = beatLengthMs /
+   STEPS_PER_BEAT` (`Conductor.hx` L187-192) com `STEPS_PER_BEAT = 4`
+   (`Constants.hx` L424). Ou seja: **todo canto do port durava quatro vezes o
+   que devia**. Não aparecia no tutorial porque lá o tempo era um número fixo
+   escrito à mão (`TUT_SING_MS`) — o erro estava esperando o primeiro
+   personagem de verdade.
+2. **O erro de nota segura o canto pelo DOBRO**: `BaseCharacter.hx` L436,
+   `if (getCurrentAnimation().endsWith('miss')) singTimeSec *= 2;`. Isso agora
+   é `ca_canto_ms(passos, bpm, missing)`, e o tempo sai do `singTime` do
+   **personagem** (com `8.0` de padrão, `CharacterData.hx` L451) e do **bpm da
+   música**, não de uma constante.
+
+Também entrou o `-end`: quando o canto acaba, se existe `<animação>-end` ela
+toca em vez de voltar direto ao idle (`BaseCharacter.hx` L443-460).
+
+**O que o sweep passou a cobrar:** um passe separado, com chart **FCH4**, nas
+três músicas com `PlayAnimation`. O FCH3 tem um `u32` por evento e **o nome da
+animação se perde** — no v3 o port sabe que houve o evento mas não o que tocar;
+é o FCH4, com tabela de strings, que carrega o nome. Medido: **9/9** combinações
+tocaram animação vinda do chart (bopeebo 3, philly-nice 2, spookeez 1) e **0
+ficaram sem quadro**.
+
+Três coisas que o teste desenterrou, e que eram do teste e não do jogo:
+
+- o áudio sintético do sweep tinha 20 s e o evento da `philly-nice` cai em
+  **13,7 s** de música — mas o `preparar_sweep` também encurtava o **fim do
+  chart**, e quando o arquivo de áudio acaba o port salta o relógio para o fim.
+  O passe de animação agora usa 32 s, e só nas três músicas (`--musicas`);
+- sem o roteiro de teclas do chart o jogador **morria** em 13,5 s, 200 ms antes
+  do evento. O passe agora aperta as notas do próprio chart;
+- o passe v4 grava no **mesmo** destino que o v3: sem devolver esses três
+  arquivos ao FCH3 no fim, o "passe v3" seguinte rodaria v4 sem ninguém ver.
+  O script restaura, e o `--forcar` do preparador evita reaproveitar o destino.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

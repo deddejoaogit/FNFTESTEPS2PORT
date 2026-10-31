@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#define CH_ANIM_END_SUF "-end"
+
 void cc_reset(cc_cena_t *c)
 {
     if (!c) return;
@@ -27,6 +29,7 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
     p->quadro = -1;
     p->t0 = agora;
     p->canto_ate = 0;
+    p->especial = 0;
     r = cp_abrir(pacote, bytes, &p->pacote);
     if (r != 0) return r;
     r = cp_conferir(&p->pacote);
@@ -67,6 +70,25 @@ static int anim_ocioso(const cc_papel_t *p, int batida)
     return cp_anim_i(&p->pacote, (batida & 1) ? "danceLeft" : "danceRight");
 }
 
+int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora)
+{
+    cc_papel_t *p;
+    int a;
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS || !nome) return 0;
+    p = &c->p[papel];
+    if (!p->ativo) return 0;
+    a = cp_anim_i(&p->pacote, nome);
+    if (a < 0) return 0;
+    if (a != p->anim) {
+        p->anim = a;
+        p->t0 = agora;
+        p->quadro = -1;
+    }
+    p->canto_ate = 0;       /* animacao nomeada nao e' canto */
+    p->especial = 1;
+    return 1;
+}
+
 void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long sing_ms)
 {
     cc_papel_t *p;
@@ -81,6 +103,7 @@ void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long si
         p->t0 = agora;
         p->quadro = -1;
     }
+    p->especial = 0;
     /* O mesmo canto pedido de novo NAO reinicia (senao a perna da GF
        reiniciaria a cada nota escrita no mesmo instante), mas estende o tempo:
        duas notas seguidas mantem o personagem cantando ate' a segunda acabar. */
@@ -96,14 +119,57 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
     p = &c->p[papel];
     if (!p->ativo) return -1;
     if (p->canto_ate > 0 && agora >= p->canto_ate) {
+        /* BaseCharacter.hx L443-460: quando o canto acaba, se existe
+           "<animacao>-end" ela toca; senao, volta a dancar. */
+        char fim[CHP_NOME];
+        int achou = -1;
         p->canto_ate = 0;
-        a = anim_ocioso(p, batida);
-        if (a >= 0 && a != p->anim) {
-            p->anim = a;
+        if (p->anim >= 0) {
+            size_t n = strlen(p->pacote.anim[p->anim].nome);
+            if (n + sizeof(CH_ANIM_END_SUF) < sizeof fim) {
+                memcpy(fim, p->pacote.anim[p->anim].nome, n);
+                memcpy(fim + n, CH_ANIM_END_SUF, sizeof(CH_ANIM_END_SUF));
+                achou = cp_anim_i(&p->pacote, fim);
+            }
+        }
+        if (achou >= 0) {
+            p->anim = achou;
             p->t0 = agora;
             p->quadro = -1;
+            p->especial = 1;          /* "-end" tambem nao e' interrompida */
+        } else {
+            a = anim_ocioso(p, batida);
+            if (a >= 0 && a != p->anim) {
+                p->anim = a;
+                p->t0 = agora;
+                p->quadro = -1;
+            }
         }
     }
+    /* Animacao nomeada ou "-end": fica ate' ACABAR. So' sai quando o ultimo
+       quadro dela ja' passou (a animacao terminou). */
+    if (p->especial && p->anim >= 0) {
+        ch_seq_t e;
+        if (cp_seq(&p->pacote, p->anim, &e) == 0) {
+            long passado = agora - p->t0;
+            /* Uma animacao nomeada em loop (o dado nao diz que 'hey' seria)
+               conta como terminada depois de UMA volta: senao o personagem
+               ficaria preso nela para o resto da musica, sem nunca voltar a
+               dancar. E' a unica leitura que mantem a musica tocando. */
+            if (e.fps100 > 0 && passado >= (long)((long)e.count * 100000L / (long)e.fps100)) {
+                p->especial = 0;
+                a = anim_ocioso(p, batida);
+                if (a >= 0 && a != p->anim) {
+                    p->anim = a;
+                    p->t0 = agora;
+                    p->quadro = -1;
+                }
+            }
+        }
+    }
+    if (p->especial) {
+        /* nada: quem esta' numa animacao nomeada nao danca */
+    } else
     /* Quem nao tem idle alterna danceLeft/danceRight a CADA batida, e nao so'
        quando o canto acaba: sem esta troca o personagem ficaria congelado no
        primeiro lado para o resto da musica. Para quem tem `idle` isto nao muda

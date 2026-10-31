@@ -66,10 +66,16 @@ int main(void)
 
     printf("== passos -> ms ==\n");
     {
-        /* 1 passo = 1 beat = 60000/bpm ms. A 100 BPM sao 600 ms. */
-        CHECK_EQ(ca_passos_ms(1, 100.0f), 600);
-        CHECK_EQ(ca_passos_ms(8, 100.0f), 4800);
-        CHECK_EQ(ca_passos_ms(8, 150.0f), 3200);
+        /* UM PASSO E' 1/4 DE BATIDA (Conductor.hx L187-192 +
+           Constants.hx L424: STEPS_PER_BEAT = 4). A 100 BPM a batida tem
+           600 ms, entao um passo tem 150 ms. */
+        CHECK_EQ(ca_passos_ms(1, 100.0f), 150);
+        CHECK_EQ(ca_passos_ms(4, 100.0f), 600);      /* 4 passos = 1 batida */
+        CHECK_EQ(ca_passos_ms(8, 100.0f), 1200);     /* singTime 8 = 2 batidas */
+        CHECK_EQ(ca_passos_ms(8, 150.0f), 800);
+        /* E o erro de nota DOBRA esse tempo (BaseCharacter.hx L436). */
+        CHECK_EQ(ca_canto_ms(8, 100.0f, 0), 1200);
+        CHECK_EQ(ca_canto_ms(8, 100.0f, 1), 2400);
         CHECK_EQ(ca_passos_ms(0, 100.0f), 0);
         CHECK_EQ(ca_passos_ms(8, 0.0f), 0);
         CHECK_EQ(ca_passos_ms(8, -1.0f), 0);

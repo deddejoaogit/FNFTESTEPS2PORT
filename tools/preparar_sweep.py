@@ -73,7 +73,13 @@ def chart(assets, sid, diff, forcar):
     destino = os.path.join(RAIZ, "songs", sid, diff + ".chart")
     if os.path.isfile(destino) and not forcar:
         return 0
-    pronto = os.path.join(PROJECT, "build", "charts-v3", "%s-%s.chart" % (sid, diff))
+    # FORMATO: por padrao v3, que e' o container que o console ja' provou. v4
+    # e' necessario para os eventos que carregam TEXTO (PlayAnimation: o nome da
+    # animacao): o v3 tem um u32 por evento e o nome se perde, entao no v3 o
+    # port nao tem como saber que animacao tocar. FNF_SWEEP_FMT=v4 gera os
+    # mesmos charts no container novo, e o sweep roda um passe nos dois.
+    fmt = os.environ.get("FNF_SWEEP_FMT", "v3")
+    pronto = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
     if os.path.isfile(pronto):
         with open(pronto, "rb") as f:
             dados = f.read()
@@ -82,10 +88,11 @@ def chart(assets, sid, diff, forcar):
         fonte = os.path.join(DATA, "charts", sid + "-chart.json")
         if not os.path.isfile(meta) or not os.path.isfile(fonte):
             return -1
-        tmp = os.path.join(PROJECT, "build", "charts-v3", "%s-%s.chart" % (sid, diff))
+        tmp = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
-        r = subprocess.run([sys.executable, os.path.join(HERE, "fnf_to_fch3.py"),
-                            "--v3", "--metadata", meta, "--chart", fonte,
+        r = subprocess.run([sys.executable, os.path.join(HERE, "fnf_to_fch3.py")]
+                           + (["--v3"] if fmt == "v3" else ["--format", "v4"])
+                           + ["--metadata", meta, "--chart", fonte,
                             "--difficulty", diff, "-o", tmp],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if r.returncode != 0 or not os.path.isfile(tmp):
@@ -98,10 +105,19 @@ def chart(assets, sid, diff, forcar):
     return 0
 
 
+def ap_args_musicas(args):
+    return bool(getattr(args, "musicas", ""))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--segundos", type=float, default=20.0)
     ap.add_argument("--forcar", action="store_true")
+    # --musicas: gera so' estas (virgula). O passe de eventos de animacao so'
+    # precisa das musicas que TEM PlayAnimation, e as tres nao cabem com o mesmo
+    # audio curto do sweep -- o evento da philly-nice cai em 13,7 s e o audio de
+    # 20 s cortava a musica antes dele.
+    ap.add_argument("--musicas", default="")
     args = ap.parse_args()
 
     mapa = mapa_musica_palco()
@@ -113,6 +129,9 @@ def main():
         for sid in sorted(mapa):
             f.write("%s %s\n" % (sid, mapa[sid]))
     ids = musicas()
+    if ap_args_musicas(args):
+        quer = {m.strip() for m in args.musicas.split(",") if m.strip()}
+        ids = [i for i in ids if i in quer]
     if not ids:
         print("  FALHA: nenhum chart em assets-data/charts")
         return 1

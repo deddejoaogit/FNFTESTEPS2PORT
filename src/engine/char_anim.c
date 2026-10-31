@@ -88,8 +88,28 @@ int ca_ocioso(ch_state_t *s, int batida, long now, long sing_ms)
 
 long ca_passos_ms(int passos, float bpm)
 {
-    /* Um passo = 4 beats / 4 = um beat: 60000/bpm ms. Com bpm invalido, devolve
-       0 para o chamador nao esperar para sempre por um canto que nao acaba. */
+    /* UM PASSO E' UM QUARTO DE BATIDA, nao uma batida.
+       Conductor.hx L187-192: `stepLengthMs = beatLengthMs / STEPS_PER_BEAT`, e
+       Constants.hx L424: `STEPS_PER_BEAT = 4`. Entao um passo = 60000/bpm/4 ms.
+       Antes esta conta nao dividia por 4 e todo canto durava QUATRO VEZES o que
+       devia -- invisivel no tutorial, onde o tempo de canto era um numero fixo
+       escrito a mao, e errado em todas as 27 musicas.
+       Com bpm invalido, devolve 0 para o chamador nao esperar para sempre por um
+       canto que nao acaba. */
     if (bpm <= 0.0f || passos <= 0) return 0;
-    return (long)((float)passos * 60000.0f / bpm);
+    return (long)((float)passos * 60000.0f / bpm / (float)CA_STEPS_PER_BEAT);
+}
+
+long ca_canto_ms(float passos, float bpm, int missing)
+{
+    long ms;
+    if (bpm <= 0.0f || passos <= 0.0f) return 0;
+    /* `passos` e' float porque singTime tambem e' (CharacterData.hx L451:
+       DEFAULT_SINGTIME = 8.0, e a JSON de alguns personagens traz 6.5, 9.0). */
+    ms = (long)(passos * 60000.0f / bpm / (float)CA_STEPS_PER_BEAT);
+    /* BaseCharacter.hx L434-436: `if (getCurrentAnimation().endsWith('miss'))
+       singTimeSec *= 2; // makes it feel more awkward when you miss???`.
+       O erro de nota portanto segura a animacao pelo DOBRO do tempo. */
+    if (missing) ms *= 2;
+    return ms;
 }

@@ -42,6 +42,7 @@ typedef struct {
     int quadro;             /* ultimo quadro devolvido; -1 = nada desenhado */
     long t0;                /* ms em que a animacao atual comecou          */
     long canto_ate;         /* ms em que o canto acaba; 0 = nao canta       */
+    int especial;           /* tocando animacao nomeada (hey, cheer...)     */
 } cc_papel_t;
 
 typedef struct {
@@ -59,6 +60,13 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
 /* Chegou nota do lado desse personagem: canta na direcao `dir` (0..3) por
    `sing_ms`. `missing` escolhe a animacao de erro quando ela existe. */
 void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long sing_ms);
+
+/* Toca uma animacao NOMEADA (evento PlayAnimation: "hey", "cheer", "scared"...).
+   Enquanto ela nao termina, o personagem NAO volta a dancar -- e' a regra do
+   BaseCharacter.dance() L479-497: quem esta' numa animacao que nao comeca com
+   "dance"/"idle" e nao terminou nao e' interrompido. Devolve 1 se tocou, 0 se o
+   personagem nao tem essa animacao (aí o evento vira log, nao invencao). */
+int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora);
 
 /* O quadro a desenhar AGORA, ou -1 quando nada mudou. `batida` alterna
    danceLeft/danceRight de quem nao tem idle. */

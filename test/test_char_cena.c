@@ -172,6 +172,39 @@ int main(void)
         CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 2);              /* singUP */
     }
 
+    printf("== animacao nomeada nao e' interrompida, e o '-end' fecha o canto ==\n");
+    {
+        cc_cena_t c;
+        const anim_t a[5] = {
+            { "idle", 0, 2, 2400, 1 },
+            { "hey", 2, 2, 1000, 0 },      /* 100 ms por quadro: acaba em 200 ms */
+            { "singLEFT", 4, 2, 2400, 0 },
+            { "singLEFT-end", 6, 1, 2400, 0 },
+            { "danceRight", 7, 1, 2400, 1 },
+        };
+        unsigned int n = montar(8, 5, a);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_DAD, g_pac, n, 0), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 0, 0), 0);      /* idle */
+        /* "hey" toca e NAO volta ao idle na batida seguinte */
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_DAD, "hey", 10), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 60, 1), 2);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);              /* continua */
+        /* e volta so' quando ela ACABA (200 ms depois de comecar) */
+        /* 211 ms: o "hey" acabou (200 ms) e o idle volta, com quadro novo. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 211, 1), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 0);
+        /* animacao que o personagem nao tem: nao inventa */
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_DAD, "cheer", 300), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 0);
+        /* canto que acaba: se existe "singLEFT-end", ela toca no lugar do idle */
+        cc_canto(&c, CH_PAPEL_DAD, 0, 0, 400, 200);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 2);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 601, 0), 6);    /* 1o quadro do -end */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 3);              /* singLEFT-end */
+    }
+
     printf("== quem nao tem idle alterna danceLeft/danceRight pela batida ==\n");
     {
         cc_cena_t c;

@@ -75,8 +75,14 @@ int ca_canto(ch_state_t *s, int dir, int missing, long now);
    desenho usa para saber que precisa reenviar a textura. */
 int ca_ocioso(ch_state_t *s, int batida, long now, long sing_ms);
 
-/* Passos -> ms, para o singTime. bpm vem do chart. */
+/* Passos -> ms, para o singTime. bpm vem do chart.
+   Constants.hx: STEPS_PER_BEAT = 4 -- um passo e' 1/4 de batida. */
+#define CA_STEPS_PER_BEAT 4
 long ca_passos_ms(int passos, float bpm);
+
+/* O tempo de canto de verdade: `ca_passos_ms` e, quando a animacao e' de erro,
+   o DOBRO (BaseCharacter.hx L436). */
+long ca_canto_ms(float passos, float bpm, int missing);
 
 #ifdef __cplusplus
 }
