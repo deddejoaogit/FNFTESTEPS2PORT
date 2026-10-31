@@ -154,6 +154,10 @@ for sid in $LISTA; do
         # resetCamera no L936), e o alvo de cada FocusCamera tem de ser medido
         # (cam_foco_alvo). A soma dos alvos e' conferida no fim, porque nem todo
         # chart tem evento de camera.
+        # $4 = PAPEL: 0 GF, 1 BF, 2 DAD (CH_PAPEL_* em char_layout.h). O 2 e' o
+        # oponente nos 27 dados -- conferido: nenhuma musica tem oponente igual
+        # ao jogador ou a namorada, entao o papel dad nunca e' pulado.
+        ncamini=$(awk -F, '$1=="E" && $3=="cam_foco_inicial" && $4==2 && $5>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
         CAM_ALVOS=$(( ${CAM_ALVOS:-0} + $(awk -F, '$1=="E" && $3=="cam_foco_alvo" {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
         # ESCALA: um evento por papel. Cada musica tem pelo menos dois papeis em
         # cena (nem toda tem `girlfriend`), e o numero e' o tamanho desenhado.
@@ -195,6 +199,7 @@ for sid in $LISTA; do
         # O caminho antigo do Tutorial nao desenha mais nada: nenhuma musica
         # pode voltar para ele.
         [ "${nlegado:-0}" -eq 0 ] 2>/dev/null || motivo="o Tutorial voltou ao caminho antigo${motivo:+, $motivo}"
+        [ "${ncamini:-0}" -ge 1 ] 2>/dev/null || motivo="a camera nao comecou no oponente${motivo:+, $motivo}"
         [ "${nesc:-0}" -ge 2 ] 2>/dev/null || motivo="a escala do personagem nao foi medida${motivo:+, $motivo}"
         [ "${npulado:-0}" -eq 0 ] 2>/dev/null || motivo="papel do oponente pulado por nome${motivo:+, $motivo}"
         [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"

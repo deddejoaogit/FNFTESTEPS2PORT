@@ -3579,6 +3579,19 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
  if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_GF,slg,&cw,&chh);ch_anchor(&ch_chars[g_cena_gf_ci],slg,cw,chh,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
  if(g_cena_modo&&sld&&g_cena.p[CH_PAPEL_DAD].ativo){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_DAD,sld,&cw,&chh);ch_anchor(&ch_chars[g_cena_dad_ci],sld,cw,chh,0.0f,1,&an);dad_cam_x=an.cam_x;dad_cam_y=an.cam_y;}}
 float tcx,tcy,cx,cy;
+/* A CAMERA COMECA NO OPONENTE, nao no jogador. PlayState.hx L2224-2227:
+   `currentStage.addCharacter(dad, DAD); cameraFollowPoint.setPosition(dad
+   .cameraFocusPoint.x, dad.cameraFocusPoint.y);` -- e logo depois o L936 chama
+   resetCamera(), que SNAPA a camera nesse ponto. Antes o port comecava no BF e
+   so' ia para o oponente no primeiro evento, entao a contagem inicial de toda
+   musica era enquadrada no lado errado da tela. Sem oponente em cena (nao
+   acontece nos 27 dados, mas e' o caso que os scripts do original tratam), cai
+   no primeiro papel ativo, na mesma ordem do initCharacters. */
+if(!g_tut_cam_ready){
+ if(g_cena.p[CH_PAPEL_DAD].ativo)g_cam_papel=CH_PAPEL_DAD;
+ else if(g_cena.p[CH_PAPEL_GF].ativo)g_cam_papel=CH_PAPEL_GF;
+ else g_cam_papel=CH_PAPEL_BF;
+}
 {const chart_event_state_t*ev=chart_events_state();
  /* char -1 e' o proprio (x,y): FocusCameraSongEvent L102-103 nao soma personagem
     nenhum. Nos outros valores x/y sao OFFSET do ponto daquele personagem
@@ -3615,7 +3628,21 @@ float tcx,tcy,cx,cy;
                    (ev->cam_mode==CHART_FOCUS_MODE_TWEEN?"cam_foco_tween":"cam_foco_classic"),
                    (int)ev->cam_char,(int)ev->cam_ease);
   }
- }}if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}
+ }}if(!g_tut_cam_ready){
+ /* A camera so' NASCE quando a cena dos personagens esta' carregada
+   (`g_cena_estado` != 0). Antes disso os papeis ainda estao inativos e o papel
+   escolhido sairia BF: medido, `cam_foco_inicial,1,589` -- e o 589 e' o valor
+   fixo antigo do mainStage, nao o foco de ninguem em cena. Nos quadros
+   anteriores o ponto calculado continua servindo para desenhar; so' o
+   nascimento (e o papel escolhido) espera a cena. */
+ g_tut_cam_x=tcx;g_tut_cam_y=tcy;
+ if(g_cena_estado!=0){
+  g_tut_cam_ready=1;
+  /* O papel E o ponto onde a camera nasceu. O segundo numero e' o que se
+     confere contra o original: ele carrega a metade do canvas do personagem. */
+  telemetry_event("cam_foco_inicial",g_cam_papel,(int)g_tut_cam_y);
+ }
+}
 else if(g_cam_t<1.0f){
  /* FlxTween sobre camera.scroll: posicao = from + (to-from)*ease(t), com
     t avancando dt/duracao. chart_ease_eval e' a mesma tabela do zoom. */

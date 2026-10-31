@@ -1919,6 +1919,23 @@ canvas 0x0 saía 835, ou seja meia altura de canvas abaixo. No original a conta
 `originalPosition + cameraOffsets` e o `cameraFocusPoint` do sprite já carrega
 a metade da altura.
 
+**E a câmera começa no oponente.** `PlayState.hx` L2224-2227 põe o
+`cameraFollowPoint` no `dad` logo depois de o adicionar, e o L936 chama
+`resetCamera()` na inicialização, que **snapa** a câmera nesse ponto. O port
+começava no BF e só ia para o oponente no primeiro evento. Agora o papel inicial
+sai da cena (oponente; sem oponente, GF; sem GF, BF) e o log registra
+`cam_foco_inicial,<papel>,<y do foco>` — medido: papel **2** (`CH_PAPEL_DAD`,
+o oponente) e o y do foco do oponente em cada música (`tutorial` 765,
+`bopeebo` 762, `spaghetti` 738, `blazin` 747 — cada um é `slot.y + oy -
+canvas_h/2 + cameraOffsets`). O sweep cobra papel 2 e y > 0 nas 81 combinações.
+
+Uma armadilha medida no caminho: a primeira versão nascia no **primeiro quadro
+do gameplay**, quando os pacotes de personagem ainda não estavam carregados —
+saía `cam_foco_inicial,1,589`, com 589 sendo o valor fixo antigo do mainStage, e
+o papel escolhido BF porque os três papéis ainda estavam inativos. O nascimento
+agora espera `g_cena_estado != 0` (a cena carregada); nos quadros anteriores o
+ponto calculado continua servindo para desenhar.
+
 **Pendrive.** `tools/build_pendrive.sh` nunca copiava `build/packs/chars` nem
 `build/packs/stages`, embora o jogo abra `mass:/FNFPS2/assets/chars/<id>.chp4`
 e `mass:/FNFPS2/assets/stages/<palco>/<prop>.cfz4`. O pendrive saía sem
