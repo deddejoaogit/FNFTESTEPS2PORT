@@ -1564,13 +1564,39 @@ static int cena_carregar(const sr_song_t *song)
    singTime do personagem (passos) x stepLengthMs do chart, e o DOBRO quando a
    animacao e' de erro. O tempo fixo de 1.200 ms de antes era um numero do tutorial
    aplicado a todas as 27 musicas -- errado em duas frentes (passos e bpm). */
+/* O PASSO E A DURACAO DELE NA SECAO DE BPM VIGENTE.
+   Conductor.hx refaz `stepLengthMs = beatLengthMs / 4` a cada BPM novo, e o
+   chart carrega a tabela (start_sample -> samples_per_step). O port calculava os
+   dois UMA VEZ no comeco da musica (`chart_samples_per_step(0)`), o que da' o
+   mesmo numero para a musica inteira. Em 26 das 27 musicas isso e' exato porque
+   o BPM nao muda; em `monster` sao 14 mudancas (95 a 132 bpm) e, depois da
+   primeira, tudo que anda por PASSO -- danca ociosa, props do palco, bop da
+   camera, duracao do canto e das animacoes -- ficava no tempo do primeiro BPM.
+   Estes dois leitores olham a tabela na posicao ATUAL. */
+static u32 cena_spv(void)
+{
+    u32 s = (g_chart_clock > 0) ? chart_samples_per_step((u32)g_chart_clock) : 0u;
+    if (!s) s = g_play_samples_per_step;
+    if (!s) s = TUT_SAMPLES_PER_STEP;
+    return s;
+}
+
+static int cena_passo(void)
+{
+    if (g_chart_clock < 0) return (int)(g_chart_clock / (s32)cena_spv());
+    return (int)chart_step_at((u32)g_chart_clock);
+}
+
 static long cena_canto_ms(int papel,int missing)
 {
  int ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
  float passos,bpm;
  if(ci<0||ci>=CH_CHAR_COUNT)return 0;
  passos=ch_chars[ci].sing>0.0f?ch_chars[ci].sing:8.0f;   /* CharacterData DEFAULT_SINGTIME */
- bpm=(g_play_song&&g_play_song->bpm>0.0f)?g_play_song->bpm:100.0f;
+ /* 720000 / samples_por_passo = bpm (48000*60/(bpm*4)), na secao VIGENTE: em
+    `monster` o tempo muda 14 vezes e a duracao do canto tem de acompanhar. */
+ {float spv=(float)cena_spv();
+  bpm=spv>0.0f?720000.0f/spv:((g_play_song&&g_play_song->bpm>0.0f)?g_play_song->bpm:100.0f);}
  return ca_canto_ms(passos,bpm,missing);
 }
 
@@ -3720,9 +3746,12 @@ cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
        de BPM vigente: sao eles que decidem a animacao de cada prop do palco
        (Bopper.hx). Antes da musica o passo e' negativo de proposito -- e' a
        janela em que vale o `startingAnimation` do prop. */
-    {s32 spv=(s32)(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP);
-     int bt=(int)(g_chart_clock/spv);
+    {s32 spv=(s32)cena_spv();
+     int bt=cena_passo();
      float bts=(float)(4.0f*(float)spv/48000.0f);
+     /* O chart_events converte duracao de evento (em PASSOS) para segundos com o
+        passo que recebeu; ele tem de ser o da secao vigente, nao o do comeco. */
+     chart_events_init((u32)spv);
     /* A carga e' conferida AQUI, e nao so' na transicao: o `g_play_song` pode
        chegar depois dela (no caminho do harness por musica, por exemplo), e o
        desenho era o unico lugar que sempre sabe qual e' a musica. A funcao sai
@@ -3746,7 +3775,7 @@ cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
        do `ch_anchor` no slot do palco. O upload so' acontece quando o quadro
        MUDA -- e' o custo real (LZ4 + VRAM). */
     const char *stg=g_play_song?g_play_song->stage:"mainStage";
-    int bt2=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
+    int bt2=cena_passo()/4;   /* batida = 4 passos (STEPS_PER_BEAT) */
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
     int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
     palco_lista_t pl;

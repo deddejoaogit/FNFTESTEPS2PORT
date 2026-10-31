@@ -115,6 +115,39 @@ int main(int argc, char **argv)
         ck(chart_samples_per_step(0) > 0, "the step at sample 0 is defined");
     }
 
+    /* ---- o passo MUDA com o BPM, e o passo do sample e' o do passo certo ----
+       `monster` e' a unica musica com mais de uma secao de BPM (14 mudancas, de
+       95 a 132 bpm). O port calculava o passo uma vez no comeco e tudo que anda
+       por PASSO (danca, props, bop, canto) ficava no tempo do primeiro BPM.
+       Aqui se prova o que o jogo passou a usar: `chart_samples_per_step()`
+       responde com o passo da secao daquele sample, e `chart_step_at()` devolve
+       o numero do passo integrando a tabela -- os dois tem de concordar entre
+       si e com a conta do BPM. */
+    if (info.bpm_count > 1) {
+        u32 last = info.song_end_sample > 1 ? info.song_end_sample - 1 : 0;
+        u32 s0 = chart_samples_per_step(0), sN = chart_samples_per_step(last);
+        ck(s0 > 0 && sN > 0, "the first and the last bpm sections have steps");
+        /* 95 bpm -> 7578 amostras por passo; 120 bpm -> 6000. Se o port
+           continuasse com o passo do comeco, os dois numeros seriam iguais. */
+        ck(s0 != sN, "the step LENGTH follows the bpm section (not the opening bpm)");
+        ck(chart_step_at(0) == 0, "step 0 at sample 0");
+        /* Meio da musica: o numero do passo tem de ser o que a tabela integra,
+           e nao `amostra / passo_do_comeco` -- que daria ~10% a menos depois de
+           14 mudancas de BPM. */
+        {
+            u32 mid = info.song_end_sample / 2;
+            u32 spm = chart_samples_per_step(mid);
+            /* a diferenca entre as duas contas, no meio da musica */
+            int por_tabela = (int)chart_step_at(mid);
+            int por_inicio = (int)(mid / s0);
+            ck(por_tabela > 0 && spm > 0, "mid-song step is defined");
+            ck(por_tabela != por_inicio,
+               "the step is integrated over the bpm table, not one fixed step");
+        }
+        ck(chart_step_at(last) > chart_step_at(0),
+           "the step counter grows from the start to the end of the song");
+    }
+
     /* ---- tutorial-specific: the numbers verified by hand ---- */
     if (is_tutorial) {
         ck(info.event_count == 26, "26 events (tutorial-chart.json has 26)");

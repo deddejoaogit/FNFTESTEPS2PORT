@@ -2130,3 +2130,40 @@ espelho a ponha virada para o lado certo. Isso depende do atlas real (o clone da
 arte não está aqui). O que o port garante é que faz **o que o dado diz** —
 `flipX` do `CharacterData` — e que o número aparece no log por papel, para a
 captura de console confirmar em uma música.
+
+## O passo do chart segue a seção de BPM, não o BPM do começo
+
+**O defeito.** `g_play_samples_per_step` era calculado **uma vez**, no início da
+música, com `chart_samples_per_step(0)`. Tudo que anda por **passo** — dança
+ociosa, props do palco, bop da câmera, duração do canto e das animações — usava
+esse número para a música inteira. Em 26 das 27 músicas isso é exato (o BPM não
+muda). Em **`monster`** são **14 mudanças de tempo**, de **95 a 132 bpm**: depois
+da primeira, o passo ficava 10 % a 30 % errado, e o erro se acumula.
+
+**A correção.** Dois leitores, `cena_spv()` e `cena_passo()`, que olham a tabela
+de BPM do chart na posição **atual** (`chart_samples_per_step()` e
+`chart_step_at()`, que já existiam e já eram testados, mas o `main.c` só os
+chamava na amostra 0). Eles passaram a alimentar:
+
+- o passo e a duração da batida usados pelo `sl_collect` dos props (`bt`, `bts`);
+- a batida dos personagens (`bt2 = passo/4`, `STEPS_PER_BEAT`);
+- a duração do canto: `bpm = 720000 / samples_por_passo` (48000×60/(bpm×4)), na
+  seção vigente em vez do `song->bpm` do começo;
+- `chart_events_init()`, que converte **duração de evento em passos para
+  segundos** — era inicializado uma vez com o passo do começo.
+
+**Medido.** `test/test_real_chart.c` roda agora em **todos** os 81 charts (a
+suíte já fazia isso) e, para os que têm mais de uma seção, exige: o passo do
+primeiro e do último trecho são diferentes (95 bpm → 7578 amostras; 120 bpm →
+6000), o passo 0 está na amostra 0, e no meio da música `chart_step_at()` **não**
+é igual a `amostra / passo_do_começo` — ou seja, o número é integrado sobre a
+tabela, não derivado de um passo fixo. Só `monster` entra nesse bloco (é a única
+com mais de uma seção), e ele passa nas três dificuldades.
+
+**O que NÃO está provado:** que 14 mudanças de BPM em `monster` cheguem ao fim da
+música sem desvio no console. O relógio de áudio é contado em amostras
+submetidas (`g_title_audio_submitted − audsrv_queued()`), então a posição é a do
+áudio, não um acumulador de passos — mas isso só uma passada completa do
+`monster` no hardware mostra. No harness o sweep toca 20 s de cada uma das 81
+combinações, o que cobre a primeira mudança de `monster` (aos ~28 s fica fora do
+trecho).
