@@ -2167,3 +2167,54 @@ submetidas (`g_title_audio_submitted − audsrv_queued()`), então a posição �
 `monster` no hardware mostra. No harness o sweep toca 20 s de cada uma das 81
 combinações, o que cobre a primeira mudança de `monster` (aos ~28 s fica fora do
 trecho).
+
+## A dança ociosa alterna por danças jogadas, não pela paridade do passo
+
+**O defeito.** O lado do `danceLeft`/`danceRight` saía da paridade da batida
+(`batida & 1`). No original o que conta é `hasDanced`, o contador de **danças
+jogadas** (`Bopper.hx` L185-200), e `BaseCharacter.dance()` (L479-490) sai fora
+**antes** de mexer nele quando o personagem está cantando:
+
+```haxe
+if (!force) {
+  if (isSinging()) return;                 // nao toca dance nem hasDanced
+  ...
+}
+if (shouldAlternate) { playAnimation(hasDanced ? 'danceRight' : 'danceLeft'); hasDanced = !hasDanced; }
+```
+
+Ou seja: uma batida cantada **não** vira o lado. O port virava — e como o passo
+de dança é consumido de qualquer jeito (o `onStepHit` não volta), a partir da
+primeira nota cantada o personagem dançava no pé trocado até o fim da música.
+
+**Medido:** no sweep das 81 combinações, **135 de 243 papéis** (três por música,
+menos os vazios) perdem pelo menos um passo de dança por estar cantando — o caso
+não é teórico, é a maioria. O evento `char_danca_pulada` dá esse número no log do
+console, e o `run_sweep_harness.sh` passa a exigir ≥ 1.
+
+**O segundo defeito, no mesmo lugar: `danceEvery`.** O `dance()` só é chamado nos
+passos que satisfazem `event.step % (danceEvery * STEPS_PER_BEAT) == 0`
+(`Bopper.hx` L166). O port dançava em **toda** batida. `danceEvery` **não está em
+nenhum dos 46 JSON** de personagem; o `CharacterData.hx` (L453, L588-590)
+preenche `DEFAULT_DANCEEVERY = 1.0`, que dá exatamente uma dança por batida —
+logo o comportamento de hoje coincide, mas por coincidência, e não por dado.
+`ch_dados_t` ganhou `dance` (gerado por `tools/gen_char_dados.py`, default 1.0) e
+`cc_quadro` passou a receber o **passo** do chart em vez da batida.
+
+**O que mudou no código.**
+- `ca_passo_de_danca(dance_every, passo)` — a condição do `Bopper.hx` L166, em
+  float, aceitando `danceEvery` fracionário (0,5 = duas vezes por batida) e
+  desligando quando `danceEvery == 0` (é o caso de 132 dos 157 props; entre os
+  personagens todos são 1,0).
+- `ca_danca()` / `anim_ocioso(p, lado)` — o lado é `dancas & 1`, e `dancas` só
+  avança quando a dança é **jogada** (inclusive a dança **forçada** do fim do
+  canto, `dance(true)`, e a volta de uma animação nomeada).
+- `cc_quadro(..., passo)` e `cc_danca_cada()`; `main.c` passa `cena_passo()`.
+
+**Provas.** `test/test_char_cena.c` cobre: `danceEvery` 2,0 (dança nos passos 0, 8,
+16 e **não** no 4), `danceEvery` 0 desligando a dança, e a sequência completa
+L → (dois passos perdidos cantando) → R forçado no fim do canto → L no passo
+seguinte, que é o oposto do que a paridade daria. `test/test_char_anim.c` cobre a
+condição de passo (incluindo passo negativo, que na contagem regressiva dança nos
+múltiplos de 4, como no `%` do Haxe) e confere que `ca_reset` copia o `dance` dos
+46. `tools/gen_char_dados.py --check` continua verde.

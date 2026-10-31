@@ -54,9 +54,12 @@ int ch_find(const char *id);
 int ch_anim(const char *id, const char *nome);
 int ch_anim_i(int ci, const char *nome);
 
-/* Idle: "idle" se existir; senao alterna "danceLeft"/"danceRight" pela batida
-   (e' o que a GF e as personagens de fundo tem). Devolve -1 se nao ha nenhuma. */
-int ch_anim_idle(int ci, int beat);
+/* Idle: "idle" se existir; senao "danceLeft"/"danceRight" pelo LADO (0 =
+   danceLeft, 1 = danceRight) -- e' o que a GF e as personagens de fundo tem.
+   O lado nao e' a paridade da batida: vem do contador de dancas ja' feitas
+   (ca_danca em char_anim.c), porque danca pulada nao troca o lado. -1 se o
+   personagem nao tem nenhuma das duas. */
+int ch_anim_idle(int ci, int lado);
 
 /* Animacao de canto: "singLEFT" (ou "singLEFTmiss" quando *miss) em qualquer
    direcao. -1 se o personagem nao canta (personagem de fundo: tem idle e mais

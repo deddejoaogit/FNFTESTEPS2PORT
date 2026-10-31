@@ -3,6 +3,7 @@
 #include "char_anim.h"
 
 #include <limits.h>
+#include <limits.h>
 #include <string.h>
 
 #define CH_ANIM_END_SUF "-end"
@@ -32,7 +33,10 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
     p->t0 = agora;
     p->canto_ate = 0;
     p->especial = 0;
-    p->ultima_batida = INT_MIN;   /* a primeira batida sempre danca */
+    p->ultimo_passo = INT_MIN;    /* o primeiro passo que valer danca */
+    p->danca_cada = 1.0f;         /* CharacterData DEFAULT_DANCEEVERY */
+    p->dancas = 0;                /* hasDanced = false -> a primeira e' danceLeft */
+    p->pulos = 0;
     r = cp_abrir(pacote, bytes, &p->pacote);
     if (r != 0) return r;
     r = cp_conferir(&p->pacote);
@@ -81,13 +85,27 @@ static int anim_canto(const cc_papel_t *p, int dir, int missing)
     return cp_anim_i(&p->pacote, base[dir]);
 }
 
-static int anim_ocioso(const cc_papel_t *p, int batida)
+/* A animacao do dance(): `idle` fixo para quem tem, senao danceLeft/danceRight
+   pelo LADO. O lado e' `dancas & 1`: o `hasDanced` do original, que so' vira
+   quando uma danca e' DE FATO jogada. Antes esta funcao recebia a batida e
+   usava `batida & 1` -- e entao, quando o personagem passava uma batida
+   cantando (o dance() do original sai fora e nao mexe em `hasDanced`), o port
+   trocava o lado mesmo assim: a partir da primeira nota cantada, o BF e o
+   oponente dançavam no pe' trocado para o resto da musica. */
+static int anim_ocioso(const cc_papel_t *p, int lado)
 {
     int a = cp_anim_i(&p->pacote, "idle");
     if (a >= 0) return a;
-    a = cp_anim_i(&p->pacote, (batida & 1) ? "danceRight" : "danceLeft");
+    a = cp_anim_i(&p->pacote, (lado & 1) ? "danceRight" : "danceLeft");
     if (a >= 0) return a;
-    return cp_anim_i(&p->pacote, (batida & 1) ? "danceLeft" : "danceRight");
+    return cp_anim_i(&p->pacote, (lado & 1) ? "danceLeft" : "danceRight");
+}
+
+void cc_danca_cada(cc_cena_t *c, int papel, float cada)
+{
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS) return;
+    if (cada < 0.0f) cada = 0.0f;
+    c->p[papel].danca_cada = cada;
 }
 
 int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora)
@@ -130,7 +148,7 @@ void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long si
     if (sing_ms > 0 && agora + sing_ms > p->canto_ate) p->canto_ate = agora + sing_ms;
 }
 
-int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
+int cc_quadro(cc_cena_t *c, int papel, long agora, int passo)
 {
     cc_papel_t *p;
     ch_seq_t q;
@@ -164,7 +182,10 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
             p->quadro = -1;
             p->especial = 1;          /* "-end" tambem nao e' interrompida */
         } else {
-            a = anim_ocioso(p, batida);
+            /* Fim do canto sem `-end`: BaseCharacter.dance(true) -- danca
+               FORCADA, que conta como danca jogada (inverte o lado). */
+            a = anim_ocioso(p, p->dancas & 1);
+            p->dancas++;
             if (a >= 0 && a != p->anim) {
                 p->anim = a;
                 p->t0 = agora;
@@ -184,7 +205,9 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
                dancar. E' a unica leitura que mantem a musica tocando. */
             if (e.fps100 > 0 && passado >= (long)((long)e.count * 100000L / (long)e.fps100)) {
                 p->especial = 0;
-                a = anim_ocioso(p, batida);
+                /* Volta a dancar: tambem conta como danca jogada. */
+                a = anim_ocioso(p, p->dancas & 1);
+                p->dancas++;
                 if (a >= 0 && a != p->anim) {
                     p->anim = a;
                     p->t0 = agora;
@@ -200,16 +223,28 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
        Bopper.dance() e' chamado no beat hit (onBeatHit), e a diferenca nao e'
        cosmetica: rodando a cada quadro, um personagem que termina o `idle` e
        entra no `idle-hold` voltaria ao `idle` no quadro seguinte e nunca
-       mostraria o "-hold" -- os olhos do pai nunca piscariam. Na batida, o
-       ciclo e' o do original: idle -> (acaba) -> idle-hold -> (batida) -> idle.
-       `ultima_batida` guarda em que batida o dance() rodou. */
-    if (p->canto_ate == 0 && batida != p->ultima_batida) {
-        p->ultima_batida = batida;
-        a = anim_ocioso(p, batida);
-        if (a >= 0 && a != p->anim) {
-            p->anim = a;
-            p->t0 = agora;
-            p->quadro = -1;
+       mostraria o "-hold" -- os olhos do pai nunca piscariam. No PASSO, o
+       ciclo e' o do original: idle -> (acaba) -> idle-hold -> (passo) -> idle.
+       `ultimo_passo` guarda em que passo o dance() rodou, e `ca_passo_de_danca`
+       e' a condicao do Bopper.hx L166 -- com o `danceEvery` do personagem em
+       BATIDAS (1.0 nos 46: o campo esta' ausente em todos, e o CharacterData
+       preenche o default). */
+    if (passo != p->ultimo_passo && ca_passo_de_danca(p->danca_cada, passo)) {
+        p->ultimo_passo = passo;
+        if (p->canto_ate != 0) {
+            /* Passo de danca perdido porque o personagem esta' cantando: o
+               onStepHit ja' passou e nao volta, entao o passo fica consumido --
+               mas o LADO nao gira (BaseCharacter.dance() sai fora antes de
+               `hasDanced`). E' a contagem de pulos que o log mostra. */
+            p->pulos++;
+        } else {
+            a = anim_ocioso(p, p->dancas & 1);
+            p->dancas++;
+            if (a >= 0 && a != p->anim) {
+                p->anim = a;
+                p->t0 = agora;
+                p->quadro = -1;
+            }
         }
     }
     if (p->anim < 0) return -1;

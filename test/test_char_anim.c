@@ -98,15 +98,15 @@ int main(void)
         CHECK(strcmp(nome_anim(&s), "singLEFTmiss") == 0);
         CHECK_EQ(s.missing, 1);
         /* Dentro do singTime, nao volta a dancar. */
-        CHECK_EQ(ca_ocioso(&s, 0, 200 + sing - 1, sing), 0);
+        CHECK_EQ(ca_ocioso(&s, 4, 200 + sing - 1, sing), 0);
         CHECK(strcmp(nome_anim(&s), "singLEFTmiss") == 0);
         /* No fim do singTime, volta para o idle. */
-        CHECK_EQ(ca_ocioso(&s, 0, 200 + sing, sing), 1);
+        CHECK_EQ(ca_ocioso(&s, 8, 200 + sing, sing), 1);
         CHECK(strcmp(nome_anim(&s), "idle") == 0);
         CHECK_EQ(s.missing, 0);
         /* E ja' no idle, pedir de novo nao troca (o desenho nao reenvia a
            textura a' toa). */
-        CHECK_EQ(ca_ocioso(&s, 4, 200 + sing + 1, sing), 0);
+        CHECK_EQ(ca_ocioso(&s, 8, 200 + sing + 1, sing), 0);
     }
 
     printf("== danceLeft/danceRight (GF) ==\n");
@@ -117,17 +117,23 @@ int main(void)
         ca_reset(&s, gf);
         /* A GF tem sing (4 direcoes) mas NAO tem idle: ela alterna
            danceLeft/danceRight. Sem animacao nenhuma ainda, o primeiro pedido
-           de ociosidade cai no danceLeft. */
+           de ociosidade cai no danceLeft.
+           O passo do chart e' 1/4 de batida: a batida 0 e' o passo 0, a batida
+           1 e' o passo 4, e com danceEvery 1.0 (o dos 46) os passos de danca
+           sao 0, 4, 8, 12... */
         CHECK_EQ(s.anim, -1);
-        /* Batida par -> danceLeft, impar -> danceRight. */
+        /* Passo de danca e o lado alterna a cada danca JOGADA. */
         CHECK_EQ(ca_ocioso(&s, 0, 0, sing), 1);
         CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
-        CHECK_EQ(ca_ocioso(&s, 1, 600, sing), 1);
+        CHECK_EQ(ca_ocioso(&s, 4, 600, sing), 1);
         CHECK(strcmp(nome_anim(&s), "danceRight") == 0);
-        CHECK_EQ(ca_ocioso(&s, 2, 1200, sing), 1);
+        CHECK_EQ(ca_ocioso(&s, 8, 1200, sing), 1);
         CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
-        /* A mesma batida duas vezes nao pisca. */
-        CHECK_EQ(ca_ocioso(&s, 2, 1800, sing), 0);
+        /* O passo 2 NAO e' passo de danca (2 % 4 != 0): nada muda. */
+        CHECK_EQ(ca_ocioso(&s, 2, 1500, sing), 0);
+        CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
+        /* O mesmo passo duas vezes nao pisca. */
+        CHECK_EQ(ca_ocioso(&s, 8, 1800, sing), 0);
         CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
         /* E o canto dela tambem funciona (as GFs do jogo cantam). */
         CHECK_EQ(ca_canto(&s, 1, 0, 2000), 1);
@@ -147,6 +153,44 @@ int main(void)
         /* Mas ele tem idle, entao danca. */
         CHECK_EQ(ca_ocioso(&s, 0, 200, 0), 1);
         CHECK(strcmp(nome_anim(&s), "idle") == 0);
+    }
+
+    printf("== danceEvery e o contador de dancas (hasDanced) ==\n");
+    {
+        ch_state_t s;
+        int gf = ch_find("gf");
+        /* danceEvery = 2: so' a cada 2 batidas, ou seja nos passos 0, 8, 16...
+           (Bopper.hx L166: `step % (danceEvery * STEPS_PER_BEAT) == 0`). */
+        ca_reset(&s, gf);
+        s.dance_every = 2.0f;
+        CHECK_EQ(ca_passo_de_danca(2.0f, 0), 1);
+        CHECK_EQ(ca_passo_de_danca(2.0f, 4), 0);
+        CHECK_EQ(ca_passo_de_danca(2.0f, 8), 1);
+        CHECK_EQ(ca_passo_de_danca(1.0f, 4), 1);
+        CHECK_EQ(ca_passo_de_danca(1.0f, 3), 0);
+        CHECK_EQ(ca_passo_de_danca(0.5f, 2), 1);   /* duas vezes por batida */
+        CHECK_EQ(ca_passo_de_danca(0.0f, 0), 0);   /* desligada */
+        CHECK_EQ(ca_passo_de_danca(1.0f, -1), 0);  /* -1 % 4 != 0 */
+        CHECK_EQ(ca_passo_de_danca(1.0f, -4), 1);  /* a contagem regressiva danca */
+        CHECK_EQ(ca_ocioso(&s, 0, 0, 0), 1);       /* passo 0: L */
+        CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
+        CHECK_EQ(ca_ocioso(&s, 4, 600, 0), 0);     /* passo 4: nao e' o passo dela */
+        CHECK(strcmp(nome_anim(&s), "danceLeft") == 0);
+        CHECK_EQ(ca_ocioso(&s, 8, 1200, 0), 1);    /* passo 8: R */
+        CHECK(strcmp(nome_anim(&s), "danceRight") == 0);
+        /* Os 46 trazem o default do CharacterData (o campo esta' ausente em
+           todos os JSON), e ca_reset copia o valor do personagem. */
+        {
+            int i, todos_um = 1, copiou = 1;
+            for (i = 0; i < CH_CHAR_COUNT; i++) {
+                ch_state_t t;
+                if (ch_chars[i].dance != 1.0f) todos_um = 0;
+                ca_reset(&t, i);
+                if (t.dance_every != ch_chars[i].dance) copiou = 0;
+            }
+            CHECK_EQ(todos_um, 1);   /* DEFAULT_DANCEEVERY 1.0 */
+            CHECK_EQ(copiou, 1);     /* ca_reset le' ch_dados_t.dance */
+        }
     }
 
     printf("== os 46 personagens atravessam o ciclo ==\n");
@@ -178,7 +222,7 @@ int main(void)
                 }
             }
             if (temalgo) cycle_ok++;
-            ca_ocioso(&s, 3, 99000, sing);
+            ca_ocioso(&s, 4, 99000, sing);
             CHECK(s.anim >= 0);       /* todos tem idle ou dance */
             CHECK(s.anim < c->anim_count);
         }

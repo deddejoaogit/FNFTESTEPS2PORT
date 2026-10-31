@@ -1358,6 +1358,7 @@ static int g_cena_desenhos[CH_CENA_PAPEIS];
 static int g_cena_tam_visto[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
 static int g_cena_hold_visto[CH_CENA_PAPEIS];
+static int g_cena_pulos_visto[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
 static unsigned int g_cena_pixels_cap=0;
 static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falhou */
@@ -1388,7 +1389,7 @@ static void cena_soltar(void)
  g_cena_song[0]=0;
  {int i;for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_texde_w[i]=g_cena_texde_h[i]=0;
   g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=g_cena_hold_visto[i]=0;
-  g_cena_tam_visto[i]=0;}}
+  g_cena_tam_visto[i]=0;g_cena_pulos_visto[i]=0;}}
  cc_reset(&g_cena);
 }
 
@@ -1459,6 +1460,11 @@ static int cena_carregar(const sr_song_t *song)
   g_cena_ram+=g_cena_mem_bytes[i];
   a=cc_anexar(&g_cena,i,g_cena_mem[i],g_cena_mem_bytes[i],0);
   if(a!=0){telemetry_event("char_pacote_ruim",plano[i].ci,a);free(g_cena_mem[i]);g_cena_mem[i]=0;continue;}
+  /* de quantas em quantas BATIDAS este personagem danca (ch_dados_t.dance):
+     1.0 nos 46, porque nenhum dos JSON traz `danceEvery` e o CharacterData
+     preenche o DEFAULT_DANCEEVERY. O campo existe para nao haver uma constante
+     escondida no meio do codigo se algum personagem passar a trazer. */
+  cc_danca_cada(&g_cena,i,ch_chars[plano[i].ci].dance);
   telemetry_event("char_carregado",plano[i].ci,(int)g_cena_mem_bytes[i]);
  }
  /* TEXTURA DE CADA PAPEL, no MESMO formato de pixel do pacote (PSMCT32 ou
@@ -1621,12 +1627,12 @@ static int cena_canvas_mundo(int papel,const bs_slot_t *slot,float *w,float *h)
    e posiciona pelo slot do palco. Devolve o qword do pacote. Sem pacote, sem
    slot ou sem quadro, devolve o pacote como esta' -- nada em silencio: o
    primeiro desenho e os quadros contados vao para o log. */
-static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int batida,long ms,float cx,float cy,float sc)
+static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int passo,long ms,float cx,float cy,float sc)
 {
  int qd;
  if(papel<0||papel>=CH_CENA_PAPEIS)return q;
  if(!g_cena.p[papel].ativo||!slot||g_cena_texde_w[papel]<=0)return q;
- qd=cc_quadro(&g_cena,papel,ms,batida);
+ qd=cc_quadro(&g_cena,papel,ms,passo);
  if(qd>=0&&g_cena_pixels&&cp_quadro(&g_cena.p[papel].pacote,(unsigned)qd,g_cena_pixels)==0){
   FlushCache(0);
   upload_raw_psm(&g_cena_texde[papel],g_cena_pixels,g_cena_texde_w[papel],g_cena_texde_h[papel],
@@ -1660,6 +1666,13 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int bati
   }
   /* UM evento por papel, uma vez por musica, com as tres parcelas do tamanho.
      Sem ele, "o personagem esta' do tamanho certo" nao teria medida nenhuma. */
+  /* Passos de danca perdidos por o personagem estar cantando: e' o numero que
+     mostra, no log do console, se a alternancia danceLeft/danceRight andou fora
+     de fase por causa de um canto -- e por isso este evento existe. */
+  if(!g_cena_pulos_visto[papel]&&g_cena.p[papel].pulos>0){
+   g_cena_pulos_visto[papel]=1;
+   telemetry_event("char_danca_pulada",papel,g_cena.p[papel].pulos);
+  }
   if(!g_cena_tam_visto[papel]){
    g_cena_tam_visto[papel]=1;
    telemetry_event("char_tamanho",papel,(int)(wm*sc));
@@ -3775,7 +3788,7 @@ cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
        do `ch_anchor` no slot do palco. O upload so' acontece quando o quadro
        MUDA -- e' o custo real (LZ4 + VRAM). */
     const char *stg=g_play_song?g_play_song->stage:"mainStage";
-    int bt2=cena_passo()/4;   /* batida = 4 passos (STEPS_PER_BEAT) */
+    int bt2=cena_passo();     /* o passo do chart: e' ele que decide quando dancar */
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
     int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
     palco_lista_t pl;

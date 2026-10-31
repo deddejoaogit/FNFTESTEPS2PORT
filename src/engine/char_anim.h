@@ -53,6 +53,9 @@ typedef struct {
     int missing;    /* a animacao atual e' de erro (miss) */
     long t0;        /* ms em que ela comecou */
     int lado;       /* 0 = danceLeft, 1 = danceRight (quem alterna) */
+    float dance_every;  /* ch_dados_t.dance: de quantas em quantas BATIDAS danca */
+    int dancas;     /* quantas vezes ja' dancou (o `hasDanced` do original) */
+    int ultimo_passo;   /* em que passo o dance() rodou por ultimo */
 } ch_state_t;
 
 #define CH_ANIM_MS_PADRAO 0L
@@ -70,10 +73,23 @@ int ca_frame(const ch_seq_t *q, long decorrido);
 /* Canto: escolhe "sing<DIR>[miss]" e devolve 1 se a animacao mudou. */
 int ca_canto(ch_state_t *s, int dir, int missing, long now);
 
-/* Volta a dancar (idle ou danceLeft/Right pela batida `batida`), se estiver
-   cantando ha' `sing_ms` ou mais. Devolve 1 se trocou -- e' o sinal que o
-   desenho usa para saber que precisa reenviar a textura. */
-int ca_ocioso(ch_state_t *s, int batida, long now, long sing_ms);
+/* O passo pede danca? Bopper.hx L166:
+   `if (danceEvery > 0 && (event.step % (danceEvery * STEPS_PER_BEAT)) == 0)`.
+   danceEvery esta' em BATIDAS, e a comparacao e' com float (0.5 dança duas
+   vezes por batida). danceEvery == 0 desliga a danca automatica. */
+int ca_passo_de_danca(float dance_every, int passo);
+
+/* Bopper.dance(): a proxima danca da alternancia. O lado NAO vem da paridade da
+   batida -- vem de QUANTAS VEZES ja' dancou (`hasDanced`), porque uma danca
+   pulada (porque o personagem estava cantando) nao troca o lado. Devolve 1 se
+   a animacao mudou. */
+int ca_danca(ch_state_t *s, long now);
+
+/* O dance() do passo `passo`: nao faz nada enquanto o canto nao acabar (o
+   BaseCharacter.dance() L479-490 sai fora quando `isSinging()`) e so' danca
+   nos passos que satisfazem `ca_passo_de_danca`, uma vez por passo. Devolve 1
+   se trocou -- e' o sinal que o desenho usa para reenviar a textura. */
+int ca_ocioso(ch_state_t *s, int passo, long now, long sing_ms);
 
 /* Passos -> ms, para o singTime. bpm vem do chart.
    Constants.hx: STEPS_PER_BEAT = 4 -- um passo e' 1/4 de batida. */

@@ -1,6 +1,6 @@
 /* A maquina de estado de um personagem em cena (char_cena).
  *
- * O que prova: danca pela batida, canta por singTime e volta, erro de nota usa
+ * O que prova: danca no passo que o danceEvery manda, canta por singTime e volta, erro de nota usa
  * `miss` e cai no nome-base quando nao existe, o MESMO canto nao reinicia mas
  * estende o tempo, papel sem pacote nao desenha nada (arte nao se inventa), e o
  * quadro so' e' pedido quando ele MUDA -- que e' o que decide o custo real
@@ -95,7 +95,7 @@ int main(void)
         cc_cena_t c;
         cc_reset(&c);
         CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 0, 0), -1);
-        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 1000, 1), -1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 1000, 4), -1);
         cc_canto(&c, CH_PAPEL_DAD, 0, 0, 0, 500);
         CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 10, 0), -1);
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), -1);
@@ -189,11 +189,11 @@ int main(void)
         /* "hey" toca e NAO volta ao idle na batida seguinte */
         CHECK_EQ(cc_toca(&c, CH_PAPEL_DAD, "hey", 10), 1);
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);
-        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 60, 1), 2);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 60, 4), 2);
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);              /* continua */
         /* e volta so' quando ela ACABA (200 ms depois de comecar) */
         /* 211 ms: o "hey" acabou (200 ms) e o idle volta, com quadro novo. */
-        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 211, 1), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 211, 4), 0);
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 0);
         /* animacao que o personagem nao tem: nao inventa */
         CHECK_EQ(cc_toca(&c, CH_PAPEL_DAD, "cheer", 300), 0);
@@ -244,7 +244,7 @@ int main(void)
         CHECK_EQ(cc_anexar(&c, CH_PAPEL_GF, g_pac, n, 0), 0);
         CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 0, 0), 0);      /* danceLeft  */
         CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
-        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 10, 1), 1);     /* batida 1: danceRight */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 10, 4), 1);     /* batida 1: danceRight */
         CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
     }
 
@@ -259,6 +259,68 @@ int main(void)
         cc_canto(&c, CH_PAPEL_DAD, 0, 0, 0, 200);
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 0);             /* continua no idle */
         CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 10, 0), -1);   /* e nao reinicia */
+    }
+
+    printf("== danceEvery: quem danca de 2 em 2 batidas NAO danca na batida 1 ==\n");
+    {
+        /* Bopper.hx L166: `event.step % (danceEvery * STEPS_PER_BEAT) == 0`.
+           danceEvery = 2 -> so' nos passos 0, 8, 16... (batidas 0, 2, 4). Antes
+           o port dançava em TODA batida, duas vezes mais rapido que o dado. */
+        cc_cena_t c;
+        unsigned int n = montar(4, 3, gf_anims);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_GF, g_pac, n, 0), 0);
+        cc_danca_cada(&c, CH_PAPEL_GF, 2.0f);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 0, 0), 0);      /* passo 0: danceLeft */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
+        /* passo 4 (batida 1): nao e' multiplo de 8 -> nada muda */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 10, 4), -1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
+        /* passo 8 (batida 2): danca, e troca o lado */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 20, 8), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
+        /* e danceEvery = 0 DESLIGA a danca automatica (132 props e nenhum
+           personagem hoje, mas a regra e' a mesma do Bopper) */
+        cc_danca_cada(&c, CH_PAPEL_GF, 0.0f);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 30, 16), -1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
+    }
+
+    printf("== danca pulada por canto NAO troca o lado (hasDanced) ==\n");
+    {
+        /* BaseCharacter.dance() L479-490: se o personagem esta' cantando, o
+           dance() sai fora ANTES de mexer em `hasDanced`. Logo a alternancia
+           danceLeft/danceRight conta DANÇAS JOGADAS, e nao a paridade do passo:
+           com `passo & 1` (ou `batida & 1`), a primeira danca pulada jogava o
+           resto da musica no pe' trocado.
+           Sequencia: passo 0 danca L; passos 4 e 8 sao pulados (cantando); o
+           canto acaba no passo 10 (que nao e' passo de danca) e a danca
+           FORCADA do fim do canto toca R; no passo 12 a danca normal toca L --
+           a TERCEIRA danca jogada. Pela paridade do passo 12 (batida 3, impar)
+           viria R: e' essa a diferenca que este bloco mede. */
+        cc_cena_t c;
+        unsigned int n = montar(4, 3, gf_anims);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_GF, g_pac, n, 0), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 0, 0), 0);      /* passo 0: L */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
+        cc_canto(&c, CH_PAPEL_GF, 2, 0, 0, 1000);           /* singUP ate' 1000 ms */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 400, 4), 2);    /* passo 4: cantando */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 2);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 800, 8), -1);   /* passo 8: ainda cantando */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 2);
+        /* os dois passos de danca perdidos ficam contados (o log os mostra) */
+        CHECK_EQ(c.p[CH_PAPEL_GF].pulos, 2);
+        CHECK_EQ(c.p[CH_PAPEL_GF].dancas, 1);
+        /* passo 10: o canto acabou -> danca FORCADA (segunda jogada: R). */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 1000, 10), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
+        /* passo 12: danca normal, terceira jogada -> L. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 1200, 12), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
+        /* passo 16: quarta jogada -> R. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 1600, 16), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

@@ -43,7 +43,10 @@ typedef struct {
     long t0;                /* ms em que a animacao atual comecou          */
     long canto_ate;         /* ms em que o canto acaba; 0 = nao canta       */
     int especial;           /* tocando animacao nomeada (hey, cheer...)     */
-    int ultima_batida;      /* em que batida o dance() rodou por ultimo     */
+    int ultimo_passo;       /* em que passo o dance() rodou por ultimo      */
+    float danca_cada;       /* danceEvery em BATIDAS (1.0 = toda batida)    */
+    int dancas;             /* quantas dancas ja' jogou (`hasDanced`)       */
+    int pulos;              /* passos de danca perdidos por estar cantando  */
 } cc_papel_t;
 
 typedef struct {
@@ -69,9 +72,15 @@ void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long si
    personagem nao tem essa animacao (aí o evento vira log, nao invencao). */
 int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora);
 
-/* O quadro a desenhar AGORA, ou -1 quando nada mudou. `batida` alterna
-   danceLeft/danceRight de quem nao tem idle. */
-int cc_quadro(cc_cena_t *c, int papel, long agora, int batida);
+/* danceEvery do personagem do papel, em BATIDAS (ch_dados_t.dance). Chamado
+   depois de `cc_anexar`; sem ele vale 1.0, que e' o DEFAULT_DANCEEVERY. */
+void cc_danca_cada(cc_cena_t *c, int papel, float cada);
+
+/* O quadro a desenhar AGORA, ou -1 quando nada mudou. `passo` e' o passo do
+   chart (1/4 de batida): e' ele que decide QUANDO dancar -- a cada
+   `danca_cada * 4` passos, como o `onStepHit` do Bopper -- e o lado alterna por
+   quantas dancas ja' foram jogadas, nao pela paridade do passo. */
+int cc_quadro(cc_cena_t *c, int papel, long agora, int passo);
 
 /* A animacao atual (indice no pacote), -1 se nenhuma. Para o log. */
 int cc_anim(const cc_cena_t *c, int papel);

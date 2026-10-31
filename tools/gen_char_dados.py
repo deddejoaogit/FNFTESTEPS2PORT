@@ -81,6 +81,7 @@ def render(plan):
     linhas.append("  float ox,oy;         /* offsets */")
     linhas.append("  float cx,cy;         /* cameraOffsets */")
     linhas.append("  float sing;          /* singTime em passos; 0 = nao definido */")
+    linhas.append("  float dance;         /* danceEvery em BATIDAS (CharacterData DEFAULT_DANCEEVERY 1.0) */")
     linhas.append("  float scale;         /* `scale` do CharacterData (1; 6 nos de pixel) */")
     linhas.append("  int anim_first,anim_count;")
     linhas.append("}ch_dados_t;")
@@ -109,6 +110,15 @@ def render(plan):
         # campo o personagem de pixel sai 6x menor do que o original desenha.
         esc = d.get("scale")
         esc = float(esc) if esc is not None else 1.0
+        # danceEvery: de quantas em quantas BATIDAS o personagem danca
+        # (Bopper.hx L166: `event.step % (danceEvery * STEPS_PER_BEAT) == 0`).
+        # Ausente nao e' zero: CharacterData.hx L588-590 preenche
+        # DEFAULT_DANCEEVERY = 1.0 (L453) para todo personagem sem o campo --
+        # e nenhum dos 46 JSON traz o campo hoje, logo todos dançam na batida.
+        deve = d.get("danceEvery")
+        deve = float(deve) if deve is not None else 1.0
+        if deve < 0.0:
+            deve = 0.0
         first = len(anims)
         for a in d.get("animations") or []:
             nome = a.get("name")
@@ -123,6 +133,7 @@ def render(plan):
             "cx": float(cam[0]), "cy": float(cam[1]),
             "sing": float(sing) if sing is not None else 0.0,
             "scale": esc,
+            "dance": deve,
             "af": first, "ac": len(anims) - first,
         })
 
@@ -135,11 +146,11 @@ def render(plan):
     linhas.append("")
     linhas.append("static const ch_dados_t ch_chars[]={")
     for c in chars:
-        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%d,%d},'
+        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%s,%d,%d},'
                       % (c_str(c["id"]), c["render"], c["flipx"],
                          c_float(c["ox"]), c_float(c["oy"]),
                          c_float(c["cx"]), c_float(c["cy"]), c_float(c["sing"]),
-                         c_float(c["scale"]),
+                         c_float(c["dance"]), c_float(c["scale"]),
                          c["af"], c["ac"]))
     linhas.append("};")
     linhas.append("#define CH_CHAR_COUNT %d" % len(chars))

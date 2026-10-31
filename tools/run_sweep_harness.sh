@@ -150,6 +150,12 @@ for sid in $LISTA; do
         nholdtem=$(awk -F, '$1=="E" && $3=="char_hold_tem" && $5+0>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nhold=$(awk -F, '$1=="E" && $3=="char_hold" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         npulado=$(awk -F, '$1=="E" && $3=="char_dad_pulado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # DANCAS PERDIDAS: passos de danca que caíram enquanto o personagem
+        # cantava. O lado nao gira por eles (BaseCharacter.dance() sai fora antes
+        # de `hasDanced`), mas o passo fica consumido. Se o port voltar a
+        # alternar pela paridade do passo, este numero continua igual -- o que
+        # este contador prova e' que o caso EXISTE nos dados (e nao e' teorico).
+        DANCAS_PULADAS=$(( ${DANCAS_PULADAS:-0} + $(awk -F, '$1=="E" && $3=="char_danca_pulada" && $5>0 {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
         # CAMERA: o papel inicial tem de ser o OPONENTE (PlayState L2224-2227 +
         # resetCamera no L936), e o alvo de cada FocusCamera tem de ser medido
         # (cam_foco_alvo). A soma dos alvos e' conferida no fim, porque nem todo
@@ -294,6 +300,8 @@ rm -f build/sweep/palcos-vistos.txt
 echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
 echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
+echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar cantando"
+[ "${DANCAS_PULADAS:-0}" -ge 1 ] || { echo "  FALHA: nenhum passo de danca foi perdido por canto em $OK combinacoes -- o contador de dancas (hasDanced) deixou de ser exercitado" >&2; exit 1; }
 # 27 musicas tem o BF (flipX) no papel do jogador e a GF (sem flipX) no dela; o
 # oponente varia. Se o desenho parar de espelhar, FLIPS1 cai para 0.
 # As cotas sao por COMBINACAO, e nao fixas: o sweep roda as 81 na passada

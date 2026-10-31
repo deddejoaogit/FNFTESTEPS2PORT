@@ -32,13 +32,13 @@ int ch_anim(const char *id, const char *nome)
     return ch_anim_i(ch_find(id), nome);
 }
 
-int ch_anim_idle(int ci, int beat)
+int ch_anim_idle(int ci, int lado)
 {
     int e, d;
     if (ch_anim_i(ci, "idle") >= 0) return ch_anim_i(ci, "idle");
     e = ch_anim_i(ci, "danceLeft");
     d = ch_anim_i(ci, "danceRight");
-    if (e >= 0 && d >= 0) return (beat & 1) ? d : e;
+    if (e >= 0 && d >= 0) return (lado & 1) ? d : e;
     if (e >= 0) return e;
     if (d >= 0) return d;
     return -1;
