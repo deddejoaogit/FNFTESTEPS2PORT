@@ -115,6 +115,15 @@ int cp_seq(const cp_pack_t *p, int anim, ch_seq_t *out);
    barata o bastante para rodar no carregamento, nao num teste. */
 int cp_conferir(const cp_pack_t *p);
 
+/* Bytes que a textura de UM personagem OCUPA no GS. Nao e' `w*h*psm/8`:
+   a largura do buffer de textura (TBW) anda de 64 em 64 pixels -- o
+   draw_texture_transfer do ps2sdk manda `dest_width>>6` para o BITBLTBUF --
+   Um pacote de 258x254 PSMCT32 ocupa `320*254*4 = 325.120 B`, e nao
+   `258*254*4 = 262.128 B`; reservar pelo segundo numero faz a textura escrever
+   por cima do vizinho. A altura NAO e' arredondada: o upload escreve exatamente
+   `h` linhas. O total sobe para o alinhamento de 256 bytes do cache de VRAM. */
+unsigned int cp_tex_bytes(int w, int h, int psm);
+
 /* Nome do erro, para o log. Nunca devolve 0. */
 const char *cp_erro(int rc);
 

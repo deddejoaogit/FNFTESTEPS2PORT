@@ -4,8 +4,17 @@
 POR QUE EXISTE
 O pool de texturas do palco (`src/engine/stage_pool.c`) precisa saber, para
 cada um dos 157 props, quantos bytes alocar. Isso sai do plano commitado
-(`assets-data/stage-props.json`): `sw*sh*2` (16 bpp), arredondado para 256
-bytes, que e' o alinhamento do TBP0 do GS.
+(`assets-data/stage-props.json`), com a volta que o GS cobra:
+
+  * a LARGURA do buffer de textura (TBW do BITBLTBUF) anda de 64 em 64 pixels
+    -- o `draw_texture_transfer` do ps2sdk manda `dest_width>>6` para o
+    BITBLTBUF, e e' por isso que o upload do jogo ja' usa
+    `t->width = (sw+63)&~63`;
+
+reservar `sw*sh*2` deixava a textura invadir o prop seguinte no pool. A altura
+NAO e' arredondada: o upload escreve exatamente `sh` linhas, entao
+`stride*sh*2` cobre o que e' escrito. O total sobe para 256 bytes, que e' o
+alinhamento do TBP0 (VC_ALINHAMENTO do `vram_cache.c`).
 
 Gerar em vez de digitar a mao tem duas consequencias boas, e as duas ja'
 importaram neste projeto:
@@ -29,10 +38,24 @@ PLAN = os.path.join(PROJECT, "assets-data", "stage-props.json")
 OUT = os.path.join(PROJECT, "src", "engine", "stage_vram_data.h")
 BPP = 16
 ALINHAMENTO = 256   # VC_ALINHAMENTO: mesmo valor do vram_cache.c
+LARGURA_TBW = 64    # largura do buffer de textura do GS, em pixels
 
 
 def alinhar(v):
     return (v + ALINHAMENTO - 1) & ~(ALINHAMENTO - 1)
+
+
+def bytes_vram(sw, sh):
+    """Bytes que a textura OCUPA no GS -- nao os que o empacotador imaginou.
+
+    O GS le e escreve a textura com a largura do buffer arredondada para 64
+    pixels (TBW * 64), que e' o que o `draw_texture_transfer` do ps2sdk manda
+    no BITBLTBUF (`dest_width>>6`). Usar sw*sh*2 subestima qualquer prop cuja
+    largura nao seja multipla de 64 -- e sao 82 dos 157 -- e a textura passa a
+    escrever por cima do prop seguinte no pool.
+    """
+    w = (sw + LARGURA_TBW - 1) // LARGURA_TBW * LARGURA_TBW
+    return alinhar(w * sh * (BPP // 8))
 
 
 def render(plan):
@@ -51,7 +74,7 @@ def render(plan):
     for st in plan["stages"]:
         soma = 0
         for p in st["props"]:
-            b = alinhar(p["sw"] * p["sh"] * (BPP // 8))
+            b = bytes_vram(p["sw"], p["sh"])
             valores.append(b)
             soma += b
         por_palco.append((st["id"], soma))

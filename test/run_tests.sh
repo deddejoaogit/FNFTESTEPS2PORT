@@ -139,6 +139,7 @@ echo
 # teste falha se as faixas de props de um palco pegarem o prop de outro.
 echo "== palcos (stage_layout) =="
 $CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c src/engine/char_layout.c \
+    src/engine/vram_layout.c \
     -o /tmp/fnf_test_stage -lm
 /tmp/fnf_test_stage
 echo

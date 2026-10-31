@@ -219,18 +219,26 @@ personagens **já existem e estão commitados**, só não há quem os consuma:
 
 | palco (pior caso de cada) | VRAM só com o canvas de cada prop | RAM com o pacote inteiro |
 |---|---|---|
-| `phillyStreets` | 1.697.934 B | 5,25 MB |
-| `tankmanBattlefield` | 1.697.760 B | 14,4 MB |
-| `limoRideErect` | 1.697.420 B | **48,7 MB** |
-| `spookyMansion` | 1.696.282 B | **59,4 MB** |
-| `school` | 1.497.040 B | 21,6 MB |
-| `schoolEvilErect` (melhor) | 504.534 B | 0,5 MB |
+| `limoRide` | **1.870.848 B** | 5,3 MB |
+| `tankmanBattlefield` | 1.869.568 B | 14,4 MB |
+| `phillyStreetsErect` | 1.832.960 B | 5,3 MB |
+| `sserafim` | 1.811.712 B | 5,0 MB |
+| `mallXmasErect` | 1.801.216 B | 5,1 MB |
+| `phillyStreets` | 1.790.976 B | 5,25 MB |
+| `limoRideErect` | 1.762.816 B | **48,7 MB** |
+| `spookyMansion` | 1.751.040 B | **59,4 MB** |
+| `school` | 1.575.424 B | 21,6 MB |
+| `schoolEvilErect` (melhor) | 529.152 B | 0,5 MB |
+
+Os números desta tabela são os de **depois** da correção do passo da textura
+(TBW de 64 px, ver "Fechado: o passo da textura no orçamento de VRAM"); os
+antigos eram ~8 % menores porque contavam `sw*sh*2` sem a volta da largura.
 
 Duas conclusões que **mudam o plano**, as duas tiradas dos números e não de
 suposição:
 
-1. **VRAM:** o pior palco pede 1,70 MB e o jogo tem 1,27 MB livres com as
-   texturas de menu/título residentes. **18 dos 21 palcos não cabem** nesses
+1. **VRAM:** o pior palco pede 1,87 MB e o jogo tem 1,27 MB livres com as
+   texturas de menu/título residentes. **15 dos 21 palcos não cabem** nesses
    1,27 MB; cabe só **evictando** o que não é do jogo durante a música. É exatamente para isso que existem `vram_cache.c`
    (LRU, testado, `vram_cache_init()` ainda com **zero** chamadas) e
    `old_motor/asset_bank.c` (classes `AB_PALCO`/`AB_PERSONAGEM`, folha
@@ -265,8 +273,8 @@ suposição:
 
 **Decisão tomada para os passos 3 e 4 (medida, não escolhida no gosto):**
 
-Hoje o jogo tem 1.269.760 B livres de VRAM e o pior palco precisa de 1.697.934 B,
-então não cabe sem devolver algum slot. Os slots que o **estado 8 realmente
+Hoje o jogo tem 1.269.760 B livres de VRAM e o pior palco precisa de
+**1.870.848 B**, então não cabe sem devolver algum slot. Os slots que o **estado 8 realmente
 liga** foram levantados lendo o próprio bloco de desenho do jogo:
 
 | textura | quem usa no estado 8 | tamanho |
@@ -281,7 +289,7 @@ liga** foram levantados lendo o próprio bloco de desenho do jogo:
 Então, durante a música, `gftex` (262.144) e `stagetex` (524.288) podem ser
 devolvidos — `stagetex` justamente porque o palco genérico o substitui. Com
 isso o pool de props fica em **1.269.760 + 786.432 = 2.056.192 B**, maior que o
-pior palco (1.697.934 B), sobrando ~358 KB para os personagens.
+pior palco (1.870.848 B) **com a conta correta** — sobram 185.344 B.
 
 O `vc_*` (`src/engine/vram_cache.h`, LRU, já testado) passa a ser esse pool:
 chave = índice do prop em `bs_props[]`, tamanho = `sw*sh*2`, despejo por LRU
@@ -1149,6 +1157,54 @@ o `z` do item é o `z` do prop; a lista sai em z não-decrescente nos 21 palcos;
 as fatias por z são **contíguas** (o corte nunca cai no meio de um empate); e o
 `tankmanBattlefield` tem prop dos dois lados do BF (medido: 4 na frente, 11
 atrás), que é o motivo do corte existir.
+
+#### Fechado: o passo da textura no orçamento de VRAM (TBW de 64 px)
+
+O pool reservava `sw*sh*2` para cada prop (16 bpp, arredondado a 256 bytes) e o
+upload escrevia a textura com `t->width = (sw+63)&~63`. As duas contas não se
+falavam, e a diferença é o passo do GS: o `BITBLTBUF` guarda a largura do buffer
+em **unidades de 64 pixels** (`dest_width>>6`, em `draw_texture_transfer` do
+ps2sdk), então um quadro de 802 px ocupa a faixa de **832 px por linha**. Para o
+`stageBack` do `mainStage` (802×438) isso é 728.832 B de ocupação real contra
+702.976 B reservados: **25.856 B de escrita por cima do prop seguinte**.
+
+Medido no plano: **82 dos 157 props** têm largura que não é múltipla de 64, e
+todo palco tem pelo menos um. O harness não pega isso — ele não rasteriza, só
+conta primitivas e confere o pacote —, então o sintoma seria arte trocada no
+console sem uma linha de log dizendo por quê.
+
+Correção em `tools/gen_stage_vram.py` (`bytes_vram`): `ceil64(sw)*sh*2`,
+arredondado a 256 B. A altura não é arredondada de propósito — o upload escreve
+exatamente `sh` linhas. O `src/engine/stage_vram_data.h` foi regerado e o teste
+(`test/test_stage_layout.c`) passou a recalcular a conta **por conta própria**
+para cada um dos 157 props e comparar com o array gerado — divergência de
+gerador vira falha de teste, não lixo na tela.
+
+O mesmo defeito existia no **personagem**, e ali o sintoma era outro: o
+`cena_carregar` subia o quadro com `width = pk->w` (258 no BF do tutorial), e
+como o GS arredonda o passo para 256 px, a imagem saía **enviesada dois pixels
+por linha** — além de a VRAM reservada (`258*254*4 = 262.128 B`) ser menor que a
+ocupada (`320*254*4 = 325.120 B`), escrevendo por cima do vizinho. Agora
+`cp_tex_bytes()` (`engine/char_pack.c`, com teste em `test/test_char_pack.c`)
+calcula `ceil64(w)*h*psm/8` alinhado a 256, e o `cena_carregar` usa esse número
+para a VRAM **e** para o passo da textura (`g_cena_texde[r].width`), com o
+evento `char_stride` gravando as duas larguras. O empacotador
+(`tools/pacote_personagem.py`) passou a gerar o canvas já com largura múltipla de
+64, então pacote e textura concordam por construção.
+
+Números novos (os antigos da tabela de VRAM eram ~8 % menores):
+
+| medida | antes | agora |
+|---|---|---|
+| pior palco (soma dos props) | 1.697.760 B (`tankmanBattlefield`) | **1.870.848 B** (`limoRide`) |
+| pior **momento** na tela (props visíveis ao mesmo tempo) | 1.697.032 B (`mainStage`) | **1.799.424 B** (`sserafim`) |
+| props visíveis ao mesmo tempo (máximo dos 21 palcos) | 14 | 14 (o corte do `sl_collect` é 32) |
+| palcos que cabem no pool de 2.056.192 B | 21 de 21 | **21 de 21** |
+
+A varredura do "pior momento" olha a câmera em cada prop de cada palco e no slot
+do BF, e soma o que o pool reservaria para os props visíveis naquele quadro. É o
+número que o console cobra: o pool é por quadro, com despejo LRU, não a soma do
+palco inteiro.
 
 #### Fechado: orçamento de RAM do empacotador e conferência dos 21 palcos
 

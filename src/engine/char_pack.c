@@ -136,3 +136,14 @@ const char *cp_erro(int rc)
     default: return "erro desconhecido do pacote de personagem";
     }
 }
+
+unsigned int cp_tex_bytes(int w, int h, int psm)
+{
+    unsigned int stride, b;
+    if (w <= 0 || h <= 0) return 0;
+    stride = ((unsigned int)w + 63u) & ~63u;
+    b = stride * (unsigned int)h * (unsigned int)(psm == 16 ? 2 : 4);
+    /* O upload escreve exatamente h linhas com este passo: nada abaixo disto
+       pode ser lido nem escrito, e nada acima e' preciso reservar. */
+    return (b + 255u) & ~255u;
+}

@@ -262,6 +262,11 @@ def render_frames(frames, scale, bpp, pad=0):
     top = max(0, -min(oy for _, _, oy in scaled))
     cw += left + pad * 2
     ch += top + pad * 2
+    # O canvas tem a largura do buffer de textura do GS (TBW, de 64 em 64 px):
+    # e' com esse passo que o jogo sobe o quadro (`dest_width>>6` no BITBLTBUF
+    # do ps2sdk). Empacotar 258 px e subir com passo 320 desperdicava a VRAM
+    # sem precisar -- e um passo MENOR que o real enviesaria a imagem.
+    cw = (cw + 63) // 64 * 64
 
     if cw > TEXTURE_MAX_W or ch > TEXTURE_MAX_H:
         raise ValueError("canvas %dx%d exceeds the %dx%d texture limit"

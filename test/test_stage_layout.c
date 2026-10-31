@@ -11,6 +11,8 @@
 #include "bs_dados.h"
 #include "stage_layout.h"
 #include "char_layout.h"
+#include "vram_layout.h"
+#include "stage_vram_data.h"
 
 static int falhas;
 #define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
@@ -18,6 +20,21 @@ static int falhas;
     if (_a != _b) { printf("  FALHA: %s == %s: %ld != %ld (linha %d)\n", #a, #b, _a, _b, __LINE__); falhas++; } } while (0)
 #define CHECK_NEAR(a, b) do { double _a = (double)(a), _b = (double)(b); \
     if (_a < _b - 0.01 || _a > _b + 0.01) { printf("  FALHA: %s ~= %s: %.3f != %.3f (linha %d)\n", #a, #b, _a, _b, __LINE__); falhas++; } } while (0)
+
+
+/* Bytes que UM quadro do prop ocupa no GS -- a conta do hardware, escrita aqui
+ * de novo de proposito (nao e' para concordar com o gerador por construcao):
+ *   - a largura do buffer (TBW) anda de 64 em 64 pixels;
+ *   - a altura e' a do quadro (o upload escreve exatamente `sh` linhas);
+ *   - o endereco do TBP0 e' alinhado a 256 bytes.
+ * Foi com sw*sh*2 (sem as duas voltas) que 82 dos 157 props passavam a escrever
+ * por cima do prop seguinte no pool. */
+static unsigned int bytes_gs(const bs_prop_t *p)
+{
+    unsigned int w = ((unsigned int)p->sw + 63u) & ~63u;
+    unsigned int b = w * (unsigned int)p->sh * 2u;
+    return (b + 255u) & ~255u;
+}
 
 /* O item coletado cujo prop tem este nome, ou NULL. */
 static const sl_item_t *item_por_nome(const sl_item_t *it, int n, const char *nome)
@@ -422,6 +439,87 @@ int main(void)
                frente, atras);
         CHECK(frente >= 1);
         CHECK(atras >= 1);
+    }
+
+    printf("== palcos: limites do GS e o pool de VRAM ==\n");
+    {
+        /* Dois limites que o console cobra e que o PC nao: a largura/altura
+           maxima de textura do GS (1024) e o pool de VRAM do palco. O teste
+           mede os DOIS nos dados reais, em vez de confiar no empacotador:
+             1) nenhum quadro de prop pode passar de 1024 em nenhum eixo;
+             2) nenhum quadro sozinho pode passar do pool;
+             3) o pior MOMENTO de cada palco (soma dos props visiveis) tem de
+                caber no pool. Nao e' a soma do palco inteiro -- o pool e' por
+                quadro, com despejo LRU -- e' a soma do que esta na tela ao
+                mesmo tempo, que e' o numero que o console ve.
+             4) o sl_collect corta em SL_MAX_ITENS itens. Se um palco tiver mais
+                props visiveis que isso, o port desenharia menos que o original
+                em silencio: aqui isso e' FALHA, com o numero medido. */
+        const unsigned int pool = vl_pool_size_bytes();
+        int st, j, pior_itens = 0, cortados = 0;
+        unsigned int pior_bytes = 0;
+        const char *pior_palco = "";
+        CHECK(pool > 0);
+        printf("     pool de VRAM do palco: %u B\n", pool);
+        for (st = 0; st < BS_STAGE_PROPS_COUNT; st++) {
+            const bs_stage_props_t *sp = &bs_stage_props[st];
+            unsigned int soma = 0;
+            for (j = 0; j < sp->count; j++) {
+                const bs_prop_t *p = &bs_props[sp->first + j];
+                CHECK(p->sw > 0);
+                CHECK(p->sh > 0);
+                CHECK(p->sw <= 1024);          /* largura do buffer do GS */
+                CHECK(p->sh <= 1024);
+                CHECK(bytes_gs(p) <= pool);
+                /* O pool tem de reservar EXATAMENTE o que a textura ocupa.
+                   Menos que isso e' escrita por cima do prop seguinte; mais e'
+                   VRAM jogada fora num console de 4 MB. */
+                CHECK_EQ(bs_prop_vram_bytes[sp->first + j], bytes_gs(p));
+                soma += bytes_gs(p);
+            }
+            CHECK_EQ(bs_stage_vram_bytes[st], soma);
+        }
+        /* Varre a camera por cada prop do palco (olhando para ele) e pelo slot
+           do BF: e' onde o jogo de fato para. A soma usa o tamanho ALINHADO que
+           o pool reserva, nao sw*sh*2. */
+        for (st = 0; st < BS_STAGE_PROPS_COUNT; st++) {
+            const char *id = bs_stage_props[st].id;
+            const bs_stage_props_t *sp = &bs_stage_props[st];
+            int k;
+            for (k = -1; k < sp->count; k++) {
+                float camx, camy;
+                sl_item_t a[SL_MAX_ITENS];
+                unsigned int bytes = 0;
+                int n, i;
+                if (k < 0) {
+                    const bs_slot_t *sl = ch_slot(id, k == -1 ? "bf" : "gf");
+                    if (!sl) continue;
+                    camx = sl->x;
+                    camy = sl->y;
+                } else {
+                    const bs_prop_t *p = &bs_props[sp->first + k];
+                    camx = p->x;
+                    camy = p->y;
+                }
+                /* O `sl_collect` para em SL_MAX_ITENS. Se ele devolver
+                   exatamente o maximo, nao da' para saber se havia mais um
+                   prop na tela -- e um palco assim desenharia menos que o
+                   original, calado. Por isso `n == SL_MAX_ITENS` conta como
+                   truncamento e reprova o teste. */
+                n = sl_collect(id, camx, camy, 1.1f, 1.0f, 0, 0.5f, 0.0f, a, SL_MAX_ITENS);
+                if (n < 0) n = 0;
+                if (n >= SL_MAX_ITENS) cortados++;
+                for (i = 0; i < n; i++) {
+                    bytes += bs_prop_vram_bytes[a[i].prop];
+                }
+                if (n > pior_itens) pior_itens = n;
+                if (bytes > pior_bytes) { pior_bytes = bytes; pior_palco = id; }
+            }
+        }
+        printf("     pior momento: %u B em %s; pior numero de props na tela: %d (corte em %d)\n",
+               pior_bytes, pior_palco, pior_itens, SL_MAX_ITENS);
+        CHECK(pior_bytes <= pool);
+        CHECK_EQ(cortados, 0);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

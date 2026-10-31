@@ -280,6 +280,29 @@ int main(void)
         CHECK_EQ(cp_quadro(&p, 1, g_quadro), 0);
     }
 
+    printf("== o passo da textura (TBW de 64 px) e' o que ocupa VRAM ==\n");
+    {
+        /* O BITBLTBUF do GS guarda a largura do buffer em unidades de 64
+           pixels: subir 258 px numa textura de `width=258` faz o GS andar de
+           256 em 256 e a imagem sai enviesada. A conta da VRAM tem de ser a do
+           passo arredondado, nao w*h*psm/8. */
+        CHECK_EQ(cp_tex_bytes(258, 254, 32), 320u * 254u * 4u);   /* BF do tutorial */
+        CHECK_EQ(cp_tex_bytes(320, 307, 16), 196608u);            /* 196.480 -> 256 */
+        CHECK_EQ(cp_tex_bytes(256, 256, 32), 256u * 256u * 4u);   /* ja' alinhado */
+        /* A altura NAO e' arredondada: o upload escreve exatamente h linhas. O
+           que sobe e' so' o total, para o alinhamento de 256 B do TBP0. */
+        CHECK_EQ(cp_tex_bytes(64, 1, 16), 256u);                  /* 128 -> 256 */
+        CHECK_EQ(cp_tex_bytes(64, 5, 16), 768u);                  /* 640 -> 768 */
+        /* E o passo: 800 px de largura ocupam 832, nao 800. */
+        CHECK_EQ(cp_tex_bytes(800, 2, 16), 3328u);                /* 832*2*2 */
+        CHECK_EQ(cp_tex_bytes(800, 2, 16) > 800u * 2u * 2u, 1);
+        /* Nunca menor que o pacote manda: e' o erro que fazia a textura
+           escrever por cima do vizinho no pool. */
+        CHECK(cp_tex_bytes(258, 254, 32) > 258u * 254u * 4u);
+        CHECK_EQ(cp_tex_bytes(0, 10, 32), 0u);
+        CHECK_EQ(cp_tex_bytes(-4, 10, 32), 0u);
+    }
+
     printf("== o erro sempre tem nome ==\n");
     {
         int rc;

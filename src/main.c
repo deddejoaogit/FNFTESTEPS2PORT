@@ -1392,7 +1392,13 @@ static int cena_carregar(const sr_song_t *song)
    texbuffer_t *tpl;
    if(!g_cena.p[r].ativo)continue;
    pk=&g_cena.p[r].pacote;
-   bytes=pk->bytes_por_quadro;
+   /* O QUE A TEXTURA OCUPA no GS, e nao o que o decodificador escreve.
+      O BITBLTBUF anda em unidades de 64 pixels (`dest_width>>6` no
+      draw_texture_transfer do ps2sdk): subir um quadro de 258 px numa
+      textura com `width=258` faz o GS usar passo de 256 px e a imagem sai
+      enviesada, dois pixels por linha. O pacote de 258 continua certo -- o
+      que muda e' o passo da textura e, com ele, a VRAM reservada. */
+   bytes=cp_tex_bytes(pk->w,pk->h,pk->psm);
    if(r==CH_PAPEL_BF&&g_slot_bf){tpl=g_slot_bf;capacidade=320u*256u*4u;}
    else if(r==CH_PAPEL_GF&&g_slot_gf){tpl=g_slot_gf;capacidade=256u*256u*4u;}
    else{tpl=&g_gftex16;capacidade=bytes;}
@@ -1408,12 +1414,13 @@ static int cena_carregar(const sr_song_t *song)
     continue;
    }
    g_cena_texde[r]=*tpl;
-   g_cena_texde[r].width=(unsigned int)pk->w;
+   g_cena_texde[r].width=(unsigned int)((pk->w+63)&~63);
    g_cena_texde[r].psm=(pk->psm==16)?GS_PSM_16:GS_PSM_32;
    g_cena_texde[r].address=addr;
    g_cena_texde_w[r]=pk->w;g_cena_texde_h[r]=pk->h;
    if(bytes>maior)maior=bytes;
    telemetry_event(r==CH_PAPEL_DAD?"char_dad_vram":"char_vram",(int)bytes,(int)pk->w);
+   telemetry_event("char_stride",pk->w,(int)((pk->w+63)&~63));
    /* Quantas animacoes "-hold" este personagem TEM. O sweep usa isto para
       cobrar que, se existe alguma, ela aparece em cena -- sem esse numero, um
       personagem que nunca entra no "-hold" passaria despercebido. */
