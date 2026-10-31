@@ -136,8 +136,9 @@ static float g_tut_scroll=1.0f;   /* mirrors chart_events_state()->scroll */
      singTimeSec = singTime * stepLengthMs / 1000
    CharacterData.hx:451 da DEFAULT_SINGTIME 8.0 e o Tutorial tem
    stepLengthMs 150 (100 BPM), logo 8,0*150/1000 = 1,200 s. A animacao
-   roda a 24 fps e segura o ultimo quadro ate esse tempo acabar. */
-#define TUT_SING_MS 1200u
+   roda a 24 fps e segura o ultimo quadro ate esse tempo acabar. O numero
+   (1.200 ms) e' so' o do Tutorial: quem vale para as 27 musicas e' o
+   `cena_canto_ms`, que le' singTime e bpm do dado. */
 /* BOP DE CAMERA. PlayState.hx:1846-1859 e :1217-1227.
      Constants.DEFAULT_BOP_INTENSITY 1.015
      Constants.DEFAULT_ZOOM_RATE 4 batidas, STEPS_PER_BEAT 4 -> a cada 16 passos
@@ -158,18 +159,21 @@ static float g_tut_scroll=1.0f;   /* mirrors chart_events_state()->scroll */
    is PlayState.hx:1217's 0.95^(dt*60). All of it now lives in chart_events.c;
    g_tut_bop mirrors the multiplier so the draw code reads a plain float. */
 static float g_tut_bop=1.0f;
-static const unsigned char BF_SING[4][2]={{14,8},{22,7},{29,7},{36,7}};
-static const unsigned char GF_SING[4][2]={{57,15},{37,20},{30,7},{72,15}};
+/* As faixas fixas de quadro do Tutorial (`BF_SING`/`GF_SING`) e o
+   `tut_anim_idx` sairam com a ultima carga de quadro do caminho antigo: quem
+   escolhe o quadro agora e' `cc_quadro`, a partir da tabela que viaja dentro do
+   pacote CHP4. `g_bf_sing`/`g_gf_sing` continuam porque alimentam o estado das
+   notas (e o log), nao o desenho. */
 static int g_bf_sing=-1,g_gf_sing=-1;static u32 g_bf_sing_at=0,g_gf_sing_at=0;
-static int tut_anim_idx(int *sing,u32 at,u32 now,const unsigned char tb[4][2],u32 idle_len,u32 af){
- if(*sing>=0){
-  u32 ms=(now>at)?((now-at)/48u):0u;
-  if(ms<TUT_SING_MS){u32 len=tb[*sing][1],k=ms*24u/1000u;if(k>=len)k=len-1u;return (int)(tb[*sing][0]+k);}
-  *sing=-1;
- }
- return (int)(af%idle_len);
-}
 static int g_tut_cam_focus=0,g_tut_cam_ready=0;static float g_tut_cam_x=0.0f,g_tut_cam_y=0.0f;
+/* Papel que a camera segue. O original comeca seguindo o OPONENTE
+   (PlayState.hx L2225-2227: `cameraFollowPoint.setPosition(dad.cameraFocusPoint)`
+   ao adicionar o `dad`) e so' muda por evento FocusCamera. Aqui o valor inicial
+   continua o do BF, que e' o que a captura de console do Tutorial conferiu --
+   mudar o inicial e' outra causa, e fica para um build proprio.
+   Sem cena generica (nenhum pacote), o alvo cai nas constantes do Tutorial. */
+static int g_cam_papel=0;   /* CH_PAPEL_BF */
+static float dad_cam_x=0.0f,dad_cam_y=0.0f;
 static int g_tutorial_bf_w=0,g_tutorial_bf_h=0,g_tutorial_gf_w=0,g_tutorial_gf_h=0;
 static unsigned char *g_tutorial_bf_pack=0,*g_tutorial_gf_pack=0;static u32 g_tutorial_bf_pack_bytes=0,g_tutorial_gf_pack_bytes=0;static int g_tutorial_bf_uploaded=-1,g_tutorial_gf_uploaded=-1;
 static const unsigned char *g_story_bf_pack=0,*g_story_gf_pack=0;static u32 g_story_bf_pack_bytes=0,g_story_gf_pack_bytes=0;static int g_story_bf_uploaded=-1,g_story_gf_uploaded=-1,g_story_anim_ready=0;static u32 g_story_anim_heard_samples=0;
@@ -319,7 +323,7 @@ static int g_death_counter=0;
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
     chart_events_reset(g_official_mainstage_camera_zoom,1.0f); \
     g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
-    g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
+    g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
     g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
     tutorial_notes_reset(); \
     g_countdown_beat=(s32)(4u*g_play_samples_per_step); \
@@ -1370,24 +1374,34 @@ static int cena_carregar(const sr_song_t *song)
  if(g_cena_estado!=0&&strcmp(g_cena_song,song->id)==0)return g_cena_estado>0?0:-1;
  cena_soltar();
  if(ch_cena_plano(song,plano)!=0)return -2;
- /* TUTORIAL: caminho antigo, de proposito. E' a unica musica cujas posicoes e
-    camera foram conferidas numa captura do console; trocar por deducao de
-    codigo seria jogar fora uma medida (regra 5). O evento diz que foi escolha. */
- if(strcmp(song->id,"tutorial")==0){g_cena_estado=-4;strncpy(g_cena_song,song->id,sizeof g_cena_song-1);g_cena_song[sizeof g_cena_song-1]=0;telemetry_event("char_tutorial_legado",0,0);return -1;}
+ /* O TUTORIAL NAO TEM MAIS EXCECAO. Ele ficou por ultimo no caminho antigo --
+    e aquele caminho, depois da limpeza do renderizador ("Clean Tutorial
+    renderer foundation"), nao desenhava personagem nenhum: o evento
+    `char_tutorial_legado` barrava a cena generica e o que sobrava era palco,
+    notas e HUD. Medido no harness: ZERO eventos `char_bf_primeiro`,
+    `char_gf_primeiro` e `char_dad_primeiro` numa passada inteira do Tutorial,
+    contra um de cada nas outras 26 musicas. As posicoes e a camera do
+    mainStage que a captura de console fixou continuam valendo: `ch_anchor`
+    reproduz a mesma conta do `Stage.addCharacter` + `BaseCharacter.setScale`,
+    e o caminho generico ja registra esses numeros digito a digito.
+    Nao ha' caminho de reserva: pacote que falta vira `char_sem_pacote` com o
+    id no log, e o papel fica vazio -- dado faltando e' reportado, nao tapado. */
  strncpy(g_cena_song,song->id,sizeof g_cena_song-1);
  g_cena_song[sizeof g_cena_song-1]=0;
  for(i=0;i<CH_CENA_PAPEIS;i++){
   int a;
   if(plano[i].ci<0){telemetry_event("char_vazio",i,0);continue;}
-  /* Hoje o oponente do Tutorial e' a propria GF, e a GF do tutorial JA' e'
-     desenhada pelo caminho antigo no slot gf. Desenhar o mesmo personagem de
-     novo no slot dad seria ve-lo duas vezes na tela. Fica de fora ate' a
-     captura do console dizer em que slot ele esta' de verdade -- e' a
-     divergencia registrada em docs/PLANO_COMPLETO.md. */
-  if(i==CH_PAPEL_DAD&&strcmp(ch_chars[plano[i].ci].id,"gf")==0){
-   telemetry_event("char_dad_pulado",plano[i].ci,0);
-   continue;
-  }
+  /* Um personagem NAO entra duas vezes na mesma cena. A regra e' do DADO, e
+     nao do nome: um papel e' pulado quando o MESMO personagem ja' ocupa um
+     papel anterior. No Tutorial isso nao acontece -- o playData dele
+     (`assets-data/songs/tutorial-metadata.json`) tem `player: bf` e
+     `opponent: gf`, e NENHUM `girlfriend`; logo o slot gf fica vazio
+     (`char_vazio`) e a GF aparece como OPONENTE, no slot dad, que e' o que o
+     dado diz. A versao anterior pulava o oponente so' porque o id era "gf", e
+     com isso a unica musica sem `girlfriend` ficava sem oponente na tela. */
+  {int j,repetido=0;
+   for(j=0;j<i;j++)if(plano[j].ci>=0&&plano[j].ci==plano[i].ci)repetido=1;
+   if(repetido){telemetry_event("char_papel_repetido",i,plano[i].ci);continue;}}
   snprintf(path,sizeof path,"mass:/FNFPS2/assets/chars/%s.chp4",ch_chars[plano[i].ci].id);
   a=cena_ler(path,&g_cena_mem[i],&g_cena_mem_bytes[i]);
   if(a!=0){telemetry_event("char_sem_pacote",plano[i].ci,a);continue;}
@@ -1478,9 +1492,14 @@ static int cena_carregar(const sr_song_t *song)
   }
  }
  if(g_cena.p[CH_PAPEL_DAD].ativo){g_cena_tex=g_cena_texde[CH_PAPEL_DAD];g_cena_tex_w=g_cena_texde_w[CH_PAPEL_DAD];g_cena_tex_h=g_cena_texde_h[CH_PAPEL_DAD];}
- /* O caminho generico so' substui o antigo quando o BF E a GF estao prontos:
-   meio a meio poria em cena a arte do tutorial ao lado da arte certa. */
- g_cena_modo=(g_cena.p[CH_PAPEL_BF].ativo&&g_cena.p[CH_PAPEL_GF].ativo)?1:0;
+ /* O caminho generico substitui o antigo quando o JOGADOR esta' pronto. Antes
+    exigia tambem a GF, porque o caminho antigo desenhava a GF do Tutorial ao
+    lado -- e o Tutorial e' a UNICA musica sem `girlfriend` no playData: com a
+    exigencia da GF ele caia no caminho antigo, que nao desenha mais ninguem, e
+    a cena ficava so' com palco, notas e HUD. Medido no harness: 0 eventos
+    `char_bf_primeiro` no Tutorial contra 1 em cada uma das outras 26 musicas.
+    O oponente do Tutorial e' a propria GF, e ela entra pelo slot `dad`. */
+ g_cena_modo=g_cena.p[CH_PAPEL_BF].ativo?1:0;
  g_cena_estado=g_cena.p[CH_PAPEL_DAD].ativo?1:-3;
  return g_cena_estado>0?0:-3;
 }
@@ -1488,7 +1507,7 @@ static int cena_carregar(const sr_song_t *song)
 
 /* Quanto tempo o canto de UM papel dura, em ms, pela regra do original:
    singTime do personagem (passos) x stepLengthMs do chart, e o DOBRO quando a
-   animacao e' de erro. O `TUT_SING_MS` fixo de antes era um numero do tutorial
+   animacao e' de erro. O tempo fixo de 1.200 ms de antes era um numero do tutorial
    aplicado a todas as 27 musicas -- errado em duas frentes (passos e bpm). */
 static long cena_canto_ms(int papel,int missing)
 {
@@ -3271,8 +3290,31 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
   if(ui_state==7&&story_level==0&&g_story_anim_ready){u32 aq=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;u32 raw_heard=g_title_audio_submitted>aq/4u?g_title_audio_submitted-aq/4u:0u;if(raw_heard>g_story_anim_heard_samples)g_story_anim_heard_samples=raw_heard;u32 heard=g_story_anim_heard_samples;u64 units=(u64)heard*102u;u32 dance=(u32)(units/5760000u),phase=(u32)(((units%5760000u)*24u)/5760000u),gfi,bf;if(phase>14u)phase=14u;gfi=(dance&1u)?14u+phase:(phase?phase-1u:29u);bf=phase>13u?13u:phase;if((int)bf!=g_story_bf_uploaded&&tutorial_pack_frame(g_story_bf_pack,g_story_bf_pack_bytes,bf,14,164u*165u*4u,g_story_bf_pixels)==0){FlushCache(0);setup_texture_dims(&gftex,164,165);upload_raw(&gftex,g_story_bf_pixels,164,165);g_story_bf_uploaded=(int)bf;}if((int)gfi!=g_story_gf_uploaded&&tutorial_pack_frame(g_story_gf_pack,g_story_gf_pack_bytes,gfi,30,170u*157u*4u,g_story_gf_pixels)==0){FlushCache(0);setup_texture_dims(&tex2,170,157);upload_raw(&tex2,g_story_gf_pixels,170,157);g_story_gf_uploaded=(int)gfi;}}
   /* FocusCameraSongEvent.hx: char 0 is BF, 1 is the opponent, 2 is GF. The
      tutorial's opponent IS gf, so both 1 and 2 focus her and 0 focuses BF. */
-  {const chart_event_state_t*ev=chart_events_state();g_tut_cam_focus=(ev->cam_char==CHART_FOCUS_GF||ev->cam_char==CHART_FOCUS_DAD)?1:0;}
-  if(ui_state==8&&g_tutorial_scene_ready&&g_tutorial_audio_status==0){u32 af=(u32)(((u64)(g_chart_clock<0?0:g_chart_clock)*24u)/48000u);int bfi=tut_anim_idx(&g_bf_sing,g_bf_sing_at,music_clock,BF_SING,14u,af),gfi=tut_anim_idx(&g_gf_sing,g_gf_sing_at,music_clock,GF_SING,30u,af);if(bfi!=g_tutorial_bf_uploaded&&tutorial_pack_frame(g_tutorial_bf_pack,g_tutorial_bf_pack_bytes,(u32)bfi,43,258u*254u*4u,g_stage_pixels)==0){FlushCache(0);setup_texture_dims(&tex,258,254);upload_raw(&tex,g_stage_pixels,258,254);g_tutorial_bf_uploaded=bfi;}if(gfi!=g_tutorial_gf_uploaded&&tutorial_pack_frame(g_tutorial_gf_pack,g_tutorial_gf_pack_bytes,(u32)gfi,87,320u*307u*2u,g_hud_pixels)==0){FlushCache(0);setup_texture_dims(&g_gftex16,320,307);upload_raw_psm(&g_gftex16,g_hud_pixels,320,307,GS_PSM_16);g_tutorial_gf_uploaded=gfi;}}
+  /* FOCO DA CAMERA POR PAPEL. O booleano de antes (`g_tut_cam_focus`) tratava
+     "GF" e "DAD" como a mesma coisa, o que so' da' certo no Tutorial (onde o
+     oponente E' a GF). Um chart que foca o oponente (char 1: 265 dos 664
+     eventos FocusCamera dos 81 charts) mandava a camera para o ponto da GF --
+     outro personagem, outra posicao. Agora o papel sai do valor do evento e o
+     ponto sai do `ch_anchor` daquele papel.
+     E o alvo so' troca se o personagem EXISTE na cena: FocusCameraSongEvent.hx
+     L104-133 faz `return` quando `getDad()`/`getGirlfriend()` devolve null, ou
+     seja, o evento nao mexe na camera. */
+  {const chart_event_state_t*ev=chart_events_state();int c=ev->cam_char,papel=-1;
+   if(c==CHART_FOCUS_BF)papel=CH_PAPEL_BF;
+   else if(c==CHART_FOCUS_DAD)papel=CH_PAPEL_DAD;
+   else if(c==CHART_FOCUS_GF)papel=CH_PAPEL_GF;
+   if(papel>=0&&g_cena.p[papel].ativo)g_cam_papel=papel;
+   g_tut_cam_focus=(g_cam_papel!=CH_PAPEL_BF)?1:0;}
+  /* NAO HA' MAIS CARGA DE QUADRO AQUI. Este bloco subia os pacotes do Tutorial
+     (`bf_frames.lz4f`, `gf_frames.lz4f`) para `tex` e `gftex16` a cada troca de
+     quadro, em QUALQUER musica -- e esses dois enderecos sao exatamente os
+     slots que o caminho generico usa para o BF e para a GF (`cena_carregar`).
+     Medido no harness antes de remover: 282 subidas numa passada do `bopeebo`
+     e 193 numa do `senpai`, escrevendo a arte do Tutorial por cima do
+     personagem daquela musica. As 27 musicas agora usam o caminho generico
+     (pacote CHP4 + `char_cena` + `ch_anchor`), que sobe o quadro quando ele
+     muda e no endereco do proprio papel; este bloco nao tinha mais quem o
+     desenhasse. */
   if(ui_state==6){frame_mark("F.BG",(int)menu_cam_y);qword_t*mq=packet->data;int tick=(int)(frame_no*24u/60u),mi;setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);mq=draw_setup_environment(mq,0,&fb[draw],&z);mq=gs_dither16(mq);mq=draw_clear(mq,0,0,0,SCREEN_W,SCREEN_H,0,0,0);mq=bind_texture(mq,&stagetex);{/* 0.2.104 A4: parallax do fundo, scrollFactor.y = 0,17 no original
      (MainMenuState.hx L119-120). Derivacao, em unidades do original:
        bg.y = -75,92   (setGraphicSize(1280*1,2)=1536 de largura, altura
@@ -3444,7 +3486,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=rect(q,330,158,330+slider_value*15,174,245,70,150);
   }else if(ui_state==0){
    /* Official title atlas; no provisional menu rectangles. */
-  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();{u32 sp=g_play_samples_per_step;if(!sp)sp=TUT_SAMPLES_PER_STEP;chart_events_tick(TUT_DT,music_clock/sp);}g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;}float sc=.5f*g_tut_zoom*g_tut_bop;const float bf_source_w=496.920f,bf_source_h=490.920f,bf_pack_scale=.5f,gf_source_w=703.300f,gf_source_h=674.850f,gf_pack_scale=.443623f;/* A GF ocupa o slot gf [751.5,787], provado pela captura do jogo real:
+  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();{u32 sp=g_play_samples_per_step;if(!sp)sp=TUT_SAMPLES_PER_STEP;chart_events_tick(TUT_DT,music_clock/sp);}g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;}float sc=.5f*g_tut_zoom*g_tut_bop;/* Alturas de ORIGEM (1280x720) do BF e da GF, usadas abaixo para o foco de
+   camera. As larguras e as escalas do pacote (`bf_source_w`, `bf_pack_scale`,
+   `gf_source_w`, `gf_pack_scale`) saiam daqui e so' alimentavam dois cantos
+   (`bf_world_x/y`, `gf_world_x/y`) que ninguem mais lia -- o canto do sprite
+   hoje vem do `ch_anchor`. Saem com o compilador confirmando: eram as quatro
+   variaveis nao usadas do aviso. */const float bf_source_h=490.920f,gf_source_h=674.850f;/* A GF ocupa o slot gf [751.5,787], provado pela captura do jogo real:
    a arte dela comeca em 6 px dentro da tela de 255x245 do pack, o que
    da 6/0,35 = 17,14 unidades de mundo. No slot dad isso cairia em
    -181,5 de tela, fora do ecra; no slot gf cai em +47,6, visivel.
@@ -3454,7 +3501,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    ha globalOffsets nessa linha, entao o -12/+4 do gf.json NAO entra
    na posicao do sprite. O foco de camera fica como esta: o script nao
    chama resetCameraFocusPoint e o teste de hardware aprovou. */
-float gf_world_x=g_official_mainstage_chars[0].x-gf_source_w*.5f-(4.0f/gf_pack_scale),gf_world_y=g_official_mainstage_chars[0].y-gf_source_h-(4.0f/gf_pack_scale);float bf_world_x=g_official_mainstage_chars[2].x-bf_source_w*.5f+17.0f-(4.0f/bf_pack_scale),bf_world_y=g_official_mainstage_chars[2].y-bf_source_h+14.0f-(4.0f/bf_pack_scale);/* cameraFocusPoint = originalPosition + tamanho/2 + cameraOffsets, mais o
+/* cameraFocusPoint = originalPosition + tamanho/2 + cameraOffsets, mais o
    deslocamento de camera do palco (-18,+36), que vale para todo personagem.
    BF: 989.5+17-18-100 = 888.50 ; 885+14-246+36-100 = 589.00  (inalterado)
    GF: 335-12-18+150  = 455.00 ; 885+4-338+36-100  = 487.00 */
@@ -3469,9 +3516,15 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
     a digito. No tutorial nada muda: continua o caminho conferido no console. */
 {const bs_slot_t*slb=ch_slot(g_play_song?g_play_song->stage:"mainStage","bf");
  const bs_slot_t*slg=ch_slot(g_play_song?g_play_song->stage:"mainStage","gf");
+ const bs_slot_t*sld=ch_slot(g_play_song?g_play_song->stage:"mainStage","dad");
+ dad_cam_x=bf_cam_x;dad_cam_y=bf_cam_y;
  if(g_cena_modo&&slb){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_bf_ci],slb,0.0f,0.0f,0.0f,1,&an);bf_cam_x=an.cam_x;bf_cam_y=an.cam_y;}
- if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_gf_ci],slg,0.0f,0.0f,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}}
-float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
+ if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_gf_ci],slg,0.0f,0.0f,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
+ if(g_cena_modo&&sld&&g_cena.p[CH_PAPEL_DAD].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_dad_ci],sld,0.0f,0.0f,0.0f,1,&an);dad_cam_x=an.cam_x;dad_cam_y=an.cam_y;}}
+float tcx,tcy,cx,cy;
+if(g_cam_papel==CH_PAPEL_GF){tcx=gf_cam_x;tcy=gf_cam_y;}
+else if(g_cam_papel==CH_PAPEL_DAD){tcx=dad_cam_x;tcy=dad_cam_y;}
+else{tcx=bf_cam_x;tcy=bf_cam_y;}if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao

@@ -77,6 +77,17 @@ for f in sorted(glob.glob("assets-data/charts/*-chart.json")):
         noa = sum(1 for n in notas if n.get("k") == "noanim")
         print(sid, diff, com, sem, noa)
 PYKINDS
+# Quais papeis cada musica tem no playData. Sai do DADO, nao do log: e' o que o
+# sweep cobra (tem `girlfriend`? entao a GF tem de aparecer na tela).
+python3 - <<'PYPAPEIS' > build/sweep/papeis.txt
+import json
+for sid in sorted(__import__("os").listdir("assets-data/songs")):
+    if not sid.endswith("-metadata.json"):
+        continue
+    d = json.load(open("assets-data/songs/" + sid))["playData"].get("characters", {})
+    print(sid[:-len("-metadata.json")], 1 if d.get("girlfriend") else 0)
+PYPAPEIS
+
 TOTAL=0
 OK=0
 FALHOU=""
@@ -122,11 +133,11 @@ for sid in $LISTA; do
         nlegado=$(awk -F, '$1=="E" && $3=="char_tutorial_legado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nchardraw=$(awk -F, '$1=="E" && $3=="char_dad_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         ncharanim=$(awk -F, '$1=="E" && $3=="char_dad_animando" {n++} END{print n+0}' "$LOG" 2>/dev/null)
-        # O Tutorial e' o unico caso em que o oponente E' a GF, e a GF do
-        # tutorial ja' e' desenhada pelo caminho antigo (divergencia registrada
-        # no plano, a resolver com captura de console). Ali o oponente
-        # generico e' pulado de proposito: desenhar de novo seria ve-lo duas
-        # vezes. O evento `char_dad_pulado` diz que foi isso, e nao uma falha.
+        nvazio=$(awk -F, '$1=="E" && $3=="char_vazio" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # O papel vazio NAO e' falha: e' o dado. `tutorial` e' a unica musica sem
+        # `girlfriend` no playData, e a GF dela e' o OPONENTE, no slot dad. O que
+        # se cobra aqui e' o esperado daquela musica (build/sweep/papeis.txt).
+        temgf=$(awk -v s="$sid" '$1==s {print $2; exit}' build/sweep/papeis.txt 2>/dev/null)
         # "-hold": se o personagem do papel TEM animacao "-hold" (os olhos do
         # pai, a chama do Darnell), ela tem de aparecer. Alguns personagens nao
         # tem nenhuma, e aí nao haveria o que exigir.
@@ -173,26 +184,25 @@ for sid in $LISTA; do
         if [ "${nholdtem:-0}" -ge 1 ] && [ "${nhold:-0}" -eq 0 ]; then
             motivo="o personagem tem animacao -hold e nunca entrou nela${motivo:+, $motivo}"
         fi
-        if [ "${nlegado:-0}" -ge 1 ]; then
-            # Tutorial: de proposito no caminho antigo (o unico conferido numa
-            # captura de console). Exige os eventos do caminho antigo, e nao os
-            # genericos -- senao a excecao passaria despercebida.
-            [ "${nbfdraw:-0}" -eq 0 ] 2>/dev/null || motivo="o tutorial nao devia usar o BF generico${motivo:+, $motivo}"
-        elif [ "${npulado:-0}" -ge 1 ]; then
-            :
-        else
-            [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
-            [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
-        fi
+        # O caminho antigo do Tutorial nao desenha mais nada: nenhuma musica
+        # pode voltar para ele.
+        [ "${nlegado:-0}" -eq 0 ] 2>/dev/null || motivo="o Tutorial voltou ao caminho antigo${motivo:+, $motivo}"
+        [ "${npulado:-0}" -eq 0 ] 2>/dev/null || motivo="papel do oponente pulado por nome${motivo:+, $motivo}"
+        [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
+        [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
         # Toda musica tem evento de animacao? Nao: so' algumas. Mas SOMA tem de
         # ser maior que zero nas 81, e isso e' conferido no fim (ANIM_TOTAL),
         # porque por combinacao o chart pode nao ter nenhum.
         ANIM_TOCou=$(( ${ANIM_TOCou:-0} + ${nanimtocou:-0} ))
         ANIM_SEM=$(( ${ANIM_SEM:-0} + ${nanimsem:-0} ))
-        if [ "${nlegado:-0}" -eq 0 ]; then
-            [ "${nbfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao foi desenhado${motivo:+, $motivo}"
+        [ "${nbfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao foi desenhado${motivo:+, $motivo}"
+        [ "${nbfanim:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao animou${motivo:+, $motivo}"
+        if [ "${temgf:-1}" = "1" ]; then
             [ "${ngfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="a GF nao foi desenhada${motivo:+, $motivo}"
-            [ "${nbfanim:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao animou${motivo:+, $motivo}"
+        else
+            # Sem `girlfriend` no dado, o slot gf tem de ficar VAZIO e dizer que
+            # ficou. Desenhar alguem ali seria inventar personagem.
+            [ "${nvazio:-0}" -ge 1 ] 2>/dev/null || motivo="slot gf vazio nao foi reportado${motivo:+, $motivo}"
         fi
         [ "${charruim:-0}" -eq 0 ] 2>/dev/null || motivo="pacote ou VRAM do oponente falhou${motivo:+, $motivo}"
         # ESPAGUETE e' a unica musica com eventos que o port NAO reproduz, e os

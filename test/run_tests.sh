@@ -643,6 +643,20 @@ echo "== harness com ASan + UBSan (todos os buffers, nao so o pacote) =="
 # pegam estouro, uso apos free e vazamento em TODOS os outros buffers do jogo
 # -- a mesma classe de bug, so que em outro lugar. Se o harness comum passa e
 # este nao, ha um erro de memoria que o pacote limitado nao ve.
+#
+# O binario TEM de ser reconstruido quando um fonte muda. Antes so' se
+# construia quando faltava, e o suite rodava um binario velho: aconteceu de o
+# sweep das 81 acusar "o Tutorial voltou ao caminho antigo" com o codigo novo ja'
+# no repositorio -- era o binario de antes, e o suite passava (ou falhava) por um
+# motivo que nao existia mais. Comparar a data de cada fonte com a do binario
+# custa um segundo e tira essa classe de erro do caminho.
+if [ -x build/fnf_harness_asan ]; then
+    novos=$(find src test/ps2harness -newer build/fnf_harness_asan \( -name '*.c' -o -name '*.h' \) 2>/dev/null | head -1)
+    if [ -n "$novos" ]; then
+        echo "  (fonte mais novo que o binario: $novos -- reconstruindo)"
+        rm -f build/fnf_harness_asan
+    fi
+fi
 if [ ! -x build/fnf_harness_asan ]; then
     sh tools/run_harness_asan.sh 5 >/dev/null 2>&1 || true
 fi

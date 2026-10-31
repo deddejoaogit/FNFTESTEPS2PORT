@@ -827,15 +827,94 @@ Três defeitos que só apareceram executando:
 | Story Mode (semana 1) | 3 músicas, 2 emendas, 1 resultado — inalterado |
 | gameplay (roteiro do chart) | passa — inalterado |
 
-O Tutorial continua **pulando** o oponente genérico (`char_dad_pulado`): ali o
-oponente é a própria GF, que já é desenhada pelo caminho antigo, e desenhá-la de
-novo seria vê-la duas vezes. É a divergência do slot registrada acima, que só uma
-captura do console resolve.
+O Tutorial pulava o oponente genérico (`char_dad_pulado`). **Corrigido depois**
+— ver a seção "o Tutorial sai do caminho antigo", abaixo, onde o motivo aparece:
+o pulo era por *nome* ("gf") e deixava a única música sem `girlfriend` sem
+oponente na tela.
 
 **O que falta nesta frente:** o BF e a GF ainda vêm do caminho antigo (pacotes do
 tutorial, faixas de quadro fixas). Trocá-los é o próximo passo — e depois as
 animações de canto do oponente por evento de chart (`PlayAnimation`), que hoje
 só cobrem as notas.
+
+#### Fechado: o Tutorial sai do caminho antigo, e o uploader antigo para de escrever por cima dos personagens
+
+Duas coisas erradas, uma causa: o caminho antigo do Tutorial continuou vivo
+depois que o renderizador dele foi removido ("Clean Tutorial renderer
+foundation"). O que sobrou não desenhava ninguém, mas continuava **escrevendo**.
+
+**O que estava na tela.** O Tutorial era a única música que ainda passava por
+`char_tutorial_legado`, e aquele ramo bloqueava a cena genérica: sobravam palco,
+notas e HUD. Medido no harness, uma passada inteira por música:
+
+| música | `char_bf_primeiro` | `char_gf_primeiro` | `char_dad_primeiro` |
+|---|---|---|---|
+| bopeebo | 1 | 1 | 1 |
+| senpai | 1 | 1 | 1 |
+| **tutorial** | **0** | **0** | **0** |
+
+Ou seja: a música que abre o jogo era a única sem personagem nenhum.
+
+**O que estava por baixo.** O bloco que subia os quadros de `bf_frames.lz4f` e
+`gf_frames.lz4f` rodava em **toda** música, no laço de quadro, e escrevia em
+`tex` e `gftex16` — que são exatamente os endereços de VRAM que o caminho
+genérico usa para o BF e para a GF. Medido antes de remover: **282 subidas numa
+passada do `bopeebo` e 193 numa do `senpai`**, ou seja, a arte do Tutorial era
+escrita por cima do personagem daquela música a cada troca de quadro de canto.
+Não era código morto: era código ativo com efeito errado (o `senpai` desenhava
+`bf-pixel`, e a textura do BF recebia o BF do Tutorial).
+
+**A correção, em três partes.**
+
+1. `cena_carregar` não trata mais o Tutorial como caso especial: as 27 músicas
+   abrem pacote CHP4, montam `char_cena` e posicionam por `ch_anchor`. As
+   posições e a câmera que a captura de console fixou continuam valendo — é a
+   mesma conta do `Stage.addCharacter` + `BaseCharacter.setScale`, e o caminho
+   genérico já registra esses números dígito a dígito nos comentários.
+2. O uploader antigo saiu do laço de quadro (`BF_SING`, `GF_SING` e `tut_anim_idx`
+   foram com ele). Os pacotes do Tutorial continuam sendo **abertos** uma vez no
+   `tutorial_scene_load` — eles provam que os assets existem e fixam os
+   endereços de VRAM que o layout usa — mas ninguém mais escreve neles a cada
+   quadro.
+3. A regra "o mesmo personagem não entra duas vezes na cena" passou a ser do
+   **dado**, não do nome: um papel é pulado quando o mesmo personagem já ocupa
+   um papel anterior (`char_papel_repetido`). A versão antiga pulava o oponente
+   só porque o id era `"gf"`.
+
+**Por que o Tutorial precisa disso.** O playData dele
+(`assets-data/songs/tutorial-metadata.json`) tem `player: bf`, `opponent: gf` e
+**nenhum `girlfriend`**. Então: slot `gf` vazio (`char_vazio`), BF no slot `bf`
+e a GF no slot **`dad`**, como oponente — exatamente o que o dado diz. A versão
+anterior, por pular o oponente pelo nome, deixava o Tutorial sem BF *e* sem
+oponente.
+
+**Câmera por papel, e não por booleano.** O foco da câmera era um booleano
+`gf/dad` — tratava "GF" e "DAD" como o mesmo ponto, o que só dá certo no Tutorial
+(onde o oponente *é* a GF). Dos **664 eventos FocusCamera** dos 81 charts,
+**265 focam o oponente** (char 1): metade das músicas mandava a câmera para o
+ponto da GF. Agora o papel sai do valor do evento e o ponto sai do `ch_anchor`
+daquele papel; e o alvo só troca se o personagem **existe** na cena, porque
+`FocusCameraSongEvent.hx` L104-133 faz `return` quando `getDad()`/`getGirlfriend()`
+devolve `null`.
+
+**Medido depois** (harness, jogo real, mesmo roteiro):
+
+| medida | antes | depois |
+|---|---|---|
+| tutorial: BF / GF / oponente desenhados | 0 / 0 / 0 | **1 / vazio (dado) / 1** |
+| subidas do uploader antigo por música | 282 (`bopeebo`), 193 (`senpai`) | **0** |
+| sweep 81 combinações | 81/81 | **81/81**, agora cobrando papel vazio só onde o dado manda |
+| `char_sem_vram` / `char_pacote_ruim` | 0 | **0** |
+
+E o sweep passou a cobrar o **contrário** do que cobrava: nenhuma música pode
+emitir `char_tutorial_legado`, o BF e o oponente têm de aparecer em todas, e a
+GF só é exigida nas 26 que têm `girlfriend` no dado — no Tutorial o que se cobra
+é o `char_vazio` do slot `gf`.
+
+**O que continua em aberto nesta frente:** o foco inicial da câmera. O original
+começa seguindo o **oponente** (`PlayState.hx` L2225-2227) e o port começa no BF,
+que é o que a captura do Tutorial conferiu. Mudar o inicial é outra causa (regra
+8) e vai num build próprio, com o evento que prova qual ponto a câmera seguiu.
 
 #### Fechado: BF e GF também pelo caminho genérico (27 de 27 personagens em cena)
 
@@ -845,12 +924,13 @@ fixas, em **todas** as músicas. Agora os três papéis usam o mesmo caminho —
 pacote CHP4, `char_cena`, `ch_anchor` — e o que sobra do caminho antigo é uma
 exceção declarada.
 
-**A exceção, e por que ela existe:** o **Tutorial** continua no caminho antigo
+**A exceção, e por que ela existia:** o **Tutorial** continuava no caminho antigo
 (`char_tutorial_legado`). É a única música cujas posições e câmera foram
 conferidas numa captura do console; trocá-las por dedução de código seria jogar
-fora uma medida. O sweep agora **exige** que o Tutorial *não* emita os eventos
-genéricos — sem isso a exceção passaria despercebida e alguém acharia que os 81
-estão no caminho novo.
+fora uma medida. O sweep exigia que o Tutorial *não* emitisse os eventos
+genéricos — sem isso a exceção passaria despercebida. **A exceção caiu na
+seção seguinte**, quando ficou medido que o caminho antigo não desenhava mais
+ninguém.
 
 **VRAM: nenhum byte novo.** Em vez de abrir slots, os personagens reaproveitam os
 endereços que já existiam: o BF usa o slot `tex` (320×256 PSMCT32 = 327.680 B) e
