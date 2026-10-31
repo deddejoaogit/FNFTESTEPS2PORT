@@ -205,6 +205,37 @@ int main(void)
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 3);              /* singLEFT-end */
     }
 
+    printf("== \"-hold\": olhos do pai e chama do Darnell ==\n");
+    {
+        /* Caso real do dad.json: idle (nao-loop, 2 quadros a 24 fps) e
+           idle-hold (loop). Quando o idle ACABA, entra o idle-hold e fica --
+           e' isso que faz os olhos piscarem. */
+        cc_cena_t c;
+        const anim_t pai[3] = {
+            { "idle", 0, 2, 2400, 0 },        /* 2 quadros = 83 ms */
+            { "idle-hold", 2, 2, 2400, 1 },   /* em loop */
+            { "singUP", 4, 1, 2400, 0 },
+        };
+        unsigned int n = montar(5, 3, pai);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_DAD, g_pac, n, 0), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 0, 0), 0);       /* idle, 1o quadro */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 45, 0), 1);      /* 2o quadro */
+        /* 83 ms: o idle terminou -> idle-hold, e ela CONTINUA la' depois */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 90, 0), 2);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 500, 0), 3);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 1);
+        /* 2 quadros a 24 fps: um ciclo a cada 83 ms. 84 ms depois do inicio do
+           "-hold" ela ja' voltou ao primeiro quadro. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 174, 0), 2);     /* loop volta */
+        /* e um canto interrompe o -hold, como no original */
+        cc_canto(&c, CH_PAPEL_DAD, 2, 0, 6000, 300);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 2);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DAD, 6000, 0), 4);
+    }
+
     printf("== quem nao tem idle alterna danceLeft/danceRight pela batida ==\n");
     {
         cc_cena_t c;

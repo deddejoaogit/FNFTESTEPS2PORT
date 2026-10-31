@@ -43,6 +43,7 @@ typedef struct {
     long t0;                /* ms em que a animacao atual comecou          */
     long canto_ate;         /* ms em que o canto acaba; 0 = nao canta       */
     int especial;           /* tocando animacao nomeada (hey, cheer...)     */
+    int ultima_batida;      /* em que batida o dance() rodou por ultimo     */
 } cc_papel_t;
 
 typedef struct {

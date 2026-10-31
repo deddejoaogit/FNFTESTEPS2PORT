@@ -112,6 +112,17 @@ for sid in $LISTA; do
         # no plano, a resolver com captura de console). Ali o oponente
         # generico e' pulado de proposito: desenhar de novo seria ve-lo duas
         # vezes. O evento `char_dad_pulado` diz que foi isso, e nao uma falha.
+        # "-hold": se o personagem do papel TEM animacao "-hold" (os olhos do
+        # pai, a chama do Darnell), ela tem de aparecer. Alguns personagens nao
+        # tem nenhuma, e aí nao haveria o que exigir.
+        # O evento e' telemetry_event("char_hold_tem", papel, quantas) -> campo 4 = papel,
+        # campo 5 = quantas. (A primeira versao testava o PAPEL > 0, e cobrava
+        # "-hold" de personagem que nao tem nenhuma.)
+        # O numero conta so' os "-hold" de `idle`/`sing*`/`dance*`: os de
+        # taunt/uppercut/shoot vem de NOTE KINDS, e o script desses kinds nao
+        # esta' no pacote de dados (ver docs/PLANO_COMPLETO.md, note kinds).
+        nholdtem=$(awk -F, '$1=="E" && $3=="char_hold_tem" && $5+0>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nhold=$(awk -F, '$1=="E" && $3=="char_hold" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         npulado=$(awk -F, '$1=="E" && $3=="char_dad_pulado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         charruim=$(awk -F, '$1=="E" && ($3=="char_pacote_ruim" || $3=="char_sem_vram" || $3=="char_sem_staging") {n++} END{print n+0}' "$LOG" 2>/dev/null)
         palco=$(campo palco_entra 4)
@@ -125,6 +136,9 @@ for sid in $LISTA; do
         [ "${nsteps:-0}" -ge 4 ] 2>/dev/null || motivo="menos de 4 passos de contagem${motivo:+, $motivo}"
         [ "${nstate:-0}" -ge 1 ] 2>/dev/null || motivo="nao desenhou a tela de jogo${motivo:+, $motivo}"
         [ "${npalco:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum prop de palco desenhado${motivo:+, $motivo}"
+        if [ "${nholdtem:-0}" -ge 1 ] && [ "${nhold:-0}" -eq 0 ]; then
+            motivo="o personagem tem animacao -hold e nunca entrou nela${motivo:+, $motivo}"
+        fi
         if [ "${nlegado:-0}" -ge 1 ]; then
             # Tutorial: de proposito no caminho antigo (o unico conferido numa
             # captura de console). Exige os eventos do caminho antigo, e nao os

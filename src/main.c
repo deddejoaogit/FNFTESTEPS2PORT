@@ -1209,6 +1209,7 @@ static int g_cena_texde_w[CH_CENA_PAPEIS],g_cena_texde_h[CH_CENA_PAPEIS];
 static int g_cena_quadros[CH_CENA_PAPEIS];      /* quadros diferentes subidos */
 static int g_cena_desenhos[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
+static int g_cena_hold_visto[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
 static unsigned int g_cena_pixels_cap=0;
 static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falhou */
@@ -1238,7 +1239,7 @@ static void cena_soltar(void)
  g_cena_modo=0;
  g_cena_song[0]=0;
  {int i;for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_texde_w[i]=g_cena_texde_h[i]=0;
-  g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=0;}}
+  g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=g_cena_hold_visto[i]=0;}}
  cc_reset(&g_cena);
 }
 
@@ -1347,6 +1348,23 @@ static int cena_carregar(const sr_song_t *song)
    g_cena_texde_w[r]=pk->w;g_cena_texde_h[r]=pk->h;
    if(bytes>maior)maior=bytes;
    telemetry_event(r==CH_PAPEL_DAD?"char_dad_vram":"char_vram",(int)bytes,(int)pk->w);
+   /* Quantas animacoes "-hold" este personagem TEM. O sweep usa isto para
+      cobrar que, se existe alguma, ela aparece em cena -- sem esse numero, um
+      personagem que nunca entra no "-hold" passaria despercebido. */
+   /* So' contam as animacoes "-hold" cujo par o port ainda pode tocar: `idle`,
+      `sing*`, `dance*`. As outras (taunt-hold, uppercut-hold, shoot1-hold)
+      sao pedidas por NOTE KINDS ("weekend-1-taunt", "weekend-1-picouppercut",
+      "weekend-1-firegun"), e os scripts desses kinds nao estao no pacote de
+      dados -- o port nao tem como alcancar essas animacoes, e cobra-las no
+      sweep seria cobrar o que nao ha' dado para fazer. */
+   {int k,tem=0;
+    for(k=0;k<pk->n_anims;k++){const char*nm=pk->anim[k].nome;size_t ln=strlen(nm);
+     if(ln>5&&strcmp(nm+ln-5,"-hold")==0){
+      const char*base=nm;size_t bl=ln-5;
+      if((bl==4&&memcmp(base,"idle",4)==0)||(bl>=4&&memcmp(base,"sing",4)==0)||
+         (bl>=5&&memcmp(base,"dance",5)==0))tem++;
+     }}
+    telemetry_event("char_hold_tem",r,tem);}
   }
   if(maior>g_cena_pixels_cap){
    if(g_cena_pixels)free(g_cena_pixels);
@@ -1406,6 +1424,15 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int bati
   q=sprite_dims(q,320.0f+(an.sprite_x-cx)*sc,180.0f+(an.sprite_y-cy)*sc,
                 (float)g_cena_texde_w[papel]*sc,(float)g_cena_texde_h[papel]*sc,
                 g_cena_texde_w[papel],g_cena_texde_h[papel]);
+  /* PROVA do "-hold": quando o personagem entra numa animacao "-hold" (os olhos
+     do pai, a chama do isqueiro do Darnell), o log diz uma vez por papel. Sem
+     isso, "o -hold funciona" seria afirmacao sem medida. */
+  {int an=cc_anim(&g_cena,papel);
+   if(an>=0&&!g_cena_hold_visto[papel]&&an<g_cena.p[papel].pacote.n_anims){
+    const char*nm=g_cena.p[papel].pacote.anim[an].nome;
+    size_t ln=strlen(nm);
+    if(ln>5&&strcmp(nm+ln-5,"-hold")==0){g_cena_hold_visto[papel]=1;telemetry_event("char_hold",papel,an);}
+   }}
   g_cena_desenhos[papel]++;
   if(g_cena_desenhos[papel]==1&&papel==CH_PAPEL_DAD)telemetry_event("char_dad_ancora",(int)an.sprite_x,(int)an.sprite_y);
   if(g_cena_desenhos[papel]==1)telemetry_event(papel==CH_PAPEL_GF?"char_gf_primeiro":(papel==CH_PAPEL_BF?"char_bf_primeiro":"char_dad_primeiro"),g_cena_quadros[papel],g_cena_texde_w[papel]);

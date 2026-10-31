@@ -927,6 +927,70 @@ Três coisas que o teste desenterrou, e que eram do teste e não do jogo:
   arquivos ao FCH3 no fim, o "passe v3" seguinte rodaria v4 sem ninguém ver.
   O script restaura, e o `--forcar` do preparador evita reaproveitar o destino.
 
+#### Fechado: o sufixo `-hold`, e a dança que tinha de acontecer na batida
+
+`BaseCharacter.hx` L408-425: quando a animação atual **termina** e existe
+`<nome>-hold`, ela entra e fica (é em loop no dado). É assim que os olhos do pai
+piscam e a chama do isqueiro do Darnell se mexe. E L454-456: ao procurar o
+`-end`, o sufixo `-hold` sai **antes** — quem está cantando e já entrou no
+`singLEFT-hold` precisa achar `singLEFT-end`, não `singLEFT-hold-end`.
+
+Entrou em `char_cena.c`. O teste de "terminou" é `tempo decorrido ≥ count/fps`
+(`isAnimationFinished()` só é verdadeiro fora de loop, e nenhum dos 44 pares
+`-hold` do pacote declara `looped: false`).
+
+**O erro que isso desenterrou era meu, e era visível:** `dance()` rodava em todo
+quadro. O original chama `dance()` no `onBeatHit`. Rodando por quadro, o
+personagem terminava o `idle`, entrava no `idle-hold` e **no quadro seguinte**
+voltava ao `idle` — o `-hold` nunca aparecia. Agora `cc_papel_t` guarda
+`ultima_batida` e a dança acontece uma vez por batida. Ciclo medido: `idle` →
+(acaba) → `idle-hold` → (batida) → `idle`.
+
+Medido no harness: `dadbattle` registra `char_hold,2,1` aos 309 ms (papel 2 =
+dad, animação 1 = `idle-hold`). O sweep passou a cobrar isso: se o personagem
+tem `-hold` de `idle`/`sing*`/`dance*` e a música roda, alguma tem de aparecer.
+Resultado: **81/81 combinações começaram, 12/12 palcos desenharam**, e o
+`phillyBlazin` — que antes nem era desenhado porque a única música dele falhava
+— agora entra.
+
+**O limite do que o sweep pode cobrar, e por quê.** O evento `char_hold_tem`
+conta só os `-hold` que o port tem caminho para tocar. Os outros — `taunt-hold`,
+`uppercut-hold`, `shoot1..4-hold` — são pedidos por **note kinds**, e é o achado
+seguinte.
+
+#### Achado aberto: **note kinds** (`k` nas notas) não existem no port
+
+As notas do JSON trazem `"k"`, o *note kind*. O conversor joga o campo fora e o
+`chart_note_t` não tem onde guardá-lo, então o port trata toda nota igual. Nove
+das 81 combinações usam kinds, 34 kinds distintos:
+
+| música | kinds | notas |
+|---|---|---|
+| `blazin` | `weekend-1-*` (21 tipos: blockhigh, punchhighblocked, taunt, picouppercut…) | 1.257 |
+| `2hot` | `weekend-1-lightcan/kickcan/cockgun/kneecan/firegun` | 90 |
+| `spaghetti` | `sakura-joint`, `sakura-bf1/2`, `non_scoreable` | 1.100 |
+| `cocoa`, `eggnog` | `mom` | 545 |
+| `spookeez` | `noanim` | 12 |
+| `stress` | `hehPrettyGood` | 3 |
+| `ugh` | `ugh` | 12 |
+
+Dois desses kinds são **de código, não de script** e o comportamento está na
+fonte, sem invenção nenhuma: `noanim` (`NoAnimNoteKind.hx`: `noanim = true`, e
+`BaseCharacter.hx` L561/577 deixa de tocar o canto quando o kind tem `noanim`) e
+`non_scoreable` (`NonScoreableNoteKind.hx`: `scoreable = false`, não conta em
+notas/pontos/combos). Os outros 32 são scripts de mod (`Weekend 1`, `mom`,
+`ugh`, `hehPrettyGood`) que **não estão no pacote de dados** deste repositório:
+sem o script não dá para saber o que cada um toca, e inventar seria divergência.
+O que acontece hoje é o pior dos dois mundos: as animações `taunt`, `uppercut` e
+`shoot1..4` do `pico-blazin`, `pico-speaker` e `darnell-blazin` estão nos pacotes
+e **nunca tocam**, porque quem as pede é o kind.
+
+Para fechar isso é preciso **dado**, não código: os arquivos de note kind do
+jogo original (`mods/.../noteKinds/*.hx` ou `assets/shared/data/noteKinds/`),
+que é o que o port não tem. Pedido ao usuário: mandar essa pasta junto com os
+assets. Enquanto ela não chega, o próximo passo é o formato (a nota precisa
+carregar o kind) e os dois kinds de código, que já estão provados pela fonte.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de

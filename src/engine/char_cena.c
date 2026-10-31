@@ -2,9 +2,11 @@
 
 #include "char_anim.h"
 
+#include <limits.h>
 #include <string.h>
 
 #define CH_ANIM_END_SUF "-end"
+#define CH_ANIM_HOLD_SUF "-hold"
 
 void cc_reset(cc_cena_t *c)
 {
@@ -30,12 +32,30 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
     p->t0 = agora;
     p->canto_ate = 0;
     p->especial = 0;
+    p->ultima_batida = INT_MIN;   /* a primeira batida sempre danca */
     r = cp_abrir(pacote, bytes, &p->pacote);
     if (r != 0) return r;
     r = cp_conferir(&p->pacote);
     if (r != 0) return r;
     p->ativo = 1;
     return 0;
+}
+
+
+/* "<nome><sufixo>" em buf. Devolve 1 se coube. */
+static int com_sufixo(char *buf, size_t tam, const char *nome, const char *sufixo)
+{
+    size_t n = strlen(nome), m = strlen(sufixo);
+    if (n + m + 1u > tam) return 0;
+    memcpy(buf, nome, n);
+    memcpy(buf + n, sufixo, m + 1u);
+    return 1;
+}
+
+static int termina_com(const char *nome, const char *sufixo)
+{
+    size_t n = strlen(nome), m = strlen(sufixo);
+    return n >= m && memcmp(nome + n - m, sufixo, m) == 0;
 }
 
 /* Animacao de canto: "sing<DIR>" e, com erro, "sing<DIR>miss"; se o nome com
@@ -125,12 +145,18 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
         int achou = -1;
         p->canto_ate = 0;
         if (p->anim >= 0) {
-            size_t n = strlen(p->pacote.anim[p->anim].nome);
-            if (n + sizeof(CH_ANIM_END_SUF) < sizeof fim) {
-                memcpy(fim, p->pacote.anim[p->anim].nome, n);
-                memcpy(fim + n, CH_ANIM_END_SUF, sizeof(CH_ANIM_END_SUF));
+            /* BaseCharacter.hx L454-456: tira o "-hold" ANTES de procurar o
+               "-end" -- quem esta' cantando e ja' entrou no "-hold" precisa
+               achar "singLEFT-end", e nao "singLEFT-hold-end". */
+            char base[CHP_NOME];
+            const char *nome = p->pacote.anim[p->anim].nome;
+            size_t n = strlen(nome);
+            if (termina_com(nome, CH_ANIM_HOLD_SUF)) n -= strlen(CH_ANIM_HOLD_SUF);
+            if (n + 1u > sizeof base) n = 0;
+            memcpy(base, nome, n);
+            base[n] = 0;
+            if (com_sufixo(fim, sizeof fim, base, CH_ANIM_END_SUF))
                 achou = cp_anim_i(&p->pacote, fim);
-            }
         }
         if (achou >= 0) {
             p->anim = achou;
@@ -170,11 +196,15 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
     if (p->especial) {
         /* nada: quem esta' numa animacao nomeada nao danca */
     } else
-    /* Quem nao tem idle alterna danceLeft/danceRight a CADA batida, e nao so'
-       quando o canto acaba: sem esta troca o personagem ficaria congelado no
-       primeiro lado para o resto da musica. Para quem tem `idle` isto nao muda
-       nada (anim_ocioso devolve sempre o idle). */
-    if (p->canto_ate == 0) {
+    /* O DANCE ACONTECE NA BATIDA, nao em todo quadro.
+       Bopper.dance() e' chamado no beat hit (onBeatHit), e a diferenca nao e'
+       cosmetica: rodando a cada quadro, um personagem que termina o `idle` e
+       entra no `idle-hold` voltaria ao `idle` no quadro seguinte e nunca
+       mostraria o "-hold" -- os olhos do pai nunca piscariam. Na batida, o
+       ciclo e' o do original: idle -> (acaba) -> idle-hold -> (batida) -> idle.
+       `ultima_batida` guarda em que batida o dance() rodou. */
+    if (p->canto_ate == 0 && batida != p->ultima_batida) {
+        p->ultima_batida = batida;
         a = anim_ocioso(p, batida);
         if (a >= 0 && a != p->anim) {
             p->anim = a;
@@ -184,6 +214,30 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int batida)
     }
     if (p->anim < 0) return -1;
     if (cp_seq(&p->pacote, p->anim, &q) != 0) return -1;
+    /* "-hold": quando a animacao atual TERMINA e existe "<nome>-hold", ela toca
+       e fica (e' em loop no dado). BaseCharacter.hx L408-416: e' assim que os
+       olhos do pai piscam e a chama do isqueiro do Darnell se mexe -- sem isso
+       os dois ficam parados no ultimo quadro do canto, e a diferenca aparece na
+       tela. Se a animacao atual e' em loop, ela nunca "termina", entao o
+       "-hold" nao entra: e' o mesmo comportamento do original
+       (isAnimationFinished() so' e' verdadeiro fora de loop). */
+    {
+        const char *nome = p->pacote.anim[p->anim].nome;
+        if (!termina_com(nome, CH_ANIM_HOLD_SUF) &&
+            q.fps100 > 0 &&
+            (agora - p->t0) >= (long)((long)q.count * 100000L / (long)q.fps100)) {
+            char alvo[CHP_NOME];
+            if (com_sufixo(alvo, sizeof alvo, nome, CH_ANIM_HOLD_SUF)) {
+                int h = cp_anim_i(&p->pacote, alvo);
+                if (h >= 0) {
+                    p->anim = h;
+                    p->t0 = agora;
+                    p->quadro = -1;
+                    if (cp_seq(&p->pacote, p->anim, &q) != 0) return -1;
+                }
+            }
+        }
+    }
     quadro = ca_frame(&q, agora - p->t0);
     if (quadro < 0 || quadro == p->quadro) return -1;
     p->quadro = quadro;
