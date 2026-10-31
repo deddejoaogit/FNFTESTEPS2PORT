@@ -163,6 +163,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->frame = sl_prop_frame(p, anim, fase);
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = p->sw; it->tex_h = p->sh;
+        it->z = p->z;
         n++;
     }
 

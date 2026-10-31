@@ -1098,6 +1098,54 @@ O teste (`test/test_stage_layout.c`) agora prova a regra, e não a aparência:
 10 s; `sniper` (`danceEvery 2`) está no quadro 0 no passo 8, no 9 no passo 11 e
 para no 14 (o `idle` dele tem 15 quadros e não é em loop).
 
+#### Fechado: props e personagens na MESMA lista, por `zIndex`
+
+O desenho fazia `palco_draw(...)` uma vez, **antes** do oponente, da GF e do BF.
+Isso põe todo prop atrás de todo personagem, e o original não faz assim:
+`Stage.hx` L264 põe cada prop no grupo do palco com `propSprite.zIndex =
+dataProp.zIndex`, L449 põe cada personagem no **mesmo** grupo com
+`character.zIndex = stageCharData.zIndex`, e `this.add(character)` (L489) usa o
+mesmo `add` dos props. O `FunkinGroup.refresh()` reordena os filhos por
+`SortUtil.byZIndex`, ou seja: **uma lista só, crescente por z**, com os três
+personagens dentro dela. O z de cada personagem não é constante — vem do slot
+do palco (`bs_slots[]`) e muda de palco para palco: no `tankmanBattlefield` o BF
+e o DAD estão em **102** e a GF em **100**; no `mainStage` são 100/200/300.
+
+Medido nos dados (157 props, 21 palcos), **6 palcos** têm prop com z acima do z
+do BF no enquadramento do BF — e é justamente onde o desenho antigo errava:
+
+| palco | props na frente de quem canta |
+|---|---|
+| `tankmanBattlefield` | `tankmanAudience0..5` (z 1000–1100) e `tankBricks` (101, na frente da GF) |
+| `phillyStreets` / `phillyStreetsErect` | `spraycanPile` 690 / `paper` 800 |
+| `spookyMansionErect` | `stairsDark` 400, `stairsLight` 401 |
+| `mainStageErect` | `lights` 4000, `lightAbove` 4500 |
+| `sserafim` | `frontStool` 1500 |
+
+O que o port faz agora (`src/main.c`): `sl_collect` roda **uma vez** por quadro
+e o desenho sai em fatias de z — `[z < gf]` gf `[z < bf]` bf `[z < dad]` dad
+`[z >= dad]` —, com os personagens ordenados por z e desempate pela ordem de
+adição do `PlayState` (GF L2207, BF L2216, DAD L2225). A ordem **dentro** de
+cada fatia continua a do `sl_collect` (z crescente, inserção estável). O
+`sl_item_t` ganhou o campo `z`, para o corte usar o mesmo número que ordenou.
+
+O caminho legado do Tutorial (o que a captura de console conferiu) não muda:
+no `mainStage` os três props têm z 10, 20 e 30, todos abaixo do menor z dos
+personagens (100), então "props e depois as três pessoas" é a mesma lista.
+
+A reserva da textura composta (`stagetex`) passou a ser decidida **antes** de
+desenhar (`palco_reserva`): ela entra quando o palco não tem nada a desenhar —
+nenhum prop na tela ou o primeiro prop sem pacote no pendrive. Antes ela era
+decidida pelo resultado do desenho, o que, agora que o palco é fatiado, daria
+"0 props" na primeira fatia de todo palco e trocaria o palco inteiro pela arte
+composta.
+
+O teste (`test/test_stage_layout.c`) prova quatro coisas, e não a aparência:
+o `z` do item é o `z` do prop; a lista sai em z não-decrescente nos 21 palcos;
+as fatias por z são **contíguas** (o corte nunca cai no meio de um empate); e o
+`tankmanBattlefield` tem prop dos dois lados do BF (medido: 4 na frente, 11
+atrás), que é o motivo do corte existir.
+
 #### Fechado: orçamento de RAM do empacotador e conferência dos 21 palcos
 
 O empacotador só tinha orçamento de **VRAM**. O pacote CFZ4 de um palco, porém,

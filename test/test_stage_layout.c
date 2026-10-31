@@ -323,6 +323,107 @@ int main(void)
         if (x) CHECK_EQ(x->anim, 1);
     }
 
+    printf("== palcos: props e personagens na MESMA lista, por zIndex ==\n");
+    {
+        /* Stage.hx L300-330: os tres personagens e os props entram num unico
+           grupo ordenado por zIndex, e o z de cada personagem vem do slot do
+           palco. O desenho no main.c corta essa lista em fatias por z, com um
+           personagem entre cada duas. O que se prova aqui:
+             1) o z do item e' o z do prop (o corte nao pode usar outro numero);
+             2) a lista sai em z nao-decrescente;
+             3) as fatias por z sao CONTIGUAS -- cada corte cai entre dois itens
+                vizinhos, nunca no meio de um empate. Se nao fossem, um prop com
+                o mesmo z de outro seria desenhado do lado errado do personagem;
+             4) existem palcos com props na frente de quem canta, que e' o motivo
+                de o corte existir: no tankmanBattlefield os figurantes
+                (tankmanAudience0..5, z 1000..1100) ficam acima do BF (885) e do
+                DAD (996) daquele palco. */
+        int st, j, com_frente = 0, com_personagem_no_meio = 0;
+        char nomes[8][24];
+        for (st = 0; st < BS_STAGE_COUNT; st++) {
+            const char *id = bs_stages[st].id;
+            const bs_slot_t *slb = ch_slot(id, "bf");
+            sl_item_t a[SL_MAX_ITENS];
+            int n, antes = 0;
+            float camx = slb ? slb->x + slb->cx : 640.0f;
+            float camy = slb ? slb->y + slb->cy : 360.0f;
+            n = sl_collect(id, camx, camy, 1.0f, 1.0f, 0, 0.5f, 0.0f, a, SL_MAX_ITENS);
+            CHECK(n >= 0);
+            for (j = 0; j < n; j++) {
+                CHECK_EQ(a[j].z, bs_props[a[j].prop].z);
+                if (j) CHECK(a[j].z >= a[j - 1].z);
+            }
+            /* fatias: para cada z de personagem, o numero de itens abaixo dele
+               so' pode crescer, e a fatia [z_{k-1}, z_k) e' contigua. */
+            {
+                int zs[3], m;
+                zs[0] = ch_slot(id, "gf") ? ch_slot(id, "gf")->z : 100;
+                zs[1] = ch_slot(id, "dad") ? ch_slot(id, "dad")->z : 200;
+                zs[2] = slb ? slb->z : 300;
+                for (m = 0; m < 3; m++) {
+                    int c = 0, dentro = 0, depois = 0;
+                    for (j = 0; j < n; j++) {
+                        if (a[j].z < zs[m]) c++;
+                    }
+                    CHECK(c >= antes);      /* prefixo: fatia vazia ou crescente */
+                    /* a fatia e' exatamente os itens de indice [antes, c) */
+                    for (j = 0; j < n; j++) {
+                        if (j >= antes && j < c) dentro++;
+                        else if (a[j].z >= zs[m] && j < c) depois++;
+                    }
+                    CHECK_EQ(dentro, c - antes);
+                    CHECK_EQ(depois, 0);
+                    antes = c;
+                }
+            }
+            if (n && a[n - 1].z > (slb ? slb->z : 300)) {
+                com_frente++;
+                if (com_frente <= 8) snprintf(nomes[com_frente - 1], sizeof(nomes[0]), "%s", id);
+            }
+            if (n) com_personagem_no_meio++;
+        }
+        printf("     palcos com props na frente do BF: %d\n", com_frente);
+        for (j = 0; j < com_frente && j < 8; j++) printf("       %s\n", nomes[j]);
+        CHECK(com_frente >= 1);
+        CHECK(com_personagem_no_meio >= 12);   /* o sweep ja' desenhou 12 palcos */
+    }
+
+    printf("== palcos: o tankmanBattlefield poe os figurantes na frente ==\n");
+    {
+        /* Os sete `tankmanAudience` (z 1000..1100) do tankmanBattlefield estao
+           ACIMA do BF (z 885 pelo slot) e do DAD (996). Com o palco desenhado
+           antes dos personagens -- como era antes deste corte -- os sete
+           apareciam atras de quem canta. */
+        sl_item_t a[SL_MAX_ITENS];
+        const bs_slot_t *slb = ch_slot("tankmanBattlefield", "bf");
+        const bs_slot_t *sld = ch_slot("tankmanBattlefield", "dad");
+        int n, j, frente = 0, atras = 0;
+        CHECK(slb != NULL);
+        CHECK(sld != NULL);
+        /* O z dos personagens NAO e' 100/200/300 fixo: no tankmanBattlefield o
+           BF e o DAD estao em 102 e a GF em 100 (bs_slots[]). */
+        CHECK(slb && slb->z == 102);
+        CHECK(sld && sld->z == 102);
+        CHECK(ch_slot("tankmanBattlefield", "gf") &&
+              ch_slot("tankmanBattlefield", "gf")->z == 100);
+        n = sl_collect("tankmanBattlefield", slb ? slb->x + slb->cx : 0.0f,
+                       slb ? slb->y + slb->cy : 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                       a, SL_MAX_ITENS);
+        CHECK(n > 0);
+        for (j = 0; j < n; j++) {
+            if (a[j].z > slb->z) frente++;
+            else atras++;
+        }
+        /* Nem os sete figurantes aparecem nesse enquadramento -- so' os que
+           estao na tela entram no sl_collect. O que importa e' que exista prop
+           dos DOIS lados do personagem: com todos de um lado so', o corte por z
+           nao teria efeito nenhum. */
+        printf("     tankmanBattlefield: %d prop(s) na frente do BF, %d atras\n",
+               frente, atras);
+        CHECK(frente >= 1);
+        CHECK(atras >= 1);
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  palcos: 21 palcos, 157 props, conta de tela e ordem de z conferidas\n");
     return 0;

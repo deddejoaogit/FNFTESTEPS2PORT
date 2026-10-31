@@ -48,6 +48,7 @@ typedef struct {
     float x0, y0;   /* canto superior esquerdo, espaco 640x360         */
     float w, h;     /* tamanho na tela (do src do original, ver .c)    */
     int tex_w, tex_h; /* resolucao do quadro no pacote CFZ4 (sw/sh)    */
+    int z;          /* zIndex do prop: a ordem de desenho do Stage.hx  */
 } sl_item_t;
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */

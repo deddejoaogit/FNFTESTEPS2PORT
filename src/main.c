@@ -1150,50 +1150,98 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, int novo_ui)
     telemetry_event("pool_cena", novo_ui, (int)sp_livre(&g_pool));
 }
 
-/* Desenha o palco inteiro. Devolve o qword e, em *desenhados, quantos props
-   foram para a tela. Se nada pode ser desenhado, *desenhados fica 0 e o
-   chamador usa a textura composta do tutorial. */
-static qword_t *palco_draw(qword_t *q, const char *stage, float cam_x,
-                           float cam_y, float zoom, float bop, int step,
-                           float beat_s, float t, int *desenhados)
+/* z dos personagens de um palco. A ordem de desenho do Stage.hx e' a de um
+   unico grupo ordenado por `zIndex`, com personagens e props juntos, e o z de
+   CADA personagem esta' no slot do palco (bs_slots[]). Os valores de reserva
+   sao os do mainStage, que e' o unico palco que a captura de console provou. */
+static int palco_slot_z(const char *stage, const char *papel)
 {
+    const bs_slot_t *sl = ch_slot(stage, papel);
+    if (sl) return sl->z;
+    return papel && papel[0] == 'g' ? 100 : papel && papel[0] == 'd' ? 200 : 300;
+}
+
+/* ===== PALCO POR zIndex =================================================
+   Stage.hx L300-330 poe os tres personagens (`addCharacter`) e os props
+   (`addBopper`) num UNICO grupo ordenado por `zIndex`. Nao existe "o palco
+   primeiro e as pessoas por cima": a lista e' uma so' e a posicao de cada
+   personagem nela vem do z do slot daquele palco. Por isso os props saem
+   daqui em FATIAS, uma entre cada par de personagens.
+
+   A coleta (`sl_collect`) e' feita UMA vez por quadro e as fatias saem dessa
+   mesma lista -- a ordem dentro de cada fatia continua o z crescente com
+   insercao estavel que o sl_collect garante. */
+#define PALCO_Z_FIM (1 << 30)
+typedef struct {
     sl_item_t it[SL_MAX_ITENS];
-    int n, i, ok = 0;
-    if (desenhados) *desenhados = 0;
-    if (!stage) return q;
+    int n;              /* props na tela neste quadro                      */
+    int desenhados;     /* quantos ja' foram para a tela (soma das fatias) */
+} palco_lista_t;
+
+static void palco_abre(palco_lista_t *L, const char *stage, float cam_x,
+                       float cam_y, float zoom, float bop, int step,
+                       float beat_s, float t)
+{
+    L->n = 0;
+    L->desenhados = 0;
+    if (!stage) return;
     if (g_palco.stage != stage) palco_carregar(stage);
-    if (!g_palco.stage) return q;
-    n = sl_collect(stage, cam_x, cam_y, zoom, bop, step, beat_s, t, it, SL_MAX_ITENS);
-    if (n <= 0) return q;
-    for (i = 0; i < n; i++) {
-        const bs_prop_t *p = &bs_props[it[i].prop];
+    if (!g_palco.stage) return;
+    L->n = sl_collect(stage, cam_x, cam_y, zoom, bop, step, beat_s, t,
+                      L->it, SL_MAX_ITENS);
+    if (L->n < 0) L->n = 0;
+}
+
+/* Desenha os props de z em [zmin, zmax). */
+static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
+{
+    int i;
+    for (i = 0; i < L->n; i++) {
+        const bs_prop_t *p = &bs_props[L->it[i].prop];
         const bs_prop_anim_t *a;
         texbuffer_t *tx;
-        int r = it[i].prop - g_palco.first;
+        int r = L->it[i].prop - g_palco.first;
         int quadro;
-        if (palco_prop_pronto(stage, r) != 0) continue;
-        a = &bs_prop_anims[p->anim_first + it[i].anim];
+        if (L->it[i].z < zmin || L->it[i].z >= zmax) continue;
+        if (palco_prop_pronto(g_palco.stage, r) != 0) continue;
+        a = &bs_prop_anims[p->anim_first + L->it[i].anim];
         /* sl_prop_frame devolve o quadro DENTRO da animacao; no pacote o
            indice e' absoluto, por isso soma-se o primeiro quadro dela. */
-        quadro = a->first + it[i].frame;
+        quadro = a->first + L->it[i].frame;
         if (quadro < 0 || (unsigned int)quadro >= g_palco.count[r]) continue;
         tx = palco_prop_textura(r, quadro);
         if (!tx) continue;
         q = bind_texture_filter(q, tx, 1);
-        q = sprite_dims(q, it[i].x0, it[i].y0, it[i].w, it[i].h, it[i].tex_w, it[i].tex_h);
-        ok++;
+        q = sprite_dims(q, L->it[i].x0, L->it[i].y0, L->it[i].w, L->it[i].h,
+                        L->it[i].tex_w, L->it[i].tex_h);
+        L->desenhados++;
     }
-    if (desenhados) *desenhados = ok;
-    g_palco_ok = ok > 0;
+    return q;
+}
+
+/* Telemetria do palco, uma vez por quadro, depois da ultima fatia. */
+static void palco_fecha(const palco_lista_t *L)
+{
+    int total = L->desenhados;
+    g_palco_ok = total > 0;
     /* Uma linha por MUDANCA de resultado, e nao por quadro: "desenhou 3 props"
        precisa aparecer no log uma vez, nao 5.600. Se cair para 0 (pacote
        faltando, VRAM sem lugar), aparece a queda com o total de falhas. */
-    if (ok != g_palco.desenhou) {
-        g_palco.desenhou = ok;
-        telemetry_event("palco_draw", ok, (int)g_palco.falhas);
+    if (total != g_palco.desenhou) {
+        g_palco.desenhou = total;
+        telemetry_event("palco_draw", total, (int)g_palco.falhas);
         telemetry_event("palco_pool", (int)sp_livre(&g_pool), (int)g_palco.uploads);
     }
-    return q;
+}
+
+/* Quando entra a textura composta do tutorial (a reserva): quando o palco nao
+   tem NADA a desenhar -- nenhum prop na tela, ou o primeiro prop sem pacote
+   (pendrive sem os .cfz4). Uma falha de VRAM num prop nao troca o palco
+   inteiro pela arte composta. */
+static int palco_reserva(const palco_lista_t *L, const char *stage)
+{
+    if (L->n <= 0) return 1;
+    return palco_prop_pronto(stage, L->it[0].prop - g_palco.first) != 0;
 }
 /* ===== PERSONAGENS GENERICOS ==========================================
    O estado 8 desenhava DOIS personagens: o BF e a GF do tutorial, com os
@@ -3372,7 +3420,7 @@ float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao
       couber na VRAM, o tutorial desenha o palco como antes em vez de ficar sem
       fundo. O evento palco_falha diz qual prop falhou e por que. */
-   {int pd=0;float st=(g_chart_clock<0?0.0f:(float)g_chart_clock/48000.0f);
+   {float st=(g_chart_clock<0?0.0f:(float)g_chart_clock/48000.0f);
     /* O passo do chart (uma batida = 4 passos) e a duracao da batida na secao
        de BPM vigente: sao eles que decidem a animacao de cada prop do palco
        (Bopper.hx). Antes da musica o passo e' negativo de proposito -- e' a
@@ -3380,34 +3428,67 @@ float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_
     {s32 spv=(s32)(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP);
      int bt=(int)(g_chart_clock/spv);
      float bts=(float)(4.0f*(float)spv/48000.0f);
-    /* O palco vem do REGISTRO da musica (src->stage), nao de um id escrito
-       aqui. Hoje so' o mainStage tem pacote no pendrive; para os outros o
-       palco_ui volta 0 props e o desenho cai na reserva -- o evento
-       palco_entra/palco_draw diz qual palco foi tentado. */
-    q=palco_draw(q,g_play_song?g_play_song->stage:"mainStage",cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st,&pd);}
-    if(!pd){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}}/* OPONENTE generico: quem a musica diz que e' (paper dad), o quadro que a
-   char_cena diz que e', e a ancora que o slot dad do palco da'. Entra ANTES
-   do BF e da GF porque, no original, o palco e' ordenado por zIndex e o
-   oponente e' o primeiro dos tres (atras de quem joga). */
-   /* A carga e' conferida AQUI, e nao so' na transicao: o `g_play_song` pode
-      chegar depois dela (no caminho do harness por musica, por exemplo), e o
-      desenho era o unico lugar que sempre sabe qual e' a musica. A funcao sai
-      na hora quando a musica nao mudou. */
+    /* A carga e' conferida AQUI, e nao so' na transicao: o `g_play_song` pode
+       chegar depois dela (no caminho do harness por musica, por exemplo), e o
+       desenho era o unico lugar que sempre sabe qual e' a musica. A funcao sai
+       na hora quando a musica nao mudou. */
    if(ui_state==8)cena_carregar(g_play_song);
-   /* Oponente: mesmo caminho do BF e da GF, pelo slot dad do palco. */
-   q=cena_desenha(q,CH_PAPEL_DAD,ch_slot(g_play_song?g_play_song->stage:"mainStage","dad"),
-                  (int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP))),
-                  (long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)),cx,cy,sc);
+   /* ORDEM DE DESENHO: props e personagens na MESMA lista, por zIndex.
+      Stage.hx L300-330 poe os tres personagens (`addCharacter`) e os props
+      (`addBopper`) num unico grupo ordenado por `zIndex` -- nao existe "o
+      palco primeiro e as pessoas por cima". A posicao de cada personagem
+      nessa lista e' o z do slot daquele palco (bs_slots[]), e ela muda de
+      palco para palco. Medido nos dados, 11 palcos tem props acima do menor
+      z dos personagens: os 7 `tankmanAudience` (z 1000..1100) do
+      tankmanBattlefield, o `limo` do limoRide (150) e o `santa` do mallXmas
+      (210) ficam NA FRENTE de quem canta. Desenhar todo prop antes dos
+      personagens punha os figurantes do tankman atras do BF.
+      A ordem DENTRO de cada faixa continua a do sl_collect (z crescente e
+      insercao estavel). O caminho legado do Tutorial, conferido em captura de
+      console, nao muda: ele cai no else abaixo, com a ordem antiga. */
    if(g_cena_modo){
-    /* GF e BF genericos: mesma conta de quadro do oponente (cc_quadro), com a
-       posicao vinda do slot do palco pelo ch_anchor. O upload so' acontece
-       quando o quadro MUDA -- e' o custo real (LZ4 + VRAM). */
+    /* GF, BF e o oponente pelo mesmo caminho: quadro de `cc_quadro`, posicao
+       do `ch_anchor` no slot do palco. O upload so' acontece quando o quadro
+       MUDA -- e' o custo real (LZ4 + VRAM). */
+    const char *stg=g_play_song?g_play_song->stage:"mainStage";
     int bt2=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
-    q=cena_desenha(q,CH_PAPEL_GF,ch_slot(g_play_song?g_play_song->stage:"mainStage","gf"),bt2,ms2,cx,cy,sc);
-    q=cena_desenha(q,CH_PAPEL_BF,ch_slot(g_play_song?g_play_song->stage:"mainStage","bf"),bt2,ms2,cx,cy,sc);
+    int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
+    palco_lista_t pl;
+    zz[0]=palco_slot_z(stg,"gf");zz[1]=palco_slot_z(stg,"dad");zz[2]=palco_slot_z(stg,"bf");
+    /* z crescente, como o `FunkinGroup.refresh()` (SortUtil.byZIndex) que o
+       Stage chama depois de adicionar todo mundo. A ordem de adicao do
+       PlayState e' GF (L2207), BF (L2216) e DAD (L2225), e ela e' o desempate
+       aqui porque o corte e' estavel. */
+    for(ai=1;ai<3;ai++){int zi=zz[ai],zo=ord[ai];
+     for(bi=ai-1;bi>=0&&zz[bi]>zi;bi--){zz[bi+1]=zz[bi];ord[bi+1]=ord[bi];}
+     zz[bi+1]=zi;ord[bi+1]=zo;}
+    palco_abre(&pl,stg,cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st);
+    /* A reserva composta e' o FUNDO: quando entra, vai antes de todos. */
+    if(palco_reserva(&pl,stg)){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}
+    /* [props z < gf] gf [props z < dad] dad [props z < bf] bf [props z >= bf] */
+    limite=-PALCO_Z_FIM;
+    for(ai=0;ai<3;ai++){
+     const char *rp=ord[ai]==CH_PAPEL_GF?"gf":ord[ai]==CH_PAPEL_DAD?"dad":"bf";
+     q=palco_fatia(q,&pl,limite,zz[ai]);
+     q=cena_desenha(q,ord[ai],ch_slot(stg,rp),bt2,ms2,cx,cy,sc);
+     limite=zz[ai];
+    }
+    q=palco_fatia(q,&pl,limite,PALCO_Z_FIM);
+    palco_fecha(&pl);
    }else{
-    q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
+    /* Tutorial: o mesmo caminho de antes, agora com a lista por z do palco --
+       props, e so' depois o oponente e os dois sprites do BF/GF. */
+    const char *stg0=g_play_song?g_play_song->stage:"mainStage";
+    palco_lista_t pl;
+    palco_abre(&pl,stg0,cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st);
+    if(palco_reserva(&pl,stg0)){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}
+    q=palco_fatia(q,&pl,-PALCO_Z_FIM,PALCO_Z_FIM);
+    palco_fecha(&pl);
+    q=cena_desenha(q,CH_PAPEL_DAD,ch_slot(g_play_song?g_play_song->stage:"mainStage","dad"),
+                   bt,(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)),cx,cy,sc);
+   }
+   }
    }
   }
   if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
