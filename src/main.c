@@ -318,6 +318,7 @@ static int g_death_counter=0;
     g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0; \
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
     chart_events_reset(g_official_mainstage_camera_zoom,1.0f); \
+    g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
     g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
     g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
     tutorial_notes_reset(); \
@@ -335,6 +336,19 @@ static int g_death_counter=0;
   }while(0)
 static chart_info_t g_chart_info;
 static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_value=0,g_chart_last_sample=0;
+/* EVENTOS QUE O PORT NAO CONSEGUE REPRODUZIR, contados por musica.
+   Dois grupos, e os dois por falta de dado neste repositorio -- nao por
+   esquecimento:
+     icone  -> SetHealthIcon (15 eventos, todos em `spaghetti`): o id do icone
+               ("yunjin", "kazuha", "sakura", ...) e' uma ARTE que nao esta' no
+               pacote de dados (assets-data nao tem HealthIcon); o port desenha
+               os dois icones fixos do HUD.
+     script -> os eventos `sserafim*` (89 no mesmo chart, e sserafimPulseLights
+               fora do mesmo): eles tocam props do palco por um SCRIPT do
+               original, que nao esta' no repositorio.
+   Contar e escrever no log e' o que a regra 4 pede: ausencia declarada, nunca
+   efeito inventado. */
+static u32 g_ev_icone=0,g_ev_script=0,g_ev_sem_efeito=0,g_ev_avisou=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
 /* Every asset the port reads lives under this root on the memory card.
    The registry builds paths beneath it, so a song's chart is
@@ -1232,17 +1246,31 @@ static void palco_fecha(const palco_lista_t *L)
         g_palco.desenhou = total;
         telemetry_event("palco_draw", total, (int)g_palco.falhas);
         telemetry_event("palco_pool", (int)sp_livre(&g_pool), (int)g_palco.uploads);
+        /* Palco com props na tela e NENHUM desenhado: todos falharam (pacote ou
+           VRAM). A reserva composta ja' foi decidida antes, entao nao da' para
+           desenha-la atras agora -- mas o log tem de dizer que a tela esta'
+           vazia, em vez de deixar o sintoma sem causa. */
+        if (total == 0 && L->n > 0)
+            telemetry_event("palco_vazio", L->n, (int)g_palco.falhas);
     }
 }
 
-/* Quando entra a textura composta do tutorial (a reserva): quando o palco nao
-   tem NADA a desenhar -- nenhum prop na tela, ou o primeiro prop sem pacote
-   (pendrive sem os .cfz4). Uma falha de VRAM num prop nao troca o palco
-   inteiro pela arte composta. */
+/* Quando entra a textura composta do tutorial (a reserva). Tres casos, e so'
+   eles:
+     1) nao ha' nenhum prop na tela (fora do enquadramento);
+     2) o primeiro prop do quadro nao abre o pacote (pendrive sem os .cfz4);
+     3) os props do quadro pedem mais que o pool INTEIRO -- ai nenhum despejo
+        resolve, e a tela ficaria preta.
+   Uma falha de VRAM num prop sozinho NAO troca o palco inteiro pela arte
+   composta: os outros props ainda desenham, e o log diz qual falhou. */
 static int palco_reserva(const palco_lista_t *L, const char *stage)
 {
+    unsigned int soma = 0;
+    int i;
     if (L->n <= 0) return 1;
-    return palco_prop_pronto(stage, L->it[0].prop - g_palco.first) != 0;
+    if (palco_prop_pronto(stage, L->it[0].prop - g_palco.first) != 0) return 1;
+    for (i = 0; i < L->n; i++) soma += sp_prop_bytes(L->it[i].prop);
+    return soma > SP_POOL_BYTES;
 }
 /* ===== PERSONAGENS GENERICOS ==========================================
    O estado 8 desenhava DOIS personagens: o BF e a GF do tutorial, com os
@@ -2785,6 +2813,21 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     g_chart_cursor++;g_chart_seen++;
 
     telemetry_event("tutorial_chart_event",(int)event->type,(int)event->sample);
+    /* Classificacao do que o port NAO reproduz (ver os contadores la' em cima).
+       O aviso sai uma vez por musica e por grupo: o log do console diz que a
+       musica tem esses eventos e que o efeito falta por dado, sem repetir a
+       mesma linha 89 vezes. */
+    if(event->type==CHART_EV_SET_HEALTH_ICON){
+     const chart_event_state_t*es=chart_events_state();
+     g_ev_icone++;
+     if(!(g_ev_avisou&1u)){g_ev_avisou|=1u;telemetry_event("evento_sem_icone",es->icon_char,(int)es->icon_ref);}
+    }else if(event->type>=0x0100u){
+     g_ev_script++;
+     if(!(g_ev_avisou&2u)){g_ev_avisou|=2u;telemetry_event("evento_sem_script",(int)event->type,(int)event->sample);}
+    }else if(event->type==CHART_EV_CHANGE_CHARACTER||event->type==CHART_EV_ALT_IDLE_ANIM){
+     g_ev_sem_efeito++;
+     if(!(g_ev_avisou&4u)){g_ev_avisou|=4u;telemetry_event("evento_sem_efeito",(int)event->type,(int)event->sample);}
+    }
    }
   }
   {u32 aref=0;int at=-1,af2=0;
@@ -2956,6 +2999,15 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        foi a falha. O layout que abrir sai no telemetria. */
     g_chart_status=chart_load_song_layout(FNF_ASSET_ROOT,song,diff,&g_chart_info,&layout);
     telemetry_event("chart_layout",layout,g_chart_status);
+    /* FCH3 NAO CARREGA OS PARAMETROS DOS EVENTOS. O formato antigo tem so'
+       `sample/type/value/order` por evento; zoom, bop, alvo de animacao e id de
+       icone moram nos campos que a v4 criou. Um chart v3 com eventos carrega
+       (a compatibilidade e' de proposito) mas chega aqui com todos os
+       parametros zerados -- e o sintoma seria a camera indo para zoom 0 sem
+       nada no log. Avisa uma vez, com o numero de eventos, em vez de deixar a
+       diferenca aparecer como defeito de desenho. */
+    if(g_chart_status==0&&g_chart_info.version==3u&&g_chart_info.event_count)
+     telemetry_event("chart_v3_eventos",(int)g_chart_info.event_count,0);
    } else g_chart_status=-3;
    telemetry_event("chart_path",g_chart_status,(int)(song?song->bpm*1000.0f:0));}
   /* The event module reads the chart through the same loader, so it needs the
@@ -3023,7 +3075,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){

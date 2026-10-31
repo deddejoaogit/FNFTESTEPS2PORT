@@ -154,6 +154,8 @@ for sid in $LISTA; do
         [ "${FNF_SWEEP_FMT:-v3}" = "v5" ] || kexp=0
         charruim=$(awk -F, '$1=="E" && ($3=="char_pacote_ruim" || $3=="char_sem_vram" || $3=="char_sem_staging") {n++} END{print n+0}' "$LOG" 2>/dev/null)
         palco=$(campo palco_entra 4)
+        nicon=$(awk -F, '$1=="E" && $3=="evento_sem_icone" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nscript=$(awk -F, '$1=="E" && $3=="evento_sem_script" {n++} END{print n+0}' "$LOG" 2>/dev/null)
 
         [ "${hstart:--1}" -ge 0 ] 2>/dev/null || motivo="nao comecou${motivo:+, $motivo}"
         [ "${layout:--1}" -ge 0 ] 2>/dev/null || motivo="layout do chart${motivo:+, $motivo}"
@@ -193,6 +195,18 @@ for sid in $LISTA; do
             [ "${nbfanim:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao animou${motivo:+, $motivo}"
         fi
         [ "${charruim:-0}" -eq 0 ] 2>/dev/null || motivo="pacote ou VRAM do oponente falhou${motivo:+, $motivo}"
+        # ESPAGUETE e' a unica musica com eventos que o port NAO reproduz, e os
+        # dois grupos tem de aparecer no log: SetHealthIcon (a arte dos icones
+        # nao esta' no pacote de dados) e os `sserafim*` (o script do palco nao
+        # esta'). Se um dia a arte ou o script entrarem no repositorio, este
+        # teste vira o lembrete de tirar o aviso -- e se os eventos pararem de
+        # chegar, ele acusa a perda em vez de deixar o silencio passar.
+        if [ "$sid" = "spaghetti" ] && [ "$diff" = "easy" ]; then
+            if [ "${FNF_SWEEP_FMT:-v3}" = "v5" ]; then
+                [ "${nicon:-0}" -ge 1 ] 2>/dev/null || motivo="SetHealthIcon nao chegou ao jogo${motivo:+, $motivo}"
+                [ "${nscript:-0}" -ge 1 ] 2>/dev/null || motivo="evento de script nao chegou ao jogo${motivo:+, $motivo}"
+            fi
+        fi
 
         if [ "${naudio:-0}" -ge 1 ]; then
             AUDIO=$((AUDIO + 1))

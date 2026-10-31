@@ -1206,6 +1206,54 @@ do BF, e soma o que o pool reservaria para os props visíveis naquele quadro. É
 número que o console cobra: o pool é por quadro, com despejo LRU, não a soma do
 palco inteiro.
 
+#### Fechado: os eventos que o port não reproduz, declarados no log
+
+Dos 3.330 eventos dos 27 charts, a maioria virou estado no `chart_events.c`
+(FocusCamera, ZoomCamera, SetCameraBop, ScrollSpeed, PlayAnimation). Sobram dois
+grupos, e os dois **por falta de dado no repositório**, não por esquecimento:
+
+| evento | onde | quantos | o que falta |
+|---|---|---|---|
+| `SetHealthIcon` | `spaghetti` | 15 | a **arte** dos ícones (`yunjin`, `kazuha`, `sakura`, `chaewon`, `eunchae`); `assets-data` não tem `HealthIcon` — o HUD desenha os dois ícones fixos |
+| `sserafim*` | `spaghetti` | 89 | o **script** do palco que toca os props (`sserafimPulseLights`, `sserafimSing`, …) |
+
+Antes, os dois grupos caíam no `default` do `chart_events_apply` e o único
+registro era `tutorial_chart_event` com um tipo numérico — indistinguível de um
+evento que o port entende. Agora o `main.c` conta cada grupo e grava **uma vez
+por música**: `evento_sem_icone` (char, ref), `evento_sem_script` (tipo,
+amostra) e `evento_sem_efeito` (ChangeCharacter/AltIdleAnimation, que o v0.8.6
+não tem). No fim da música, `eventos_sem_efeito` fecha a conta (contagem de
+ícone | script<<8, sem-efeito).
+
+Medido (harness, `spaghetti` FCH5, 1.200 quadros):
+
+```
+chart_layout,0,0              chart aberto no layout 0
+evento_sem_script,256,51665   primeiro evento de script, tipo 0x0100
+evento_sem_icone,1,5          SetHealthIcon char 1, ref 5 ("yunjin")
+```
+
+E o sweep passou a **cobrar** os dois avisos nessa música: se a arte dos ícones
+ou o script do palco entrarem no repositório um dia, o teste acusa (o aviso
+sobra) em vez de deixar a diferença desaparecer em silêncio.
+
+#### Fechado: chart FCH3 com eventos agora avisa (em vez de zerar tudo em silêncio)
+
+O loader aceita FCH3 de propósito — é o formato que o console já carregou. Mas o
+registro v3 tem só `sample/type/value/order`: **zoom, duração, alvo de animação
+e id de ícone não existem nele**. Um FCH3 com 468 eventos (o `spaghetti`) carrega
+sem um erro e chega ao `chart_events_apply` com todos os parâmetros zerados — o
+sintoma seria a câmera indo para zoom 0, sem nada no log dizendo por quê.
+
+Medido antes da correção: com o pendrive em FCH3, o `spaghetti` desenhava o palco
+e o áudio andava, mas **nenhum** dos 89 eventos de script aparecia e o
+`SetHealthIcon` nunca era contado (os contadores agora existem e ficaram em zero).
+
+Agora o `main.c` grava `chart_v3_eventos` com o número de eventos quando o chart
+carregou em v3 e tem eventos (`chart_v3_eventos,468,0` no log). Continua
+funcionando — a compatibilidade não muda — mas a diferença entre "o chart não tem
+eventos" e "o chart tem e o formato não os carrega" fica escrita.
+
 #### Fechado: orçamento de RAM do empacotador e conferência dos 21 palcos
 
 O empacotador só tinha orçamento de **VRAM**. O pacote CFZ4 de um palco, porém,
