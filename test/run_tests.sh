@@ -125,6 +125,15 @@ $CC $FLAGS test/test_stage_pool.c src/engine/stage_pool.c src/engine/stage_layou
 /tmp/fnf_test_pool
 echo
 
+# Mixer de duas faixas: o `stems.pcm` traz instrumental e vozes em 4 canais
+# intercalados e o jogo soma as duas com saturacao. Era nesta conta que a saida
+# saia com o dobro do tamanho (audio no dobro da velocidade), entao ela tem
+# teste proprio, com os bytes conferidos um por um.
+echo "== mixer de duas faixas (audio_mix) =="
+$CC $FLAGS test/test_audio_mix.c src/engine/audio_mix.c -o /tmp/fnf_test_audio_mix
+/tmp/fnf_test_audio_mix
+echo
+
 # Layout dos palcos: quais props aparecem, onde, em que ordem de z. E' a conta
 # que o estado 8 do main.c faz a mao para um palco so'; aqui ela roda nos 21 e o
 # teste falha se as faixas de props de um palco pegarem o prop de outro.

@@ -27,6 +27,7 @@
 #include "engine/gameplay.h"
 #include "engine/vram_layout.h"
 #include "engine/stage_pool.h"
+#include "engine/audio_mix.h"
 #include "engine/stage_layout.h"
 #include "engine/lz4_bloco.h"
 #include "engine/char_pack.h"
@@ -1647,13 +1648,10 @@ static int tutorial_audio_mix_submit(int voices_enabled){
   n-=(n&7);   /* so' amostras inteiras: 8 bytes = 2 canais x 2 fontes */
   if(n<=0)return 0;
  }
- for(i=0;i<n/8;i++){
-  int left=(int)samples[i*4]+(voices_enabled?(int)samples[i*4+2]:0);
-  int right=(int)samples[i*4+1]+(voices_enabled?(int)samples[i*4+3]:0);
-  if(left>32767)left=32767;else if(left<-32768)left=-32768;
-  if(right>32767)right=32767;else if(right<-32768)right=-32768;
-  samples[i*2]=(short)left;samples[i*2+1]=(short)right;
- }
+ /* A soma das duas faixas (e a saturacao) saiu daqui para
+    `engine/audio_mix.c`, que tem teste proprio: era nesta conta que o bloco
+    de saida saia com o dobro do tamanho e o audio dobrava de velocidade. */
+ i=amix_somar(samples,samples,n/8,voices_enabled);
  /* ATENCAO ao fator: o anel entrega 8 bytes por amostra (instrumental +
     vozes, 16 bits por canal), e o mixer escreve 4 bytes por amostra (estereo).
     Entao o bloco de SAIDA tem n/2 bytes. Antes o codigo lia STEM_READ_CHUNK e
@@ -1661,7 +1659,7 @@ static int tutorial_audio_mix_submit(int voices_enabled){
     certo. Enviar `n` dobrava o audio entregue ao audsrv, e o relogio da musica
     (limitado por audio_submitted) passava a correr o dobro: medido, o relogio
     chegou a 4.755.264 amostras num arquivo de 3.225.600. */
- return audio_play_complete((const char*)g_audio_pcm,n/2);
+ return audio_play_complete((const char*)g_audio_pcm,amix_bytes_saida(i));
 }
 static int audio_init(void){int result=-1;if(SifLoadModule("rom0:LIBSD",0,NULL)<0)return -1;if(SifExecModuleBuffer(audsrv_irx,size_audsrv_irx,0,NULL,&result)<0||result<0)return -2;if(audsrv_init()!=0)return -3;if(audio_set_stream(70)<0)return -4;return 0;}
 static int menu_audio_prime(void){int total=0,guard=1000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=32;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int j;if(audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK)!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,AUDIO_READ_CHUNK);if(j<=0)break;total+=j;g_title_audio_submitted+=(u32)(j/4);}telemetry_event("menu_prime",total,audsrv_queued());return total;}

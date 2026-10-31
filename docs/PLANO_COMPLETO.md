@@ -90,8 +90,12 @@ FECHADA", abaixo. Em uma linha: música e dificuldade saem do
 `song_registry`/`story_level`, o chart e o áudio são por música
 (`songs/<id>/<dif>.chart`, `songs/<id>/stems.pcm`), a contagem regressiva tem os
 5 passos de `Countdown.hx` e o fim da música leva à tela de Resultado com rank e
-`%` das mesmas funções que julgaram. O que continua pendente é o **mixer de
-duas faixas** (`Inst` + `Voices`), que hoje é um `stems.pcm` já misturado.
+`%` das mesmas funções que julgaram. O **mixer de duas faixas** está fechado por
+medição: o `stems.pcm` NÃO é uma mixagem pronta — ele carrega o instrumental e
+as vozes em canais separados (8 bytes por amostra: `instL, instR, voicesL,
+voicesR`, 16 bits cada) e o mixer do port soma as duas com saturação em
+`tutorial_audio_mix_submit()`, exatamente o que o original faz com os dois
+`FlxSound`. Ver "Fase 2 — o mixer de duas faixas", abaixo.
 
 ### Fase 3 — Telas: Freeplay, seleção de dificuldade, pausa, Game Over, Resultado: FECHADA
 
@@ -1473,12 +1477,18 @@ tocar Bopeebo seria **tocar a música errada com o chart certo**, que é pior qu
 admitir que falta o áudio. Uma música sem áudio marca `play_audio_ausente` e o
 HUD mostra o erro de asset.
 
-Por que `songs/<id>/stems.pcm` e não o `Inst.pcm` do original: no original são
-**duas** faixas (instrumental + vozes) com volume independente; o port ainda tem
-um fluxo único com as duas já misturadas (8 bytes por amostra). Abrir `Inst.pcm`
-com o mixer atual leria 8 bytes de um arquivo de 4 e tocaria na metade da
-velocidade. O caminho fica no registro (`sr_stems_path`), documentado, e
-desaparece quando o mixer de duas faixas existir.
+Por que `songs/<id>/stems.pcm` e não o `Inst.pcm` do original: o arquivo do
+port tem **as duas faixas em canais separados** — 8 bytes por amostra, na ordem
+`instL, instR, voicesL, voicesR` — e o mixer soma as duas com saturação
+(`amix_somar`, `src/engine/audio_mix.c`). É o mesmo resultado audível de dois
+`FlxSound` somados pelo mixer do flixel: não há, no original, nenhum evento que
+mude o volume de UMA faixa (medido: nenhum `SetVolume` nos 81 charts), então
+dois arquivos não produziriam som diferente — só custariam mais E/S no USB 1.1.
+O que a separação em canais dá é justamente o que o debug precisa: o R3 liga e
+desliga as vozes sem tocar no instrumental, provando que as duas faixas estão
+lá e separadas. Abrir um `Inst.pcm` de 4 bytes/amostra com este mixer leria 8 e
+tocaria na metade da velocidade — por isso o formato é o do `stems.pcm` e a
+conversão de áudio (fora deste repositório) tem de gravar 4 canais.
 
 Provado no harness: `play_audio_path` abriu o arquivo por música (fd 6),
 `play_step` = 7.200 com `initial_bpm` 100, 9 acertos e 5 saltos de placar.
@@ -1563,8 +1573,34 @@ e engasgado, e trava"): o pendrive do PS2 é USB 1.1, a ~1,5 MB/s, com blocos de
 `tutorial_audio_mix_submit` devolve bloco curto e em que quadro, com o jogo
 continuando em vez de parar. Entra na próxima build, sozinho (regra 8).
 
-A Fase 2 fecha com este item. Escolher música e dificuldade, o áudio por
-música, a contagem regressiva e o fim de música → resultado estão fechados
-acima. O que continua pendente na camada de áudio, e é Fase 4/5, é o **mixer de
-duas faixas** (instrumental + vozes separados, como o `Inst`/`Voices` do
-original): hoje o port toca um único `stems.pcm` já misturado.
+**Fase 2 — o mixer de duas faixas: FECHADO, e por medição.**
+
+O que faltava não era somar duas faixas: era notar que o `stems.pcm` do port já
+é o par `Inst`+`Voices` em canais separados. O arquivo entrega 8 bytes por
+amostra — 4 canais de 16 bits, `instL, instR, voicesL, voicesR` — e o mixer
+(`amix_somar`, em `src/engine/audio_mix.c`) soma `inst+voices` por canal com saturação em
+±32767, que é o mesmo que o mixer do flixel faz com os dois `FlxSound` do
+original. O bloco de saída tem metade do tamanho do bloco lido (`n/2`), porque
+4 canais viram 2 — e era exatamente aí que uma conta errada dobrava a
+velocidade do áudio (já corrigida e medida: `audio_submitted` chegava a
+4.755.264 amostras num arquivo de 3.225.600).
+
+A soma saiu do `main.c` para um módulo próprio (`engine/audio_mix.c`) porque
+era ali que o bloco de saída saía com o dobro do tamanho — e um módulo com
+teste (`test/test_audio_mix.c`) prova o que nenhum harness de desenho provaria:
+soma por canal (não canal trocado), saturação em ±32767 sem inverter o sinal,
+instrumental intacto com as vozes desligadas, metade dos bytes na saída
+(4 canais → 2) e a mistura **in place**, que é como o `main.c` chama.
+
+O que a divisão em canais acrescenta e o arquivo misturado não daria: o R3
+liga/desliga as vozes durante a música (`voices_enabled`), deixando o
+instrumental intacto — é o teste que mostra, no console, que as duas faixas
+chegaram separadas. É um **controle do port**, não do original, e não muda
+nenhum evento do jogo; fica documentado aqui para não ser confundido com bug.
+
+O que **não** está provado: que a conversão de áudio do lado do PC grava os 4
+canais na ordem `inst, inst, voices, voices` para todas as 27 músicas. O jogo
+lê nessa ordem e a duração do `stems.pcm` conferida é 3.225.600 amostras × 8
+bytes; se um arquivo vier em 2 canais, o port toca o dobro da velocidade e o
+relógio da música sai junto. É verificável no console em uma música: R3 tem de
+tirar as vozes e manter a batida.
