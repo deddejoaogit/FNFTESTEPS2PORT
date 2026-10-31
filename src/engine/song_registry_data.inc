@@ -5,6 +5,7 @@
  *   levels/<id>.json          -> weeks, order, names, backgrounds, capsules
  *   songs/<id>-metadata.json  -> characters, stage, note style, bpm,
  *                               difficulties, variations
+ *   charts/<id>-chart.json    -> scrollSpeed per difficulty
  *
  * Two entries used to be guessed wrong -- the Tutorial's opponent (it is
  * the girlfriend) and week4's order (satin-panties, high, milf). Both
@@ -21,7 +22,8 @@ static const sr_song_t s_tutorial = {
     "tutorial", "Tutorial", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", NULL, "gf",
     "mainStage", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 100
+    0, 100,
+    {1.0f, 1.0f, 1.0f}
 };
 
 /* ---- week1: DADDY DEAREST ---- */
@@ -30,7 +32,8 @@ static const sr_song_t s_bopeebo = {
     "bopeebo", "Bopeebo", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "dad",
     "mainStage", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 100
+    SR_VAR_ERECT | SR_VAR_PICO, 100,
+    {1.2f, 1.3f, 1.6f}
 };
 
 /* Fresh (fresh) -- stage mainStage; variations: erect, pico. */
@@ -38,7 +41,8 @@ static const sr_song_t s_fresh = {
     "fresh", "Fresh", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "dad",
     "mainStage", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 120
+    SR_VAR_ERECT | SR_VAR_PICO, 120,
+    {1.4f, 1.6f, 1.8f}
 };
 
 /* DadBattle (dadbattle) -- stage mainStage; variations: erect, pico. */
@@ -46,7 +50,8 @@ static const sr_song_t s_dadbattle = {
     "dadbattle", "DadBattle", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "dad",
     "mainStage", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 180
+    SR_VAR_ERECT | SR_VAR_PICO, 180,
+    {1.6f, 1.8f, 2.3f}
 };
 
 /* ---- week2: SPOOKY MONTH ---- */
@@ -55,7 +60,8 @@ static const sr_song_t s_spookeez = {
     "spookeez", "Spookeez", "Kawai Sprite", "ninjamuffin99 + MtH + Spazkid",
     "bf", "gf", "spooky",
     "spookyMansion", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 150
+    SR_VAR_ERECT | SR_VAR_PICO, 150,
+    {1.6f, 1.8f, 2.4f}
 };
 
 /* South (south) -- stage spookyMansion; variations: erect, pico. */
@@ -63,7 +69,8 @@ static const sr_song_t s_south = {
     "south", "South", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "spooky",
     "spookyMansion", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 165
+    SR_VAR_ERECT | SR_VAR_PICO, 165,
+    {1.6f, 1.8f, 2.0f}
 };
 
 /* Monster (monster) -- stage spookyMansion. */
@@ -71,7 +78,8 @@ static const sr_song_t s_monster = {
     "monster", "Monster", "Bassetfilms", "ChaoticGamerCG + MtH + Spazkid",
     "bf", "gf", "monster",
     "spookyMansion", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 95
+    0, 95,
+    {1.4f, 1.4f, 1.5f}
 };
 
 /* ---- week3: PICO ---- */
@@ -80,7 +88,8 @@ static const sr_song_t s_pico = {
     "pico", "Pico", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "pico",
     "phillyTrain", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 150
+    SR_VAR_ERECT | SR_VAR_PICO, 150,
+    {1.5f, 1.6f, 1.6f}
 };
 
 /* Philly Nice (philly-nice) -- stage phillyTrain; variations: erect, pico. */
@@ -88,7 +97,8 @@ static const sr_song_t s_philly_nice = {
     "philly-nice", "Philly Nice", "Kawai Sprite", "ninjamuffin99 + MtH + Spazkid",
     "bf", "gf", "pico",
     "phillyTrain", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 175
+    SR_VAR_ERECT | SR_VAR_PICO, 175,
+    {1.6f, 1.8f, 2.0f}
 };
 
 /* Blammed (blammed) -- stage phillyTrain; variations: erect, pico. */
@@ -96,7 +106,8 @@ static const sr_song_t s_blammed = {
     "blammed", "Blammed", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf", "gf", "pico",
     "phillyTrain", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 165
+    SR_VAR_ERECT | SR_VAR_PICO, 165,
+    {1.7f, 1.9f, 2.3f}
 };
 
 /* ---- week4: MOMMY MUST MURDER ---- */
@@ -105,7 +116,8 @@ static const sr_song_t s_satin_panties = {
     "satin-panties", "Satin Panties", "Kawai Sprite", "ninjamuffin99 + MtH + Spazkid",
     "bf-car", "gf-car", "mom-car",
     "limoRide", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT, 110
+    SR_VAR_ERECT, 110,
+    {1.6f, 1.6f, 1.8f}
 };
 
 /* High (high) -- stage limoRide; variations: erect. */
@@ -113,7 +125,8 @@ static const sr_song_t s_high = {
     "high", "High", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf-car", "gf-car", "mom-car",
     "limoRide", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT, 125
+    SR_VAR_ERECT, 125,
+    {1.7f, 1.9f, 2.1f}
 };
 
 /* M.I.L.F (milf) -- stage limoRide. */
@@ -121,7 +134,8 @@ static const sr_song_t s_milf = {
     "milf", "M.I.L.F", "Kawai Sprite", "ninjamuffin99 + MtH + Spazkid",
     "bf-car", "gf-car", "mom-car",
     "limoRide", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 180
+    0, 180,
+    {1.9f, 2.2f, 2.6f}
 };
 
 /* ---- week5: RED SNOW ---- */
@@ -130,7 +144,8 @@ static const sr_song_t s_cocoa = {
     "cocoa", "Cocoa", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf-christmas", "gf-christmas", "parents-christmas",
     "mallXmas", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 100
+    SR_VAR_ERECT | SR_VAR_PICO, 100,
+    {1.5f, 1.5f, 1.5f}
 };
 
 /* Eggnog (eggnog) -- stage mallXmas; variations: erect, pico. */
@@ -138,7 +153,8 @@ static const sr_song_t s_eggnog = {
     "eggnog", "Eggnog", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf-christmas", "gf-christmas", "parents-christmas",
     "mallXmas", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 150
+    SR_VAR_ERECT | SR_VAR_PICO, 150,
+    {1.5f, 1.7f, 1.9f}
 };
 
 /* Winter Horrorland (winter-horrorland) -- stage mallEvil. */
@@ -146,7 +162,8 @@ static const sr_song_t s_winter_horrorland = {
     "winter-horrorland", "Winter Horrorland", "Bassetfilms", "ninjamuffin99 + MtH",
     "bf-christmas", "gf-christmas", "monster-christmas",
     "mallEvil", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 159
+    0, 159,
+    {1.4f, 1.6f, 1.7f}
 };
 
 /* ---- week6: HATING SIMULATOR FT. MOAWLING ---- */
@@ -155,7 +172,8 @@ static const sr_song_t s_senpai = {
     "senpai", "Senpai", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf-pixel", "gf-pixel", "senpai",
     "school", SR_NOTE_PIXEL, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 144
+    SR_VAR_ERECT | SR_VAR_PICO, 144,
+    {1.5f, 1.6f, 1.6f}
 };
 
 /* Roses (roses) -- stage school; pixel notes; variations: erect, pico. */
@@ -163,7 +181,8 @@ static const sr_song_t s_roses = {
     "roses", "Roses", "Kawai Sprite", "ninjamuffin99 + MtH + Spazkid",
     "bf-pixel", "gf-pixel", "senpai-angry",
     "school", SR_NOTE_PIXEL, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 120
+    SR_VAR_ERECT | SR_VAR_PICO, 120,
+    {1.6f, 1.7f, 1.8f}
 };
 
 /* Thorns (thorns) -- stage schoolEvil; pixel notes; variations: erect. */
@@ -171,7 +190,8 @@ static const sr_song_t s_thorns = {
     "thorns", "Thorns", "Kawai Sprite", "ninjamuffin99 + MtH",
     "bf-pixel", "gf-pixel", "spirit",
     "schoolEvil", SR_NOTE_PIXEL, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT, 190
+    SR_VAR_ERECT, 190,
+    {1.7f, 1.8f, 2.0f}
 };
 
 /* ---- week7: TANKMAN FT. JOHNNYUTAH ---- */
@@ -180,7 +200,8 @@ static const sr_song_t s_ugh = {
     "ugh", "Ugh", "Kawai Sprite", "MtH",
     "bf", "gf-tankmen", "tankman",
     "tankmanBattlefield", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_ERECT | SR_VAR_PICO, 160
+    SR_VAR_ERECT | SR_VAR_PICO, 160,
+    {2.0f, 2.2f, 2.3f}
 };
 
 /* Guns (guns) -- stage tankmanBattlefield; variations: pico. */
@@ -188,7 +209,8 @@ static const sr_song_t s_guns = {
     "guns", "Guns", "Kawai Sprite", "MtH",
     "bf", "gf-tankmen", "tankman",
     "tankmanBattlefield", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_PICO, 185
+    SR_VAR_PICO, 185,
+    {2.0f, 2.5f, 2.5f}
 };
 
 /* Stress (stress) -- stage tankmanBattlefield; variations: pico. */
@@ -196,7 +218,8 @@ static const sr_song_t s_stress = {
     "stress", "Stress", "Kawai Sprite", "MtH + Spazkid + Hundrec",
     "bf-holding-gf", "pico-speaker", "tankman",
     "tankmanBattlefield", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_PICO, 178
+    SR_VAR_PICO, 178,
+    {2.2f, 2.3f, 2.6f}
 };
 
 /* ---- weekend1: DUE DEBTS ---- */
@@ -205,7 +228,8 @@ static const sr_song_t s_darnell = {
     "darnell", "Darnell", "Kawai Sprite", "fabs",
     "pico-playable", "nene", "darnell",
     "phillyStreets", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_BF | SR_VAR_ERECT, 155
+    SR_VAR_BF | SR_VAR_ERECT, 155,
+    {2.0f, 2.0f, 2.4f}
 };
 
 /* Lit Up (lit-up) -- stage phillyStreets; variations: bf. */
@@ -213,7 +237,8 @@ static const sr_song_t s_lit_up = {
     "lit-up", "Lit Up", "Kawai Sprite", "Jenny Crowe + Spazkid",
     "pico-playable", "nene", "darnell",
     "phillyStreets", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    SR_VAR_BF, 176
+    SR_VAR_BF, 176,
+    {2.4f, 2.4f, 2.4f}
 };
 
 /* 2hot (2hot) -- stage phillyStreets. */
@@ -221,7 +246,8 @@ static const sr_song_t s_2hot = {
     "2hot", "2hot", "Kawai Sprite", "Jenny Crowe + Spazkid + ninjamuffin99",
     "pico-playable", "nene", "darnell",
     "phillyStreets", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 182
+    0, 182,
+    {2.7f, 2.7f, 2.8f}
 };
 
 /* Blazin' (blazin) -- stage phillyBlazin. */
@@ -229,7 +255,8 @@ static const sr_song_t s_blazin = {
     "blazin", "Blazin'", "Kawai Sprite", "fabs + PhantomArcade",
     "pico-blazin", "nene", "darnell-blazin",
     "phillyBlazin", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 180
+    0, 180,
+    {2.0f, 2.4f, 3.2f}
 };
 
 /* ---- sserafim: LE SSERAFIM ---- */
@@ -238,7 +265,8 @@ static const sr_song_t s_spaghetti = {
     "spaghetti", "SPAGHETTI (feat. j-hope of BTS) (Clean ver.)", "LE SSERAFIM (feat. j-hope)", "fabs + Spazkid",
     "sserafim-sakura", "sserafim-gf", "sserafim-kazuha",
     "sserafim", SR_NOTE_FUNKIN, SR_DIFF_EASY | SR_DIFF_NORMAL | SR_DIFF_HARD,
-    0, 111.5
+    0, 111.5,
+    {2.2f, 2.5f, 2.7f}
 };
 
 static const sr_song_t *const lv_tutorial_songs[] = {

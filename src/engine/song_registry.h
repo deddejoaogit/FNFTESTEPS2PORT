@@ -51,6 +51,14 @@ typedef struct {
     unsigned int difficulties;  /* SR_DIFF_* */
     unsigned int variations;    /* SR_VAR_* */
     float bpm;                  /* timeChanges[0].bpm, the chart's opening bpm */
+
+    /* charts/<id>-chart.json -> scrollSpeed, per difficulty (easy/normal/hard).
+       This is the velocity of the strum lines, and it lives in the CHART, which
+       is where Song.loadFromJson reads it. The port used a hard-coded 1.0 for
+       all 81 combinations, so every song but the six whose charts say 1.0 ran
+       its notes at the wrong speed. Values measured over the 27 charts: 1.0 to
+       3.1. */
+    float scroll[3];
 } sr_song_t;
 
 /* One story-mode week. Mirrors funkin.data.story.level.LevelData. */
@@ -78,6 +86,11 @@ const sr_level_t *const *sr_levels(void);
 /* Number of weeks, in story-menu order. Same as SR_LEVEL_COUNT, but a
  * function so callers do not have to trust the macro. */
 unsigned int sr_level_count(void);
+
+/* scrollSpeed da musica para a dificuldade 0..2 (easy/normal/hard). Fora dessa
+ * faixa devolve o da dificuldade 1 (normal), que e' o que o original usa quando
+ * a dificuldade pedida nao existe -- nunca um 1,0 inventado. */
+float sr_scroll(const sr_song_t *song, int difficulty);
 
 /* Total number of songs across all weeks. */
 unsigned int sr_song_count(void);

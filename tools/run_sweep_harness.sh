@@ -162,6 +162,17 @@ for sid in $LISTA; do
         # ESCALA: um evento por papel. Cada musica tem pelo menos dois papeis em
         # cena (nem toda tem `girlfriend`), e o numero e' o tamanho desenhado.
         nesc=$(awk -F, '$1=="E" && $3=="char_escala" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # ZOOM/SCROLL INICIAIS: tem de vir do dado (zoom do palco, scrollSpeed do
+        # chart da dificuldade), nao do 1,1 x 1,0 fixo de antes. O evento traz os
+        # dois em milesimos; o teste exige que existam e sejam > 0, e que a soma
+        # de zooms diferentes no sweep seja > 1 -- se todos voltassem a 1,1, a
+        # unica coisa que restaria seria o valor fixo.
+        cini=$(awk -F, '$1=="E" && $3=="cena_inicio" {print $4","$5; exit}' "$LOG" 2>/dev/null)
+        cz=$(echo "$cini" | cut -d, -f1)
+        cs=$(echo "$cini" | cut -d, -f2)
+        ZOOMS=${ZOOMS:-}; SCROLLS=${SCROLLS:-}
+        [ -n "$cz" ] && [ "$cz" -gt 0 ] 2>/dev/null && ZOOMS="$ZOOMS $cz"
+        [ -n "$cs" ] && [ "$cs" -gt 0 ] 2>/dev/null && SCROLLS="$SCROLLS $cs"
         # NOTE KINDS: quantas notas chegaram com nome de kind, e quantas sao
         # `non_scoreable`/`noanim`. O esperado sai do JSON; ver build/sweep/kinds.txt.
         kcom=$(awk -F, '$1=="E" && $3=="chart_notas_com_kind" {print $4; exit}' "$LOG" 2>/dev/null)
@@ -201,6 +212,8 @@ for sid in $LISTA; do
         [ "${nlegado:-0}" -eq 0 ] 2>/dev/null || motivo="o Tutorial voltou ao caminho antigo${motivo:+, $motivo}"
         [ "${ncamini:-0}" -ge 1 ] 2>/dev/null || motivo="a camera nao comecou no oponente${motivo:+, $motivo}"
         [ "${nesc:-0}" -ge 2 ] 2>/dev/null || motivo="a escala do personagem nao foi medida${motivo:+, $motivo}"
+        [ -n "$cz" ] && [ "$cz" -gt 0 ] 2>/dev/null || motivo="o zoom inicial da musica nao foi medido${motivo:+, $motivo}"
+        [ -n "$cs" ] && [ "$cs" -gt 0 ] 2>/dev/null || motivo="o scrollSpeed inicial da musica nao foi medido${motivo:+, $motivo}"
         [ "${npulado:-0}" -eq 0 ] 2>/dev/null || motivo="papel do oponente pulado por nome${motivo:+, $motivo}"
         [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
         [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
@@ -272,6 +285,13 @@ done
 rm -f build/sweep/palcos-vistos.txt
 echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
+ZN=$(echo $ZOOMS | tr ' ' '\n' | sort -u | wc -l)
+SN=$(echo $SCROLLS | tr ' ' '\n' | sort -u | wc -l)
+echo "  inicio de musica: $ZN zoom(s) e $SN scrollSpeed(s) distintos nas 81 combinacoes"
+# 21 palcos tem 8 zooms diferentes nos dados (0,50 a 1,10) e os 27 charts tem
+# 20 scrollSpeeds diferentes. Se tudo voltasse ao valor fixo, isto daria 1 e 1.
+[ "$ZN" -ge 5 ] || { echo "  FALHA: so' $ZN zoom(s) distintos -- o zoom inicial voltou a ser fixo" >&2; exit 1; }
+[ "$SN" -ge 5 ] || { echo "  FALHA: so' $SN scrollSpeed(s) distintos -- o scroll voltou a ser fixo" >&2; exit 1; }
 echo "  camera: $CAM_ALVOS alvo(s) de FocusCamera medidos (81 charts tem 664 eventos)"
 [ "${CAM_ALVOS:-0}" -ge 1 ] || { echo "  FALHA: nenhum alvo de camera foi medido" >&2; exit 1; }
 echo "         $NPALCOS/$ESPERADOS palco(s) usados pelas musicas desenharam"

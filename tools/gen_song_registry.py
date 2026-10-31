@@ -14,6 +14,9 @@ Sources, all under assets-data/:
   songs/<id>-metadata.json    -> playData.characters, playData.stage,
                                  playData.noteStyle, playData.difficulties,
                                  playData.songVariations, timeChanges[0].bpm
+  charts/<id>-chart.json      -> scrollSpeed per difficulty (the velocity of
+                                 the strum lines; Song.loadFromJson reads it
+                                 from the chart, not from the metadata)
 
 Usage:  python3 tools/gen_song_registry.py [--check]
 
@@ -107,6 +110,11 @@ def load_song(sid):
     if not isinstance(bpm, (int, float)) or bpm <= 0:
         die("%s: no usable bpm in timeChanges" % sid)
 
+    # scrollSpeed mora no CHART, nao no metadata: e' la' que o
+    # Song.loadFromJson le' (`scrollSpeed` e' um mapa dificuldade -> valor).
+    # Sem ele o port rolava as notas a 1,0 em todas as 81 combinacoes.
+    scroll = load_scroll(sid)
+
     return {
         "id": sid,
         "name": d.get("songName", sid),
@@ -121,7 +129,33 @@ def load_song(sid):
         "difficulties": diffs,
         "variations": variations,
         "bpm": float(bpm),
+        "scroll": scroll,
     }
+
+
+def load_scroll(sid):
+    """scrollSpeed por dificuldade, do chart da musica. -> [e, n, h] floats.
+
+    O chart traz `scrollSpeed: {easy: 1.2, normal: 1.3, hard: 1.6}`. Uma musica
+    cujo chart nao traga o mapa e' ERRO, nao um 1,0 silencioso: rolar as notas a
+    uma velocidade que o dado nao declara e' invencao.
+    """
+    path = os.path.join(DATA, "charts", sid + "-chart.json")
+    if not os.path.exists(path):
+        die("%s: missing chart %s (scrollSpeed lives there)" % (sid, path))
+    d = json.load(open(path))
+    sc = d.get("scrollSpeed")
+    if isinstance(sc, (int, float)):
+        sc = {k: sc for k in DIFFS}
+    if not isinstance(sc, dict):
+        die("%s: chart has no scrollSpeed map" % sid)
+    out = []
+    for diff in DIFFS:
+        v = sc.get(diff)
+        if not isinstance(v, (int, float)) or v <= 0:
+            die("%s: chart has no usable scrollSpeed for %r (%r)" % (sid, diff, v))
+        out.append(float(v))
+    return out
 
 
 def cstr(s):
@@ -148,6 +182,14 @@ def fmt_bpm(bpm):
     return ("%.4f" % bpm).rstrip("0").rstrip(".") or "0"
 
 
+def fmt_scroll(v):
+    """1 -> "1.0f": `1f` nao e' constante float em C."""
+    t = ("%.3f" % v).rstrip("0")
+    if t.endswith("."):
+        t += "0"
+    return t + "f"
+
+
 def generate():
     levels = load_levels()
     songs = {}
@@ -165,6 +207,7 @@ def generate():
     w(" *   levels/<id>.json          -> weeks, order, names, backgrounds, capsules")
     w(" *   songs/<id>-metadata.json  -> characters, stage, note style, bpm,")
     w(" *                               difficulties, variations")
+    w(" *   charts/<id>-chart.json    -> scrollSpeed per difficulty")
     w(" *")
     w(" * Two entries used to be guessed wrong -- the Tutorial's opponent (it is")
     w(" * the girlfriend) and week4's order (satin-panties, high, milf). Both")
@@ -198,7 +241,8 @@ def generate():
             w("    %s, %s, %s, %s," % (cstr(sid), cstr(s["name"]), cstr(s["artist"]), cstr(s["charter"])))
             w("    %s, %s, %s," % (cstr(s["player"]), cstr(s["girlfriend"]), cstr(s["opponent"])))
             w("    %s, %s, %s," % (cstr(s["stage"]), NOTE_STYLE[s["note_style"]], mask(s["difficulties"], DIFF_FLAG)))
-            w("    %s, %s" % (mask(s["variations"], VAR_FLAG), fmt_bpm(s["bpm"])))
+            w("    %s, %s," % (mask(s["variations"], VAR_FLAG), fmt_bpm(s["bpm"])))
+            w("    {%s}" % ", ".join(fmt_scroll(v) for v in s["scroll"]))
             w("};")
             w("")
     missing = set(songs) - emitted

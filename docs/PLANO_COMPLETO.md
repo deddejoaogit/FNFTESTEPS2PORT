@@ -2043,3 +2043,57 @@ descritores (um por prop, 21 palcos) não esbarra em limite do `fileXio` — nos
 palcos maiores são 17 props abertos ao mesmo tempo. As duas são medíveis no log:
 `palco_aberto` traz o custo em RAM por prop, e uma falha de `open` viraria
 `palco_pacote` com `PST_ERR_ABRIR`.
+
+## O zoom e o scroll com que a música começa vêm do dado
+
+**O defeito.** `chart_events_reset()` recebia dois números fixos:
+`g_official_mainstage_camera_zoom` (1,10, o zoom do `mainStage`) e **1,0** de
+scroll. Os dois são do **Tutorial**, aplicados às 81 combinações música ×
+dificuldade.
+
+Isso não é um detalhe de enquadramento: `sc = 0,5 × zoom × bop` é o tamanho de
+**tudo** que está em cena — sprites, props, e o próprio mapeamento da câmera
+para a tela. E o scroll é a velocidade com que as notas descem.
+
+**De onde os valores deviam vir.**
+
+| valor | fonte | medido |
+|---|---|---|
+| zoom inicial | `stageData.cameraZoom` do palco da música (`bs_stages[].zoom`, gerado de `assets-data/stages/*.json`) | 8 valores distintos, de **0,50** (`sserafim`) a **1,10** (`mainStage`) |
+| scroll | `scrollSpeed` do **chart** daquela dificuldade (`assets-data/charts/<id>-chart.json`) — é de lá que `Song.loadFromJson` lê, não do metadata | **20 valores** distintos, de **1,0** (`tutorial`) a **3,1** |
+
+**A correção.** `sr_song_t` ganhou `float scroll[3]` (easy/normal/hard) gerado por
+`tools/gen_song_registry.py` a partir do chart, com `sr_scroll(song, diff)` para
+ler (fora de 0..2 cai em *normal*, que é o que o original faz quando a
+dificuldade pedida não existe — nunca um 1,0 inventado). Se um chart não trouxer
+`scrollSpeed`, o gerador **falha** em vez de emitir 1,0: rolar notas numa
+velocidade que o dado não declara é invenção. E `cena_zoom_do_palco()` procura o
+palco da música em `bs_stages[]`; palco desconhecido cai no zoom do `mainStage` e
+o caso é o que o `sweep` cobra (não acontece nos 21).
+
+**Medido no harness** (evento `cena_inicio`, zoom e scroll em milésimos):
+
+| música | dificuldade | `cena_inicio` | antes |
+|---|---|---|---|
+| `bopeebo` | hard | `1100,1600` | `1100,1000` |
+| `spaghetti` (palco `sserafim`, zoom 0,50) | easy | `500,2200` | `1100,1000` |
+| `blazin` | easy | `900,1700` | `1100,1000` |
+
+E no sweep das 81: **7 zooms e 19 scrolls distintos** (o sweep cobra ≥ 5 de cada
+— se tudo voltasse ao valor fixo daria 1 e 1, e a checagem falharia).
+
+**O Tutorial não muda:** o palco dele é o `mainStage` (zoom 1,10) e o chart dele
+diz `scrollSpeed 1.0` nas três dificuldades. As capturas de console que fixaram a
+geometria do Tutorial continuam valendo — e é por isso que a troca pôde ser
+medida sem medo de derrubar o que já estava conferido no hardware.
+
+**O que NÃO está provado:** que o zoom do palco seja aplicado em todos os lugares
+onde o original o usa. O port usa um `sc` global para o mundo inteiro; o original
+tem `defaultCamZoom` (aplicado por `resetCamera`/`resetCameraZoom`) e
+`camera.zoom` (que os eventos `ZoomCamera` interpolam). Nos eventos do tipo
+*stage* (`ZoomCamera` com `mode:'stage'`, que multiplica o zoom do palco) o port
+resolve contra `zoom_from`, que agora começa no zoom certo — mas o `resetCameraZoom`
+de fim de evento (voltar ao `defaultCamZoom`) não existe no port. Nenhum dos 207
+eventos `ZoomCamera` dos 81 charts pede isso hoje: todos terminam em `bop`/valor
+absoluto explícito. Fica registrado como a próxima diferença a medir, não como
+pendência de dado.

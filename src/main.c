@@ -35,6 +35,7 @@
 #include "engine/char_cena.h"
 #include "engine/char_layout.h"
 #include "song_registry.h"
+#include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
 #include <stdio.h>
 #include <stdlib.h>
 #include <malloc.h>
@@ -115,6 +116,16 @@ static int g_tutorial_scene_ready=0,g_tutorial_scene_attempted=0,g_tutorial_scen
    plain float. The tween itself, its duration and its ease all live in
    chart_events.c, where they come from the event rather than from here. */
 static float g_tut_zoom=1.1f;
+/* Os dois numeros com que a musica COMECA, tirados do dado dela: o zoom do
+   palco e o scrollSpeed do chart daquela dificuldade. Ficam aqui porque o macro
+   de reset (FNF_RESET_PLAY, mais abaixo) e' o lugar que aplica os dois. */
+static float g_play_zoom=1.1f;
+static float g_play_scroll=1.0f;
+
+/* Zoom inicial da musica: o `cameraZoom` do PALCO (corpo mais abaixo, onde
+   bs_dados e o zoom do mainStage ja' existem). */
+static float cena_zoom_do_palco(const sr_song_t *song);
+
 /* ScrollSpeedEvent.hx. O evento do Tutorial aos 60.000 ms e
      {absolute:false, duration:4, ease:'expoIn', scroll:1.2, strumline:'both'}
    Como absolute e falso, scroll = 1.2 * chart.scrollSpeed, e o
@@ -334,11 +345,11 @@ static int g_death_counter=0;
     music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0; \
     g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0; \
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
-    chart_events_reset(g_official_mainstage_camera_zoom,1.0f); \
+    chart_events_reset(g_play_zoom, g_play_scroll); \
     g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
     g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_cam_seq=-1;g_cam_t=1.0f;g_cam_dur=0.0f; \
-    g_cam_modo_visto[0]=g_cam_modo_visto[1]=g_cam_modo_visto[2]=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
-    g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
+    g_cam_modo_visto[0]=g_cam_modo_visto[1]=g_cam_modo_visto[2]=0;g_tut_zoom=g_play_zoom; \
+    g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
     tutorial_notes_reset(); \
     g_countdown_beat=(s32)(4u*g_play_samples_per_step); \
     if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP); \
@@ -1912,6 +1923,24 @@ static const official_stage_node_t g_official_mainstage_chars[3]={
 };
 static const float g_official_mainstage_camera_zoom=1.1f;
 
+/* ZOOM INICIAL DA CAMERA = o `cameraZoom` do PALCO daquela musica.
+   Cada palco declara o seu em assets-data/stages/*.json (bs_stages[].zoom):
+   mainStage 1,10; limoRide 0,90; mallXmas 0,80; tankmanBattlefieldErect 0,70;
+   sserafim 0,80. O port usava 1,10 (o do mainStage) em TODAS as musicas, e esse
+   numero nao e' um detalhe: `sc = 0,5 * zoom * bop` e' o tamanho de TUDO que
+   esta' em cena (sprites, props e a propria camera) -- nas outras 20 musicas o
+   mundo saia com a escala errada. PlayState.hx usa stageData.cameraZoom como
+   defaultCamZoom (o valor que resetCamera volta a por). */
+static float cena_zoom_do_palco(const sr_song_t *song)
+{
+    int i;
+    const char *st = song && song->stage ? song->stage : "mainStage";
+    for (i = 0; i < BS_STAGE_COUNT; i++)
+        if (bs_stages[i].id && strcmp(bs_stages[i].id, st) == 0)
+            return bs_stages[i].zoom;
+    return g_official_mainstage_camera_zoom;
+}
+
 static const char*g_story_names[9]={"TEACHING TIME","DADDY DEAREST","SPOOKY MONTH","PICO","MOMMY MUST MURDER","RED SNOW","HATING SIMULATOR FT. MOAWLING","TANKMAN FT. JOHNNYUTAH","DUE DEBTS"};
 static const char*g_story_tracks[9]={"Tutorial","Bopeebo\nFresh\nDadbattle","Spookeez\nSouth\nMonster","Pico\nPhilly Nice\nBlammed","Satin Panties\nHigh\nM.I.L.F","Cocoa\nEggnog\nWinter Horrorland","Senpai\nRoses\nThorns","Ugh\nGuns\nStress","Darnell\nLit Up\n2hot\nBlazin'"};
 static int g_story_static_ready=0;
@@ -3156,7 +3185,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_official_mainstage_camera_zoom;g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}

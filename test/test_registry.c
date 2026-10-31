@@ -176,6 +176,25 @@ int main(void)
               && strcmp(ss->capsule_title, "SP. COLLAB 1") == 0,
           "sserafim is the only week with a capsule label");
 
+    /* scrollSpeed por dificuldade, do CHART (nao do metadata). Era um 1,0 fixo
+       para as 81 combinacoes; estes tres valores vem dos charts e cobrem o
+       extremo (spaghetti 2,2/2,5/2,7) e o tutorial (1,0). */
+    {
+        const sr_song_t *bb = sr_song_by_id("bopeebo");
+        const sr_song_t *sg = sr_song_by_id("spaghetti");
+        check(bb && sr_scroll(bb, 0) == 1.2f && sr_scroll(bb, 1) == 1.3f
+                  && sr_scroll(bb, 2) == 1.6f,
+              "bopeebo scrollSpeed 1.2/1.3/1.6 straight from the chart");
+        check(sg && sr_scroll(sg, 0) == 2.2f && sr_scroll(sg, 1) == 2.5f
+                  && sr_scroll(sg, 2) == 2.7f,
+              "spaghetti scrollSpeed 2.2/2.5/2.7 (the fastest in the game)");
+        check(tut && sr_scroll(tut, 0) == 1.0f, "tutorial scrollSpeed is 1.0");
+        /* Fora de 0..2 cai em normal, nunca num 1,0 inventado. */
+        check(bb && sr_scroll(bb, 7) == sr_scroll(bb, 1),
+              "an out-of-range difficulty falls back to normal");
+        check(sr_scroll(NULL, 0) == 0.0f, "no song means no scroll, not 1.0");
+    }
+
     check(sr_level_by_id("does-not-exist") == NULL, "unknown level returns NULL");
     check(sr_song_by_id("does-not-exist") == NULL, "unknown id returns NULL");
     check(sr_level(10) == NULL, "level index 10 is out of range");

@@ -27,6 +27,14 @@ unsigned int sr_level_count(void)
     return SR_LEVEL_COUNT;
 }
 
+float sr_scroll(const sr_song_t *song, int difficulty)
+{
+    int d;
+    if (!song) return 0.0f;
+    d = (difficulty >= 0 && difficulty < 3) ? difficulty : 1;
+    return song->scroll[d];
+}
+
 unsigned int sr_song_count(void)
 {
     unsigned int i, n = 0;
