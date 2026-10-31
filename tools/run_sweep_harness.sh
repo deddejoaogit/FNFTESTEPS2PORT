@@ -86,6 +86,10 @@ for sid in $LISTA; do
         # de animacoes conferiu; "primeiro" = o sprite entrou no pacote de
         # desenho; "animando" = 10 quadros diferentes ja' subiram para a VRAM
         # (ou seja, nao e' um sprite congelado).
+        nbfdraw=$(awk -F, '$1=="E" && $3=="char_bf_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        ngfdraw=$(awk -F, '$1=="E" && $3=="char_gf_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nbfanim=$(awk -F, '$1=="E" && $3=="char_bf_animando" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nlegado=$(awk -F, '$1=="E" && $3=="char_tutorial_legado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nchardraw=$(awk -F, '$1=="E" && $3=="char_dad_primeiro" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         ncharanim=$(awk -F, '$1=="E" && $3=="char_dad_animando" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         # O Tutorial e' o unico caso em que o oponente E' a GF, e a GF do
@@ -106,11 +110,21 @@ for sid in $LISTA; do
         [ "${nsteps:-0}" -ge 4 ] 2>/dev/null || motivo="menos de 4 passos de contagem${motivo:+, $motivo}"
         [ "${nstate:-0}" -ge 1 ] 2>/dev/null || motivo="nao desenhou a tela de jogo${motivo:+, $motivo}"
         [ "${npalco:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum prop de palco desenhado${motivo:+, $motivo}"
-        if [ "${npulado:-0}" -ge 1 ]; then
+        if [ "${nlegado:-0}" -ge 1 ]; then
+            # Tutorial: de proposito no caminho antigo (o unico conferido numa
+            # captura de console). Exige os eventos do caminho antigo, e nao os
+            # genericos -- senao a excecao passaria despercebida.
+            [ "${nbfdraw:-0}" -eq 0 ] 2>/dev/null || motivo="o tutorial nao devia usar o BF generico${motivo:+, $motivo}"
+        elif [ "${npulado:-0}" -ge 1 ]; then
             :
         else
             [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
             [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
+        fi
+        if [ "${nlegado:-0}" -eq 0 ]; then
+            [ "${nbfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao foi desenhado${motivo:+, $motivo}"
+            [ "${ngfdraw:-0}" -ge 1 ] 2>/dev/null || motivo="a GF nao foi desenhada${motivo:+, $motivo}"
+            [ "${nbfanim:-0}" -ge 1 ] 2>/dev/null || motivo="o BF nao animou${motivo:+, $motivo}"
         fi
         [ "${charruim:-0}" -eq 0 ] 2>/dev/null || motivo="pacote ou VRAM do oponente falhou${motivo:+, $motivo}"
 
@@ -159,7 +173,7 @@ if [ -n "$NAO_DESENHOU" ]; then
     echo "  FALHA: palco(s) que nenhuma musica conseguiu desenhar:$NAO_DESENHOU"
     exit 1
 fi
-echo "         (chart, notas, contagem, tela de jogo, palco, oponente e audio)"
+echo "         (chart, notas, contagem, tela de jogo, palco, os tres personagens e audio)"
 if [ -n "$FALHOU" ]; then
     echo "  falharam:$FALHOU"
     exit 1

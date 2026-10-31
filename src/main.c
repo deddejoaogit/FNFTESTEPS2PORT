@@ -1196,17 +1196,34 @@ static cc_cena_t g_cena;
 static char g_cena_song[64];
 static unsigned char *g_cena_mem[CH_CENA_PAPEIS];
 static unsigned int g_cena_mem_bytes[CH_CENA_PAPEIS];
-static texbuffer_t g_cena_tex;          /* a textura do oponente no pool  */
+static texbuffer_t g_cena_tex;          /* textura do oponente no pool    */
 static int g_cena_tex_w=0,g_cena_tex_h=0;
+/* Textura de CADA papel. Onde cada uma mora nao foi escolhido agora: o BF ja'
+   tinha o slot `tex` (320x256 PSMCT32 = 327.680 B) e a GF ja' usava o slot
+   `gftex` do pool (256x256 PSMCT32 = 262.144 B, que o tutorial enche com
+   196.480 B de PSMCT16). Reaproveitar os dois nao gasta um byte de VRAM nova --
+   e o pacote real do BF (258x254 PSMCT32 = 262.128 B) e o da GF (320x307
+   PSMCT16 = 196.480 B) cabem exatamente onde ja' estavam. */
+static texbuffer_t g_cena_texde[CH_CENA_PAPEIS];
+static int g_cena_texde_w[CH_CENA_PAPEIS],g_cena_texde_h[CH_CENA_PAPEIS];
+static int g_cena_quadros[CH_CENA_PAPEIS];      /* quadros diferentes subidos */
+static int g_cena_desenhos[CH_CENA_PAPEIS];
+static int g_cena_avisou[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
 static unsigned int g_cena_pixels_cap=0;
 static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falhou */
 static unsigned int g_cena_ram=0;
 static int g_cena_dad_ci=-1;         /* personagem do slot dad        */
-static int g_cena_dad_quadros=0;     /* quadros diferentes ja' subidos */
-static int g_cena_dad_desenhos=0;    /* sprites do oponente ja' postos */
-static int g_cena_dad_ancora=0;      /* ancora medida, para o log      */
-static int g_cena_dad_animou=0;      /* ja' avisou que anima           */
+static int g_cena_bf_ci=-1,g_cena_gf_ci=-1;   /* jogador e namorada     */
+/* 1 = BF e GF desenhados pelo caminho generico; 0 = caminho do tutorial.
+   O TUTORIAL continua no caminho antigo de proposito: e' a unica musica cujas
+   posicoes e a camera foram conferidas numa captura do console, e trocar isso
+   por deducao de codigo seria jogar fora uma medida (regra 5). */
+static int g_cena_modo=0;
+/* Slots de VRAM que o BF e a GF ja' ocupavam, apontados de dentro do main()
+   (sao variaveis locais dele). Assim a carga dos personagens nao precisa de um
+   byte de VRAM nova: ela desenha nos enderecos que ja' existiam. */
+static texbuffer_t *g_slot_bf=0,*g_slot_gf=0;
 /* Um pacote de personagem nao pode passar disto: o maior do jogo (as formas
    do pai) tem algumas dezenas de quadros. O limite e' conferido, nao suposto,
    e existe para um arquivo corrompido no pendrive nao pedir 2 GB de malloc. */
@@ -1218,7 +1235,10 @@ static void cena_soltar(void)
  for(i=0;i<CH_CENA_PAPEIS;i++){if(g_cena_mem[i])free(g_cena_mem[i]);g_cena_mem[i]=0;g_cena_mem_bytes[i]=0;}
  g_cena_ram=0;
  g_cena_estado=0;
+ g_cena_modo=0;
  g_cena_song[0]=0;
+ {int i;for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_texde_w[i]=g_cena_texde_h[i]=0;
+  g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=0;}}
  cc_reset(&g_cena);
 }
 
@@ -1255,6 +1275,10 @@ static int cena_carregar(const sr_song_t *song)
  if(g_cena_estado!=0&&strcmp(g_cena_song,song->id)==0)return g_cena_estado>0?0:-1;
  cena_soltar();
  if(ch_cena_plano(song,plano)!=0)return -2;
+ /* TUTORIAL: caminho antigo, de proposito. E' a unica musica cujas posicoes e
+    camera foram conferidas numa captura do console; trocar por deducao de
+    codigo seria jogar fora uma medida (regra 5). O evento diz que foi escolha. */
+ if(strcmp(song->id,"tutorial")==0){g_cena_estado=-4;strncpy(g_cena_song,song->id,sizeof g_cena_song-1);g_cena_song[sizeof g_cena_song-1]=0;telemetry_event("char_tutorial_legado",0,0);return -1;}
  strncpy(g_cena_song,song->id,sizeof g_cena_song-1);
  g_cena_song[sizeof g_cena_song-1]=0;
  for(i=0;i<CH_CENA_PAPEIS;i++){
@@ -1277,45 +1301,104 @@ static int cena_carregar(const sr_song_t *song)
   if(a!=0){telemetry_event("char_pacote_ruim",plano[i].ci,a);free(g_cena_mem[i]);g_cena_mem[i]=0;continue;}
   telemetry_event("char_carregado",plano[i].ci,(int)g_cena_mem_bytes[i]);
  }
- /* A textura do oponente vai para o pool, no MESMO formato de pixel do pacote
-    (PSMCT32 ou PSMCT16). NAO se converte nada aqui: converter 32 -> 16 pede uma
-    conta de cor que ninguem mediu, e pixel inventado e' pior que pixel caro. O
-    tamanho, portanto, e' o `bytes_por_quadro` do pacote -- exatamente o que o
-    `cp_quadro` escreve no staging. (A primeira versao reservava w*h*2 e mandava
-    descomprimir w*h*4: estouro de 8 KB no heap, que o glibc acusou como
-    "corrupted double-linked list".) */
+ /* TEXTURA DE CADA PAPEL, no MESMO formato de pixel do pacote (PSMCT32 ou
+    PSMCT16). Nao se converte 32 -> 16 aqui: essa conta de cor nao foi medida, e
+    pixel inventado e' pior que pixel caro. O tamanho, portanto, e' o
+    `bytes_por_quadro` do pacote -- exatamente o que o `cp_quadro` escreve no
+    staging. (A primeira versao reservava w*h*2 e mandava descomprimir w*h*4:
+    estouro de 8 KB no heap, que o glibc acusou como "corrupted double-linked
+    list".)
+
+    Cada papel usa um endereco que JA' EXISTIA: o BF o slot `tex`, a GF o slot
+    `gftex` do pool, o oponente uma chave livre do pool. Nenhum byte de VRAM
+    novo -- por isso o orcamento dos 21 palcos nao muda. Um pacote que nao caiba
+    no seu slot fica de fora com o evento `char_sem_vram`, em vez de escrever
+    por cima do vizinho. */
  g_cena_tex_w=g_cena_tex_h=0;
- if(g_cena.p[CH_PAPEL_DAD].ativo){
-  const cp_pack_t *pk=&g_cena.p[CH_PAPEL_DAD].pacote;
-  unsigned int addr=0,a;
-  unsigned int bytes=pk->bytes_por_quadro;
-  g_cena_dad_ci=plano[CH_PAPEL_DAD].ci;
-  g_cena_dad_quadros=0;g_cena_dad_desenhos=0;g_cena_dad_ancora=0;g_cena_dad_animou=0;
-  a=sp_chave(&g_pool,SP_CHAVE_TELA_BASE+2u,bytes,&addr);
-  if(a!=0||addr==0){telemetry_event("char_sem_vram",(int)bytes,a);}
-  else{
-   g_cena_tex=g_gftex16;              /* mesmo formato/campo, outro endereco */
-   g_cena_tex.width=(unsigned int)pk->w;
-   g_cena_tex.psm=(pk->psm==16)?GS_PSM_16:GS_PSM_32;
-   g_cena_tex.address=addr;
-   g_cena_tex_w=pk->w;g_cena_tex_h=pk->h;
-   if(bytes>g_cena_pixels_cap){
-    if(g_cena_pixels)free(g_cena_pixels);
-    g_cena_pixels=memalign(128,bytes);
-    g_cena_pixels_cap=g_cena_pixels?bytes:0u;
+ g_cena_dad_ci=plano[CH_PAPEL_DAD].ci;
+ g_cena_bf_ci=plano[CH_PAPEL_BF].ci;g_cena_gf_ci=plano[CH_PAPEL_GF].ci;
+ g_cena_quadros[CH_PAPEL_DAD]=g_cena_desenhos[CH_PAPEL_DAD]=g_cena_avisou[CH_PAPEL_DAD]=0;
+ {int r;unsigned int maior=0;
+  for(r=0;r<CH_CENA_PAPEIS;r++){
+   const cp_pack_t *pk;
+   unsigned int addr=0,capacidade=0,bytes;
+   texbuffer_t *tpl;
+   if(!g_cena.p[r].ativo)continue;
+   pk=&g_cena.p[r].pacote;
+   bytes=pk->bytes_por_quadro;
+   if(r==CH_PAPEL_BF&&g_slot_bf){tpl=g_slot_bf;capacidade=320u*256u*4u;}
+   else if(r==CH_PAPEL_GF&&g_slot_gf){tpl=g_slot_gf;capacidade=256u*256u*4u;}
+   else{tpl=&g_gftex16;capacidade=bytes;}
+   if(r==CH_PAPEL_DAD&&!(g_slot_bf&&g_slot_gf)){tpl=&g_gftex16;}
+   if(r==CH_PAPEL_DAD){
+    unsigned int a=sp_chave(&g_pool,SP_CHAVE_TELA_BASE+2u,bytes,&addr);
+    if(a!=0)addr=0;
+    capacidade=bytes;
+   }else addr=(unsigned int)tpl->address;
+   if(addr==0||bytes>capacidade){
+    telemetry_event("char_sem_vram",(int)bytes,(int)capacidade);
+    g_cena.p[r].ativo=0;
+    continue;
    }
-   if(!g_cena_pixels||g_cena_pixels_cap<bytes){
-    telemetry_event("char_sem_staging",(int)bytes,g_cena_pixels?1:0);
-    g_cena.p[CH_PAPEL_DAD].ativo=0;
-    g_cena_tex_w=0;
-   }
-   telemetry_event("char_dad_vram",(int)bytes,(int)pk->w);
+   g_cena_texde[r]=*tpl;
+   g_cena_texde[r].width=(unsigned int)pk->w;
+   g_cena_texde[r].psm=(pk->psm==16)?GS_PSM_16:GS_PSM_32;
+   g_cena_texde[r].address=addr;
+   g_cena_texde_w[r]=pk->w;g_cena_texde_h[r]=pk->h;
+   if(bytes>maior)maior=bytes;
+   telemetry_event(r==CH_PAPEL_DAD?"char_dad_vram":"char_vram",(int)bytes,(int)pk->w);
+  }
+  if(maior>g_cena_pixels_cap){
+   if(g_cena_pixels)free(g_cena_pixels);
+   g_cena_pixels=memalign(128,maior);
+   g_cena_pixels_cap=g_cena_pixels?maior:0u;
+  }
+  if(!g_cena_pixels||g_cena_pixels_cap<maior){
+   telemetry_event("char_sem_staging",(int)maior,g_cena_pixels?1:0);
+   for(r=0;r<CH_CENA_PAPEIS;r++){g_cena.p[r].ativo=0;g_cena_texde_w[r]=0;}
   }
  }
+ if(g_cena.p[CH_PAPEL_DAD].ativo){g_cena_tex=g_cena_texde[CH_PAPEL_DAD];g_cena_tex_w=g_cena_texde_w[CH_PAPEL_DAD];g_cena_tex_h=g_cena_texde_h[CH_PAPEL_DAD];}
+ /* O caminho generico so' substui o antigo quando o BF E a GF estao prontos:
+   meio a meio poria em cena a arte do tutorial ao lado da arte certa. */
+ g_cena_modo=(g_cena.p[CH_PAPEL_BF].ativo&&g_cena.p[CH_PAPEL_GF].ativo)?1:0;
  g_cena_estado=g_cena.p[CH_PAPEL_DAD].ativo?1:-3;
  return g_cena_estado>0?0:-3;
 }
 
+
+/* Desenha UM papel generico: pega o quadro quando ele muda, sobe para a VRAM
+   e posiciona pelo slot do palco. Devolve o qword do pacote. Sem pacote, sem
+   slot ou sem quadro, devolve o pacote como esta' -- nada em silencio: o
+   primeiro desenho e os quadros contados vao para o log. */
+static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int batida,long ms,float cx,float cy,float sc)
+{
+ int qd;
+ if(papel<0||papel>=CH_CENA_PAPEIS)return q;
+ if(!g_cena.p[papel].ativo||!slot||g_cena_texde_w[papel]<=0)return q;
+ qd=cc_quadro(&g_cena,papel,ms,batida);
+ if(qd>=0&&g_cena_pixels&&cp_quadro(&g_cena.p[papel].pacote,(unsigned)qd,g_cena_pixels)==0){
+  FlushCache(0);
+  upload_raw_psm(&g_cena_texde[papel],g_cena_pixels,g_cena_texde_w[papel],g_cena_texde_h[papel],
+                 g_cena.p[papel].pacote.psm==16?GS_PSM_16:GS_PSM_32);
+  g_cena_quadros[papel]++;
+ }
+ {
+  ch_anchor_t an;
+  ch_anchor(&ch_chars[papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci)],
+            slot,(float)g_cena_texde_w[papel],(float)g_cena_texde_h[papel],0.0f,
+            papel==CH_PAPEL_GF?0:1,&an);
+  q=bind_texture_filter(q,&g_cena_texde[papel],1);
+  q=sprite_dims(q,320.0f+(an.sprite_x-cx)*sc,180.0f+(an.sprite_y-cy)*sc,
+                (float)g_cena_texde_w[papel]*sc,(float)g_cena_texde_h[papel]*sc,
+                g_cena_texde_w[papel],g_cena_texde_h[papel]);
+  g_cena_desenhos[papel]++;
+  if(g_cena_desenhos[papel]==1&&papel==CH_PAPEL_DAD)telemetry_event("char_dad_ancora",(int)an.sprite_x,(int)an.sprite_y);
+  if(g_cena_desenhos[papel]==1)telemetry_event(papel==CH_PAPEL_GF?"char_gf_primeiro":(papel==CH_PAPEL_BF?"char_bf_primeiro":"char_dad_primeiro"),g_cena_quadros[papel],g_cena_texde_w[papel]);
+  if(!g_cena_avisou[papel]&&g_cena_quadros[papel]>=10){g_cena_avisou[papel]=1;telemetry_event(papel==CH_PAPEL_GF?"char_gf_animando":(papel==CH_PAPEL_BF?"char_bf_animando":"char_dad_animando"),g_cena_desenhos[papel],(int)cc_anim(&g_cena,papel));}
+ }
+ return q;
+}
 
 static unsigned short tutorial_lane_button(unsigned int lane){static const unsigned short masks[4]={PAD_LEFT,PAD_DOWN,PAD_UP,PAD_RIGHT};return lane<4?masks[lane]:0;}
 static void tutorial_notes_reset(void){
@@ -1338,14 +1421,18 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
-  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+  if((s32)sample-(s32)note.sample>(s32)TUTORIAL_NOTE_LATE){g_tutorial_note_state[i]=2;if(g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),(long)TUT_SING_MS);fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||note.must_press||g_tutorial_note_state[i]||note.lane>3)continue;
-  if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;/* o OPONENTE generico canta a mesma nota: o slot dad e' o papel de quem nao e' o jogador (ch_cena_plano) */if(g_cena.p[CH_PAPEL_DAD].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,(long)(sample/48u),(long)TUT_SING_MS);}
+  if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;/* o OPONENTE generico canta a mesma nota: o slot dad e' o papel de quem nao e' o jogador (ch_cena_plano) */if(note.lane<=3){
+   long ms=(long)(sample/48u);
+   if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,(long)TUT_SING_MS);
+   if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,(long)TUT_SING_MS);
+  }}
  }
  for(lane=0;lane<4;lane++)if(pressed&tutorial_lane_button(lane)){
   int best=-1;u32 best_abs=0xffffffffu;
@@ -1364,7 +1451,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     * already bounds it, but "already bounds it" is not a contract. */
    if(chart_note((u32)best,&note)<0)best=-1;
    else{fnf_judge_t judge;
-    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;
+    offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;if(g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),(long)TUT_SING_MS);
     /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
        noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);
@@ -2306,6 +2393,9 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
     os bytes e o MERCH ganha uma linha tracejada. */
  g_gftex16=gftex;g_gftex16.width=320;g_gftex16.psm=GS_PSM_16;
  g_gftex16.address=graph_vram_allocate(320,64,GS_PSM_16,GRAPH_ALIGN_BLOCK);
+ /* Os dois slots que o BF e a GF ja' ocupavam, visiveis para a carga dos
+    personagens (que e' uma funcao de arquivo, e nao enxerga estas locais). */
+ g_slot_bf=&tex;g_slot_gf=&gftex;
  /* ===== POOL DE TEXTURAS (engine/stage_pool.c) =====
     A ordem das alocacoes acima E' o mapa de engine/vram_layout.c: os quatro
     slots que o gameplay liga sempre (tex, tex2, fonttex, gftex16) vem
@@ -3166,7 +3256,15 @@ float bf_cam_x=g_official_mainstage_chars[2].x+17.0f-18.0f+g_official_mainstage_
    (989,5+17)-18-100 = 888,50 ; (885+14-246)+36-100 = 589,00.
    GF no slot gf: (751,5-12+12)+0 = 751,50 ;
                   (787+4-338+8)+0 = 461,00 */
-float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy;float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
+float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_official_mainstage_chars[0].sx,gf_cam_y=g_official_mainstage_chars[0].y+GF_OFFSET_Y-gf_source_h*.5f+GF_CAMOFF_Y+g_official_mainstage_chars[0].sy; /* Modo generico: o foco da camera vem da MESMA formula do char_layout
+    (position + offsets + cameraOffsets do personagem + do slot), que e' a do
+    BaseCharacter.resetCameraFocusPoint e ja' reproduz o BF do mainStage digito
+    a digito. No tutorial nada muda: continua o caminho conferido no console. */
+{const bs_slot_t*slb=ch_slot(g_play_song?g_play_song->stage:"mainStage","bf");
+ const bs_slot_t*slg=ch_slot(g_play_song?g_play_song->stage:"mainStage","gf");
+ if(g_cena_modo&&slb){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_bf_ci],slb,0.0f,0.0f,0.0f,1,&an);bf_cam_x=an.cam_x;bf_cam_y=an.cam_y;}
+ if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_gf_ci],slg,0.0f,0.0f,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}}
+float tcx=g_tut_cam_focus?gf_cam_x:bf_cam_x,tcy=g_tut_cam_focus?gf_cam_y:bf_cam_y,cx,cy;if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao
@@ -3188,25 +3286,21 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
       desenho era o unico lugar que sempre sabe qual e' a musica. A funcao sai
       na hora quando a musica nao mudou. */
    if(ui_state==8)cena_carregar(g_play_song);
-   if(g_cena.p[CH_PAPEL_DAD].ativo&&g_cena_tex_w>0&&g_cena_dad_ci>=0){
-    int bt=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
-    long ms=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
-    int qd=cc_quadro(&g_cena,CH_PAPEL_DAD,ms,bt);
-    if(qd>=0&&g_cena_pixels&&cp_quadro(&g_cena.p[CH_PAPEL_DAD].pacote,(unsigned)qd,g_cena_pixels)==0){
-     FlushCache(0);upload_raw_psm(&g_cena_tex,g_cena_pixels,g_cena_tex_w,g_cena_tex_h,
-                                 g_cena.p[CH_PAPEL_DAD].pacote.psm==16?GS_PSM_16:GS_PSM_32);
-     g_cena_dad_quadros++;
-    }
-    {const bs_slot_t*sl=ch_slot(g_play_song?g_play_song->stage:"mainStage","dad");
-     if(sl){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_dad_ci],sl,(float)g_cena_tex_w,(float)g_cena_tex_h,0.0f,1,&an);
-      if(!g_cena_dad_ancora){g_cena_dad_ancora=1;telemetry_event("char_dad_ancora",(int)an.sprite_x,(int)an.sprite_y);}
-      q=bind_texture_filter(q,&g_cena_tex,1);
-      q=sprite_dims(q,320.0f+(an.sprite_x-cx)*sc,180.0f+(an.sprite_y-cy)*sc,
-                    (float)g_cena_tex_w*sc,(float)g_cena_tex_h*sc,g_cena_tex_w,g_cena_tex_h);
-      g_cena_dad_desenhos++;}
-     else if(!g_cena_dad_ancora){g_cena_dad_ancora=-1;telemetry_event("char_dad_sem_slot",0,0);}}
+   /* Oponente: mesmo caminho do BF e da GF, pelo slot dad do palco. */
+   q=cena_desenha(q,CH_PAPEL_DAD,ch_slot(g_play_song?g_play_song->stage:"mainStage","dad"),
+                  (int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP))),
+                  (long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)),cx,cy,sc);
+   if(g_cena_modo){
+    /* GF e BF genericos: mesma conta de quadro do oponente (cc_quadro), com a
+       posicao vinda do slot do palco pelo ch_anchor. O upload so' acontece
+       quando o quadro MUDA -- e' o custo real (LZ4 + VRAM). */
+    int bt2=(int)((g_chart_clock<0?0:g_chart_clock)/(s32)(4u*(g_play_samples_per_step?g_play_samples_per_step:TUT_SAMPLES_PER_STEP)));
+    long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
+    q=cena_desenha(q,CH_PAPEL_GF,ch_slot(g_play_song?g_play_song->stage:"mainStage","gf"),bt2,ms2,cx,cy,sc);
+    q=cena_desenha(q,CH_PAPEL_BF,ch_slot(g_play_song?g_play_song->stage:"mainStage","bf"),bt2,ms2,cx,cy,sc);
+   }else{
+    q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
    }
-   q=bind_texture_filter(q,&g_gftex16,1);x=320.0f+(gf_world_x-cx)*sc;y=180.0f+(gf_world_y-cy)*sc;w=g_tutorial_gf_w*sc/gf_pack_scale;h=g_tutorial_gf_h*sc/gf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_gf_w,g_tutorial_gf_h);q=bind_texture_filter(q,&tex,1);x=320.0f+(bf_world_x-cx)*sc;y=180.0f+(bf_world_y-cy)*sc;w=g_tutorial_bf_w*sc/bf_pack_scale;h=g_tutorial_bf_h*sc/bf_pack_scale;q=sprite_dims(q,x,y,w,h,g_tutorial_bf_w,g_tutorial_bf_h);
   }
   if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
@@ -3410,10 +3504,6 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       pendurasse -- que eh o caso que se quer investigar -- o arquivo ficava
       vazio. Agora cada quadro deixa rastro no cartao, e da para ver exatamente
       em qual ui_state e em qual transicao a coisa parou. */
-   if(ui_state==8&&g_cena.p[CH_PAPEL_DAD].ativo&&g_cena_dad_desenhos==1)telemetry_event("char_dad_primeiro",g_cena_dad_quadros,g_cena_dad_ci);
-   /* Prova de que ele NAO e' um sprite congelado: quando o decimo quadro
-      diferente ja' subiu, o oponente esta' animando. Um evento so', no maximo. */
-   if(ui_state==8&&g_cena.p[CH_PAPEL_DAD].ativo&&!g_cena_dad_animou&&g_cena_dad_quadros>=10){g_cena_dad_animou=1;telemetry_event("char_dad_animando",g_cena_dad_desenhos,(int)cc_anim(&g_cena,CH_PAPEL_DAD));}
    telemetry_state(frame_no-1,ui_state,target_state,selection,story_level,story_diff,transition_frame,transitions,transport_state,audio_started,audio_playing,g_menu_audio_suspended,g_chart_status,g_tutorial_scene_ready,g_tutorial_audio_status,story_assets_ready,g_menu_cache_ready,g_title_anim_status,g_tutorial_gf_uploaded,g_tutorial_bf_uploaded,(int)(g_gftex16.address!=0),g_story_gf_uploaded,g_story_bf_uploaded,g_aspect_169,g_viewport_360,music_clock,audio_submitted,ring_bytes,audio_underruns,audio_fd,g_title_audio_fd,g_tutorial_note_hits,g_tutorial_note_misses,g_tutorial_note_combo,g_tutorial_note_score,g_tutorial_note_feedback,chart_event_cursor,g_band_clip_rects,g_band_clip_lines,g_band_cull_rects);
    telemetry_flush();
    frame_mark("F.POST",(int)frame_no);g_fn_beat++;

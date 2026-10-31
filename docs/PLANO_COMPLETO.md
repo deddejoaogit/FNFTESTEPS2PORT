@@ -825,6 +825,57 @@ tutorial, faixas de quadro fixas). Trocá-los é o próximo passo — e depois a
 animações de canto do oponente por evento de chart (`PlayAnimation`), que hoje
 só cobrem as notas.
 
+#### Fechado: BF e GF também pelo caminho genérico (27 de 27 personagens em cena)
+
+Com o oponente já na tela, faltava o resto: o BF e a GF continuavam vindo dos
+pacotes do tutorial (`bf_frames.lz4f`/`gf_frames.lz4f`) e de faixas de quadro
+fixas, em **todas** as músicas. Agora os três papéis usam o mesmo caminho —
+pacote CHP4, `char_cena`, `ch_anchor` — e o que sobra do caminho antigo é uma
+exceção declarada.
+
+**A exceção, e por que ela existe:** o **Tutorial** continua no caminho antigo
+(`char_tutorial_legado`). É a única música cujas posições e câmera foram
+conferidas numa captura do console; trocá-las por dedução de código seria jogar
+fora uma medida. O sweep agora **exige** que o Tutorial *não* emita os eventos
+genéricos — sem isso a exceção passaria despercebida e alguém acharia que os 81
+estão no caminho novo.
+
+**VRAM: nenhum byte novo.** Em vez de abrir slots, os personagens reaproveitam os
+endereços que já existiam: o BF usa o slot `tex` (320×256 PSMCT32 = 327.680 B) e
+a GF o slot `gftex` do pool (256×256 PSMCT32 = 262.144 B, o mesmo onde o tutorial
+já escrevia 196.480 B de PSMCT16). Os pacotes reais cabem exatamente ali — BF
+258×254 PSMCT32 = 262.128 B, GF 320×307 PSMCT16 = 196.480 B. Um pacote que não
+caiba no seu slot fica de fora com `char_sem_vram` e as medidas no log, em vez de
+escrever por cima do vizinho. O orçamento dos 21 palcos, portanto, **não muda**.
+
+Duas coisas que a troca exigiu, e que valem registro:
+
+- **A câmera passa a vir do `ch_anchor`** quando o modo genérico está ligado:
+  `position + offsets + cameraOffsets do personagem + do slot`, que é a fórmula
+  do `BaseCharacter.resetCameraFocusPoint` e a que já reproduz o BF do mainStage
+  dígito a dígito. No Tutorial nada muda.
+- **O canto dos três** agora é alimentado nos mesmos pontos onde o jogo já sabia
+  quem canta: acerto do jogador → BF, nota do oponente → oponente **e** GF
+  (quando ela não é o oponente), erro de nota → BF com `miss`.
+
+E a duplicação saiu: o desenho do oponente virou a mesma função
+`cena_desenha()` do BF e da GF, com os contadores por papel no log.
+
+**Medido** (harness, jogo real, `dadbattle/normal`, 3002 quadros):
+
+| evento | valor |
+|---|---|
+| `char_carregado` (bf, gf, dad) | 3 papéis, 30.598 / 16.900 / 9.860 B |
+| `char_vram` ×2 + `char_dad_vram` | 16.384 B cada (pacote de teste 64×64 PSMCT32) |
+| `char_bf_primeiro` / `char_gf_primeiro` / `char_dad_primeiro` | todos presentes |
+| `char_bf_animando` / `char_gf_animando` / `char_dad_animando` | 126 desenhos, 10+ quadros cada |
+| sweep com ASan+UBSan | **81/81**, exigindo os três personagens em cada combinação |
+| Story Mode, gameplay, freeplay | passam, inalterados |
+
+**O que continua faltando nesta frente:** as animações por evento de chart
+(`PlayAnimation` — `hey`, `cheer`, `scared` etc.), que hoje só reagem a notas; e a
+divergência do slot da GF no Tutorial, que espera uma captura do console.
+
 #### Fechado: `stage_layout.c`, a conta de "onde cada prop cai"
 
 `src/engine/stage_layout.{h,c}` + `test/test_stage_layout.c` (dentro de
