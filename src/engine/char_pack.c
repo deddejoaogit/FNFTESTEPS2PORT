@@ -18,7 +18,9 @@ int cp_abrir(const unsigned char *pacote, unsigned int bytes, cp_pack_t *p)
     if (!pacote) return CHP_ERR_CABECALHO;
     if (bytes < CHP_CABECALHO) return CHP_ERR_CABECALHO;
     if (memcmp(pacote, CHP_MAGIC, 4) != 0) return CHP_ERR_MAGIC;
-    if (le32(pacote + 4) != CHP_VERSAO) return CHP_ERR_VERSAO;
+    /* v1 e v2 tem o mesmo layout; a diferenca e' o campo 32, que no v1 era
+       "reservado" (0) e no v2 guarda a escala do canvas. */
+    if (le32(pacote + 4) != CHP_VERSAO && le32(pacote + 4) != 1u) return CHP_ERR_VERSAO;
 
     p->pacote = pacote;
     p->bytes = bytes;
@@ -28,6 +30,17 @@ int cp_abrir(const unsigned char *pacote, unsigned int bytes, cp_pack_t *p)
     p->h = (int)le32(pacote + 20);
     p->n_anims = (int)le32(pacote + 24);
     p->psm = (int)le32(pacote + 28);
+    /* O campo 32 SO' vale no v2: no v1 ele era reservado e qualquer coisa nele
+       e' lixo de outro escritor. x10000; 0 = nao guardada e um valor fora da
+       faixa (arquivo estragado) tambem -- dividir por zero no desenho e' pior
+       do que desenhar no tamanho do canvas. */
+    p->escala = 0.0f;
+    if (le32(pacote + 4) == CHP_VERSAO) {
+        unsigned int e = le32(pacote + 32);
+        /* Faixa 0,01 .. 20. O maior valor real e' 6 (pixel art: senpai); acima
+           de 20 e' arquivo estragado, nao um personagem gigante. */
+        if (e >= 100u && e <= 200000u) p->escala = (float)e / 10000.0f;
+    }
 
     if (p->psm != 32 && p->psm != 16) return CHP_ERR_PSM;
     if (p->w <= 0 || p->h <= 0 || p->w > 1024 || p->h > 1024) return CHP_ERR_QUADRO;
@@ -135,6 +148,14 @@ const char *cp_erro(int rc)
     case CHP_ERR_LZ4: return "bloco LZ4 nao decodificou no tamanho pedido";
     default: return "erro desconhecido do pacote de personagem";
     }
+}
+
+float cp_escala(const cp_pack_t *p)
+{
+    /* Sem escala guardada, 1,0 e' a unica resposta honesta: diz "o canvas esta'
+       no tamanho do original". O chamador avisa no log quando isso acontece. */
+    if (!p || p->escala <= 0.0f) return 1.0f;
+    return p->escala;
 }
 
 unsigned int cp_tex_bytes(int w, int h, int psm)

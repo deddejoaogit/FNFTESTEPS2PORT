@@ -56,7 +56,9 @@ extern "C" {
 #endif
 
 #define CHP_MAGIC "CHP4"
-#define CHP_VERSAO 1u
+/* 2 = guarda a escala do canvas (campo 32, x10000). O 1 continua aceito: os
+   pacotes v1 nao dizem a escala, e o jogo prefere dizer "nao sei" a inventar. */
+#define CHP_VERSAO 2u
 #define CHP_CABECALHO 36u
 #define CHP_NOME 24       /* o mais longo do original: 23 letras + NUL */
 /* 46 personagens nao passam disso: o maior (bf-pixel e as formas do pai) tem 37
@@ -90,6 +92,9 @@ typedef struct {
     unsigned int bytes;
     int w, h, psm;
     unsigned int n_quadros, bytes_por_quadro;
+    /* Pixels de canvas por pixel do original (0,5 nos 46 personagens reais).
+       0 = o pacote e' v1 e nao guardou a escala. */
+    float escala;
     int n_anims;
     cp_anim_t anim[CHP_MAX_ANIMS];
 } cp_pack_t;
@@ -98,6 +103,11 @@ typedef struct {
    quadros: `p->pacote` aponta para o buffer do chamador, que tem de continuar
    vivo enquanto o pacote for usado. */
 int cp_abrir(const unsigned char *pacote, unsigned int bytes, cp_pack_t *p);
+
+/* Escala do canvas: 1,0 quando o pacote nao a guarda (v1). Sem ela o desenho
+   nao tem como saber por quanto dividir o canvas para chegar ao tamanho do
+   original -- e um erro de 2x nao aparece em lugar nenhum. */
+float cp_escala(const cp_pack_t *p);
 
 /* Descomprime o quadro `q` em `dst` (que precisa de bytes_por_quadro bytes).
    Devolve 0 ou negativo. */

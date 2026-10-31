@@ -442,6 +442,7 @@ def main():
         import pacote_personagem as pp
         anims = atlas.animations()
         rendered, boxes = [], []
+        conta = 0
         for name, (start, length) in anims.items():
             for k in range(length):
                 try:
@@ -466,6 +467,37 @@ def main():
             blocks.append(lz4.block.compress(raw, store_size=False))
         os.makedirs(os.path.dirname(args.pack) or ".", exist_ok=True)
         parts = pp.write_packs(blocks, w * h * (args.bpp // 8), args.pack)
+
+        # CHP4: o MESMO pacote, mais a tabela de animacoes que o jogo le' em
+        # `assets/chars/<id>.chp4`. Aqui a tabela sai de graca e sem adivinhar:
+        # `rendered` foi montado animacao por animacao, entao os quadros de cada
+        # uma sao um intervalo contiguo. O CFZ4 fica como esta' (o palco o
+        # consome); este e' o arquivo do personagem.
+        grupos, atual, n = [], None, 0
+        for nome, _k, _img in rendered:
+            if atual is not None and nome == atual:
+                n += 1
+                continue
+            if atual is not None:
+                grupos.append((atual, blocos[conta:conta + n], True))
+                conta += n
+            atual, n = nome, 1
+        if atual is not None:
+            grupos.append((atual, blocos[conta:conta + n], True))
+        import chp4 as _chp4
+        # A taxa: o atlas Animate declara o frameRate do spritemap; quando nao
+        # declara, 24 e' o valor do original (CharacterData DEFAULT).
+        fps = int(round(float(atlas.meta.get("FRT") or atlas.meta.get("frameRate") or 24)))
+        pacote, nq, tabela = _chp4.montar_de_grupos(grupos, w, h, args.bpp,
+                                                   args.scale, fps100=fps * 100)
+        cab = _chp4.ler(pacote)
+        _chp4.conferir(cab)
+        destino_chp4 = os.path.splitext(args.pack)[0] + ".chp4"
+        with open(destino_chp4, "wb") as f:
+            f.write(pacote)
+        print("chp4: %s  %d quadros, %d animacoes, canvas %dx%d, escala %.3f, "
+              "%d B" % (os.path.basename(destino_chp4), nq, len(tabela), w, h,
+                        args.scale, len(pacote)))
         total = sum(t for _p, t, _f, _n in parts)
         print("wrote %d part(s), %d B total, %d B/frame in VRAM"
               % (len(parts), total, w * h * (args.bpp // 8)))

@@ -419,6 +419,180 @@ def pack_character(assets, cid, out_dir, scale=None, bpp=32, budget=None):
     }
 
 
+# ------------------------------------------------------- CHP4 por personagem --
+#
+# O CFZ4 do caminho planar guarda TODOS os quadros do atlas na ordem do atlas, e
+# e' isso que o palco consome. O personagem precisa de mais: o jogo toca
+# "singLEFT", "idle", "danceLeft" -- nomes com contagem e taxa. Essa tabela so'
+# existe no CHP4 (`src/engine/char_pack.h`), e e' o que esta parte escreve.
+#
+# A diferenca pratica e' que os quadros passam a ficar na ordem das ANIMACOES
+# (cada uma contigua, como o leitor do jogo assume) em vez da ordem do atlas.
+# Um quadro reaproveitado por duas animacoes entra duas vezes: gasta disco, nao
+# VRAM -- o jogo sobe UM quadro por vez.
+#
+# O canvas continua sendo UM para o personagem inteiro (o maior quadro de todos,
+# com os offsets). Se ele mudasse por animacao, `ch_anchor` -- que recebe o
+# canvas do pacote -- poria o sprite em lugar diferente a cada animacao.
+
+_ATLAS_CACHE = {}
+
+
+def atlas_nomeado(assets, stem):
+    """-> ([(nome, img, ox, oy)] na ordem do atlas, None) ou (None, motivo).
+
+    Diferente de `load_atlas`, guarda o NOME de cada quadro: e' por ele que o
+    prefixo de cada animacao e' resolvido. Animate (pasta + spritemap) nao e'
+    tratado aqui -- quem achata aqueles 34 e' tools/achatar_animate.py, que
+    escreve o CHP4 com as animacoes que a propria timeline declara.
+    """
+    if stem in _ATLAS_CACHE:
+        return _ATLAS_CACHE[stem]
+    kind, where = resolve(assets, stem)
+    if kind is None:
+        r = (None, where)
+        _ATLAS_CACHE[stem] = r
+        return r
+    if kind == "animate":
+        r = (None, "animate: use tools/achatar_animate.py --pack")
+        _ATLAS_CACHE[stem] = r
+        return r
+    out = []
+    png = where[0]
+    sheet = Image.open(png).convert("RGBA")
+    if kind == "packer":
+        for name, x, y, w, h in packer_frames(where[1]):
+            out.append((name, sheet.crop((x, y, x + w, y + h)), 0, 0))
+    else:
+        rects, order = sparrow_frames(where[1])
+        if not order:
+            out.append((os.path.splitext(os.path.basename(png))[0], sheet, 0, 0))
+        for name in order:
+            x, y, w, h, fx, fy, _fw, _fh = rects[name]
+            if w <= 0 or h <= 0:
+                continue
+            # frameX/frameY negativos: a arte fica dentro de um quadro logico
+            # maior, e o sprite e' posto em -frameX/-frameY.
+            out.append((name, sheet.crop((int(x), int(y), int(x + w), int(y + h))),
+                        int(-fx), int(-fy)))
+    r = (out, None) if out else (None, "atlas sem quadro")
+    _ATLAS_CACHE[stem] = r
+    return r
+
+
+def _quadros_da_animacao(nomeados, an):
+    """Quadros de UMA animacao, pela regra do original.
+
+    `frameIndices` manda quando existe (a JSON lista os indices do atlas, na
+    ordem em que a animacao toca). Sem ele, o `FlxAnimationUtil.addAtlasAnimations`
+    do original pega TODO quadro cujo nome comeca com o `prefix`, na ordem do
+    atlas -- e' isso que o prefix curto ("BF NOTE UP") faz nos miss.
+    """
+    idx = an.get("frameIndices")
+    if idx:
+        sel = []
+        for i in idx:
+            if not isinstance(i, int) or i < 0 or i >= len(nomeados):
+                return None, "frameIndices fora do atlas (%r)" % (i,)
+            sel.append(nomeados[i][1:])
+        return sel, None
+    pre = an.get("prefix") or an.get("name") or ""
+    if not pre:
+        return None, "sem prefix e sem frameIndices"
+    sel = [(img, ox, oy) for (nm, img, ox, oy) in nomeados if nm.startswith(pre)]
+    if not sel:
+        return None, "prefixo %r nao existe no atlas" % pre
+    return sel, None
+
+
+def pack_character_chp4(assets, cid, out_dir, escala=None, bpp=16, budget=None,
+                        fps100=2400, data=None):
+    """Empacota UM personagem como CHP4 (quadros por animacao + tabela).
+
+    escala=None pede a maior escala cujo UNICO quadro cabe em `budget` -- o
+    mesmo criterio do caminho planar, e a escala que vai gravada no pacote
+    (campo 32), que e' como o jogo sabe por quanto dividir no desenho.
+    """
+    import chp4 as _chp4
+    data = data or DATA
+    cj = os.path.join(data, "characters", cid + ".json")
+    if not os.path.isfile(cj):
+        return {"id": cid, "error": "no %s" % cj}
+    meta = json.load(open(cj))
+
+    grupos, faltando = [], []
+    for an in meta.get("animations", []):
+        nome = an.get("name")
+        if not nome:
+            continue
+        stem = an.get("assetPath") or meta.get("assetPath") or cid
+        nomeados, why = atlas_nomeado(assets, stem)
+        if nomeados is None:
+            faltando.append((nome, why))
+            continue
+        sel, why = _quadros_da_animacao(nomeados, an)
+        if sel is None:
+            faltando.append((nome, why))
+            continue
+        grupos.append({"nome": nome, "looped": an.get("looped", True), "frames": sel})
+    if not grupos:
+        return {"id": cid, "error": "nenhuma animacao com quadro (%r)" % (faltando,)}
+    if len(grupos) > _chp4.MAX_ANIMS:
+        return {"id": cid, "error": "%d animacoes passam do limite de %d"
+                % (len(grupos), _chp4.MAX_ANIMS)}
+
+    todos = [f for g in grupos for f in g["frames"]]
+    if escala is None:
+        if budget is None:
+            raise ValueError("pack_character_chp4 precisa de escala ou budget")
+        escala = _escala_para_caber(todos, bpp, budget)
+    canvases, cw, ch, frame_bytes = render_frames(todos, escala, bpp)
+    if budget is not None and frame_bytes > budget:
+        return {"id": cid, "error": "nao cabe: escala %.3f ainda da %d B > %d B"
+                % (escala, frame_bytes, budget)}
+
+    blocos = [to_ps2_bytes(c, bpp) for c in canvases]
+    for i, b in enumerate(blocos):
+        if len(b) != frame_bytes:
+            return {"id": cid, "error": "quadro %d tem %d B, esperado %d"
+                    % (i, len(b), frame_bytes)}
+    grupos_bytes, k = [], 0
+    for g in grupos:
+        n = len(g["frames"])
+        grupos_bytes.append((g["nome"], blocos[k:k + n], g["looped"]))
+        k += n
+    pacote, nq, anims = _chp4.montar_de_grupos(grupos_bytes, cw, ch, bpp, escala,
+                                               fps100=fps100)
+    cab = _chp4.ler(pacote)
+    _chp4.conferir(cab)
+    if cab["escala"] <= 0.0:
+        return {"id": cid, "error": "o pacote saiu sem escala (campo 32 zerado)"}
+
+    os.makedirs(out_dir, exist_ok=True)
+    destino = os.path.join(out_dir, cid + ".chp4")
+    with open(destino, "wb") as f:
+        f.write(pacote)
+    return {"id": cid, "file": destino, "frames": nq, "canvas": (cw, ch),
+            "escala": round(escala, 4), "bpp": bpp, "vram_bytes": frame_bytes,
+            "disk_bytes": len(pacote), "anims": len(anims),
+            "faltando": faltando}
+
+
+def _escala_para_caber(frames, bpp, budget):
+    """Maior escala cujo quadro cabe em `budget` bytes -- medido, nao estimado."""
+    import math
+    img0 = frames[0][0]
+    esc = min(1.0, math.sqrt(float(budget) /
+                             (max(i.width for i, _, _ in frames) *
+                              max(i.height for i, _, _ in frames) * (bpp // 8))))
+    for _ in range(8):
+        _c, _w, _h, fb = render_frames(frames, esc, bpp)
+        if fb <= budget:
+            break
+        esc *= math.sqrt(float(budget) / fb) * 0.98
+    return esc
+
+
 def verify(path, bpp):
     """Decode a pack back and check every frame decodes to the stated size."""
     data = open(path, "rb").read()
@@ -447,13 +621,20 @@ def main():
     ap.add_argument("--out", default=os.path.join(PROJECT, "build", "packs"))
     ap.add_argument("--scale", type=float, default=None)
     ap.add_argument("--bpp", type=int, default=32, choices=(16, 32))
+    ap.add_argument("--chp4-dir", default=None,
+                    help="onde gravar os .chp4 (padrao: o mesmo --out)")
     ap.add_argument("--budget", type=int, default=147456,
                     help="VRAM bytes allowed for ONE frame (default 144 KiB)")
     ap.add_argument("--verify", action="store_true", default=True)
+    ap.add_argument("--chp4", action="store_true",
+                    help="escreve tambem <id>.chp4 (quadros por animacao + "
+                         "tabela), que e' o formato que o jogo le' de "
+                         "assets/chars/")
     args = ap.parse_args()
 
     total_vram = 0
     total_disk = 0
+    total_chp4 = 0
     fails = 0
     for cid in [c.strip() for c in args.characters.split(",") if c.strip()]:
         try:
@@ -476,6 +657,27 @@ def main():
             print("%-22s FAIL  verify: %s" % (cid, err))
             fails += 1
             continue
+        if args.chp4:
+            try:
+                c4 = pack_character_chp4(args.assets, cid, args.chp4_dir or args.out,
+                                         escala=args.scale, bpp=args.bpp,
+                                         budget=args.budget)
+            except ValueError as e:
+                print("%-22s FAIL  chp4: %s" % (cid, e))
+                fails += 1
+                continue
+            if "error" in c4:
+                print("%-22s FAIL  chp4: %s" % (cid, c4["error"]))
+                fails += 1
+                continue
+            for nome, motivo in c4["faltando"]:
+                # Dado que falta e' REPORTADO, nunca tapado com um padrao.
+                print("%-22s   aviso: animacao %-20s sem quadro (%s)"
+                      % (cid, nome, motivo))
+            print("%-22s chp4 %3d fr  %4dx%-4d  escala %.3f  %d anim  %8d B"
+                  % (cid, c4["frames"], c4["canvas"][0], c4["canvas"][1],
+                     c4["escala"], c4["anims"], c4["disk_bytes"]))
+            total_chp4 += c4["disk_bytes"]
         total_vram += r["vram_bytes"]
         total_disk += r["disk_bytes"]
         print("%-22s %3d fr  %4dx%-4d  scale %.3f  %d bpp  "
@@ -485,6 +687,8 @@ def main():
     print()
     print("total VRAM for one frame of each: %d B" % total_vram)
     print("total on the pendrive:            %d B" % total_disk)
+    if args.chp4:
+        print("total em .chp4:                   %d B" % total_chp4)
     if fails:
         print("%d failure(s)" % fails)
     return 1 if fails else 0

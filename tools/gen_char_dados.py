@@ -81,6 +81,7 @@ def render(plan):
     linhas.append("  float ox,oy;         /* offsets */")
     linhas.append("  float cx,cy;         /* cameraOffsets */")
     linhas.append("  float sing;          /* singTime em passos; 0 = nao definido */")
+    linhas.append("  float scale;         /* `scale` do CharacterData (1; 6 nos de pixel) */")
     linhas.append("  int anim_first,anim_count;")
     linhas.append("}ch_dados_t;")
     linhas.append("")
@@ -101,6 +102,13 @@ def render(plan):
         off = d.get("offsets") or [0.0, 0.0]
         cam = d.get("cameraOffsets") or [0.0, 0.0]
         sing = d.get("singTime")
+        # `scale` do CharacterData: 1 por padrao, 6 nos personagens de pixel
+        # (senpai, spirit, bf-pixel...). O original multiplica por ele em
+        # CharacterData.DEFAULT_SCALE/Stage.addCharacter
+        # (finalScale = getBaseScale() * stageCharData.scale), entao sem este
+        # campo o personagem de pixel sai 6x menor do que o original desenha.
+        esc = d.get("scale")
+        esc = float(esc) if esc is not None else 1.0
         first = len(anims)
         for a in d.get("animations") or []:
             nome = a.get("name")
@@ -114,6 +122,7 @@ def render(plan):
             "ox": float(off[0]), "oy": float(off[1]),
             "cx": float(cam[0]), "cy": float(cam[1]),
             "sing": float(sing) if sing is not None else 0.0,
+            "scale": esc,
             "af": first, "ac": len(anims) - first,
         })
 
@@ -126,10 +135,11 @@ def render(plan):
     linhas.append("")
     linhas.append("static const ch_dados_t ch_chars[]={")
     for c in chars:
-        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%d,%d},'
+        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%d,%d},'
                       % (c_str(c["id"]), c["render"], c["flipx"],
                          c_float(c["ox"]), c_float(c["oy"]),
                          c_float(c["cx"]), c_float(c["cy"]), c_float(c["sing"]),
+                         c_float(c["scale"]),
                          c["af"], c["ac"]))
     linhas.append("};")
     linhas.append("#define CH_CHAR_COUNT %d" % len(chars))

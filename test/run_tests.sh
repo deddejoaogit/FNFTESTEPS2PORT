@@ -367,6 +367,12 @@ echo "== FCH4 round trip: no parameter is dropped =="
 python3 tools/test_fch4.py
 echo
 
+# O empacotador CHP4: quadro por animacao, escala no campo 32, dados que faltam
+# reportados. Sem PIL/numpy o teste se declara PULADO (e diz por que).
+echo "== empacotador CHP4: quadro, escala e dado que falta =="
+python3 tools/test_pack_chp4.py || exit 1
+echo
+
 # The event module reads the v4 fields the way the original's event classes do,
 # checked against the tutorial's own 26 events plus milf's SetCameraBop and
 # spaghetti's 15 SetHealthIcon -- the only charts that have them.

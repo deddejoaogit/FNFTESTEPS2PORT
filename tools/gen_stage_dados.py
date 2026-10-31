@@ -268,8 +268,15 @@ def render(plan):
             c = chars.get(role) or {}
             pos = c.get("position") or [0.0, 0.0]
             cam = c.get("cameraOffsets") or [0.0, 0.0]
+            # `scale` do slot: Stage.addCharacter faz
+            # finalScale = character.getBaseScale() * stageCharData.scale, e so'
+            # o phillyBlazin declara 1.75 no bf e no dad (2 de 63 slots). Sem
+            # isto o personagem daquele palco sai 1,75x menor.
+            scol = c.get("scale")
+            scol = float(scol) if scol is not None else 1.0
             slots.append((sid, role, float(pos[0]), float(pos[1]),
-                          float(cam[0]), float(cam[1]), int(c.get("zIndex") or 0)))
+                          float(cam[0]), float(cam[1]), int(c.get("zIndex") or 0),
+                          scol))
     w.append("")
     w.append("/* Um slot de personagem de um palco: onde ele fica e o cameraOffsets")
     w.append("   que entra no foco de camera (Stage.hx: cameraFollowPoint =")
@@ -278,12 +285,13 @@ def render(plan):
     w.append("  float x,y;      /* position, no espaco do original (1280x720) */")
     w.append("  float cx,cy;    /* cameraOffsets do slot */")
     w.append("  int z;          /* zIndex */")
+    w.append("  float scale;    /* scale do slot (1 por padrao; 1,75 no philly) */")
     w.append("}bs_slot_t;")
     w.append("static const bs_slot_t bs_slots[]={")
-    for (sid, role, x, y, cx, cy, z) in slots:
-        w.append('  {%s,%s,%s,%s,%s,%s,%d},'
+    for (sid, role, x, y, cx, cy, z, sc) in slots:
+        w.append('  {%s,%s,%s,%s,%s,%s,%d,%s},'
                  % (c_str(sid), c_str(role), c_float(x), c_float(y),
-                    c_float(cx), c_float(cy), z))
+                    c_float(cx), c_float(cy), z, c_float(sc)))
     w.append("};")
     w.append("#define BS_SLOT_COUNT %d" % len(slots))
     w.append("/* Primeiro slot de cada palco, na ordem de bs_stage_props[]. */")

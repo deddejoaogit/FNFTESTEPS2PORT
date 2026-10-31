@@ -1839,3 +1839,97 @@ lê nessa ordem e a duração do `stems.pcm` conferida é 3.225.600 amostras × 
 bytes; se um arquivo vier em 2 canais, o port toca o dobro da velocidade e o
 relógio da música sai junto. É verificável no console em uma música: R3 tem de
 tirar as vozes e manter a batida.
+
+## Personagem no tamanho certo: a escala do pacote e o foco da câmera
+
+**O defeito.** O `ch_anchor` recebe o tamanho do quadro em unidades do
+original. O desenho passou a ser o caminho único das 27 músicas, mas passava
+`canvas_w/canvas_h` **do pacote** — e o pacote dos 46 personagens reais é
+empacotado a **0,5** (`tools/achatar_tudo.sh`, `tools/ps2_display.py`: a tela do
+port é um 0,5 exato do original, então cada textura só precisa de metade da
+resolução para aparecer do tamanho que o original mostra). Duas consequências,
+nenhuma delas um erro de compilação:
+
+1. **personagem na metade do tamanho** — o sprite saía com `canvas x sc`
+   (0,5 × zoom × bop) em vez de `canvas x 2 x sc`;
+2. **foco de câmera meia-personagem fora do lugar** — o foco leva
+   `- canvas_h/2`; com o canvas pela metade, o y do foco subia meia altura de
+   canvas.
+
+O original não tem escolha a fazer: `Stage.hx` L451-455 faz
+`finalScale = getBaseScale() * stageCharData.scale` e o canvas já está na
+resolução em que deve ser desenhado. A conta certa é uma só:
+
+    escala_mundo = personagem.scale * slot.scale / escala_do_pacote
+
+Com os 46 personagens reais (pacote 0,5, `scale` 1) isso dá **2**; no `senpai`
+(pixel art, `CharacterData.scale` 6) dá **12**; no `bf`/`dad` do `phillyBlazin`
+(`stage.characters.*.scale` = 1,75, medido em `assets-data/stages`) dá **3,5**.
+Está em `ch_escala_mundo()` (`src/engine/char_layout.c`) com teste em
+`test/test_char_layout.c` (2, 12, 3,5, pacote sem escala e zeros que não podem
+zerar o desenho).
+
+**Onde a escala mora.** O pacote CHP4 subiu para **v2**: o campo 32, que era
+`reservado` e sempre 0, passa a guardar a escala **×10000**. Um pacote v1
+continua abrindo (o leitor aceita 1 e 2) e o campo 32 do v1 é ignorado — lá ele
+não significa nada. `cp_escala()` devolve 1,0 quando não há escala gravada, e o
+jogo escreve `char_escala_v1` no log nesse caso: assumir 1,0 em silêncio é
+exatamente o que produzia o personagem na metade.
+
+**Quem grava a escala agora.** Até esta build nenhuma ferramenta do repositório
+escrevia `.chp4` de personagem real — só o gerador sintético do harness. Os dois
+caminhos passaram a gravar:
+
+- `tools/pacote_personagem.py --chp4` (11 personagens de sparrow/packer):
+  `pack_character_chp4()` escolhe os quadros **por animação** (`frameIndices`
+  quando existe, senão todo quadro cujo nome começa com o `prefix`, na ordem do
+  atlas — a regra do `FlxAnimationUtil.addAtlasAnimations`), monta um canvas
+  único para o personagem (senão o `ch_anchor` mudaria de lugar a cada
+  animação) e grava `escala`;
+- `tools/achatar_animate.py --pack` (34 personagens de atlas Animate): aproveita
+  que os quadros já são renderizados animação por animação e escreve o `.chp4`
+  ao lado do `.cfz4`, com a tabela que a própria timeline declara.
+
+Um quadro usado por duas animações entra duas vezes no pacote: gasta disco, não
+VRAM (o jogo sobe um quadro por vez). `tools/chp4.montar_de_grupos()` é o único
+lugar que calcula `primeiro/quantos`, para os dois caminhos não divergirem.
+
+**Medido.** `tools/test_pack_chp4.py` (dentro da suíte, com um clone sintético
+montado no próprio teste): as animações saem na ordem da JSON e cada uma
+contígua, o quadro de cada animação é o **certo** (um quadro por cor, e a ordem
+do atlas é embaralhada de propósito em relação à ordem das animações),
+`frameIndices` manda quando existe, o quadro compartilhado entra duas vezes, a
+escala 0,5 e 1,0 voltam idênticas do campo 32, o `budget` reduz até caber e o
+que ele reporta é o que o pacote tem, e prefixo que não existe no atlas vira
+registro em `faltando` (reportado, não tapado). `tools/check_char_packs.py`
+passou a **falhar** em pacote sem escala. `tools/achatar_tudo.sh` agora exige
+`<id>.cfz4` **e** `<id>.chp4` por personagem e conta os `.chp4` no fim.
+
+**No jogo.** `char_tamanho` (papel, largura na tela) e `char_escala`
+(papel, escala_mundo ×100) vão para o log uma vez por papel e por música.
+Medido no harness: `tutorial` → papéis 1 e 2 com `char_escala,1,100` (pacote
+sintético a 1,0); `blazin` → `char_escala,*,100` na GF e `char_escala,*,175` no
+BF e no oponente, que é o `slot.scale` 1,75 do `phillyBlazin`.
+
+**A câmera.** O foco passou a usar o **mesmo** tamanho do desenho
+(`cena_canvas_mundo()`), porque o `- canvas_h/2` do `ch_anchor` não pode valer 0.
+Medido no harness, Tutorial: o primeiro foco é `cam_foco_alvo,888,803` — com
+canvas 0x0 saía 835, ou seja meia altura de canvas abaixo. No original a conta
+é a mesma: `BaseCharacter.resetCameraFocusPoint` usa
+`originalPosition + cameraOffsets` e o `cameraFocusPoint` do sprite já carrega
+a metade da altura.
+
+**Pendrive.** `tools/build_pendrive.sh` nunca copiava `build/packs/chars` nem
+`build/packs/stages`, embora o jogo abra `mass:/FNFPS2/assets/chars/<id>.chp4`
+e `mass:/FNFPS2/assets/stages/<palco>/<prop>.cfz4`. O pendrive saía sem
+personagem nenhum. Agora copia os dois, confere os **46** ids de
+`assets-data/characters` e confere prop por prop contra as strings
+`stages/<palco>/<prop>.cfz4` de `src/stage_dados.h` (faltou um, o script para),
+e o LEIA-ME lista `assets/chars/` e `assets/stages/` como obrigatórios.
+
+**O que NÃO está provado:** que os 46 pacotes reais caibam em VRAM (isso é
+`tools/vram_budget.py` + `test_stage_pool.c`, sobre os pacotes reais), que o
+console desenhe o `.chp4` de verdade (`char_tamanho`/`char_escala` são o número
+que se confere na captura) e que o `.chp4` do caminho Animate saia com as
+animações certas nos 34 personagens — ele foi exercitado só no caminho
+sparrow/packer com arte sintética; os 34 dependem do clone da arte.

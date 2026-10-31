@@ -1319,6 +1319,9 @@ static texbuffer_t g_cena_texde[CH_CENA_PAPEIS];
 static int g_cena_texde_w[CH_CENA_PAPEIS],g_cena_texde_h[CH_CENA_PAPEIS];
 static int g_cena_quadros[CH_CENA_PAPEIS];      /* quadros diferentes subidos */
 static int g_cena_desenhos[CH_CENA_PAPEIS];
+/* Uma vez por papel e por musica: o tamanho desenhado e a escala do pacote, para
+   o log poder provar que o personagem nao esta' nem 2x menor nem 6x menor. */
+static int g_cena_tam_visto[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
 static int g_cena_hold_visto[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
@@ -1350,7 +1353,8 @@ static void cena_soltar(void)
  g_cena_modo=0;
  g_cena_song[0]=0;
  {int i;for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_texde_w[i]=g_cena_texde_h[i]=0;
-  g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=g_cena_hold_visto[i]=0;}}
+  g_cena_quadros[i]=g_cena_desenhos[i]=g_cena_avisou[i]=g_cena_hold_visto[i]=0;
+  g_cena_tam_visto[i]=0;}}
  cc_reset(&g_cena);
 }
 
@@ -1476,6 +1480,10 @@ static int cena_carregar(const sr_song_t *song)
    if(bytes>maior)maior=bytes;
    telemetry_event(r==CH_PAPEL_DAD?"char_dad_vram":"char_vram",(int)bytes,(int)pk->w);
    telemetry_event("char_stride",pk->w,(int)((pk->w+63)&~63));
+   /* Pacote v1 nao guarda a escala do canvas. O desenho assume 1,0 (canvas no
+      tamanho do original) e o log diz que assumiu -- em vez de sair 2x menor
+      sem ninguem saber por que. */
+   if(pk->escala<=0.0f)telemetry_event("char_escala_v1",r,(int)bytes);
    /* Quantas animacoes "-hold" este personagem TEM. O sweep usa isto para
       cobrar que, se existe alguma, ela aparece em cena -- sem esse numero, um
       personagem que nunca entra no "-hold" passaria despercebido. */
@@ -1532,6 +1540,23 @@ static long cena_canto_ms(int papel,int missing)
  return ca_canto_ms(passos,bpm,missing);
 }
 
+/* TAMANHO do canvas do papel em unidades do ORIGINAL (1280x720).
+   Uma funcao so' para o desenho e para o foco da camera: quando cada um fazia a
+   propria conta, a camera passava canvas 0x0 e o foco saia meia-personagem
+   abaixo do ponto certo (medido: `- canvas_h/2` do ch_anchor virando 0). */
+static int cena_canvas_mundo(int papel,const bs_slot_t *slot,float *w,float *h)
+{
+ int ci;
+ if(papel<0||papel>=CH_CENA_PAPEIS||!slot||!g_cena.p[papel].ativo)return 0;
+ ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+ if(ci<0||ci>=CH_CHAR_COUNT)return 0;
+ {float em=ch_escala_mundo(cp_escala(&g_cena.p[papel].pacote),
+                           ch_chars[ci].scale,slot->scale);
+  if(w)*w=(float)g_cena_texde_w[papel]*em;
+  if(h)*h=(float)g_cena_texde_h[papel]*em;}
+ return 1;
+}
+
 /* Desenha UM papel generico: pega o quadro quando ele muda, sobe para a VRAM
    e posiciona pelo slot do palco. Devolve o qword do pacote. Sem pacote, sem
    slot ou sem quadro, devolve o pacote como esta' -- nada em silencio: o
@@ -1550,13 +1575,32 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int bati
  }
  {
   ch_anchor_t an;
-  ch_anchor(&ch_chars[papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci)],
-            slot,(float)g_cena_texde_w[papel],(float)g_cena_texde_h[papel],0.0f,
-            papel==CH_PAPEL_GF?0:1,&an);
+  int ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+  /* TAMANHO. O canvas do pacote esta' na escala em que foi empacotado (0,5 nos
+     46 personagens reais); o original desenha a arte vezes `CharacterData.scale`
+     vezes o `scale` do slot do palco (Stage.hx L451-455). `ch_escala_mundo`
+     junta as tres coisas e devolve quantas unidades do ORIGINAL vale 1 pixel de
+     canvas -- com os dados reais, 2. Antes o desenho multiplicava o canvas pelo
+     `sc` da tela (0,5 x zoom x bop) e o personagem saia com METADE do tamanho
+     que o original mostra: o BF do mainStage ocupava 127 das 360 linhas em vez
+     de 254. A conta de posicao ja' estava certa porque `ch_anchor` recebe o
+     tamanho em unidades do original -- era so' o tamanho que faltava. */
+  float em=ch_escala_mundo(cp_escala(&g_cena.p[papel].pacote),
+                           ci>=0?ch_chars[ci].scale:1.0f,slot->scale);
+  float wm=0.0f,hm=0.0f;
+  cena_canvas_mundo(papel,slot,&wm,&hm);   /* a MESMA conta que a camera usa */
+  ch_anchor(&ch_chars[ci],slot,wm,hm,0.0f,papel==CH_PAPEL_GF?0:1,&an);
   q=bind_texture_filter(q,&g_cena_texde[papel],1);
   q=sprite_dims(q,320.0f+(an.sprite_x-cx)*sc,180.0f+(an.sprite_y-cy)*sc,
-                (float)g_cena_texde_w[papel]*sc,(float)g_cena_texde_h[papel]*sc,
+                wm*sc,hm*sc,
                 g_cena_texde_w[papel],g_cena_texde_h[papel]);
+  /* UM evento por papel, uma vez por musica, com as tres parcelas do tamanho.
+     Sem ele, "o personagem esta' do tamanho certo" nao teria medida nenhuma. */
+  if(!g_cena_tam_visto[papel]){
+   g_cena_tam_visto[papel]=1;
+   telemetry_event("char_tamanho",papel,(int)(wm*sc));
+   telemetry_event("char_escala",papel,(int)(em*100.0f));
+  }
   /* PROVA do "-hold": quando o personagem entra numa animacao "-hold" (os olhos
      do pai, a chama do isqueiro do Darnell), o log diz uma vez por papel. Sem
      isso, "o -hold funciona" seria afirmacao sem medida. */
@@ -3531,9 +3575,9 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
  const bs_slot_t*slg=ch_slot(g_play_song?g_play_song->stage:"mainStage","gf");
  const bs_slot_t*sld=ch_slot(g_play_song?g_play_song->stage:"mainStage","dad");
  dad_cam_x=bf_cam_x;dad_cam_y=bf_cam_y;
- if(g_cena_modo&&slb){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_bf_ci],slb,0.0f,0.0f,0.0f,1,&an);bf_cam_x=an.cam_x;bf_cam_y=an.cam_y;}
- if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_gf_ci],slg,0.0f,0.0f,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
- if(g_cena_modo&&sld&&g_cena.p[CH_PAPEL_DAD].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_dad_ci],sld,0.0f,0.0f,0.0f,1,&an);dad_cam_x=an.cam_x;dad_cam_y=an.cam_y;}}
+ if(g_cena_modo&&slb){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_BF,slb,&cw,&chh);ch_anchor(&ch_chars[g_cena_bf_ci],slb,cw,chh,0.0f,1,&an);bf_cam_x=an.cam_x;bf_cam_y=an.cam_y;}
+ if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_GF,slg,&cw,&chh);ch_anchor(&ch_chars[g_cena_gf_ci],slg,cw,chh,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
+ if(g_cena_modo&&sld&&g_cena.p[CH_PAPEL_DAD].ativo){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_DAD,sld,&cw,&chh);ch_anchor(&ch_chars[g_cena_dad_ci],sld,cw,chh,0.0f,1,&an);dad_cam_x=an.cam_x;dad_cam_y=an.cam_y;}}
 float tcx,tcy,cx,cy;
 {const chart_event_state_t*ev=chart_events_state();
  /* char -1 e' o proprio (x,y): FocusCameraSongEvent L102-103 nao soma personagem
@@ -3561,6 +3605,10 @@ float tcx,tcy,cx,cy;
    /* CLASSIC: o ponto de foco muda e a perseguicao leva a camera. */
    g_cam_t=1.0f;
   }
+  /* O ALVO, medido. Sem ele, "a camera esta' no ponto do original" nao tem
+     numero: o y do foco carrega meia altura de canvas, e era justamente essa
+     metade que faltava quando o ch_anchor recebia canvas 0x0. */
+  telemetry_event("cam_foco_alvo",(int)tcx,(int)tcy);
   if(ev->cam_mode>=0&&ev->cam_mode<3&&!g_cam_modo_visto[ev->cam_mode]){
    g_cam_modo_visto[ev->cam_mode]=1;
    telemetry_event(ev->cam_mode==CHART_FOCUS_MODE_INSTANT?"cam_foco_instant":

@@ -150,6 +150,14 @@ for sid in $LISTA; do
         nholdtem=$(awk -F, '$1=="E" && $3=="char_hold_tem" && $5+0>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nhold=$(awk -F, '$1=="E" && $3=="char_hold" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         npulado=$(awk -F, '$1=="E" && $3=="char_dad_pulado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # CAMERA: o papel inicial tem de ser o OPONENTE (PlayState L2224-2227 +
+        # resetCamera no L936), e o alvo de cada FocusCamera tem de ser medido
+        # (cam_foco_alvo). A soma dos alvos e' conferida no fim, porque nem todo
+        # chart tem evento de camera.
+        CAM_ALVOS=$(( ${CAM_ALVOS:-0} + $(awk -F, '$1=="E" && $3=="cam_foco_alvo" {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
+        # ESCALA: um evento por papel. Cada musica tem pelo menos dois papeis em
+        # cena (nem toda tem `girlfriend`), e o numero e' o tamanho desenhado.
+        nesc=$(awk -F, '$1=="E" && $3=="char_escala" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         # NOTE KINDS: quantas notas chegaram com nome de kind, e quantas sao
         # `non_scoreable`/`noanim`. O esperado sai do JSON; ver build/sweep/kinds.txt.
         kcom=$(awk -F, '$1=="E" && $3=="chart_notas_com_kind" {print $4; exit}' "$LOG" 2>/dev/null)
@@ -187,6 +195,7 @@ for sid in $LISTA; do
         # O caminho antigo do Tutorial nao desenha mais nada: nenhuma musica
         # pode voltar para ele.
         [ "${nlegado:-0}" -eq 0 ] 2>/dev/null || motivo="o Tutorial voltou ao caminho antigo${motivo:+, $motivo}"
+        [ "${nesc:-0}" -ge 2 ] 2>/dev/null || motivo="a escala do personagem nao foi medida${motivo:+, $motivo}"
         [ "${npulado:-0}" -eq 0 ] 2>/dev/null || motivo="papel do oponente pulado por nome${motivo:+, $motivo}"
         [ "${nchardraw:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao foi desenhado${motivo:+, $motivo}"
         [ "${ncharanim:-0}" -ge 1 ] 2>/dev/null || motivo="o oponente nao animou${motivo:+, $motivo}"
@@ -258,6 +267,8 @@ done
 rm -f build/sweep/palcos-vistos.txt
 echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
+echo "  camera: $CAM_ALVOS alvo(s) de FocusCamera medidos (81 charts tem 664 eventos)"
+[ "${CAM_ALVOS:-0}" -ge 1 ] || { echo "  FALHA: nenhum alvo de camera foi medido" >&2; exit 1; }
 echo "         $NPALCOS/$ESPERADOS palco(s) usados pelas musicas desenharam"
 if [ -n "$NAO_DESENHOU" ]; then
     echo "  FALHA: palco(s) que nenhuma musica conseguiu desenhar:$NAO_DESENHOU"

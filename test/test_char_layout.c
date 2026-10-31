@@ -172,6 +172,21 @@ int main(void)
             CHECK_NEAR(a.sprite_x, 751.5f - 703.300f * 0.5f - 9.0f, 0.01);
             CHECK_NEAR(a.sprite_y, 787.0f - 674.850f - 9.0f, 0.01);
         }
+        /* TAMANHO EM CENA. O canvas do pacote esta' na escala em que foi
+           empacotado; ch_escala_mundo devolve quantas unidades do ORIGINAL vale
+           1 pixel de canvas. Os 46 personagens reais foram empacotados na
+           metade (escala 0,5, ver tools/ps2_display.py), entao:
+             personagem comum, slot comum  -> 1 * 1 / 0,5 = 2
+             pixel art (senpai, scale 6)   -> 6 * 1 / 0,5 = 12
+             phillyBlazin bf/dad (slot 1,75) -> 1 * 1,75 / 0,5 = 3,5 */
+        CHECK_NEAR(ch_escala_mundo(0.5f, 1.0f, 1.0f), 2.0, 1e-6);
+        CHECK_NEAR(ch_escala_mundo(0.5f, 6.0f, 1.0f), 12.0, 1e-6);
+        CHECK_NEAR(ch_escala_mundo(0.5f, 1.0f, 1.75f), 3.5, 1e-6);
+        /* Pacote que nao guardou a escala (v1) conta como 1. */
+        CHECK_NEAR(ch_escala_mundo(0.0f, 1.0f, 1.0f), 1.0, 1e-6);
+        /* Um zero no slot ou no personagem nunca zera o desenho. */
+        CHECK_NEAR(ch_escala_mundo(0.5f, 0.0f, 0.0f), 2.0, 1e-6);
+
         /* E os 21 palcos tem os tres slots, sempre. */
         for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
             const char *roles[3] = { "bf", "gf", "dad" };

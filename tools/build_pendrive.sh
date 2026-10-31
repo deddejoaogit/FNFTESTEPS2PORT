@@ -82,6 +82,55 @@ for f in build/charts/*.chart; do
 done
 echo "   $(ls build/charts | wc -l) charts x 4 layouts = $(( $(ls build/charts | wc -l) * 4 )) arquivos"
 
+echo "== copiando os 46 personagens (assets/chars/<id>.chp4) =="
+# Sem estes arquivos o jogo ABRE e roda, mas nao desenha personagem nenhum:
+# cada papel vira `char_sem_pacote` no log. Eles nunca eram copiados aqui, e o
+# pendrive saia sem nenhum deles.
+CHARS_SRC=${CHARS_SRC:-build/packs/chars}
+if [ ! -d "$CHARS_SRC" ]; then
+    echo "FALTA $CHARS_SRC -- rode tools/achatar_tudo.sh <clone-funkin.assets> $CHARS_SRC" >&2
+    exit 1
+fi
+mkdir -p "$OUT/FNFPS2/assets/chars"
+NCHAR=0
+FALTA_CHAR=""
+for j in assets-data/characters/*.json; do
+    id=$(basename "$j" .json)
+    if [ -f "$CHARS_SRC/$id.chp4" ]; then
+        cp "$CHARS_SRC/$id.chp4" "$OUT/FNFPS2/assets/chars/$id.chp4"
+        NCHAR=$((NCHAR+1))
+    else
+        FALTA_CHAR="$FALTA_CHAR $id"
+    fi
+done
+if [ -n "$FALTA_CHAR" ]; then
+    echo "FALTAM pacotes .chp4:$FALTA_CHAR" >&2
+    exit 1
+fi
+echo "   $NCHAR personagens, $(du -sh "$OUT/FNFPS2/assets/chars" | cut -f1)"
+
+echo "== copiando os 21 palcos (assets/stages/<palco>/<prop>.cfz4) =="
+STAGES_SRC=${STAGES_SRC:-build/packs/stages}
+if [ ! -d "$STAGES_SRC" ]; then
+    echo "FALTA $STAGES_SRC -- rode tools/pacotar_palcos.py --out build/packs" >&2
+    exit 1
+fi
+mkdir -p "$OUT/FNFPS2/assets/stages"
+NPROP=0
+# A lista de props vem do PROPRIO cabecalho que o jogo compila
+# (src/stage_dados.h): o que faltar aqui e' o que faltaria na tela.
+for t in $(grep -o '"stages/[^"]*\.cfz4"' src/stage_dados.h | tr -d '"' | sort -u); do
+    if [ -f "$STAGES_SRC/${t#stages/}" ]; then
+        mkdir -p "$OUT/FNFPS2/assets/$(dirname "$t")"
+        cp "$STAGES_SRC/${t#stages/}" "$OUT/FNFPS2/assets/$t"
+        NPROP=$((NPROP+1))
+    else
+        echo "FALTA o prop $t em $STAGES_SRC" >&2
+        exit 1
+    fi
+done
+echo "   $NPROP props em $(ls -d "$OUT/FNFPS2/assets/stages"/*/ | wc -l) palcos, $(du -sh "$OUT/FNFPS2/assets/stages" | cut -f1)"
+
 echo "== copiando o ELF =="
 if [ ! -f "$ELF" ]; then
     echo "FALTA $ELF -- baixe do Drive (id 17-GBt7YM8fkc4ZBP9Xo5g-ksAy_qN9Jl)" >&2
@@ -107,6 +156,14 @@ FNF PS2 -- COMO INSTALAR
 
    A pasta FNFPS2 tem de estar na RAIZ, nao dentro de outra pasta.
    Se ficar mass:/FNFPS2/FNFPS2/... o jogo NAO abre.
+
+   Dentro dela tem de existir TUDO isto:
+       FNFPS2/assets/               os 16 arquivos soltos + songs/ + charts/
+       FNFPS2/assets/chars/         um .chp4 por personagem (46)
+       FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
+   Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
+   os fundos nao aparecem. Os dois casos deixam evento no log
+   (char_sem_pacote / prop_sem_pacote) em vez de tela vazia sem explicacao.
 
 2. Rode FNF_PS2.ELF pelo seu lancador (uLE, OPL, ESR, etc).
 

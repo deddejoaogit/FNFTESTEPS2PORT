@@ -19,6 +19,9 @@
 
 static int falhas;
 #define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
+#define CHECK_NEAR(a, b, eps) do { double _a = (double)(a), _b = (double)(b); \
+    if (_a < _b - (eps) || _a > _b + (eps)) { \
+        printf("  FALHA: %s ~= %s: %f != %f (linha %d)\n", #a, #b, _a, _b, __LINE__); falhas++; } } while (0)
 #define CHECK_EQ(a, b) do { long _a = (long)(a), _b = (long)(b); \
     if (_a != _b) { printf("  FALHA: %s == %s: %ld != %ld (linha %d)\n", #a, #b, _a, _b, __LINE__); falhas++; } } while (0)
 
@@ -206,8 +209,31 @@ int main(void)
         CHECK_EQ(cp_abrir(g_pacote, n, &p), CHP_ERR_MAGIC);
 
         memcpy(g_pacote, bom, n);
-        put32(g_pacote + 4, 2);
+        put32(g_pacote + 4, CHP_VERSAO + 1);       /* versao que nao existe */
         CHECK_EQ(cp_abrir(g_pacote, n, &p), CHP_ERR_VERSAO);
+
+        /* Escala do canvas (campo 32, x10000): 0 = nao guardada -> 1,0. */
+        memcpy(g_pacote, bom, n);
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 1.0, 1e-6);
+        put32(g_pacote + 32, 5000);                /* empacotado na metade */
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 0.5, 1e-6);
+        put32(g_pacote + 32, 60000);               /* pixel art (senpai = 6) */
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 6.0, 1e-6);
+        put32(g_pacote + 32, 7);                   /* abaixo de 0,01: lixo */
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 1.0, 1e-6);
+        put32(g_pacote + 32, 500000);              /* absurdo: lixo */
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 1.0, 1e-6);
+        /* Pacote v1: o campo 32 era reservado, entao o que estiver la' e' lixo
+           e nao pode virar tamanho de personagem. */
+        put32(g_pacote + 4, 1);
+        put32(g_pacote + 32, 3000);
+        CHECK_EQ(cp_abrir(g_pacote, n, &p), 0);
+        CHECK_NEAR(cp_escala(&p), 1.0, 1e-6);
 
         memcpy(g_pacote, bom, n);
         put32(g_pacote + 12, 999);                 /* bytes por quadro != w*h*4 */

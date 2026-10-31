@@ -25,7 +25,10 @@ mkdir -p "$OUT"
 ok=0; fail=0
 for f in assets-data/characters/*.json; do
     cid=$(basename "$f" .json)
-    [ -f "$OUT/$cid.cfz4" ] && continue      # ja empacotado
+    # Ja empacotado = os DOIS formatos na pasta: o .cfz4 (o palco le') e o
+    # .chp4 (o personagem le', com a tabela de animacoes). Checar so' o .cfz4
+    # deixava os 46 personagens sem o pacote que o jogo realmente abre.
+    [ -f "$OUT/$cid.cfz4" ] && [ -f "$OUT/$cid.chp4" ] && continue
     apath=$($PY -c "import json,sys;print(json.load(open('$f')).get('assetPath') or '$cid')")
     # resolve like the packers do: package prefix, then engine search order
     stem=$(printf '%s' "$apath" | sed 's|^[^:]*:||')
@@ -49,15 +52,19 @@ for f in assets-data/characters/*.json; do
     if [ -d "$found" ]; then
         if $PY tools/achatar_animate.py --assets "$ASSETS" --character "$cid" \
                --pack "$OUT/$cid.cfz4" --scale 0.5 --bpp 16 >/tmp/achatar_$cid.log 2>&1; then
-            printf '%-24s animate  %s\n' "$cid" "$(grep -o 'wrote.*' /tmp/achatar_$cid.log | head -1)"
+            printf '%-24s animate  %s | %s\n' "$cid" \
+                "$(grep -o 'wrote.*' /tmp/achatar_$cid.log | head -1)" \
+                "$(grep -o 'chp4:.*escala [0-9.]*' /tmp/achatar_$cid.log | head -1)"
             ok=$((ok+1))
         else
             echo "$cid: FALHOU (animate) -- veja /tmp/achatar_$cid.log"; fail=$((fail+1))
         fi
     else
         if $PY tools/pacote_personagem.py --assets "$ASSETS" --characters "$cid" \
-               --bpp 16 --budget 393216 --out "$OUT" >/tmp/pac_$cid.log 2>&1; then
-            printf '%-24s plano    %s\n' "$cid" "$(grep -E '^'"$cid"' ' /tmp/pac_$cid.log | head -1)"
+               --bpp 16 --budget 393216 --out "$OUT" --chp4 >/tmp/pac_$cid.log 2>&1; then
+            printf '%-24s plano    %s | %s\n' "$cid" \
+                "$(grep -E '^'"$cid"' ' /tmp/pac_$cid.log | head -1)" \
+                "$(grep -E '^'"$cid"' +chp4 ' /tmp/pac_$cid.log | head -1)"
             ok=$((ok+1))
         else
             echo "$cid: FALHOU (plano) -- veja /tmp/pac_$cid.log"; fail=$((fail+1))
@@ -65,5 +72,10 @@ for f in assets-data/characters/*.json; do
     fi
 done
 echo
+nb=$(ls "$OUT"/*.chp4 2>/dev/null | wc -l)
 echo "empacotados: $ok   falhas: $fail   em $OUT"
+echo "pacotes CHP4 (o formato que o jogo le' para personagem): $nb"
+# Um personagem sem .chp4 fica SEM ser desenhado no console (o jogo reporta
+# char_sem_pacote). Isso e' falha, nao aviso.
+[ "$nb" -ge "$ok" ] || { echo "FALTA: $((ok - nb)) personagem(ns) sem .chp4"; fail=$((fail+1)); }
 [ "$fail" -eq 0 ]

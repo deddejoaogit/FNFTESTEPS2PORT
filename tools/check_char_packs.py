@@ -64,6 +64,8 @@ def main(argv):
     bytes_total = 0
     sombreadas = []
     anims_total = 0
+    sem_escala = []
+    escalas = []
     for nome in arquivos:
         caminho = os.path.join(alvo, nome)
         cid = nome[:-5]
@@ -77,6 +79,14 @@ def main(argv):
             continue
         quadros += cab["n_quadros"]
         anims_total += len(cab["anims"])
+        # A escala do canvas (campo 32 do CHP4 v2) e' o que diz ao jogo por
+        # quanto dividir no desenho. Pacote v1 nao a tem: o jogo desenha
+        # assumindo 1,0, e um personagem empacotado na metade sai 2x menor sem
+        # erro nenhum. Por isso conta como falha, nao como aviso.
+        if cab["escala"] <= 0.0:
+            sem_escala.append(nome)
+        else:
+            escalas.append(cab["escala"])
         # Nomes repetidos NAO sao erro: o original guarda as animacoes num Map
         # por nome e a ultima sobrescreve (FlxAnimationController._animations
         # .set), que e' o que o `cp_anim_i` do port faz. Existe um caso real (o
@@ -114,6 +124,12 @@ def main(argv):
     if sombreadas:
         print(f"  {len(sombreadas)} animacao(oes) com nome repetido dentro do pacote "
               f"(vale a ultima, como no original): {sombreadas[0]}")
+    if escalas:
+        print("  escala do canvas: %.3f a %.3f (campo 32 do pacote)"
+              % (min(escalas), max(escalas)))
+    if sem_escala:
+        falhas.append("%d pacote(s) sem escala (v1): o jogo desenharia assumindo "
+                      "1,0 -- %s" % (len(sem_escala), sem_escala[:4]))
     if origem and len(arquivos) != len(origem):
         falhas.append(f"{len(arquivos)} pacotes para {len(origem)} personagens em assets-data")
     if falhas:

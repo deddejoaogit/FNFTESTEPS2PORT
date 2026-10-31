@@ -96,6 +96,14 @@ const bs_slot_t *ch_slot(const char *stage, const char *role)
     return 0;
 }
 
+float ch_escala_mundo(float escala_pacote, float escala_personagem, float escala_slot)
+{
+    float e = escala_pacote > 0.0f ? escala_pacote : 1.0f;
+    float p = escala_personagem > 0.0f ? escala_personagem : 1.0f;
+    float s = escala_slot > 0.0f ? escala_slot : 1.0f;
+    return p * s / e;
+}
+
 void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
                float canvas_w, float canvas_h, float pad, int usa_offsets,
                ch_anchor_t *out)

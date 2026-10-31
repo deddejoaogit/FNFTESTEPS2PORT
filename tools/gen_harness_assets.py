@@ -404,7 +404,10 @@ def build(root, charts_src=None):
             w, h = 64, 64
             quadros = [bytes(((q * 7 + i) & 0xff) for i in range(w * h * 4))
                        for q in range(primeiro)]
-            pacote = _chp4.escrever(quadros, w, h, 32, anims)
+            # Escala 1,0: a arte sintetica do harness ja' sai no tamanho em que
+            # deve ser desenhada, entao canvas = mundo. Um pacote real escreve
+            # a escala com que foi reduzido (0,5 nos 46 personagens).
+            pacote = _chp4.escrever(quadros, w, h, 32, anims, escala=1.0)
             cab = _chp4.ler(pacote)
             _chp4.conferir(cab)
             destino = os.path.join(a, "chars", cid + ".chp4")

@@ -69,10 +69,30 @@ unsigned short ch_dir_button(int dir);
 /* Direcao (0..3) para o nome de uma animacao sing, ou -1. */
 int ch_anim_dir(const char *nome);
 
+/* TAMANHO DO PERSONAGEM EM CENA.
+   O pacote guarda o canvas -- a arte JA' reduzida pela escala com que foi
+   empacotada (0,5 nos 46 personagens reais; ver tools/ps2_display.py: "a escala
+   e' um 0,5 exato, entao toda textura so' precisa de METADE da resolucao do
+   original para aparecer do tamanho que o original mostra"). O original desenha
+   a arte do tamanho do original vezes `CharacterData.scale` vezes o
+   `stage.characters.<papel>.scale` do palco (Stage.hx L451-455:
+   finalScale = getBaseScale() * stageCharData.scale).
+
+   Devolve quantas unidades do ORIGINAL (1280x720) vale 1 pixel de canvas:
+
+       escala_mundo = personagem.scale * slot.scale / escala_do_pacote
+
+   Com os 46 personagens reais (escala de pacote 0,5, scale 1) isso da' 2: cada
+   pixel de canvas vale 2 pixels do original, que e' o mesmo que dizer que o
+   canvas esta' na metade do original. Nos personagens de pixel (scale 6) da'
+   12, e no bf/dad do phillyBlazin (slot 1,75) da' 3,5. */
+float ch_escala_mundo(float escala_pacote, float escala_personagem, float escala_slot);
+
 /* Onde o personagem cai e onde a camera olha.
    slot        - bs_slots[] do palco
-   canvas_w/h  - tamanho do quadro no espaco do original (nao o do pacote)
-   pad         - o ajuste de 4/escala_do_pacote do port
+   canvas_w/h  - tamanho do quadro no espaco do original (nao o do pacote):
+                 canvas do pacote x ch_escala_mundo()
+   pad         - ajuste fino, em unidades do original
    usa_offsets - 0 para os personagens cujo script nao aplica offsets (gf.hx) */
 void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
                float canvas_w, float canvas_h, float pad, int usa_offsets,
