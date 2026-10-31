@@ -172,6 +172,23 @@ int main(void)
             CHECK_NEAR(a.sprite_x, 751.5f - 703.300f * 0.5f - 9.0f, 0.01);
             CHECK_NEAR(a.sprite_y, 787.0f - 674.850f - 9.0f, 0.01);
         }
+        /* ESPELHO (CharacterData.flipX): as duas coordenadas U do quadro,
+           trocadas quando o personagem tem flipX. Meio texel de recuo em cada
+           ponta, e o espelho NAO muda a posicao na tela (isso e' do quad). */
+        {
+            float u0 = -9.0f, u1 = -9.0f;
+            ch_uv_do_quadro(0, 320, &u0, &u1);
+            CHECK_NEAR(u0, 0.5, 1e-6);
+            CHECK_NEAR(u1, 319.5, 1e-6);
+            ch_uv_do_quadro(1, 320, &u0, &u1);
+            CHECK_NEAR(u0, 319.5, 1e-6);      /* espelhado: U desce */
+            CHECK_NEAR(u1, 0.5, 1e-6);
+            /* Largura invalida nao vira coordenada negativa. */
+            ch_uv_do_quadro(0, 0, &u0, &u1);
+            CHECK_NEAR(u0, 0.0, 1e-6);
+            CHECK_NEAR(u1, 0.0, 1e-6);
+        }
+
         /* TAMANHO EM CENA. O canvas do pacote esta' na escala em que foi
            empacotado; ch_escala_mundo devolve quantas unidades do ORIGINAL vale
            1 pixel de canvas. Os 46 personagens reais foram empacotados na

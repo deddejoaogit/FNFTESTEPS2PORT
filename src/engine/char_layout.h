@@ -88,6 +88,16 @@ int ch_anim_dir(const char *nome);
    12, e no bf/dad do phillyBlazin (slot 1,75) da' 3,5. */
 float ch_escala_mundo(float escala_pacote, float escala_personagem, float escala_slot);
 
+/* AS DUAS COORDENADAS U do retangulo de textura de UM quadro.
+   `flip` espelha na horizontal (CharacterData.flipX, aplicado em
+   BaseCharacter.hx L192: no flixel o espelho acontece DENTRO do quadro, entao a
+   posicao na tela e o recorte vertical nao mudam -- so' as colunas).
+   O meio texel de recuo em cada ponta evita sangrar a coluna vizinha quando a
+   filtragem e' bilinear. Fica aqui, e nao no desenho, para poder ser testado sem
+   GS: e' uma conta de tres numeros que erra em silencio (sprite virado para o
+   lado errado nao gera erro nenhum, so' um jogo esquisito). */
+void ch_uv_do_quadro(int flip, int tex_w, float *u0, float *u1);
+
 /* Onde o personagem cai e onde a camera olha.
    slot        - bs_slots[] do palco
    canvas_w/h  - tamanho do quadro no espaco do original (nao o do pacote):

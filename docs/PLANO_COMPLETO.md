@@ -2097,3 +2097,36 @@ de fim de evento (voltar ao `defaultCamZoom`) não existe no port. Nenhum dos 20
 eventos `ZoomCamera` dos 81 charts pede isso hoje: todos terminam em `bop`/valor
 absoluto explícito. Fica registrado como a próxima diferença a medir, não como
 pendência de dado.
+
+## O espelho dos personagens: `CharacterData.flipX` era dado ignorado
+
+**O defeito.** `bs_dados`/`char_dados` já geravam `flipx` desde o começo, e
+**nenhuma linha do desenho o lia**. Quatorze dos 46 personagens têm
+`"flipX": true` — **todos os `bf`** (`bf`, `bf-car`, `bf-christmas`, `bf-dark`,
+`bf-holding-gf`, `bf-pixel`), **todos os `pico`** e o `sserafim-sakura`.
+
+O original aplica em `BaseCharacter.hx` L192 (`this.flipX = _data.flipX`), e no
+flixel isso espelha a arte **dentro do próprio quadro**. Sem isso, o BF — que
+fica no lado direito da tela — aparecia olhando para a direita, de costas para o
+oponente, em **todas** as músicas.
+
+**A correção.** `sprite_dims_flip()` no `main.c` é o `sprite_dims` com as duas
+coordenadas U trocadas; a posição na tela e o recorte vertical não mudam (é o que
+o flixel faz). A conta em si mora em `ch_uv_do_quadro()` (`char_layout.c`), com o
+meio texel de recuo em cada ponta — o mesmo que o caminho sem espelho já usava —
+porque é uma conta de três números que erra em silêncio: sprite virado para o
+lado errado não gera erro nenhum, só um jogo esquisito.
+
+**Medido.** `test/test_char_layout.c`: sem espelho `u0=0,5`, `u1=319,5`; com
+espelho `u0=319,5`, `u1=0,5`; largura inválida não vira coordenada negativa.
+No harness, evento `char_flip` (papel, flipX) uma vez por papel por música:
+`bopeebo` → `char_flip,0,0` (GF), `char_flip,1,1` (BF, espelhado),
+`char_flip,2,0` (oponente). No sweep das 81: **162 papéis espelhados e 78 sem**;
+o sweep cobra ≥ 1 espelhado por combinação e ≥ metade sem — as duas direções,
+porque um espelho aplicado a todos seria tão errado quanto nenhum.
+
+**O que NÃO está provado:** que a arte dos 14 esteja desenhada de modo que o
+espelho a ponha virada para o lado certo. Isso depende do atlas real (o clone da
+arte não está aqui). O que o port garante é que faz **o que o dado diz** —
+`flipX` do `CharacterData` — e que o número aparece no log por papel, para a
+captura de console confirmar em uma música.

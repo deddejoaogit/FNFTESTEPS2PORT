@@ -170,6 +170,13 @@ for sid in $LISTA; do
         cini=$(awk -F, '$1=="E" && $3=="cena_inicio" {print $4","$5; exit}' "$LOG" 2>/dev/null)
         cz=$(echo "$cini" | cut -d, -f1)
         cs=$(echo "$cini" | cut -d, -f2)
+        # ESPELHO: 14 dos 46 personagens tem CharacterData.flipX=true (todos os
+        # bf e todos os pico). Se o desenho parar de espelhar, o BF aparece
+        # virado para o lado errado em TODAS as musicas -- e nada no log diria.
+        nflip1=$(awk -F, '$1=="E" && $3=="char_flip" && $4>0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        nflip0=$(awk -F, '$1=="E" && $3=="char_flip" && $4==0 {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        FLIPS1=$(( ${FLIPS1:-0} + ${nflip1:-0} ))
+        FLIPS0=$(( ${FLIPS0:-0} + ${nflip0:-0} ))
         ZOOMS=${ZOOMS:-}; SCROLLS=${SCROLLS:-}
         [ -n "$cz" ] && [ "$cz" -gt 0 ] 2>/dev/null && ZOOMS="$ZOOMS $cz"
         [ -n "$cs" ] && [ "$cs" -gt 0 ] 2>/dev/null && SCROLLS="$SCROLLS $cs"
@@ -212,6 +219,7 @@ for sid in $LISTA; do
         [ "${nlegado:-0}" -eq 0 ] 2>/dev/null || motivo="o Tutorial voltou ao caminho antigo${motivo:+, $motivo}"
         [ "${ncamini:-0}" -ge 1 ] 2>/dev/null || motivo="a camera nao comecou no oponente${motivo:+, $motivo}"
         [ "${nesc:-0}" -ge 2 ] 2>/dev/null || motivo="a escala do personagem nao foi medida${motivo:+, $motivo}"
+        [ "${nflip1:-0}" -ge 1 ] 2>/dev/null || motivo="o espelho (flipX) do jogador nao foi aplicado${motivo:+, $motivo}"
         [ -n "$cz" ] && [ "$cz" -gt 0 ] 2>/dev/null || motivo="o zoom inicial da musica nao foi medido${motivo:+, $motivo}"
         [ -n "$cs" ] && [ "$cs" -gt 0 ] 2>/dev/null || motivo="o scrollSpeed inicial da musica nao foi medido${motivo:+, $motivo}"
         [ "${npulado:-0}" -eq 0 ] 2>/dev/null || motivo="papel do oponente pulado por nome${motivo:+, $motivo}"
@@ -285,6 +293,15 @@ done
 rm -f build/sweep/palcos-vistos.txt
 echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
+echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
+# 27 musicas tem o BF (flipX) no papel do jogador e a GF (sem flipX) no dela; o
+# oponente varia. Se o desenho parar de espelhar, FLIPS1 cai para 0.
+# As cotas sao por COMBINACAO, e nao fixas: o sweep roda as 81 na passada
+# completa e 9 na do v5. Cada combinacao tem o jogador (flipX) e pelo menos um
+# papel sem flipX, menos o Tutorial (onde a GF e' o oponente) -- por isso
+# FLIPS1 >= combinacoes e FLIPS0 >= combinacoes/2.
+[ "${FLIPS1:-0}" -ge "$OK" ] || { echo "  FALHA: so' $FLIPS1 papel(eis) espelhados em $OK combinacoes -- o flipX deixou de ser aplicado" >&2; exit 1; }
+[ "${FLIPS0:-0}" -ge $(( (OK + 1) / 2 )) ] || { echo "  FALHA: so' $FLIPS0 papel(eis) sem espelho em $OK combinacoes -- o espelho virou regra geral" >&2; exit 1; }
 ZN=$(echo $ZOOMS | tr ' ' '\n' | sort -u | wc -l)
 SN=$(echo $SCROLLS | tr ' ' '\n' | sort -u | wc -l)
 echo "  inicio de musica: $ZN zoom(s) e $SN scrollSpeed(s) distintos nas 81 combinacoes"

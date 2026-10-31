@@ -932,8 +932,23 @@ static void band_clip_texel(float v0,float v1,float*lo,float*hi){
 static qword_t *sprite_dims(qword_t*q,float x,float y,float w,float h,int tw,int th){texrect_t v;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
- band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);v.t0.u=.5f;v.t1.u=tw-.5f;
+ band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
  v.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+
+/* O MESMO sprite_dims, ESPELHADO na horizontal.
+   `CharacterData.flipX` e' dado: 14 dos 46 personagens tem `true` (todos os bf,
+   todos os pico, o sserafim-sakura), e o original aplica em
+   BaseCharacter.hx L192 (`this.flipX = _data.flipX`), que no flixel espelha a
+   arte DENTRO do proprio quadro. O port copiava o quadro sem espelhar, entao
+   esses 14 eram desenhados virados para o lado errado -- o BF do lado direito da
+   tela tem de olhar para a esquerda, onde esta' o oponente.
+   Espelhar e' trocar as duas coordenadas U do retangulo de textura; a posicao na
+   tela e o recorte vertical nao mudam. */
+static qword_t *sprite_dims_flip(qword_t*q,float x,float y,float w,float h,int tw,int th){texrect_t v;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
+ band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
+ v.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
 static qword_t *sprite_region(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
@@ -1610,15 +1625,20 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int bati
   cena_canvas_mundo(papel,slot,&wm,&hm);   /* a MESMA conta que a camera usa */
   ch_anchor(&ch_chars[ci],slot,wm,hm,0.0f,papel==CH_PAPEL_GF?0:1,&an);
   q=bind_texture_filter(q,&g_cena_texde[papel],1);
-  q=sprite_dims(q,320.0f+(an.sprite_x-cx)*sc,180.0f+(an.sprite_y-cy)*sc,
-                wm*sc,hm*sc,
-                g_cena_texde_w[papel],g_cena_texde_h[papel]);
+  {
+   float sx=320.0f+(an.sprite_x-cx)*sc,sy=180.0f+(an.sprite_y-cy)*sc;
+   if(ci>=0&&ch_chars[ci].flipx)
+    q=sprite_dims_flip(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
+   else
+    q=sprite_dims(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
+  }
   /* UM evento por papel, uma vez por musica, com as tres parcelas do tamanho.
      Sem ele, "o personagem esta' do tamanho certo" nao teria medida nenhuma. */
   if(!g_cena_tam_visto[papel]){
    g_cena_tam_visto[papel]=1;
    telemetry_event("char_tamanho",papel,(int)(wm*sc));
    telemetry_event("char_escala",papel,(int)(em*100.0f));
+   telemetry_event("char_flip",papel,ci>=0?ch_chars[ci].flipx:0);
   }
   /* PROVA do "-hold": quando o personagem entra numa animacao "-hold" (os olhos
      do pai, a chama do isqueiro do Darnell), o log diz uma vez por papel. Sem

@@ -96,6 +96,15 @@ const bs_slot_t *ch_slot(const char *stage, const char *role)
     return 0;
 }
 
+void ch_uv_do_quadro(int flip, int tex_w, float *u0, float *u1)
+{
+    float a = 0.5f, b = (float)tex_w - 0.5f;
+    if (tex_w <= 0) { a = b = 0.0f; }
+    if (flip) { float t = a; a = b; b = t; }
+    if (u0) *u0 = a;
+    if (u1) *u1 = b;
+}
+
 float ch_escala_mundo(float escala_pacote, float escala_personagem, float escala_slot)
 {
     float e = escala_pacote > 0.0f ? escala_pacote : 1.0f;
