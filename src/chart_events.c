@@ -150,6 +150,11 @@ void chart_events_reset(float default_zoom, float default_scroll)
     st.cam_char = CHART_FOCUS_BF;
     st.cam_x = 0.0f;
     st.cam_y = 0.0f;
+    st.cam_mode = CHART_FOCUS_MODE_CLASSIC;
+    st.cam_ease = CHART_EASE_LINEAR;
+    st.cam_ease_dir = 0u;
+    st.cam_dur_s = 0.0f;
+    st.cam_seq = 0u;
 
     st.zoom = default_zoom;
     st.zoom_from = default_zoom;
@@ -230,9 +235,22 @@ void chart_events_set_bop(float intensity, float rate, float offset)
     st.bop_offset = offset;
 }
 
+/* Nomes de ease comparados sem depender de <string.h>: o modulo e' C puro e nao
+   inclui cabecalho de plataforma. */
+static int str_eq(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
 /* Fixed-point x1000 back to a float. The converter stores it this way so a
-   value survives the round trip exactly, which is what test_fch4.py proves. */
-static float fx(u32 v) { return (float)v / 1000.0f; }
+   value survives the round trip exactly, which is what test_fch4.py proves.
+   O CAST PARA s32 NAO E' DECORATIVO: FocusCamera carrega x/y NEGATIVOS
+   (`{"char":-1,"x":-440,"y":150}`), e o conversor grava o complemento de dois.
+   Sem o cast, -440 virava 4294527 e a camera ia para fora do palco. Zoom,
+   scroll e intensidade sao positivos e nao sentem a diferenca. */
+static float fx(u32 v) { return (float)(s32)v / 1000.0f; }
 
 /* The original's durations are in steps and it converts with stepLengthMs.
    The port works in samples, so a step is samples_per_step of them. */
@@ -257,16 +275,43 @@ void chart_events_apply(const chart_event_t *e)
         st.seen++;
 
         switch (e->type) {
-        case CHART_EV_FOCUS_CAMERA:
+        case CHART_EV_FOCUS_CAMERA: {
             /* char is the primary small integer. v3 packed it into `value`,
                and a bare int in the chart means the same thing --
                FocusCameraSongEvent does `if (char == null) char = cast
                data.value`, so the 408 events written as
-               {"e":"FocusCamera","v":1} are char 1, not a position. */
+               {"e":"FocusCamera","v":1} are char 1, not a position.
+               x/y are an OFFSET from that character's focus point (the
+               ABSOLUTE point when char is -1), and how the camera gets there
+               depends on the ease: FocusCameraSongEvent.hx L138-160. */
+            const char *en = (e->b & CHART_B_EASE_ABSENT)
+                             ? 0 : chart_event_string(e->b & CHART_B_EASE_MASK);
+            float dur = fx(e->p0);
             st.cam_char = (int)e->a;
             st.cam_x = fx(e->p1);
             st.cam_y = fx(e->p2);
+            st.cam_ease_dir = ease_dir;
+            if (!en) {
+                /* No `ease` in the chart: the class default is 'CLASSIC'
+                   (FocusCameraSongEvent L64), not index 0 of the string table,
+                   which is just the first name the converter interned. */
+                st.cam_mode = CHART_FOCUS_MODE_CLASSIC;
+                st.cam_ease = CHART_EASE_LINEAR;
+            } else if (str_eq(en, "CLASSIC")) {
+                st.cam_mode = CHART_FOCUS_MODE_CLASSIC;
+                st.cam_ease = CHART_EASE_LINEAR;
+            } else if (str_eq(en, "INSTANT")) {
+                st.cam_mode = CHART_FOCUS_MODE_INSTANT;
+                st.cam_ease = CHART_EASE_LINEAR;
+            } else {
+                st.cam_mode = CHART_FOCUS_MODE_TWEEN;
+                st.cam_ease = chart_events_ease_id(en);
+            }
+            if (dur <= 0.0f) dur = CHART_FOCUS_DEFAULT_DURATION;
+            st.cam_dur_s = steps_to_seconds(dur);
+            st.cam_seq++;
             break;
+        }
 
         case CHART_EV_ZOOM_CAMERA: {
             float dur = fx(e->p0);
@@ -278,7 +323,14 @@ void chart_events_apply(const chart_event_t *e)
             st.zoom_from = st.zoom;
             st.zoom_to = zoom;
             st.zoom_t = (dur > 0.0f) ? 0.0f : 1.0f;
-            st.zoom_ease = chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
+            /* No `ease` in the chart: SongEvent.DEFAULT_EASE is 'linear' and
+               DEFAULT_EASE_DIR 'In'. Before the absent bit existed, an event
+               without `ease` read index 0 of the string table, which is
+               whichever name the converter interned first -- a real curve that
+               nobody asked for. */
+            st.zoom_ease = (e->b & CHART_B_EASE_ABSENT)
+                           ? CHART_EASE_LINEAR
+                           : chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
             st.zoom_ease_dir = ease_dir;
             st.zoom_dur_s = steps_to_seconds(dur);
             break;
@@ -293,7 +345,9 @@ void chart_events_apply(const chart_event_t *e)
             st.scroll_from = st.scroll;
             st.scroll_to = scroll;
             st.scroll_t = (dur > 0.0f) ? 0.0f : 1.0f;
-            st.scroll_ease = chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
+            st.scroll_ease = (e->b & CHART_B_EASE_ABSENT)
+                             ? CHART_EASE_LINEAR
+                             : chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
             st.scroll_ease_dir = ease_dir;
             st.scroll_dur_s = steps_to_seconds(dur);
             break;

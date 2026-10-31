@@ -116,6 +116,18 @@ def chart(assets, sid, diff, forcar):
     pronto = os.path.join(PROJECT, "build", "charts-" + fmt, "%s-%s.chart" % (sid, diff))
     if os.path.isfile(pronto) and magia(pronto) != MAGIC[fmt]:
         os.unlink(pronto)
+    # O conversor mudou depois que o chart foi gerado? Entao o chart esta'
+    # velho, mesmo que o fourcc esteja certo. Aconteceu: um bit novo no campo
+    # `b` (ease ausente) entrou no fnf_to_fch3.py, o sweep reaproveitou os
+    # charts de build/charts-v5 e o jogo continuou lendo o que o conversor
+    # antigo escreveu -- o teste do modulo passava e o harness nao.
+    if os.path.isfile(pronto):
+        fonte_conversor = os.path.join(HERE, "fnf_to_fch3.py")
+        try:
+            if os.path.getmtime(pronto) < os.path.getmtime(fonte_conversor):
+                os.unlink(pronto)
+        except OSError:
+            pass
     if os.path.isfile(pronto):
         with open(pronto, "rb") as f:
             dados = f.read()

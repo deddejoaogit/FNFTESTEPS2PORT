@@ -118,6 +118,12 @@ B_FLIPX = 1 << 19
 B_ABSOLUTE = 1 << 20
 B_REF_IS_STRING = 1 << 21
 B_REF_IS_BLOCK = 1 << 22
+# Set when the chart carried NO `ease` field. The ease field in `b` is an index
+# into this file's string table, and index 0 is a real name, so "absent" cannot
+# be told from "CLASSIC" by the value -- and absent means the CLASS default
+# (FocusCamera 'CLASSIC', ZoomCamera/ScrollSpeed 'linear'), not whichever string
+# the table happened to intern first.
+B_EASE_ABSENT = 1 << 23
 
 # value kinds in a parameter block
 BLOCK_FLOAT, BLOCK_INT, BLOCK_RGB, BLOCK_BOOL = 0, 1, 2, 3
@@ -456,6 +462,8 @@ def encode_event_v4(name, v, tables):
         ease_name = d.get("ease")
         if ease_name is not None:
             b |= (tables.string(ease_name) & B_EASE_MASK) << B_EASE_SHIFT
+        else:
+            b |= B_EASE_ABSENT
     if spec.get("easeDir"):
         b |= small_id(EASEDIR_IDS, d.get("easeDir"), "easeDir") << B_EASEDIR_SHIFT
     if spec.get("force"):

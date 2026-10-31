@@ -174,6 +174,18 @@ static int g_tut_cam_focus=0,g_tut_cam_ready=0;static float g_tut_cam_x=0.0f,g_t
    Sem cena generica (nenhum pacote), o alvo cai nas constantes do Tutorial. */
 static int g_cam_papel=0;   /* CH_PAPEL_BF */
 static float dad_cam_x=0.0f,dad_cam_y=0.0f;
+/* Tween do FocusCamera (FocusCameraSongEvent.hx L138-160). CLASSIC so' move o
+   ponto de foco e deixa a perseguicao levar a camera; INSTANT poe a camera no
+   ponto na hora; qualquer outra ease interpola a POSICAO da camera no tempo do
+   evento. Sem estes tres campos, um evento com `ease` era aplicado como se
+   fosse CLASSIC -- 46 dos 664 eventos dos 81 charts. */
+static int   g_cam_seq=-1;
+static float g_cam_from_x=0.0f,g_cam_from_y=0.0f,g_cam_to_x=0.0f,g_cam_to_y=0.0f;
+static float g_cam_t=1.0f,g_cam_dur=0.0f;
+static unsigned g_cam_ease=0u,g_cam_dir=0u;
+/* Quantos eventos FocusCamera de cada modo chegaram nesta musica: e' a prova
+   de que os tres caminhos existem e sao usados (o log diz qual deles tocou). */
+static int g_cam_modo_visto[3]={0,0,0};
 static int g_tutorial_bf_w=0,g_tutorial_bf_h=0,g_tutorial_gf_w=0,g_tutorial_gf_h=0;
 static unsigned char *g_tutorial_bf_pack=0,*g_tutorial_gf_pack=0;static u32 g_tutorial_bf_pack_bytes=0,g_tutorial_gf_pack_bytes=0;static int g_tutorial_bf_uploaded=-1,g_tutorial_gf_uploaded=-1;
 static const unsigned char *g_story_bf_pack=0,*g_story_gf_pack=0;static u32 g_story_bf_pack_bytes=0,g_story_gf_pack_bytes=0;static int g_story_bf_uploaded=-1,g_story_gf_uploaded=-1,g_story_anim_ready=0;static u32 g_story_anim_heard_samples=0;
@@ -323,7 +335,8 @@ static int g_death_counter=0;
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
     chart_events_reset(g_official_mainstage_camera_zoom,1.0f); \
     g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
-    g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
+    g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_cam_seq=-1;g_cam_t=1.0f;g_cam_dur=0.0f; \
+    g_cam_modo_visto[0]=g_cam_modo_visto[1]=g_cam_modo_visto[2]=0;g_tut_zoom=g_official_mainstage_camera_zoom; \
     g_tut_scroll=1.0f;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
     tutorial_notes_reset(); \
     g_countdown_beat=(s32)(4u*g_play_samples_per_step); \
@@ -3522,9 +3535,49 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
  if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_gf_ci],slg,0.0f,0.0f,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
  if(g_cena_modo&&sld&&g_cena.p[CH_PAPEL_DAD].ativo){ch_anchor_t an;ch_anchor(&ch_chars[g_cena_dad_ci],sld,0.0f,0.0f,0.0f,1,&an);dad_cam_x=an.cam_x;dad_cam_y=an.cam_y;}}
 float tcx,tcy,cx,cy;
-if(g_cam_papel==CH_PAPEL_GF){tcx=gf_cam_x;tcy=gf_cam_y;}
-else if(g_cam_papel==CH_PAPEL_DAD){tcx=dad_cam_x;tcy=dad_cam_y;}
-else{tcx=bf_cam_x;tcy=bf_cam_y;}if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
+{const chart_event_state_t*ev=chart_events_state();
+ /* char -1 e' o proprio (x,y): FocusCameraSongEvent L102-103 nao soma personagem
+    nenhum. Nos outros valores x/y sao OFFSET do ponto daquele personagem
+    (L104-133). Antes o port ignorava x/y -- 123 dos 664 eventos dos 81 charts
+    tem offset, e 86 focam uma posicao fixa. */
+ if(g_cam_papel==CH_PAPEL_GF){tcx=gf_cam_x;tcy=gf_cam_y;}
+ else if(g_cam_papel==CH_PAPEL_DAD){tcx=dad_cam_x;tcy=dad_cam_y;}
+ else{tcx=bf_cam_x;tcy=bf_cam_y;}
+ tcx+=ev->cam_x;tcy+=ev->cam_y;
+ if(ev->cam_char==CHART_FOCUS_STATIC){tcx=ev->cam_x;tcy=ev->cam_y;}
+ if(g_cam_seq<0)g_cam_seq=(int)ev->cam_seq;
+ else if((int)ev->cam_seq!=g_cam_seq){
+  g_cam_seq=(int)ev->cam_seq;
+  g_cam_from_x=g_tut_cam_x;g_cam_from_y=g_tut_cam_y;
+  g_cam_to_x=tcx;g_cam_to_y=tcy;
+  g_cam_dur=ev->cam_dur_s;g_cam_ease=ev->cam_ease;g_cam_dir=ev->cam_ease_dir;
+  if(ev->cam_mode==CHART_FOCUS_MODE_INSTANT){
+   /* tweenCameraToPosition(x,y,0) -> resetCamera(...,snap=true): a camera
+      chega no ponto no mesmo quadro. */
+   g_cam_t=1.0f;g_tut_cam_x=tcx;g_tut_cam_y=tcy;
+  }else if(ev->cam_mode==CHART_FOCUS_MODE_TWEEN&&g_cam_dur>0.0f){
+   g_cam_t=0.0f;
+  }else{
+   /* CLASSIC: o ponto de foco muda e a perseguicao leva a camera. */
+   g_cam_t=1.0f;
+  }
+  if(ev->cam_mode>=0&&ev->cam_mode<3&&!g_cam_modo_visto[ev->cam_mode]){
+   g_cam_modo_visto[ev->cam_mode]=1;
+   telemetry_event(ev->cam_mode==CHART_FOCUS_MODE_INSTANT?"cam_foco_instant":
+                   (ev->cam_mode==CHART_FOCUS_MODE_TWEEN?"cam_foco_tween":"cam_foco_classic"),
+                   (int)ev->cam_char,(int)ev->cam_ease);
+  }
+ }}if(!g_tut_cam_ready){g_tut_cam_x=tcx;g_tut_cam_y=tcy;g_tut_cam_ready=1;}
+else if(g_cam_t<1.0f){
+ /* FlxTween sobre camera.scroll: posicao = from + (to-from)*ease(t), com
+    t avancando dt/duracao. chart_ease_eval e' a mesma tabela do zoom. */
+ float k;
+ g_cam_t+=TUT_DT/g_cam_dur;if(g_cam_t>1.0f)g_cam_t=1.0f;
+ k=chart_ease_eval(g_cam_ease,g_cam_dir,g_cam_t);
+ g_tut_cam_x=g_cam_from_x+(g_cam_to_x-g_cam_from_x)*k;
+ g_tut_cam_y=g_cam_from_y+(g_cam_to_y-g_cam_from_y)*k;
+}else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}
+cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao

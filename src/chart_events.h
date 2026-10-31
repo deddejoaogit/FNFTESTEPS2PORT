@@ -36,6 +36,23 @@
 #define CHART_EV_SET_CAMERA_BOP   7u
 #define CHART_EV_SET_HEALTH_ICON  8u
 
+/* `b` bit set when the chart carried NO `ease` field at all. The ease field in
+   `b` is an index into the file's own string table, and index 0 is a real name,
+   so "absent" cannot be told from "CLASSIC" by the value -- and absent means the
+   CLASS DEFAULT (FocusCamera: 'CLASSIC', ZoomCamera: 'linear'), not whichever
+   string the converter interned first. */
+#define CHART_B_EASE_ABSENT (1u << 23)
+
+/* How a FocusCamera event moves the camera (FocusCameraSongEvent.hx L138-160):
+     CLASSIC -> resetCamera(false,false,false) + setPosition: no tween, the
+                follow point moves and the camera's own lock-on takes it there;
+     INSTANT -> tweenCameraToPosition(x,y,0): the camera lands at once;
+     other   -> FlxTween over stepLengthMs*duration, with the named ease. */
+#define CHART_FOCUS_MODE_CLASSIC 0
+#define CHART_FOCUS_MODE_INSTANT 1
+#define CHART_FOCUS_MODE_TWEEN   2
+#define CHART_FOCUS_DEFAULT_DURATION 4.0f   /* FocusCameraSongEvent L63 */
+
 /* FocusCamera char values, FocusCameraSongEvent.hx. */
 #define CHART_FOCUS_STATIC (-1)
 #define CHART_FOCUS_BF       0
@@ -65,6 +82,10 @@ typedef struct {
        0/1/2 add (x,y) as an offset to that character's focus point. */
     int   cam_char;
     float cam_x, cam_y;
+    int   cam_mode;          /* CHART_FOCUS_MODE_*                             */
+    u32   cam_ease, cam_ease_dir;
+    float cam_dur_s;         /* duration in SECONDS, steps -> stepLengthMs     */
+    u32   cam_seq;           /* one per applied FocusCamera event              */
 
     /* ZoomCamera. The tween runs on zoom_t from 0 to 1 over the event's own
        duration and ease, both of which travel with the event. */

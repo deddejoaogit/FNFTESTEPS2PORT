@@ -837,6 +837,57 @@ tutorial, faixas de quadro fixas). Trocá-los é o próximo passo — e depois a
 animações de canto do oponente por evento de chart (`PlayAnimation`), que hoje
 só cobrem as notas.
 
+#### Fechado: FocusCamera com modo, ease, duração e posição — e o fixo de 1.000 que estava errado
+
+`FocusCamera` é o evento de câmera mais numeroso do jogo: **664 eventos nos 81
+charts**. O port guardava três coisas dele (alvo, x, y) e usava uma quarta
+implícita: "a câmera sempre persegue o ponto novo". A fonte diz outra coisa
+(`FocusCameraSongEvent.hx` L138-160):
+
+| `ease` do evento | o que o original faz | quantos |
+|---|---|---|
+| ausente (padrão `CLASSIC`) | `resetCamera(false,false,false)` + `cameraFollowPoint.setPosition` — move o **ponto de foco**, sem tween | **520** |
+| `CLASSIC` | idem | 72 |
+| `INSTANT` | `tweenCameraToPosition(x,y,0)`, ou seja, a câmera **chega no mesmo quadro** | 61 |
+| qualquer curva | `FlxTween` na **posição** da câmera por `stepLengthMs*duration`, com `ease+easeDir` | 11 |
+
+Três defeitos concretos, todos medidos no módulo e no harness:
+
+1. **`x`/`y` eram ignorados.** 123 dos 664 eventos trazem deslocamento e 86 focam
+   uma **posição fixa** (`char: -1`, que não soma personagem nenhum). O port
+   olhava só o alvo, então `{"char":-1,"x":-440,"y":150}` do `spaghetti` era
+   aplicado como "foca quem estava focado".
+2. **O modo não existia.** Todo evento virava perseguição: os 61 `INSTANT` e os
+   11 com curva chegavam ao destino no ritmo do lerp, não no do evento.
+3. **O fixo de 1.000 estava errado para valor negativo.**
+   `fx()` fazia `(float)v / 1000.0f` sem passar por `s32`, então `-440` (gravado
+   como complemento de dois pelo conversor) lia **4.294.527**. Zoom, scroll e
+   intensidade são positivos e nunca acusaram; `x`/`y` de câmera não são. O teste
+   novo do módulo pegou o valor na primeira execução.
+
+E uma armadilha de formato, que também valia para o zoom e o scroll: o campo de
+ease em `b` é um **índice na tabela de strings do arquivo**, e o índice 0 é um
+nome de verdade. Um evento **sem** `ease` lia, portanto, "a primeira string que o
+conversor internou" — uma curva que ninguém pediu. O conversor passou a marcar
+essas ocorrências (`B_EASE_ABSENT`, bit 23), e o port resolve o padrão da classe
+(`CLASSIC` para câmera; `linear`/`In` para zoom e scroll, `SongEvent.DEFAULT_EASE`).
+
+**Medido depois:**
+
+| medida | resultado |
+|---|---|
+| `test_chart_events` | 114 checks, 0 falhas — inclui os três modos, `char -1`, x negativo e duração padrão de 4 passos |
+| harness, `tutorial` e `bopeebo` | `cam_foco_classic` (alvo, `linear`) |
+| harness, `spaghetti` | `cam_foco_tween` com `char -1` e a curva `expo` |
+| sweep FCH5 | **81/81**, e o passe de eventos segue 9/9 |
+| `test_fch4.py` | todos os parâmetros sobrevivem ao round trip |
+
+**O que falta nesta frente, e está declarado:** o foco **inicial**. O original
+começa seguindo o oponente (`PlayState.hx` L2225-2227) e o port começa no BF, que
+é o que a captura do console do Tutorial conferiu. E a duração do `ZoomCamera`
+sem `duration` ainda é tratada como 0 (o padrão da classe é 4 passos) — outro
+build, outra causa.
+
 #### Fechado: o Tutorial sai do caminho antigo, e o uploader antigo para de escrever por cima dos personagens
 
 Duas coisas erradas, uma causa: o caminho antigo do Tutorial continuou vivo

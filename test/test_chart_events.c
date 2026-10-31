@@ -137,6 +137,15 @@ int main(void)
     s = chart_events_state();
     ok(s->seen == 3u, "the event at 0 and both at 9,600 ms were consumed");
     ok(s->cam_char == CHART_FOCUS_DAD, "focus moved to the opponent");
+    /* Neither of the tutorial's FocusCamera events carries an `ease`, and the
+       class default is 'CLASSIC' (FocusCameraSongEvent L64): the follow point
+       moves and the camera's lock-on takes it there, no tween. The default
+       duration is 4 steps (L63), which at 150 ms per step is 0.6 s -- it is
+       recorded even for CLASSIC, so a later INSTANT/tween event that inherits
+       nothing still reports the right number. */
+    ok(s->cam_mode == CHART_FOCUS_MODE_CLASSIC, "no `ease` means CLASSIC, not a curve");
+    near(s->cam_dur_s, 0.6f, "the default duration is 4 steps = 0.6 s at 150 ms");
+    ok(s->cam_seq == 2u, "two FocusCamera events so far (0 and 9,600 ms)");
     ok(s->zoom_from == 1.1f, "the zoom tween starts from the stage zoom");
     near(s->zoom_to, 1.3f, "the zoom target is the chart's 1.3");
     ok(s->zoom_t == 0.0f, "the zoom tween has not run yet");
@@ -271,6 +280,43 @@ int main(void)
     /* spaghetti carries all 15 in the game. Each names an icon id, and the
        ids are the SSERAFIM members -- the same names as the character JSONs,
        which is how the test knows the string table is being read correctly. */
+    /* ---- FocusCamera: as tres formas de mover a camera, no chart real ---
+       FocusCameraSongEvent.hx L138-160: sem `ease` (ou CLASSIC) so' move o
+       ponto de foco; INSTANT poe a camera no ponto na hora; qualquer outra
+       ease interpola a posicao com FlxTween durante duration*stepLengthMs.
+       O spaguete e' a unica musica com as tres: 520 dos 664 eventos dos 81
+       charts nao trazem `ease`, 61 sao INSTANT e 9 usam expo/linear/quadInOut. */
+    load(SPAGHETTI);
+    chart_events_reset(1.1f, 1.0f);
+    {
+        u32 i;
+        int tween_seen = 0, instant_seen = 0;
+        for (i = 0; i < g_info.event_count; i++) {
+            const chart_event_t *e = chart_event(i);
+            if (!e || e->type != CHART_EV_FOCUS_CAMERA) continue;
+            chart_events_pump(e->sample);
+            s = chart_events_state();
+            if (s->cam_mode == CHART_FOCUS_MODE_TWEEN && !tween_seen) {
+                tween_seen = 1;
+                /* t=700 ms: {"char":-1,"duration":12,"ease":"expo","easeDir":"Out",
+                   "x":-440,"y":150} */
+                ok(s->cam_char == CHART_FOCUS_STATIC, "char -1 is the static focus");
+                near(s->cam_x, -440.0f, "negative x survives fixed point");
+                near(s->cam_y, 150.0f, "y survives fixed point");
+                ok(s->cam_ease == chart_events_ease_id("expo"), "ease expo travels");
+                ok(s->cam_ease_dir == 1u, "easeDir Out is 1");
+                ok(s->cam_dur_s > 0.0f, "a tween has a duration in seconds");
+            }
+            if (s->cam_mode == CHART_FOCUS_MODE_INSTANT && !instant_seen) {
+                instant_seen = 1;
+                ok(s->cam_char == CHART_FOCUS_STATIC, "the INSTANT events are static too");
+                ok(s->cam_dur_s > 0.0f, "duration is recorded even when ignored");
+            }
+            if (tween_seen && instant_seen) break;
+        }
+        ok(tween_seen && instant_seen, "spaghetti has both a tween and an INSTANT focus");
+    }
+
     load(SPAGHETTI);
     chart_events_reset(1.1f, 1.0f);
     {
