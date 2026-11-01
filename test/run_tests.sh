@@ -195,6 +195,15 @@ $CC $FLAGS test/test_char_cena.c src/engine/char_cena.c src/engine/char_pack.c \
 /tmp/fnf_test_char_cena
 echo
 
+# O que um NOTE KIND faz: o dado lido dos scripts do original (35 kinds) e as
+# duas formas de acao -- canto com sufixo e animacao nomeada.
+echo "== note kinds: o dado dos scripts e o canto com sufixo =="
+$CC $FLAGS test/test_notekind.c src/engine/char_cena.c src/engine/char_pack.c \
+    src/engine/char_anim.c src/engine/char_layout.c src/engine/song_registry.c \
+    src/engine/lz4_bloco.c src/engine/notekind.c -o /tmp/fnf_test_notekind -lm
+/tmp/fnf_test_notekind
+echo
+
 echo "== vram_cache + io_fila =="
 $CC $FLAGS test/test_engine.c src/engine/vram_cache.c src/engine/io_fila.c -o /tmp/fnf_test_engine
 /tmp/fnf_test_engine
@@ -240,6 +249,10 @@ echo
 # prometer 15 quadros onde o pacote tem 30 -- e o prop congela no console.
 echo "== stage_dados.h is the rendering of the committed stage plan =="
 python3 tools/gen_stage_dados.py --check
+# O dado dos note kinds cobre todo kind que aparece nos 81 charts? Um kind
+# usado numa musica e ausente da tabela passaria calado, e o jogo o trataria
+# como "nada a fazer" -- que e' o bug que este dado existe para consertar.
+python3 tools/gen_notekinds.py --check
 python3 - <<'PYCHECK'
 import json, os, sys
 plan = json.load(open("assets-data/stage-props.json"))

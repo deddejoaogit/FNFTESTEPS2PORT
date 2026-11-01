@@ -34,6 +34,7 @@
 #include "engine/char_pack.h"
 #include "engine/char_cena.h"
 #include "engine/char_layout.h"
+#include "engine/notekind.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
 #include <stdio.h>
@@ -1354,6 +1355,15 @@ static int g_cena_tex_w=0,g_cena_tex_h=0;
    196.480 B de PSMCT16). Reaproveitar os dois nao gasta um byte de VRAM nova --
    e o pacote real do BF (258x254 PSMCT32 = 262.128 B) e o da GF (320x307
    PSMCT16 = 196.480 B) cabem exatamente onde ja' estavam. */
+/* Indice em ch_chars[] de cada papel carregado (-1 = papel vazio). O NOTE KIND
+   e' resolvido por PERSONAGEM (o script e' do personagem, nao do papel), e o
+   unico lugar que sabe o id e' ch_chars[ci].id. */
+static int g_cena_ci[CH_CENA_PAPEIS];
+/* `doAlternate()` dos scripts Blazin': os kinds `punchhigh`/`punchlow` pedem
+   `'punchHigh' + postfix`, e o postfix alterna '1'/'2' a cada chamada -- os dois
+   nomes existem nos dados ('punchHigh1'/'punchHigh2'). O contador e' POR PAPEL,
+   porque o `alternate` do script e' um campo do personagem. */
+static int g_kind_alt[CH_CENA_PAPEIS];
 static texbuffer_t g_cena_texde[CH_CENA_PAPEIS];
 static int g_cena_texde_w[CH_CENA_PAPEIS],g_cena_texde_h[CH_CENA_PAPEIS];
 static int g_cena_quadros[CH_CENA_PAPEIS];      /* quadros diferentes subidos */
@@ -1478,6 +1488,7 @@ static int cena_carregar(const sr_song_t *song)
     id no log, e o papel fica vazio -- dado faltando e' reportado, nao tapado. */
  strncpy(g_cena_song,song->id,sizeof g_cena_song-1);
  g_cena_song[sizeof g_cena_song-1]=0;
+ for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_ci[i]=-1;g_kind_alt[i]=0;}
  for(i=0;i<CH_CENA_PAPEIS;i++){
   int a;
   if(plano[i].ci<0){telemetry_event("char_vazio",i,0);continue;}
@@ -1503,7 +1514,15 @@ static int cena_carregar(const sr_song_t *song)
      preenche o DEFAULT_DANCEEVERY. O campo existe para nao haver uma constante
      escondida no meio do codigo se algum personagem passar a trazer. */
   cc_danca_cada(&g_cena,i,ch_chars[plano[i].ci].dance);
+  g_cena_ci[i]=plano[i].ci;
   telemetry_event("char_carregado",plano[i].ci,(int)g_cena_mem_bytes[i]);
+  /* Quantos NOTE KINDS este personagem implementa no script dele. O dado passa
+     a existir (tools/gen_notekinds.py le' preload/scripts/), entao o numero
+     deixa de ser "0, falta dado" e vira uma medida por personagem -- e um
+     personagem que perca o script dele aparece aqui como 0. */
+  {const char *pid=ch_chars[plano[i].ci].id;unsigned int k,n=0;
+   for(k=0;k<NK_KIND_COUNT;k++)if(nk_acao(pid,nk_kinds[k].id))n++;
+   telemetry_event("char_kinds",(int)n,(int)plano[i].ci);}
  }
  /* TEXTURA DE CADA PAPEL, no MESMO formato de pixel do pacote (PSMCT32 ou
     PSMCT16). Nao se converte 32 -> 16 aqui: essa conta de cor nao foi medida, e
@@ -1755,8 +1774,62 @@ static unsigned short tutorial_lane_button(unsigned int lane){static const unsig
                         em tallies.totalNotes (PlayState.hx L2538-2554), o hit
                         nao soma pontos/vida (L3159) nem combo (L3143), e no
                         miss o kind esconde a nota e cancela o evento.
-   Os outros 32 kinds (weekend-1-*, mom, ugh, hehPrettyGood) sao scripts que
-   nao estao no pacote de dados; nao ha' o que portar sem eles. */
+   Os outros 32 kinds (weekend-1-*, mom, ugh, hehPrettyGood, sakura-*,
+   censor) NAO sao mais "dado que falta": `tools/gen_notekinds.py` le' os
+   scripts do clone da arte e gera `src/engine/notekind_dados.h`, e
+   `cena_nota_kind()` aplica o que cada um pede (canto com sufixo ou animacao
+   nomeada). O que o script faz por CONDICAO (vida baixa, sorteio, estado) fica
+   marcado `condicional` no dado e o port NAO escolhe sozinho. */
+/* O QUE O NOTE KIND MANDA TOCAR NESTA NOTA (tools/gen_notekinds.py).
+   O script do personagem e' quem decide, e o dado diz:
+     tipo 1 -> canto com sufixo ("sing<DIR>-alt", "sing<DIR>-joint"...);
+     tipo 2 -> uma animacao nomeada ("punchHigh", "block", "ugh"...).
+   Devolve 1 quando o kind RESPONDE por esta nota -- tocando o que o script pede
+   ou, quando o personagem nao tem a animacao que o script pede, nao tocando
+   nada (no original o playAnimation de um nome inexistente so' registra o
+   aviso e o personagem fica onde estava; cair no canto normal seria uma
+   animacao que o script nao pediu). E' o `nota_kind_sem_anim` do log: o dado
+   pede, a arte nao entrega. Devolve 0 so' quando nao ha kind nenhum a aplicar,
+   e aí quem chamou toca o canto normal. */
+static int cena_nota_kind(int papel,const chart_note_t *n,int dir,int missing,
+                          long agora,long sing_ms){
+ const nk_acao_t *a;const char *kind,*pid;
+ if(!n||n->kind==CHART_KIND_NONE)return 0;
+ if(papel<0||papel>=CH_CENA_PAPEIS||!g_cena.p[papel].ativo)return 0;
+ if(g_cena_ci[papel]<0||g_cena_ci[papel]>=CH_CHAR_COUNT)return 0;
+ kind=chart_note_kind_name(n->kind);
+ pid=ch_chars[g_cena_ci[papel]].id;
+ a=nk_acao(pid,kind);
+ if(!a)return 0;
+ if(a->tipo==1){
+  if(cc_canto_sufixo(&g_cena,papel,dir,missing,a->valor,agora,sing_ms)){
+   telemetry_event("nota_kind_sing",papel,(int)dir);
+   return 1;}
+  telemetry_event("nota_kind_sem_anim",papel,1);
+  return 1;   /* o kind agiu: o script NAO cai no canto normal */
+ }
+ if(a->tipo==2){
+  const char *anim=a->valor;
+  /* Nome que ALTERNA (punchHigh1/punchHigh2): `alternate = !alternate; return
+     alternate ? '1' : '2'` comeca em false, entao a PRIMEIRA chamada usa '1'
+     (valor) e a seguinte '2' (valor2). O flip acontece mesmo quando o
+     personagem nao tem a animacao, como no script (doAlternate e' chamado
+     antes do playAnimation). */
+  if(a->alterna&&a->valor2&&a->valor2[0]){
+   if(g_kind_alt[papel])anim=a->valor2;
+   g_kind_alt[papel]=!g_kind_alt[papel];
+  }
+  /* A animacao nomeada do kind nao e' canto: cc_toca a coloca como especial e
+     ela segura o personagem ate' acabar (o `holdTimer = 0` + a animacao do
+     script). Se o personagem nao tem a animacao, fica o registro. */
+  if(cc_toca(&g_cena,papel,anim,agora)){
+   telemetry_event("nota_kind_anim",papel,(int)strlen(anim));
+   return 1;}
+  telemetry_event("nota_kind_sem_anim",papel,2);
+  return 1;
+ }
+ return 0;
+}
 static int nota_noanim(const chart_note_t *n){return n&&chart_note_kind_is(n->kind,"noanim");}
 static int nota_nonscoreable(const chart_note_t *n){return n&&chart_note_kind_is(n->kind,"non_scoreable");}
 static void tutorial_notes_reset(void){
@@ -1799,7 +1872,11 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
       toca o maior `drop<N>` que ele alcanca. Tem de ser lido antes do
       fnf_play_miss(), que e' quem zera o combo. */
    {int combo_antes=g_play.combo;
-    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));
+    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3){
+     long ms=(long)(sample/48u),cm=cena_canto_ms(CH_PAPEL_BF,1);
+     if(!cena_nota_kind(CH_PAPEL_BF,&note,(int)note.lane,1,ms,cm))
+      cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,ms,cm);
+    }
     fnf_play_miss(&g_play);
     if(g_cena.p[CH_PAPEL_GF].ativo&&cc_drop(&g_cena,CH_PAPEL_GF,combo_antes,(long)(sample/48u)))telemetry_event("char_combo_drop",combo_antes,0);}g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
@@ -1812,8 +1889,10 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
    long ms=(long)(sample/48u);
    long cm=cena_canto_ms(CH_PAPEL_DAD,0),cg=cena_canto_ms(CH_PAPEL_GF,0);
    if(!nota_noanim(&note)){
-    if(g_cena.p[CH_PAPEL_DAD].ativo)cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
-    if(g_cena.p[CH_PAPEL_GF].ativo)cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
+    if(g_cena.p[CH_PAPEL_DAD].ativo&&!cena_nota_kind(CH_PAPEL_DAD,&note,(int)note.lane,0,ms,cm))
+     cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
+    if(g_cena.p[CH_PAPEL_GF].ativo&&!cena_nota_kind(CH_PAPEL_GF,&note,(int)note.lane,0,ms,cg))
+     cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
    }
   }}
  }
@@ -1835,7 +1914,11 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
    if(chart_note((u32)best,&note)<0)best=-1;
    else{fnf_judge_t judge;
     offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;
-    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,0));
+    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&lane<=3){
+     long ms=(long)(sample/48u),cm=cena_canto_ms(CH_PAPEL_BF,0);
+     if(!cena_nota_kind(CH_PAPEL_BF,&note,(int)lane,0,ms,cm))
+      cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,ms,cm);
+    }
     /* NonScoreableNoteKind: a nota e' consumida, o strum reage, mas nada
        entra em pontos, vida, combo ou acerto -- PlayState.hx L3159 poe todo
        o applyScore() dentro de `if (note.scoreable)`. */

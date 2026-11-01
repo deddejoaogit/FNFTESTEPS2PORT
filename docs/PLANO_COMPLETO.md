@@ -2326,3 +2326,74 @@ número de partida acima.
 
 **O que NÃO está provado:** o custo em tempo de CPU/GS no console. O harness mede
 *quantas* vezes cada caminho roda, não *quanto* ele custa em ciclos.
+
+## Os 34 NOTE KINDS: o dado que faltava estava no clone da arte
+
+**O erro que esteve escrito no documento por várias builds.** "32 dos 34 kinds
+são scripts que não estão no pacote de dados; não há o que portar sem eles."
+Falso: os scripts estão em `preload/scripts/` do clone da arte, e o mesmo vale
+para os 46 `.hxc` de personagem. O port implementava só os dois kinds de
+**código** (`noanim`, `non_scoreable`) e tratava o resto como dado ausente.
+
+**Agora o dado é lido, não pedido** (`tools/gen_notekinds.py`):
+
+| peça | o que é |
+|---|---|
+| `preload/scripts/notekinds/*.hxc` | **35** classes, cada uma `super('id', 'Nome de exibição')` — a lista fechada dos kinds de script |
+| `preload/scripts/characters/*.hxc` | o que cada kind FAZ, no `switch (event.note.kind)` do `onNoteHit`: **68 associações em 10 personagens** |
+| `assets-data/notekinds.json` | o dado, para diff e conferência |
+| `src/engine/notekind_dados.h` | o mesmo dado em C, gerado (não editado à mão) |
+| `src/engine/notekind.{h,c}` | a busca: `nk_acao(personagem, kind)`, `nk_nome(kind)` |
+
+**As duas formas de ação, lidas do script — nenhuma inventada:**
+
+- **canto com sufixo**: `this.playSingAnimation(dir, false, 'alt')` →
+  `sing<DIR>-alt`. É o `mom` das pais de Natal (43 notas em `cocoa` hard) e o
+  `sakura-joint`/`bf1`/`bf2` da Sakura (92 notas em `spaghetti` hard).
+- **animação nomeada**: o `case` chama uma função que faz `playAnimation('X')` →
+  o port toca `X` pelo `cc_toca` (especial: segura o personagem até acabar e
+  depois ele volta a dançar). É o `weekend-1-*` dos Blazin' (214 notas em
+  `blazin` hard) e o `ugh`/`hehPrettyGood` do Tankman.
+
+**O detalhe que custou 110 animações "que a arte não tem".** Os kinds
+`weekend-1-punchhigh`/`punchlow` não pedem um nome escrito: o script faz
+`'punchHigh' + postfix`, e `postfix` vem de `doAlternate()`, que alterna
+`'1'`/`'2'` a cada chamada. Os dois nomes **existem** nos dados
+(`punchHigh1`/`punchHigh2`). A primeira leitura do gerador pegava só o prefixo
+`punchHigh`, o jogo não achava a animação e registrava `nota_kind_sem_anim`.
+
+Medido, uma passada de 8.000 quadros por música no harness (FCH5, que é o
+contêiner que carrega o `k` por nota):
+
+| música | notas com kind | antes do conserto da alternância | depois |
+|---|---|---|---|
+| `blazin` hard | 440 | 104 animações + **110 sem animação** | **214 animações, 0 sem** |
+| `cocoa` hard | 137 | 43 cantos com sufixo | 43 (igual) |
+| `spaghetti` hard | 472 | 92 cantos com sufixo | 92 (igual) |
+| `ugh` hard | 4 | 3 animações | 3 (igual) |
+
+`stress` hard tem **1** nota com kind (`hehPrettyGood`, aos 62 s) e ela não foi
+alcançada nessa passada: o relógio da música pula para o fim por volta dos 51 s
+nesse asset sintético (os stems do harness são sintéticos). Fica registrado como
+"não observado", não como "não funciona" — o caminho geral está provado nas
+outras quatro.
+
+**O que o dado marca e o jogo NÃO aplica (reportado, não adivinhado):**
+
+| campo do script | no dado | no port |
+|---|---|---|
+| `condicional` (vida baixa, sorteio de 30%, `cantUppercut`) | marcado | **não** escolhe sozinho qual caminho |
+| `ordem` (`moveToBack`/`moveToFront`) | marcado | **não** aplicado (a ordem de desenho dos 3 papéis é fixa) |
+| `shake` (`camGame.shake(0.0025, 0.15)`) | marcado (força ×1000, ms) | **não** aplicado: o port não tem tremor de câmera |
+
+Os três são eventos do original; ficam no dado para não serem reinventados
+quando o tremor de câmera entrar.
+
+**Teste:** `test/test_notekind.c` (dentro de `test/run_tests.sh`) prende os casos
+reais (`mom`→`alt`, `ugh`→`ugh`, `sakura-joint` sem classe NoteKind), o que NÃO
+existe (personagem que não implementa, kind desconhecido, ponteiro nulo), o canto
+com sufixo recusando quando a animação não existe (sem cair no canto normal), e
+a animação nomeada segurando o personagem até acabar. E
+`gen_notekinds.py --check` falha se um kind usado nos 81 charts não tiver nem
+registro nem ação — foi assim que `sakura-*` (3 kinds sem classe, resolvidos só
+pela ação do personagem) apareceu em vez de passar calado.

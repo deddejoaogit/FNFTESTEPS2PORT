@@ -1,0 +1,578 @@
+{
+ "fonte": "preload/scripts/notekinds/ e preload/scripts/characters/ (.hxc)",
+ "kinds": {
+  "censor": {
+   "arquivo": "preload/scripts/notekinds/censor.hxc",
+   "nome": "[UH-OH!] Censor Bar"
+  },
+  "hehPrettyGood": {
+   "arquivo": "preload/scripts/notekinds/hehPrettyGood.hxc",
+   "nome": "Tankman Heh Pretty Good (Week 7)"
+  },
+  "mom": {
+   "arquivo": "preload/scripts/notekinds/mom.hxc",
+   "nome": "Mom Sings (Week 5)"
+  },
+  "ugh": {
+   "arquivo": "preload/scripts/notekinds/ugh.hxc",
+   "nome": "Tankman Ugh (Week 7)"
+  },
+  "weekend-1-blockhigh": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Block High (Blazin')"
+  },
+  "weekend-1-blocklow": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Block Low (Blazin')"
+  },
+  "weekend-1-blockspin": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Block High (Spin) (Blazin')"
+  },
+  "weekend-1-cockgun": {
+   "arquivo": "preload/scripts/notekinds/2hot.hxc",
+   "nome": "Pico Cock Gun (2hot)"
+  },
+  "weekend-1-darnelluppercut": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Darnell Uppercut (Blazin')"
+  },
+  "weekend-1-darnelluppercutprep": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Darnell Uppercut (Prep) (Blazin')"
+  },
+  "weekend-1-dodgehigh": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Dodge High (Blazin')"
+  },
+  "weekend-1-dodgelow": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Dodge Low (Blazin')"
+  },
+  "weekend-1-dodgespin": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Dodge High (Spin) (Blazin')"
+  },
+  "weekend-1-fakeout": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Fakeout (Blazin')"
+  },
+  "weekend-1-firegun": {
+   "arquivo": "preload/scripts/notekinds/2hot.hxc",
+   "nome": "Pico Fire Gun (2hot)"
+  },
+  "weekend-1-hithigh": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Hit High (Blazin')"
+  },
+  "weekend-1-hitlow": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Hit Low (Blazin')"
+  },
+  "weekend-1-hitspin": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Hit High (Spin) (Blazin')"
+  },
+  "weekend-1-idle": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Idle (Blazin')"
+  },
+  "weekend-1-kickcan": {
+   "arquivo": "preload/scripts/notekinds/2hot.hxc",
+   "nome": "Darnell Kick Can (2hot)"
+  },
+  "weekend-1-kneecan": {
+   "arquivo": "preload/scripts/notekinds/2hot.hxc",
+   "nome": "Darnell Knee Can (2hot)"
+  },
+  "weekend-1-lightcan": {
+   "arquivo": "preload/scripts/notekinds/2hot.hxc",
+   "nome": "Darnell Light Can (2hot)"
+  },
+  "weekend-1-picouppercut": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Pico Uppercut (Blazin')"
+  },
+  "weekend-1-picouppercutprep": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Pico Uppercut (Prep) (Blazin')"
+  },
+  "weekend-1-punchhigh": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch High (Blazin')"
+  },
+  "weekend-1-punchhighblocked": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch High (Block) (Blazin')"
+  },
+  "weekend-1-punchhighdodged": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch High (Dodge) (Blazin')"
+  },
+  "weekend-1-punchhighspin": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch High (Spin) (Blazin')"
+  },
+  "weekend-1-punchlow": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch Low (Blazin')"
+  },
+  "weekend-1-punchlowblocked": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch Low (Block) (Blazin')"
+  },
+  "weekend-1-punchlowdodged": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch Low (Dodge) (Blazin')"
+  },
+  "weekend-1-punchlowspin": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Punch High (Spin) (Blazin')"
+  },
+  "weekend-1-reversefakeout": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Fakeout (Reverse) (Blazin')"
+  },
+  "weekend-1-taunt": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Taunt (If Fakeout) (Blazin')"
+  },
+  "weekend-1-tauntforce": {
+   "arquivo": "preload/scripts/notekinds/blazin.hxc",
+   "nome": "Taunt (Forced) (Blazin')"
+  }
+ },
+ "personagens": {
+  "bf-christmas": {
+   "censor": {
+    "sufixo": "censor",
+    "tipo": "sing"
+   },
+   "hey": {
+    "anim": "hey",
+    "tipo": "anim"
+   }
+  },
+  "darnell": {
+   "weekend-1-kickcan": {
+    "anim": "kickCan",
+    "tipo": "anim"
+   },
+   "weekend-1-kneecan": {
+    "anim": "kneeCan",
+    "tipo": "anim"
+   },
+   "weekend-1-lightcan": {
+    "anim": "lightCan",
+    "tipo": "anim"
+   }
+  },
+  "darnell-blazin": {
+   "weekend-1-blockhigh": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-blocklow": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-blockspin": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-darnelluppercut": {
+    "anim": "uppercut",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-darnelluppercutprep": {
+    "anim": "uppercutPrep",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgehigh": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgelow": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgespin": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-fakeout": {
+    "anim": "cringe",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-hithigh": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-hitlow": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-hitspin": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-idle": {
+    "anim": "idle",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-picouppercut": {
+    "anim": "uppercutHit",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhigh": {
+    "anim": "hitHigh",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighblocked": {
+    "anim": "block",
+    "ordem": "fundo",
+    "shake": [
+     0.002,
+     0.1
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighdodged": {
+    "anim": "dodge",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighspin": {
+    "anim": "hitSpin",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-punchlow": {
+    "anim": "hitLow",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowblocked": {
+    "anim": "block",
+    "ordem": "fundo",
+    "shake": [
+     0.002,
+     0.1
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowdodged": {
+    "anim": "dodge",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowspin": {
+    "anim": "hitSpin",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-reversefakeout": {
+    "anim": "fakeout",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-tauntforce": {
+    "anim": "pissed",
+    "ordem": "fundo",
+    "tipo": "anim"
+   }
+  },
+  "parents-christmas": {
+   "mom": {
+    "sufixo": "alt",
+    "tipo": "sing"
+   }
+  },
+  "pico-blazin": {
+   "weekend-1-blockhigh": {
+    "anim": "block",
+    "ordem": "fundo",
+    "shake": [
+     0.002,
+     0.1
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-blocklow": {
+    "anim": "block",
+    "ordem": "fundo",
+    "shake": [
+     0.002,
+     0.1
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-blockspin": {
+    "anim": "block",
+    "ordem": "fundo",
+    "shake": [
+     0.002,
+     0.1
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-darnelluppercut": {
+    "anim": "uppercutHit",
+    "ordem": "fundo",
+    "shake": [
+     0.005,
+     0.25
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-darnelluppercutprep": {
+    "anim": "idle",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgehigh": {
+    "anim": "dodge",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgelow": {
+    "anim": "dodge",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-dodgespin": {
+    "anim": "dodge",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-fakeout": {
+    "anim": "fakeout",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-hithigh": {
+    "anim": "hitHigh",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-hitlow": {
+    "anim": "hitLow",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-hitspin": {
+    "anim": "hitSpin",
+    "ordem": "fundo",
+    "shake": [
+     0.0025,
+     0.15
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-idle": {
+    "anim": "idle",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-picouppercut": {
+    "anim": "uppercut",
+    "ordem": "frente",
+    "shake": [
+     0.005,
+     0.25
+    ],
+    "tipo": "anim"
+   },
+   "weekend-1-picouppercutprep": {
+    "anim": "uppercutPrep",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhigh": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighblocked": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighdodged": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchhighspin": {
+    "alterna": 1,
+    "anim": "punchHigh1",
+    "anim2": "punchHigh2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchlow": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowblocked": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowdodged": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-punchlowspin": {
+    "alterna": 1,
+    "anim": "punchLow1",
+    "anim2": "punchLow2",
+    "ordem": "frente",
+    "tipo": "anim"
+   },
+   "weekend-1-reversefakeout": {
+    "anim": "idle",
+    "ordem": "fundo",
+    "tipo": "anim"
+   },
+   "weekend-1-tauntforce": {
+    "anim": "taunt",
+    "ordem": "fundo",
+    "tipo": "anim"
+   }
+  },
+  "pico-playable": {
+   "censor": {
+    "sufixo": "censor",
+    "tipo": "sing"
+   },
+   "cheer": {
+    "anim": "cheer",
+    "tipo": "anim"
+   },
+   "hey": {
+    "anim": "hey",
+    "tipo": "anim"
+   },
+   "weekend-1-cockgun": {
+    "anim": "cock",
+    "tipo": "anim"
+   },
+   "weekend-1-firegun": {
+    "anim": "shoot",
+    "tipo": "anim"
+   }
+  },
+  "spooky-dark": {
+   "cheer": {
+    "anim": "cheer",
+    "tipo": "anim"
+   }
+  },
+  "sserafim-sakura": {
+   "sakura-bf1": {
+    "sufixo": "bf1",
+    "tipo": "sing"
+   },
+   "sakura-bf2": {
+    "sufixo": "bf2",
+    "tipo": "sing"
+   },
+   "sakura-joint": {
+    "sufixo": "joint",
+    "tipo": "sing"
+   }
+  },
+  "tankman": {
+   "hehPrettyGood": {
+    "anim": "hehPrettyGood",
+    "tipo": "anim"
+   },
+   "ugh": {
+    "anim": "ugh",
+    "tipo": "anim"
+   }
+  },
+  "tankman-bloody": {
+   "hehPrettyGood": {
+    "anim": "hehPrettyGood",
+    "tipo": "anim"
+   },
+   "ugh": {
+    "anim": "ugh",
+    "tipo": "anim"
+   }
+  }
+ }
+}

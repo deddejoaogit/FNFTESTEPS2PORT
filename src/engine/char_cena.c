@@ -127,6 +127,40 @@ int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora)
     return 1;
 }
 
+int cc_canto_sufixo(cc_cena_t *c, int papel, int dir, int missing,
+                    const char *sufixo, long agora, long sing_ms)
+{
+    static const char *base[4] = { "singLEFT", "singDOWN", "singUP", "singRIGHT" };
+    cc_papel_t *p;
+    char nome[CHP_NOME];
+    size_t n, m, extra;
+    int a;
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS || !sufixo || !*sufixo) return 0;
+    if (dir < 0 || dir > 3) return 0;
+    p = &c->p[papel];
+    if (!p->ativo) return 0;
+    /* "sing<DIR>" + ("miss") + "-" + sufixo. Sem snprintf: o nome tem de caber
+       em CHP_NOME (24), e um sufixo maior que isso nao existe no original. */
+    n = strlen(base[dir]);
+    m = strlen(sufixo);
+    extra = (missing ? 4u : 0u) + 1u + m;
+    if (n + extra + 1u > sizeof nome) return 0;
+    memcpy(nome, base[dir], n);
+    if (missing) { memcpy(nome + n, "miss", 4); n += 4; }
+    nome[n++] = '-';
+    memcpy(nome + n, sufixo, m + 1u);
+    a = cp_anim_i(&p->pacote, nome);
+    if (a < 0) return 0;                 /* o personagem nao tem esse canto */
+    if (a != p->anim) {
+        p->anim = a;
+        p->t0 = agora;
+        p->quadro = -1;
+    }
+    p->especial = 0;
+    if (sing_ms > 0 && agora + sing_ms > p->canto_ate) p->canto_ate = agora + sing_ms;
+    return 1;
+}
+
 void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long sing_ms)
 {
     cc_papel_t *p;

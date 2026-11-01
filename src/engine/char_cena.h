@@ -65,6 +65,15 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
    `sing_ms`. `missing` escolhe a animacao de erro quando ela existe. */
 void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long sing_ms);
 
+/* Canto COM SUFIXO: os NOTE KINDS que o original resolve por
+   `playSingAnimation(dir, false, 'alt')` -- o nome tocado e' "sing<DIR>-alt"
+   (ou "sing<DIR>miss-alt"). Devolve 1 se tocou. Se o personagem NAO tem essa
+   animacao, devolve 0 e NAO toca nada: no original o playAnimation de um nome
+   inexistente so' avisa no log e deixa o personagem onde estava, e cair no
+   canto normal seria uma animacao que o script nao pediu. */
+int cc_canto_sufixo(cc_cena_t *c, int papel, int dir, int missing,
+                    const char *sufixo, long agora, long sing_ms);
+
 /* Toca uma animacao NOMEADA (evento PlayAnimation: "hey", "cheer", "scared"...).
    Enquanto ela nao termina, o personagem NAO volta a dancar -- e' a regra do
    BaseCharacter.dance() L479-497: quem esta' numa animacao que nao comeca com
