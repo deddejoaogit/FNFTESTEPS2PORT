@@ -485,6 +485,32 @@ int res_cp_flash(unsigned long ms)
     return (ms >= ini && ms < ini + (unsigned long)g_res_cp_geo.flash_ms) ? 1 : 0;
 }
 
+int res_cp_small_visivel(int rank, unsigned long ms)
+{
+    const res_rank_t *r = res_rank(rank);
+    if (!r) return 0;
+    return ms >= (unsigned long)r->bf_ms ? 1 : 0;
+}
+
+int res_cp_small_flash(int rank, unsigned long ms)
+{
+    const res_rank_t *r = res_rank(rank);
+    if (!r || !res_cp_small_visivel(rank, ms)) return 0;
+    /* `clearPercentSmall.flash(true)` seguido de `new FlxTimer().start(0.4,
+       flash(false))`. O flash do original e' `PureColor` branco (o mesmo
+       caso pendente do contador grande): a JANELA esta' aqui, a cor depende de
+       TFX = DECAL no GS. */
+    return (ms - (unsigned long)r->bf_ms) < 400ul ? 1 : 0;
+}
+
+float res_cp_small_x(float dif_w)
+{
+    /* `(difficulty.x + difficulty.width) + 60` em 1280x720, pela metade:
+       (555 + largura + 60) / 2 = small_fixo_x + largura/2. `dif_w` ja' vem em
+       640x360 (a largura que o port carregou), e small_fixo_x e' (555+60)/2. */
+    return g_res_cp_geo.small_fixo_x + dif_w;
+}
+
 /* ---- A BARRA DO TOPO E A DIFICULDADE (ResultState.hx L342-360, L736-750) --
 
    Dois tweens, ambos com o MESMO arredondamento para CIMA que o percentual usa

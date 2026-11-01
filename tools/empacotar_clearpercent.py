@@ -154,6 +154,15 @@ def empacotar(assets, out):
         "small_y": round((360.0 - 100.0) * HALF, 3),
         "small_x_pos": round(-24.0 * HALF, 3),
         "small_y_passo": round(-4.0 * HALF, 3),
+        # `timerThenSongName()` (L741-745) reposiciona o contador pequeno:
+        #   clearPercentSmall.x = (difficulty.x + difficulty.width) + 60
+        #   clearPercentSmall.y = -height, tween ate' (122 - 5) + correcao
+        # Em 640x360 a parte fixa do x e' (555 + 60) / 2; a largura da imagem
+        # da dificuldade entra em tempo de execucao (muda com a dificuldade).
+        "small_fixo_x": round((555.0 + 60.0) * HALF, 3),
+        "small_y_alvo": round((122.0 - 5.0) * HALF, 3),
+        # O texto (`clearPercentTextSmall`) fica em x = 40 no grupo.
+        "small_texto_x": round(40.0 * HALF, 3),
         # Os tempos, em 24 avos (o relogio da tela).
         "inicio_q": 37,          # junto com o `score.animateNumbers()`
         "tween_q": 58,           # FlxTween.tween(..., 58 / 24, quartOut)

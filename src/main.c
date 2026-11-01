@@ -327,6 +327,7 @@ static int g_res_cp_ok=0;
 static unsigned int g_res_cp_addr[RES_CP_ATLASES];
 static unsigned int g_res_cp_texto_addr=0,g_res_cp_texto_small_addr=0;
 static int g_res_cp_logado=0,g_res_cp_final=0;
+static int g_res_cp_small_logado=0;   /* ja' reportou o contador pequeno do topo */
 
 /* A BARRA DO TOPO E A DIFICULDADE. A barra nao tem textura (trapezio de cor
    solida: 0 B de VRAM); a imagem da dificuldade e' UM dos cinco `diff_*.rgba`
@@ -2910,12 +2911,26 @@ static void resultado_soltar(void)
  g_res_tally_ok=0;g_res_tally_addr=0;g_res_tally_desenho=-1;
  {int k;for(k=0;k<(int)RES_TALLIES;k++)g_res_tally_logado[k]=0;}
  g_res_cp_ok=0;g_res_cp_texto_addr=0;g_res_cp_texto_small_addr=0;
- g_res_cp_logado=0;g_res_cp_final=0;
+ g_res_cp_logado=0;g_res_cp_final=0;g_res_cp_small_logado=0;
  g_res_dif_ok=0;g_res_dif_addr=0;g_res_dif_ind=-1;g_res_dif_h=0.0f;
  g_res_barra_logado=0;
  {int k;for(k=0;k<(int)RES_CP_ATLASES;k++)g_res_cp_addr[k]=0;}
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
+}
+/* O PERCENTUAL que a tela de Resultado mostra. No Story Mode e' o da SEMANA
+   (`talliesLevel`, o mesmo criterio dos contadores); na Freeplay, o da musica
+   (`fnf_play_clear_percent`). Usado pelo contador GRANDE e pelo PEQUENO do
+   topo -- os dois mostram o mesmo numero. */
+static int resultado_pct_alvo(void)
+{
+ if(g_story_mode){
+  float c=g_camp_total_notas>0
+          ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/(float)g_camp_total_notas):0.0f;
+  if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
+  return (int)(c*100.0f);
+ }
+ return fnf_play_clear_percent(&g_play);
 }
 static qword_t *title_alpha(qword_t*q,texbuffer_t*t,const char*s,float cx,float y,float scale){static const unsigned char gw[36]={38,32,38,37,30,30,38,31,30,38,31,29,39,31,35,32,36,33,34,31,31,38,41,38,38,36,24,16,26,24,24,29,27,28,24,24};float ds=scale*.7142857f,total=0,x;int i,n,idx;for(i=0;s[i];i++){if(s[i]==' ')total+=20*ds;else{idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx>=0&&idx<36)total+=(gw[idx]+3)*ds;}}x=cx-total*.5f;q=bind_texture(q,t);for(i=0;s[i];i++){if(s[i]==' '){x+=20*ds;continue;}idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx<0||idx>=36)continue;n=gw[idx];q=sprite_region(q,x,y,n*ds,47*ds,(idx%9)*42,(idx/9)*48,n,47);x+=(n+3)*ds;}return q;}
 /* audsrv_stop_audio() mutes the stream but does not flush its internal ring.
@@ -5947,13 +5962,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(g_res_cp_ok&&res_cp_visivel((unsigned long)g_res_ms)){
      const res_cp_geo_t *geo=&g_res_cp_geo;
      int pct,valor,nd,ind,off,alpha=res_cp_alpha((unsigned long)g_res_ms);
-     if(g_story_mode){
-      float c=g_camp_total_notas>0
-              ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/
-                (float)g_camp_total_notas):0.0f;
-      if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
-      pct=(int)(c*100.0f);
-     }else pct=fnf_play_clear_percent(&g_play);
+     pct=resultado_pct_alvo();
      valor=res_cp_valor(pct,(unsigned long)g_res_ms);
      nd=res_cp_digitos(valor);
      off=res_cp_deslocamento(nd);
@@ -6013,6 +6022,56 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       q=sprite_region(q,g_res_dif_geo.x,dy,(float)df->w,(float)df->h,
                       0.0f,0.0f,(float)df->w,(float)df->h);
      }
+    }
+    /* O CONTADOR PEQUENO DO TOPO (`ClearPercentCounter` com `small = true`).
+       Entra em `getBFDelay()` (95/24 s; 97/24 s no EXCELLENT), ja' com o valor
+       FINAL -- nao ha' tween aqui: `showSmallClearPercent()` faz
+       `curNumber = clearPercentTarget` e o `drawNumbers()` do grupo mostra o
+       numero de uma vez. O texto (`clearPercentTextSmall`, so' o `%`) fica em
+       x = 40 do grupo e os digitos abaixo, com passo de 32 px, deslocamento
+       de -24 px em x e -4 px em y por digito (L63-80).
+       Posicao: `x = (difficulty.x + difficulty.width) + 60` e
+       `y = (122 - 5) + (blackTopBar.height - 148)`, posto por
+       `timerThenSongName()` (L741-745) -- ou seja, o contador pequeno anda
+       junto com a imagem da dificuldade. */
+    if(g_res_cp_ok&&g_res_dif_ind>=0&&
+       res_cp_small_visivel((int)fnf_play_rank(&g_play),(unsigned long)g_res_ms)){
+     const res_cp_geo_t *geo=&g_res_cp_geo;
+     const res_cp_atlas_t *at=&g_res_cp_atlas[RES_CP_SMALL];
+     float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w);
+     float sy=geo->small_y_alvo+g_res_barra.correcao_y;
+     int pct=resultado_pct_alvo();
+     int nd=res_cp_digitos(pct),off=res_cp_deslocamento(nd),ind;
+     {texbuffer_t ct=stagetex;
+      ct.width=g_res_cp_texto_small.w;ct.psm=GS_PSM_32;
+      ct.address=g_res_cp_texto_small_addr;
+      setup_texture_dims(&ct,(int)g_res_cp_texto_small.w,
+                         (int)g_res_cp_texto_small.h);
+      q=bind_texture_filter(q,&ct,1);
+      q=sprite_region(q,sx+geo->small_texto_x,sy,
+        (float)g_res_cp_texto_small.w*g_res_cp_texto_small.fator,
+        (float)g_res_cp_texto_small.h*g_res_cp_texto_small.fator,
+        0.0f,0.0f,(float)g_res_cp_texto_small.w,
+        (float)g_res_cp_texto_small.h);}
+     if(g_res_cp_addr[RES_CP_SMALL]){
+      texbuffer_t gt=stagetex;
+      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[RES_CP_SMALL];
+      setup_texture_dims(&gt,(int)at->w,(int)at->h);
+      q=bind_texture_filter(q,&gt,1);
+      for(ind=0;ind<nd;ind++){
+       int d,p10=1,m;const res_cp_frame_t *fr;
+       for(m=nd-1;m>ind;m--)p10*=10;
+       d=(pct/p10)%10;
+       fr=&at->frames[d];
+       q=sprite_region(q,
+         sx+((float)ind+(float)off)*geo->passo_pequeno+geo->small_x_pos+(float)fr->ox,
+         sy+((float)ind+(float)off)*geo->small_y_passo+(float)fr->oy,
+         (float)fr->aw*at->fator,(float)fr->ah*at->fator,
+         (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah);
+      }
+     }
+     if(!g_res_cp_small_logado){g_res_cp_small_logado=1;
+      telemetry_event("resultado_clear_small",pct,(int)(sx*10.0f));}
     }
     /* A BARRA PRETA DO TOPO (ResultState.hx L342-346). Nao ha' PNG: o original
        monta um retangulo preto de 1295x149 girado de -3,8 graus

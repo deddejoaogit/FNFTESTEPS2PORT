@@ -753,6 +753,7 @@
    "rank": 0,
    "sufixo": "LOSS",
    "flash_ms": 7750,
+   "bf_ms": 3958,
    "vert": {
     "arquivo": "rank_loss_vert.rgba",
     "w": 20,
@@ -784,6 +785,7 @@
    "rank": 1,
    "sufixo": "GOOD",
    "flash_ms": 4458,
+   "bf_ms": 3958,
    "vert": {
     "arquivo": "rank_good_vert.rgba",
     "w": 20,
@@ -815,6 +817,7 @@
    "rank": 2,
    "sufixo": "GREAT",
    "flash_ms": 4542,
+   "bf_ms": 3958,
    "vert": {
     "arquivo": "rank_great_vert.rgba",
     "w": 20,
@@ -846,6 +849,7 @@
    "rank": 3,
    "sufixo": "EXCELLENT",
    "flash_ms": 5083,
+   "bf_ms": 4042,
    "vert": {
     "arquivo": "rank_excellent_vert.rgba",
     "w": 20,
@@ -877,6 +881,7 @@
    "rank": 4,
    "sufixo": "PERFECT",
    "flash_ms": 5375,
+   "bf_ms": 3958,
    "vert": {
     "arquivo": "rank_perfect_vert.rgba",
     "w": 20,
@@ -908,6 +913,7 @@
    "rank": 5,
    "sufixo": "PERFECT",
    "flash_ms": 5375,
+   "bf_ms": 3958,
    "vert": {
     "arquivo": "rank_perfect_vert.rgba",
     "w": 20,
@@ -1585,6 +1591,9 @@
    "small_y": 130.0,
    "small_x_pos": -12.0,
    "small_y_passo": -2.0,
+   "small_fixo_x": 307.5,
+   "small_y_alvo": 58.5,
+   "small_texto_x": 20.0,
    "inicio_q": 37,
    "tween_q": 58,
    "flash_ms": 400,

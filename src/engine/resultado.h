@@ -189,6 +189,27 @@ int res_cp_alpha(unsigned long ms);
 /* 1 durante o `flash(true)` (o `PureColor` branco do original). */
 int res_cp_flash(unsigned long ms);
 
+/* ---- O CONTADOR PEQUENO DO TOPO (ClearPercentCounter com `small = true`) --
+
+ * `ResultState.create()` L143 cria `clearPercentSmall` em
+ * `(width/2 + 300, height/2 - 100)` com `small = true`, mas quem o poe na cena
+ * e' `showSmallClearPercent()`, chamado por `afterRankTallySequence()` no
+ * `getBFDelay()` do rank (95/24 s; 97/24 no EXCELLENT). O numero NAO sobe num
+ * tween: `curNumber = clearPercentTarget` mostra o valor final de uma vez.
+ * `timerThenSongName()` (L741-745) ja' o posicionou em
+ * `x = (difficulty.x + difficulty.width) + 60` e `y = 117 + correcao`.
+ */
+
+/* 1 = o contador pequeno ja' esta' na cena (`ms >= getBFDelay()` do rank). */
+int res_cp_small_visivel(int rank, unsigned long ms);
+
+/* 1 durante o `flash(true)` de 0,4 s que `showSmallClearPercent()` dispara. */
+int res_cp_small_flash(int rank, unsigned long ms);
+
+/* x do grupo do contador pequeno, dada a largura da imagem da dificuldade em
+ * 640x360: `(difficulty.x + difficulty.width) + 60`, tudo pela metade. */
+float res_cp_small_x(float dif_w);
+
 /* ---- A BARRA PRETA DO TOPO E A IMAGEM DA DIFICULDADE ---------------------
  *
  * `ResultState.create()` L342-360: a barra nasce em `y = -height` e desliza

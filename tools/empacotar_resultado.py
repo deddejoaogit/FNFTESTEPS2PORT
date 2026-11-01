@@ -100,13 +100,14 @@ FOLHAS = [
 # Nomes dos arquivos por rank, como em Scoring.getVerTextAsset/getHorTextAsset:
 # PERFECT e PERFECT_GOLD usam os mesmos de PERFECT.
 RANKS = [
-    # (indice no fnf_rank_t do port, sufixo do arquivo, atraso do flash em 1/24 s)
-    (0, "LOSS", 186),       # SHIT
-    (1, "GOOD", 107),
-    (2, "GREAT", 109),
-    (3, "EXCELLENT", 122),
-    (4, "PERFECT", 129),    # PERFECT, e PERFECT_GOLD o reusa
-    (5, "PERFECT", 129),    # PERFECT_GOLD
+    # (indice no fnf_rank_t do port, sufixo do arquivo, atraso do flash em 1/24 s,
+    #  `getBFDelay()` em 1/24 s -- quando o contador pequeno do topo entra)
+    (0, "LOSS", 186, 95),       # SHIT
+    (1, "GOOD", 107, 95),
+    (2, "GREAT", 109, 95),
+    (3, "EXCELLENT", 122, 97),  # EXCELLENT e' o unico com 97/24
+    (4, "PERFECT", 129, 95),    # PERFECT, e PERFECT_GOLD o reusa
+    (5, "PERFECT", 129, 95),    # PERFECT_GOLD
 ]
 
 # O gradiente de fundo: FlxGradient com angulo 90 (vertical) e estas duas cores.
@@ -281,7 +282,7 @@ def main():
     # resolucao, como todo o resto da tela.
     ranks_out = []
     vistos = {}
-    for idx, suf, flash in RANKS:
+    for idx, suf, flash, bf in RANKS:
         if suf in vistos:
             # PERFECT_GOLD reusa o par de PERFECT (Scoring.hx L629-653).
             ranks_out.append(dict(vistos[suf], rank=idx))
@@ -310,6 +311,7 @@ def main():
         d = {
             "rank": idx, "sufixo": suf,
             "flash_ms": round(1000.0 * flash / 24.0),
+            "bf_ms": round(1000.0 * bf / 24.0),
             "vert": par["vert"], "hor": par["hor"],
             "vert_x": round((1280.0 - 44.0) * HALF, 3), "vert_y": round(100.0 * HALF, 3),
             "vert_vel": round(-80.0 * HALF, 3),

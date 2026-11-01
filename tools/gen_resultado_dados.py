@@ -83,7 +83,8 @@ def gerar():
     a("")
     a("typedef struct {")
     a("    const char    *sufixo;      /* LOSS, GOOD, GREAT, EXCELLENT, PERFECT */")
-    a("    unsigned int   flash_ms;")
+    a("    unsigned int   flash_ms;      /* `getFlashDelay()` */")
+    a("    unsigned int   bf_ms;         /* `getBFDelay()` -- contador pequeno */")
     a("    res_img_t      vert, hor;")
     a("    float          vert_x, vert_y, vert_vel;")
     a("    unsigned int   vert_espera_ms;")
@@ -95,8 +96,8 @@ def gerar():
     a("static const res_rank_t g_res_rank[RES_RANKS] = {")
     for r in d["ranks"]:
         a('    { "%s", %4du,', end=None) if False else None
-        a('    { "%s", %4du,                                          /* rank %d */'
-          % (r["sufixo"], r["flash_ms"], r["rank"]))
+        a('    { "%s", %4du, %4du,                             /* rank %d */'
+          % (r["sufixo"], r["flash_ms"], r["bf_ms"], r["rank"]))
         a('      { %3du, %3du, "%s" }, { %3du, %3du, "%s" },'
           % (r["vert"]["w"], r["vert"]["h"], r["vert"]["arquivo"],
              r["hor"]["w"], r["hor"]["h"], r["hor"]["arquivo"]))
@@ -271,6 +272,7 @@ def gerar():
     a("    float          passo_grande, passo_pequeno;")
     a("    float          y_digitos_grande;")
     a("    float          small_x, small_y, small_x_pos, small_y_passo;")
+    a("    float          small_fixo_x, small_y_alvo, small_texto_x;")
     a("    unsigned short inicio_q, tween_q;")
     a("    unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;")
     a("    unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */")
@@ -283,6 +285,8 @@ def gerar():
                                                 g["y_digitos_grande"]))
     a("    %.1ff, %.1ff, %.1ff, %.1ff," % (g["small_x"], g["small_y"],
                                           g["small_x_pos"], g["small_y_passo"]))
+    a("    %.1ff, %.1ff, %.1ff," % (g["small_fixo_x"], g["small_y_alvo"],
+                                   g["small_texto_x"]))
     a("    %2du, %2du," % (g["inicio_q"], g["tween_q"]))
     a("    %3du, %3du, %3du, %3du, %2du" % (g["flash_ms"], g["fade_espera_ms"],
                                            g["fade_atraso_ms"], g["fade_ms"],

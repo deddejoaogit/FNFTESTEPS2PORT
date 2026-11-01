@@ -131,6 +131,11 @@ RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
 # valores que `BitmapUtil.createResultsBar` produz: ~74,2 e ~31,7 em 640x360).
 RESDIFARTE=$(awk -F, '$1=="E" && $3=="resultado_dif_arte" {print $4; exit}' "$LOG")
 RESDIFB=$(awk -F, '$1=="E" && $3=="resultado_dif_arte" {print $5; exit}' "$LOG")
+# O CONTADOR PEQUENO do topo: entra no `getBFDelay()` do rank ja' com o valor
+# final (nao ha' tween) e no x que vem da largura da imagem da dificuldade
+# (`(difficulty.x + difficulty.width) + 60`, em decimos de px).
+RESCLEARSMALL=$(awk -F, '$1=="E" && $3=="resultado_clear_small" {print $4; exit}' "$LOG")
+RESCLEARSMALLX=$(awk -F, '$1=="E" && $3=="resultado_clear_small" {print $5; exit}' "$LOG")
 RESBARRA=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $4; exit}' "$LOG")
 RESBARRA1=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $5; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
@@ -180,6 +185,7 @@ echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVIST
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
+echo "  percentual no topo .......... na tela=${RESCLEARSMALL:-?}% em x=${RESCLEARSMALLX:-?}.X (esperado 81% e 4215)"
 echo "  barra do topo ............... borda ${RESBARRA:-?}.X / ${RESBARRA1:-?}.X (esperado 742 / 317) imagem da dificuldade=${RESDIFARTE:-?} (${RESDIFB:-?} B)"
 
 FALHA=0
@@ -328,6 +334,17 @@ if [ -z "${RESCLEAR:-}" ]; then
 else
     [ "$RESCLEAR" = "${RESCLEARPCT:-x}" ] || { echo "  FALHA: o percentual na tela e' $RESCLEAR e o jogo calculou $RESCLEARPCT"; FALHA=1; }
     [ "${RESCLEARMS:-0}" -ge 1542 ] || { echo "  FALHA: o percentual apareceu em ${RESCLEARMS} ms (antes do timer de 37/24 s)"; FALHA=1; }
+fi
+
+# O CONTADOR PEQUENO DO TOPO: mesmo numero do grande (o jogo calculou 81%) e no
+# x do original -- (555 + 228 + 60) / 2 = 421,5 em 640x360.
+if [ -z "${RESCLEARSMALL:-}" ]; then
+    echo "  FALHA: o contador pequeno do topo nunca foi desenhado"; FALHA=1
+else
+    [ "$RESCLEARSMALL" = "${RESCLEARPCT:-x}" ] || {
+        echo "  FALHA: o percentual no topo e' $RESCLEARSMALL% e o jogo calculou ${RESCLEARPCT:-?}%"; FALHA=1; }
+    [ "${RESCLEARSMALLX:-0}" -ge 4205 ] && [ "${RESCLEARSMALLX:-0}" -le 4225 ] || {
+        echo "  FALHA: o contador pequeno ficou em x=${RESCLEARSMALLX:-?} (esperado 4215)"; FALHA=1; }
 fi
 
 # A BARRA DO TOPO. A barra em si e' geometria (0 B de VRAM): o que se cobra e'

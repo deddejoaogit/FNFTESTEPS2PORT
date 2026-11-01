@@ -307,6 +307,29 @@ int main(void)
         CHECK_EQ(res_cp_flash(4359ul), 0);
     }
 
+    printf("== resultado: o CONTADOR PEQUENO do topo ==\n");
+    /* `getBFDelay()`: 95/24 s = 3.958 ms (EXCELLENT e' o unico com 97/24). */
+    CHECK_EQ((int)g_res_rank[2].bf_ms, 3958);
+    CHECK_EQ((int)g_res_rank[3].bf_ms, 4042);
+    CHECK_EQ(res_cp_small_visivel(2, 3957ul), 0);
+    CHECK_EQ(res_cp_small_visivel(2, 3958ul), 1);
+    CHECK_EQ(res_cp_small_visivel(3, 4041ul), 0);
+    CHECK_EQ(res_cp_small_visivel(3, 4042ul), 1);
+    /* Rank fora da tabela cai em SHIT (`Scoring.calculateRank(...) ?? SHIT`,
+       o mesmo criterio de `res_rank`), entao o atraso e' o do SHIT: 95/24 s. */
+    CHECK_EQ(res_cp_small_visivel(-1, 3957ul), 0);
+    CHECK_EQ(res_cp_small_visivel(-1, 3958ul), 1);
+    CHECK_EQ(res_cp_small_visivel(99, 3958ul), 1);
+    /* O `flash(true)` de 0,4 s de `showSmallClearPercent()`. */
+    CHECK_EQ(res_cp_small_flash(2, 3957ul), 0);
+    CHECK_EQ(res_cp_small_flash(2, 3958ul), 1);
+    CHECK_EQ(res_cp_small_flash(2, 4357ul), 1);
+    CHECK_EQ(res_cp_small_flash(2, 4358ul), 0);
+    /* `x = (difficulty.x + difficulty.width) + 60`: com a dificuldade normal
+       (228 px na fonte, 114 no port) da' 421,5. */
+    CHECK(res_cp_small_x(114.0f) > 421.0f && res_cp_small_x(114.0f) < 422.0f);
+    CHECK(res_cp_small_x(0.0f) > 307.0f && res_cp_small_x(0.0f) < 308.0f);
+
     printf("== resultado: a BARRA do topo e a imagem da DIFICULDADE ==\n");
     /* A barra nao tem PNG: `BitmapUtil.createResultsBar` monta um retangulo de
        1295x149 girado de -3,8 graus. O que o desenho usa e' a reta da borda de

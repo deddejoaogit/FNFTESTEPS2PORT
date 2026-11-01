@@ -51,7 +51,8 @@ typedef struct {
 
 typedef struct {
     const char    *sufixo;      /* LOSS, GOOD, GREAT, EXCELLENT, PERFECT */
-    unsigned int   flash_ms;
+    unsigned int   flash_ms;      /* `getFlashDelay()` */
+    unsigned int   bf_ms;         /* `getBFDelay()` -- contador pequeno */
     res_img_t      vert, hor;
     float          vert_x, vert_y, vert_vel;
     unsigned int   vert_espera_ms;
@@ -61,32 +62,32 @@ typedef struct {
 } res_rank_t;
 
 static const res_rank_t g_res_rank[RES_RANKS] = {
-    { "LOSS", 7750u,                                          /* rank 0 */
+    { "LOSS", 7750u, 3958u,                             /* rank 0 */
       {  20u, 121u, "rank_loss_vert.rgba" }, { 245u,  26u, "rank_loss_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
       83u, 250u, 583u },
-    { "GOOD", 4458u,                                          /* rank 1 */
+    { "GOOD", 4458u, 3958u,                             /* rank 1 */
       {  20u, 121u, "rank_good_vert.rgba" }, { 244u,  26u, "rank_good_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
       83u, 250u, 583u },
-    { "GREAT", 4542u,                                          /* rank 2 */
+    { "GREAT", 4542u, 3958u,                             /* rank 2 */
       {  20u, 152u, "rank_great_vert.rgba" }, { 297u,  26u, "rank_great_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
       83u, 250u, 583u },
-    { "EXCELLENT", 5083u,                                          /* rank 3 */
+    { "EXCELLENT", 5083u, 4042u,                             /* rank 3 */
       {  20u, 278u, "rank_excellent_vert.rgba" }, { 524u,  26u, "rank_excellent_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
       83u, 250u, 583u },
-    { "PERFECT", 5375u,                                          /* rank 4 */
+    { "PERFECT", 5375u, 3958u,                             /* rank 4 */
       {  20u, 216u, "rank_perfect_vert.rgba" }, { 408u,  26u, "rank_perfect_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
       83u, 250u, 583u },
-    { "PERFECT", 5375u,                                          /* rank 5 */
+    { "PERFECT", 5375u, 3958u,                             /* rank 5 */
       {  20u, 216u, "rank_perfect_vert.rgba" }, { 408u,  26u, "rank_perfect_hor.rgba" },
       618.0f, 50.0f, -40.0f, 1250u,
       160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
@@ -324,6 +325,7 @@ typedef struct {
     float          passo_grande, passo_pequeno;
     float          y_digitos_grande;
     float          small_x, small_y, small_x_pos, small_y_passo;
+    float          small_fixo_x, small_y_alvo, small_texto_x;
     unsigned short inicio_q, tween_q;
     unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;
     unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */
@@ -332,6 +334,7 @@ typedef struct {
 static const res_cp_geo_t g_res_cp_geo = {
     415.0f, 145.0f, 36.0f, 16.0f, 36.0f,
     470.0f, 130.0f, -12.0f, -2.0f,
+    307.5f, 58.5f, 20.0f,
     37u, 58u,
     400u, 250u, 500u, 500u, 36u
 };
