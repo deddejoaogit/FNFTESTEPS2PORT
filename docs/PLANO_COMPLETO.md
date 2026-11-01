@@ -2834,3 +2834,40 @@ o zoom do original; os note kinds (canto com sufixo, animação nomeada,
 alternância, `moveToBack`/`moveToFront` e tremor de câmera) são aplicados; os
 offsets por animação (155 de 523) entram no desenho; e a ordem de desenho do
 palco é por `zIndex` com os props na mesma lista dos personagens.
+
+## Fase 5 com os pacotes de verdade: o custo por quadro, medido
+
+A linha de base que existia (`build/sweep/custo.txt`) foi medida com os assets
+**sintéticos** de 64×64: ela conta *quantos* uploads acontecem, mas não *quanto*
+sobe para a VRAM. Com os pacotes reais o número de uploads cai e o de bytes por
+upload sobe 30×, e é o segundo que decide o orçamento de quadro no console.
+
+Medido hoje (`tools/run_realpacks_harness.sh` para o carregamento e uma música
+inteira por vez com `FNF_START_SONG`; eventos `custo_quadros`/`custo_char` a
+cada 240 quadros):
+
+| música | uploads de personagem / 100 quadros | canvas dos 3 (16 bpp) | bytes/frame | taxa a 60 Hz |
+|---|---|---|---|---|
+| tutorial (2 personagens) | **79–80** | 202.940 B (BF) + 213.504 B (GF/oponente) | ≈ 170 KB | ≈ 10 MB/s |
+| bopeebo (3 personagens) | **120–121** | 213.504 + 258.816 + 275.200 B | ≈ 300 KB | ≈ 18 MB/s |
+| pior canvas do jogo | — | `tankman-bloody` 612×516 = **631.584 B** | ≈ 430 KB (se cantar todo quadro) | ≈ 26 MB/s |
+
+O que isso quer dizer, sem otimismo:
+
+- **O teto não é a banda do GS.** 18–26 MB/s de DMA para a VRAM está dentro do
+  que o canal de imagem do ps2sdk entrega. O custo real é **decodificar LZ4 no
+  EE**: 300 KB por quadro a 60 Hz são ~1 ms/quadro de decodificação (mais o
+  `memcpy` do pacote para o buffer de 128 B alinhado), dentro de 16,7 ms, mas
+  é o primeiro número que uma build de console precisa ver no `frame_mark`.
+- **Não há frame para cortar.** 80–120 uploads por 100 quadros é exatamente a
+  taxa de animação do original (24 fps por personagem, ~1,3 personagens
+  animando ao mesmo tempo, mais os props). Reduzir isso seria remover quadro de
+  animação — proibido pela regra do projeto.
+- **A economia que sobrou é de VRAM, não de tempo:** a pior combinação deixa
+  1.792 B livres no pool. Qualquer textura nova (ícones de vida, splashes) exige
+  liberar espaço antes. O candidato medido é a `tex` (320×256 PSMCT32 =
+  327.680 B), que o gameplay com pacotes **não usa** (os personagens vêm do
+  pool) e que o menu já re-sobe ao voltar (`menu_restore`). Isso é uma mudança
+  de layout de VRAM, com o teste `test_vram_layout.c` já cobrindo os endereços —
+  fica para a próxima build, junto com a arte dos ícones, que não está no
+  pacote de dados.
