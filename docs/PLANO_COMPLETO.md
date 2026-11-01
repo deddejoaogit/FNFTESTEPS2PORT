@@ -3031,9 +3031,16 @@ erro. O evento `gameover_sem_audio` — que declarava "esta tela não tem som" �
 Tudo o que está abaixo é **dado ausente ou espaço de VRAM**, não lógica que
 faltou escrever. A lista existe para não deixar nada implícito.
 
+Uma linha **saiu** desta tabela por correção de fato: *"arte da tela de GAME
+OVER"*. Essa arte **não existe no original** — `GameOverSubState.create()`
+(v0.8.6, L139-172) monta só o retângulo preto, o BF pego do palco (na mesma
+posição, animação `firstDeath`) e o ponto de câmera. O port chegou a desenhar
+"GAME OVER", "MISSES n" e "CROSS RETRY / CIRCLE EXIT" nessa tela: texto que o
+original nunca mostra, e que foi **removido** (o harness agora cobra zero quads
+de texto ali). O que faltava não era arte — era o port ter inventado texto.
+
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Arte da tela de GAME OVER | o original cobre a tela com um fundo preto opaco e desenha o texto; a arte de fundo/texto dessa tela não foi empacotada | empacotar os PNGs da tela e desenhá-los no lugar do preto + texto |
 | Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
 | Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
 
