@@ -2606,3 +2606,47 @@ Prova no log (`blazin` hard, 1200 quadros): 13 eventos `nota_kind_fundo`/
 
 **Nao provado:** que tremer +-3,2 px e trocar a ordem *parecam* certos. Nenhum
 dos dois tem como ser julgado sem tela.
+
+## O empacotador de personagem: tres leitores que faltavam (46 pacotes, 0 falhas)
+
+Com o `NameError` e os grupos corrigidos, `sh tools/achatar_tudo.sh /tmp/fassets
+build/packs/chars` fechou **46 pacotes e 0 falhas** em ~42 minutos. Aí o
+`tools/check_char_packs.py` -- que confere o pacote contra o `character.json`,
+nao contra o proprio empacotador -- acusou **6 pacotes sem animacao**. Nenhuma
+era dado ausente: eram tres formatos que o leitor nao entendia.
+
+| o que | personagens | o que era |
+|---|---|---|
+| export FULL do Animate | `bf`, `bf-car` (`fakeoutDeath`) | 4 dos 68 `Animation.json` do clone usam chaves longas (`ANIMATION`/`TIMELINE`/`Frames`/`SYMBOL_DICTIONARY`) e o leitor so' entendia as compactas (`AN`/`TL`/`FR`). O rotulo da animacao no FULL nao esta' no `FR`: e' o `SYMBOL_name` do documento |
+| rotulo com espaco | `pico-holding-nene` (`singUP`/`singDOWN`) | a timeline rotula `"up "` e `"down "`, o JSON pede `"up"`/`"down"`; casar pelo nome aparado (e reportar) e' o que faz a animacao existir |
+| indice fora do atlas | `gf-pixel` (`danceLeft`) | o dado pede 16 quadros e um deles e' o indice 30 de um atlas de 0..29. O empacotador jogava fora a animacao INTEIRA por causa de um indice -- a GF ficava sem a metade esquerda da danca. Agora o invalido e' descartado e CONTADO |
+
+Depois dos tres consertos, reempacotados so' os afetados:
+
+| personagem | antes | depois |
+|---|---|---|
+| `bf` | 349 quadros, 15 anim | **500, 16** |
+| `bf-car` | 442, 18 | **593, 19** |
+| `pico-holding-nene` | 264, 14 | **286, 16** |
+| `gf-pixel` | 1 anim | **2** |
+| **os 46** | 9.468 quadros, 513 anim | **9.807 quadros, 518 anim**, 169.710.819 B em `.chp4` |
+
+`check_char_packs.py`: de 6 falhas para **2**, e as duas sao dado que o leitor
+ainda nao alcanca -- ficam reportadas, nao tapadas:
+
+- `pico-playable` `sing*-censor`: o `assetPath` da animacao aponta para um atlas
+  **Sparrow** (`characters/Pico_Censored`, PNG+XML) dentro de um personagem
+  Animate. O empacotador Animate so' abre Animate;
+- `tankman-bloody` `stressPicoEnding`: o atlas
+  (`week7:erect/cutscene/tankmanEnding`) e' um **embrulho**: a timeline de cima
+  tem UM quadro que instancia um simbolo de 224 quadros, e o rotulo esta' em
+  `AN.SN`, nao num `FR`. Ler isso pede o comprimento do simbolo aninhado e o
+  modo `inner="sync"` no renderizador; sem isso o pacote teria 1 quadro e a
+  animacao sairia congelada -- pior que faltar, porque parece funcionar.
+
+**E o jogo abre os pacotes de verdade.** Os 46 `.chp4` reais foram para os
+assets do harness no lugar dos sinteticos de `bf`/`gf`/`dad` e o tutorial rodou
+**1402 quadros** com eles: `char_carregado` 5 com 3.753.133 B (bf.chp4), 14 com
+1.766.022 B (gf), `char_bf_primeiro`/`char_dad_primeiro` desenhados, nenhum
+estouro, nenhuma escrita fora do limite. Ou seja: o formato que o console vai ler
+nao e' so' o que o empacotador escreve -- e' o que o jogo consome.
