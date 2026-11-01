@@ -34,7 +34,10 @@ for f in assets-data/characters/*.json; do
     # Ja empacotado = os DOIS formatos na pasta: o .cfz4 (o palco le') e o
     # .chp4 (o personagem le', com a tabela de animacoes). Checar so' o .cfz4
     # deixava os 46 personagens sem o pacote que o jogo realmente abre.
-    [ -f "$OUT/$cid.cfz4" ] && [ -f "$OUT/$cid.chp4" ] && continue
+    # FORCAR=1 reempacota mesmo o que ja' existe: sem isso, uma correcao no
+    # empacotador nao chega aos pacotes antigos, e o unico sinal seria o
+    # check_char_packs acusando animacoes faltando para sempre.
+    [ -z "${FORCAR:-}" ] && [ -f "$OUT/$cid.cfz4" ] && [ -f "$OUT/$cid.chp4" ] && continue
     apath=$($PY -c "import json,sys;print(json.load(open('$f')).get('assetPath') or '$cid')")
     # resolve like the packers do: package prefix, then engine search order
     stem=$(printf '%s' "$apath" | sed 's|^[^:]*:||')

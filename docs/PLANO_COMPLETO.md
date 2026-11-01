@@ -2397,3 +2397,43 @@ a animação nomeada segurando o personagem até acabar. E
 `gen_notekinds.py --check` falha se um kind usado nos 81 charts não tiver nem
 registro nem ação — foi assim que `sakura-*` (3 kinds sem classe, resolvidos só
 pela ação do personagem) apareceu em vez de passar calado.
+
+## Empacotador de personagem: os 46 de verdade (e os 10 com mais de um atlas)
+
+O `tools/achatar_tudo.sh` reportava **12 pacotes e 34 falhas**. As 34 eram o
+mesmo `NameError`, num nome que não existia no escopo na hora de montar a tabela
+de animações do CHP4 — e os 12 que passavam são os de PNG plano, que nem entram
+nesse caminho. Por isso nenhum teste pegava: o teste do formato usa quadros
+crus, não o empacotador.
+
+Consertado o erro, apareceu o segundo defeito, mais grave: **o pacote sairia
+inútil**. Os grupos levavam os nomes da timeline do Atlas (`Idle`, `Up`,
+`Cheer`); o jogo pede os nomes do `character.json` (`danceLeft`, `singUP`,
+`drop70`). O `prefix` de cada animação do JSON **é** o nome na timeline e os
+`frameIndices` são índices *dentro* dela — é assim que `danceLeft`/`danceRight`
+partem o mesmo `Idle` em duas metades. Agora o pacote é montado a partir do
+JSON, na ordem do JSON.
+
+E o terceiro, que só apareceu com os pacotes na mão (`check_char_packs.py`):
+**10 dos 46 personagens declaram, por animação, um `assetPath` próprio.**
+`bf` tem `bf-death`/`bfFakeOut`, `tankman` tem `extra-animations`
+(`ugh`, `pretty good`, `laugh`, `beat it`, `argh`). Lendo só o atlas do corpo,
+esses pacotes saíam sem as animações — inclusive sem `ugh`/`hehPrettyGood`, que
+são justamente os NOTE KINDS do Tankman. Agora o empacotador abre cada atlas
+declarado, sob demanda.
+
+| personagem | antes | depois |
+|---|---|---|
+| `bf-car` | 316 quadros, 15 animações | **442 quadros, 18 animações** |
+| `tankman` | 5 animações (sem `ugh`) | **10 animações, com `ugh`/`pretty good`** |
+
+O que fica reportado e **não** aplicado: essas animações vêm de outro atlas e o
+JSON dá `offsets` próprios para elas (`ugh`: `[5, -40]`). O pacote guarda os
+quadros, mas o desenho ainda usa os offsets do *personagem* — aplicar os do
+JSON por animação é o passo seguinte, e o empacotador imprime a lista
+(`de outro atlas (N): ...`) em vez de deixar passar.
+
+Custo medido do empacotamento: ~12 min por personagem (decodificar o atlas
+inteiro, compor cada quadro e comprimir em LZ4 bloco a bloco), 46 personagens,
+~250 MB de pacotes. Por isso `FORCAR=1` reempacota o que já existe: sem isso uma
+correção no empacotador nunca chegava aos pacotes antigos.

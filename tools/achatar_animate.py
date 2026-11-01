@@ -450,16 +450,35 @@ def main():
         # DENTRO daquela animacao: e' assim que `danceLeft`/`danceRight` partem
         # o mesmo "Idle" em duas metades. Empacotar com os nomes do atlas (como
         # esta versao fazia) gera um pacote que o jogo abre e nao acha nada.
-        planos, faltando = [], []
+        # MAIS DE UM ATLAS POR PERSONAGEM. Dez personagens declaram, por
+        # animacao, um `assetPath` proprio: o BF tem bf-death/bfFakeOut alem do
+        # corpo, e o Tankman tem extra-animations (ugh, pretty good, laugh,
+        # beat it, argh). Ler so' o atlas do personagem deixava 10 dos 46
+        # pacotes sem essas animacoes -- e' o que o check_char_packs chamava de
+        # "faltam animacoes". Os atlases sao abertos sob demanda e guardados.
+        atlases = {meta.get("assetPath") or args.character: atlas}
+        planos, faltando, de_outro = [], [], []
         for an in (meta.get("animations") or []):
             nome = an.get("name")
             if not nome:
                 continue
+            stem = an.get("assetPath") or meta.get("assetPath") or args.character
+            if stem not in atlases:
+                try:
+                    atlases[stem] = Atlas(args.assets, stem)
+                except FileNotFoundError as e:
+                    faltando.append((nome, str(e)))
+                    continue
+            at = atlases[stem]
+            labs = anims if at is atlas else at.animations()
             pre = an.get("prefix") or nome
-            if pre not in anims:
-                faltando.append((nome, "prefixo %r fora da timeline" % pre))
+            if pre not in labs:
+                faltando.append((nome, "prefixo %r fora da timeline de %s"
+                                 % (pre, os.path.basename(at.dir))))
                 continue
-            ini, tam = anims[pre]
+            if at is not atlas:
+                de_outro.append(nome)
+            ini, tam = labs[pre]
             idx = an.get("frameIndices")
             if not idx:
                 idx = list(range(tam))
@@ -470,19 +489,27 @@ def main():
             if not use:
                 continue
             planos.append({"nome": nome, "looped": an.get("looped", True),
-                           "idx": [ini + i for i in use]})
+                           "idx": [ini + i for i in use], "atlas": at})
         if not planos:
             raise SystemExit("%s: nenhuma animacao do character.json existe no "
                              "atlas (%r)" % (args.character, faltando))
         if faltando:
             print("faltando no atlas: %s"
                   % ", ".join("%s (%s)" % f for f in faltando))
+        if de_outro:
+            # Estes quadros vem de OUTRO atlas, e o JSON da' offsets proprios
+            # para eles. O pacote guarda as animacoes (sem elas o kind nao toca
+            # nada), mas o desenho ainda usa os offsets do PERSONAGEM: aplicar
+            # os do JSON por animacao e' o passo seguinte, e fica registrado
+            # aqui em vez de passar calado.
+            print("de outro atlas (%d): %s -- offsets por animacao ainda NAO "
+                  "aplicados" % (len(de_outro), ", ".join(de_outro)))
 
         rendered, boxes, dono = [], [], []
         for plano in planos:
             for i in plano["idx"]:
                 try:
-                    img, box = atlas.render(i)
+                    img, box = plano["atlas"].render(i)
                 except ValueError as e:
                     print("  %s quadro %d: %s" % (plano["nome"], i, e))
                     continue
