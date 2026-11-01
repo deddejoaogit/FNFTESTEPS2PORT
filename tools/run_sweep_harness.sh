@@ -156,6 +156,12 @@ for sid in $LISTA; do
         # alternar pela paridade do passo, este numero continua igual -- o que
         # este contador prova e' que o caso EXISTE nos dados (e nao e' teorico).
         DANCAS_PULADAS=$(( ${DANCAS_PULADAS:-0} + $(awk -F, '$1=="E" && $3=="char_danca_pulada" && $5>0 {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
+        # COMBO/DROP da GF: quantas vezes o `combo<N>`/`drop<N>` do dado chegou a
+        # tocar. O numero e' baixo por construcao -- o degrau real e' 50/200 e o
+        # trecho tocado e' de 20 s --, mas se o gatilho estiver certo aparece
+        # pelo menos uma vez nas 81.
+        COMBOS=$(( ${COMBOS:-0} + $(awk -F, '$1=="E" && $3=="char_combo" {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
+        DROPS=$(( ${DROPS:-0} + $(awk -F, '$1=="E" && $3=="char_combo_drop" {n++} END{print n+0}' "$LOG" 2>/dev/null) ))
         # CAMERA: o papel inicial tem de ser o OPONENTE (PlayState L2224-2227 +
         # resetCamera no L936), e o alvo de cada FocusCamera tem de ser medido
         # (cam_foco_alvo). A soma dos alvos e' conferida no fim, porque nem todo
@@ -301,6 +307,7 @@ echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
 echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
 echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar cantando"
+echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combinacoes"
 [ "${DANCAS_PULADAS:-0}" -ge 1 ] || { echo "  FALHA: nenhum passo de danca foi perdido por canto em $OK combinacoes -- o contador de dancas (hasDanced) deixou de ser exercitado" >&2; exit 1; }
 # 27 musicas tem o BF (flipX) no papel do jogador e a GF (sem flipX) no dela; o
 # oponente varia. Se o desenho parar de espelhar, FLIPS1 cai para 0.

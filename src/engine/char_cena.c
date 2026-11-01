@@ -3,7 +3,7 @@
 #include "char_anim.h"
 
 #include <limits.h>
-#include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 #define CH_ANIM_END_SUF "-end"
@@ -146,6 +146,59 @@ void cc_canto(cc_cena_t *c, int papel, int dir, int missing, long agora, long si
        reiniciaria a cada nota escrita no mesmo instante), mas estende o tempo:
        duas notas seguidas mantem o personagem cantando ate' a segunda acabar. */
     if (sing_ms > 0 && agora + sing_ms > p->canto_ate) p->canto_ate = agora + sing_ms;
+}
+
+/* "<prefixo><numero>" -> o numero, ou -1 se o nome nao for desse formato. E' a
+   leitura do `findCountAnimations` do BaseCharacter.hx L232-251: prefixo e
+   `Std.parseInt` do resto; o original DESCARTA o nome que nao for numero, e o
+   port tambem. */
+static int numero_da_anim(const char *nome, const char *prefixo)
+{
+    size_t n = strlen(prefixo);
+    long v = 0;
+    const char *d;
+    if (!nome || strncmp(nome, prefixo, n) != 0) return -1;
+    d = nome + n;
+    if (!*d) return -1;
+    for (; *d; d++) {
+        if (*d < '0' || *d > '9') return -1;
+        v = v * 10 + (*d - '0');
+        if (v > 1000000) return -1;
+    }
+    return (int)v;
+}
+
+int cc_combo(cc_cena_t *c, int papel, int combo, long agora)
+{
+    char alvo[CHP_NOME];
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS) return 0;
+    if (!c->p[papel].ativo || combo <= 0) return 0;
+    /* BaseCharacter L653: `comboAnim = 'combo${comboCount}'`, e so' toca se
+       `hasAnimation(comboAnim)`. Nada de arredondar para o degrau de baixo: o
+       combo200 nao substitui o combo50. */
+    if (snprintf(alvo, sizeof alvo, "combo%d", combo) <= 0) return 0;
+    if (cp_anim_i(&c->p[papel].pacote, alvo) < 0) return 0;
+    return cc_toca(c, papel, alvo, agora);
+}
+
+int cc_drop(cc_cena_t *c, int papel, int combo, long agora)
+{
+    cc_papel_t *p;
+    const char *melhor = 0;
+    int i, melhor_n = -1;
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS) return 0;
+    p = &c->p[papel];
+    if (!p->ativo) return 0;
+    /* BaseCharacter L661-681: percorre os `drop<N>` do personagem (ordenados) e
+       fica com o MAIOR que `comboCount >= N`; se nenhum serve, nao toca nada. */
+    for (i = 0; i < p->pacote.n_anims; i++) {
+        const char *nome = p->pacote.anim[i].nome;
+        int n = numero_da_anim(nome, "drop");
+        if (n < 0 || combo < n) continue;
+        if (n > melhor_n) { melhor_n = n; melhor = nome; }
+    }
+    if (!melhor) return 0;
+    return cc_toca(c, papel, melhor, agora);
 }
 
 int cc_quadro(cc_cena_t *c, int papel, long agora, int passo)

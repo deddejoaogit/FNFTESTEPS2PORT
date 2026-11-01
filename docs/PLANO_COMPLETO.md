@@ -2218,3 +2218,66 @@ seguinte, que é o oposto do que a paridade daria. `test/test_char_anim.c` cobre
 condição de passo (incluindo passo negativo, que na contagem regressiva dança nos
 múltiplos de 4, como no `%` do Haxe) e confere que `ca_reset` copia o `dance` dos
 46. `tools/gen_char_dados.py --check` continua verde.
+
+## O combo e o drop da namorada (`combo50`, `combo200`, `drop70`)
+
+**O defeito.** Oito dos 46 personagens têm animações de combo e de queda nos
+dados — e o port não tocava nenhuma delas, nunca. Eram eventos do original
+simplesmente ausentes:
+
+| personagem | combo | drop |
+|---|---|---|
+| `gf`, `gf-christmas`, `gf-dark` | `combo50` | `drop70` |
+| `nene`, `nene-christmas`, `nene-dark`, `nene-tankmen` | `combo50`, `combo200` | `drop70` |
+| `gf-tankmen` | — | `drop70` |
+
+**A regra, lida da fonte.** `BaseCharacter.hx` L586-600 (`onNoteHit`, só para
+`characterType == GF` e só em nota do jogador):
+
+```haxe
+switch (event.judgement) {
+  case 'sick' | 'good': playComboAnimation(event.comboCount);
+  default:              playComboDropAnimation(event.comboCount);
+}
+```
+
+e `L614-626` (`onNoteMiss`, GF, nota do jogador) → `playComboDropAnimation`.
+O `comboCount` do evento é `note.scoreable ? tallies.combo + 1 : tallies.combo`
+(`PlayState.hx` L3142-3143), ou seja **o combo já contando esta nota**; no miss é
+`Highscore.tallies.combo` **antes** de zerar (L2903).
+
+`playComboAnimation` (L651-659) só toca `combo${comboCount}` **exato** — o
+`combo50` não vale no 51. `playComboDropAnimation` (L661-681) percorre os
+`drop<N>` do personagem e usa o **maior** `N` com `comboCount >= N`; abaixo de
+todos, não toca nada.
+
+**O que foi feito.** `cc_combo()`/`cc_drop()` em `char_cena.c` —
+`cc_combo` monta `combo<combo>` e só toca se o pacote tiver essa animação;
+`cc_drop` varre os nomes `drop<N>` do próprio pacote (nada de tabela no código) e
+escolhe o maior degrau que o combo alcança. As duas usam `cc_toca`, que já
+implementa o "não é interrompida e ao terminar volta a dançar"
+(`onAnimationFinished` → `dance(true)`). `main.c` chama:
+
+- acerto `sick`/`good` → `cc_combo(g_play.combo)`, evento `char_combo`;
+- acerto `bad`/`shit` → `cc_drop(g_play.combo)`, evento `char_combo_drop`;
+- miss → `cc_drop(combo_antes)`, com o combo lido antes de `fnf_play_miss()`.
+
+**Medido no jogo de verdade** (`tools/run_combo_harness.sh`, novo): `2hot` hard,
+stem de 70 s, pressões vindas do chart com 8 notas de fora para o combo quebrar.
+A execução julga 96 acertos e o log traz, nesta ordem:
+
+```
+char_combo_anims,2,1      (a GF: combo50, combo200, drop70 -- vem do dado)
+char_combo,50,4           (combo 50, julgamento 4 = sick)
+char_combo_drop,73,0      (combo 73 quebrado, julgamento 0 = miss -> drop70)
+```
+
+O script também exige o contrário: **nenhum** `char_combo` num número que não
+seja degrau. O sweep das 81 combinações continua com 0 combos: 20 s de música não
+alcançam 50 acertos seguidos, e é por isso que o `combo` precisa de passada
+própria.
+
+**Limite do que está provado.** `combo200` não foi observado tocando (precisa de
+200 acertos seguidos; a passada chega a ~96). A regra é a mesma função que tocou
+o `combo50`, e `cc_combo` é testado no 200 em `test/test_char_cena.c`, mas no
+console o `combo200` só aparecerá numa passada longa de uma música densa.

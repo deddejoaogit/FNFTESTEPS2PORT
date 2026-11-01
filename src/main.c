@@ -1541,6 +1541,16 @@ static int cena_carregar(const sr_song_t *song)
          (bl>=5&&memcmp(base,"dance",5)==0))tem++;
      }}
     telemetry_event("char_hold_tem",r,tem);}
+   /* Quantas animacoes de COMBO/DROP o personagem tem. So' as do tipo GF sao
+      tocadas (BaseCharacter.hx L588-600), e nos dados sao combo50/combo200 nas
+      gf/nene e drop70 nas 8 -- mas o numero vai para o log em vez de ficar
+      escrito no codigo: um personagem que ganhe um degrau novo nao passa
+      despercebido, e um papel sem nenhuma delas nao inventa animacao. */
+   {int k,nc=0,nd=0;
+    for(k=0;k<pk->n_anims;k++){const char*nm=pk->anim[k].nome;
+     if(strncmp(nm,"combo",5)==0)nc++;
+     else if(strncmp(nm,"drop",4)==0)nd++;}
+    telemetry_event("char_combo_anims",nc,nd);}
   }
   if(maior>g_cena_pixels_cap){
    if(g_cena_pixels)free(g_cena_pixels);
@@ -1745,7 +1755,15 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
       sem dano, sem miss, sem canto de erro. Estado 4 = "cancelada": o
       desenho ja' pula qualquer estado diferente de 0. */
    if(nota_nonscoreable(&note)){g_tutorial_note_state[i]=4;telemetry_event("nota_kind_cancelada",(int)i,note.kind);continue;}
-   g_tutorial_note_state[i]=2;if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));fnf_play_miss(&g_play);g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+   g_tutorial_note_state[i]=2;
+   /* COMBO DROP da GF. BaseCharacter.hx L614-626 (onNoteMiss): o evento leva
+      `Highscore.tallies.combo` -- o combo ATUAL, antes de ser zerado -- e a GF
+      toca o maior `drop<N>` que ele alcanca. Tem de ser lido antes do
+      fnf_play_miss(), que e' quem zera o combo. */
+   {int combo_antes=g_play.combo;
+    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3)cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,(long)(sample/48u),cena_canto_ms(CH_PAPEL_BF,1));
+    fnf_play_miss(&g_play);
+    if(g_cena.p[CH_PAPEL_GF].ativo&&cc_drop(&g_cena,CH_PAPEL_GF,combo_antes,(long)(sample/48u)))telemetry_event("char_combo_drop",combo_antes,0);}g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
@@ -1787,6 +1805,17 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
        noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);
+    /* COMBO / DROP da GF no ACERTO. BaseCharacter.hx L586-600: o evento leva
+       `tallies.combo + 1`, ou seja o combo ja' contando esta nota -- que e' o
+       `g_play.combo` depois do fnf_play_hit. `sick`/`good` tocam `combo<N>`
+       (so' o numero EXATO: combo50 nao vale no 51); `bad`/`shit` quebram o
+       combo e tocam o `drop<N>`. Sem nenhuma das duas animacoes no
+       personagem, cc_combo/cc_drop devolvem 0 e nada e' inventado. */
+    if(g_cena.p[CH_PAPEL_GF].ativo&&(judge==FNF_JUDGE_SICK||judge==FNF_JUDGE_GOOD)){
+     if(cc_combo(&g_cena,CH_PAPEL_GF,(int)g_play.combo,(long)(sample/48u)))telemetry_event("char_combo",(int)g_play.combo,judge);
+    }else if(g_cena.p[CH_PAPEL_GF].ativo){
+     if(cc_drop(&g_cena,CH_PAPEL_GF,(int)g_play.combo,(long)(sample/48u)))telemetry_event("char_combo_drop",(int)g_play.combo,judge);
+    }
     g_tutorial_note_hits=(u32)g_play.total_notes_hit;
     g_tutorial_note_combo=(u32)g_play.combo;
     g_tutorial_note_score=(s32)g_play.score;

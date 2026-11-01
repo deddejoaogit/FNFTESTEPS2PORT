@@ -76,6 +76,19 @@ int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora);
    depois de `cc_anexar`; sem ele vale 1.0, que e' o DEFAULT_DANCEEVERY. */
 void cc_danca_cada(cc_cena_t *c, int papel, float cada);
 
+/* COMBO e DROP das personagens do tipo GF (BaseCharacter.hx L586-600, L651-681).
+   `combo<N>` toca quando o jogador ACERTA a nota N de uma sequencia (o
+   `event.comboCount` do original e' `tallies.combo + 1`, ou seja o combo ja'
+   contando esta nota) e so' existe para os valores que o personagem tem --
+   medido nos dados: combo50 e combo200 nas GF/nene, e so' isso.
+   `drop<N>` toca quando o combo quebra: vale o MAIOR N que o combo ainda
+   alcanca (drop70 nas 8 personagens que tem drop), e nenhum se o combo e'
+   menor que todos.
+   As duas devolvem 1 se tocaram uma animacao e 0 se o personagem nao tem
+   nenhuma para aquele numero -- nada e' inventado, o silencio e' o dado. */
+int cc_combo(cc_cena_t *c, int papel, int combo, long agora);
+int cc_drop(cc_cena_t *c, int papel, int combo, long agora);
+
 /* O quadro a desenhar AGORA, ou -1 quando nada mudou. `passo` e' o passo do
    chart (1/4 de batida): e' ele que decide QUANDO dancar -- a cada
    `danca_cada * 4` passos, como o `onStepHit` do Bopper -- e o lado alterna por

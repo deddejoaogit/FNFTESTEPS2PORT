@@ -19,7 +19,13 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 cd "$HERE"
 ASSETS=${1:?uso: tools/achatar_tudo.sh <clone-funkin.assets> [saida]}
 OUT=${2:-build/packs/chars}
-PY=${PY:-/home/user/.venv/bin/python}
+# O interpretador com lz4/Pillow/numpy. O venv que existia em /home/user/.venv
+# nao faz parte do repositorio e some quando o ambiente e' reconstruido; o
+# fallback para o python3 do sistema evita empacotar personagem com um
+# interpretador que nao existe (o script parava no primeiro `import lz4`).
+if [ -z "${PY:-}" ]; then
+    if [ -x /home/user/.venv/bin/python ]; then PY=/home/user/.venv/bin/python; else PY=python3; fi
+fi
 mkdir -p "$OUT"
 
 ok=0; fail=0

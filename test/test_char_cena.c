@@ -323,6 +323,65 @@ int main(void)
         CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
     }
 
+
+    printf("== combo/drop da GF (BaseCharacter L586-600, L651-681) ==\n");
+    {
+        /* Os numeros NAO sao inventados: sao exatamente os que os 8 personagens
+           com essas animacoes tem nos dados (combo50, combo200, drop70 nas
+           gf/nene; drop70 sozinho na gf-tankmen). */
+        cc_cena_t c;
+        const anim_t gfc[5] = {
+            { "danceLeft", 0, 1, 2400, 1 },
+            { "danceRight", 1, 1, 2400, 1 },
+            { "combo50", 2, 1, 2400, 0 },
+            { "combo200", 3, 1, 2400, 0 },
+            { "drop70", 4, 1, 2400, 0 },
+        };
+        unsigned int n = montar(5, 5, gfc);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_GF, g_pac, n, 0), 0);
+        /* combo<N> so' no numero EXATO: 50 toca, 51 nao. */
+        CHECK_EQ(cc_combo(&c, CH_PAPEL_GF, 50, 100), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 2);
+        CHECK_EQ(cc_combo(&c, CH_PAPEL_GF, 51, 200), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 2);
+        CHECK_EQ(cc_combo(&c, CH_PAPEL_GF, 200, 300), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 3);
+        CHECK_EQ(cc_combo(&c, CH_PAPEL_GF, 0, 350), 0);
+        CHECK_EQ(cc_combo(&c, CH_PAPEL_GF, -5, 350), 0);
+        /* drop<N>: o maior degrau que o combo alcanca; abaixo do menor, nada. */
+        CHECK_EQ(cc_drop(&c, CH_PAPEL_GF, 70, 400), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 4);
+        CHECK_EQ(cc_drop(&c, CH_PAPEL_GF, 120, 500), 1);   /* 120 >= 70 */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 4);
+        CHECK_EQ(cc_drop(&c, CH_PAPEL_GF, 69, 600), 0);    /* 69 < 70 */
+        /* a animacao de combo NAO e' interrompida pelo passo que danca:
+           um quadro so' a 24 fps dura ~42 ms, entao em 420 ms ela ainda esta'
+           la' (e o quadro nao mudou). */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 420, 8), 4);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 4);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 430, 8), -1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 4);
+        /* e quando ela ACABA, a GF volta a dancar (onAnimationFinished ->
+           dance(true), que conta como danca jogada: a primeira -> danceLeft).
+           O passo 9 nao e' passo de danca, entao so' a danca forcada roda. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 500, 9), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 0);
+        /* no passo 12 a danca normal toca a SEGUNDA -> danceRight */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_GF, 600, 12), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_GF), 1);
+        /* personagem sem combo/drop: os dois devolvem 0, nada e' inventado */
+        {
+            cc_cena_t d;
+            unsigned int m = montar(4, 3, gf_anims);
+            cc_reset(&d);
+            CHECK_EQ(cc_anexar(&d, CH_PAPEL_GF, g_pac, m, 0), 0);
+            CHECK_EQ(cc_combo(&d, CH_PAPEL_GF, 50, 0), 0);
+            CHECK_EQ(cc_drop(&d, CH_PAPEL_GF, 70, 0), 0);
+            CHECK_EQ(cc_anim(&d, CH_PAPEL_GF), -1);
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  cena: idle pela batida, canto com singTime, miss com queda, e o quadro so' quando muda\n");
     return 0;
