@@ -47,6 +47,7 @@ typedef struct {
     float danca_cada;       /* danceEvery em BATIDAS (1.0 = toda batida)    */
     int dancas;             /* quantas dancas ja' jogou (`hasDanced`)       */
     int pulos;              /* passos de danca perdidos por estar cantando  */
+    int especial_fixo;      /* 1 = nao volta a dancar quando a especial acaba */
 } cc_papel_t;
 
 typedef struct {
@@ -97,6 +98,19 @@ void cc_danca_cada(cc_cena_t *c, int papel, float cada);
    nenhuma para aquele numero -- nada e' inventado, o silencio e' o dado. */
 int cc_combo(cc_cena_t *c, int papel, int combo, long agora);
 int cc_drop(cc_cena_t *c, int papel, int combo, long agora);
+
+/* SEGURA a animacao nomeada atual para sempre: o `cc_toca` continua sendo
+   usado, mas o personagem NAO volta a dancar quando ela acaba. E' o que a tela
+   de GAME OVER precisa -- no original o BF fica no substate com `isDead = true`
+   tocando `firstDeath` -> `deathLoop` ate' o jogador confirmar
+   (GameOverSubState.hx L285-292); voltar para `idle` no meio da morte seria uma
+   animacao que o original nao tem. `fixo = 0` devolve o comportamento normal. */
+void cc_especial_fixo(cc_cena_t *c, int papel, int fixo);
+
+/* A animacao nomeada atual JA' terminou? Mesma conta do `isAnimationFinished`
+   do FlxAnimation: nao-loop termina depois de `count` quadros na taxa da
+   sequencia. Devolve 0 quando o papel nao esta' numa animacao especial. */
+int cc_especial_terminou(const cc_cena_t *c, int papel, long agora);
 
 /* O quadro a desenhar AGORA, ou -1 quando nada mudou. `passo` e' o passo do
    chart (1/4 de batida): e' ele que decide QUANDO dancar -- a cada

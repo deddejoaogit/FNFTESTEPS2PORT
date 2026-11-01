@@ -10,9 +10,23 @@
 #
 # Duas passadas de proposito:
 #   1) sem CROSS, para DESCOBRIR o quadro da morte pelo log;
-#   2) com CROSS 120 quadros depois da morte (o original bloqueia entrada por
-#      1 s), para provar que o reinicio volta a tocar a musica.
+#   2) com CROSS 120 quadros depois da morte, para provar que o reinicio volta a
+#      tocar a musica.
 # O roteiro e' deterministico, entao as duas passadas sao comparaveis.
+#
+# DESDE QUE A TELA DE GAME OVER TEM A ANIMACAO E A CAMERA DO ORIGINAL, o que se
+# cobra aqui e' mais que "a tela existe":
+#   - `gameover_primeira_morte`: o BF entrou no `firstDeath` (e nao no idle);
+#   - `gameover_loop_morte`: quando o `firstDeath` acabou, entrou o `deathLoop`
+#     e o personagem NAO voltou a dancar (cc_especial_fixo);
+#   - `gameover_confirmar` = 1: o CROSS achou o `deathConfirm`;
+#   - o reinicio acontece 60 quadros (= 1 s, o `FlxG.camera.fade(BLACK, 1)` do
+#     confirmDeath) DEPOIS do CROSS, e nao no mesmo quadro;
+#   - a camera terminou no ponto que o setCameraTarget manda e o zoom no
+#     `stage.camZoom * death.cameraZoom`.
+# O CROSS e' aceito no quadro seguinte a morte: no original o `canInput` de 1 s
+# so' vale para o toque, o ACCEPT_P do controle nao tem bloqueio
+# (GameOverSubState.hx L271-278). Antes o port bloqueava 60 quadros por engano.
 #
 # Uso: tools/run_gameover_harness.sh [quadros]
 set -u
@@ -46,6 +60,39 @@ echo "== game over: passada 2 (CROSS 120 quadros depois da morte) =="
 PS2H_INPUT="$ENTRADA,${RETRY}:CROSS" sh tools/run_harness.sh "$FRAMES" >/dev/null 2>&1 || {
     echo "  FALHA: o harness nao terminou a passada 2"; exit 1; }
 
+# Passada 3: CIRCLE (BACK) -> goBack(): sai para o menu e zera o "BLUE BALLS"
+# (`parentPlayState.deathCounter = 0`, GameOverSubState.hx L548).
+rm -f "$LOG"
+echo "== game over: passada 3 (CIRCLE 120 quadros depois da morte) =="
+PS2H_INPUT="$ENTRADA,${RETRY}:CIRCLE" sh tools/run_harness.sh "$FRAMES" >/dev/null 2>&1 || {
+    echo "  FALHA: o harness nao terminou a passada 3"; exit 1; }
+GEXIT=$(awk -F, '$1=="E" && $3=="gameover_exit" {print $4; exit}' "$LOG")
+GRESTART3=$(awk -F, '$1=="E" && $3=="gameover_restart" {n++} END{print n+0}' "$LOG")
+echo "  saida pelo CIRCLE em ........ ${GEXIT:-?} (reinicios: $GRESTART3)"
+[ -n "$GEXIT" ] || { echo "  FALHA: o CIRCLE nao saiu da tela de game over"; exit 1; }
+[ "$GRESTART3" -eq 0 ] || { echo "  FALHA: o CIRCLE reiniciou a musica (so' o CROSS pode)"; exit 1; }
+
+# A passada 2 e' a que tem os numeros da tela: roda de novo (com o log limpo,
+# senao os contadores somam os da passada 3) para os AWKs abaixo.
+rm -f "$LOG"
+PS2H_INPUT="$ENTRADA,${RETRY}:CROSS" sh tools/run_harness.sh "$FRAMES" >/dev/null 2>&1 || {
+    echo "  FALHA: o harness nao terminou a passada 2 (repeticao)"; exit 1; }
+
+PRIMEIRA=$(awk -F, '$1=="E" && $3=="gameover_primeira_morte" {print $4; exit}' "$LOG")
+LOOP=$(awk -F, '$1=="E" && $3=="gameover_loop_morte" {print $5; exit}' "$LOG")
+CONFIRMA=$(awk -F, '$1=="E" && $3=="gameover_confirmar" {print $4; exit}' "$LOG")
+CAMX=$(awk -F, '$1=="E" && $3=="gameover_cam_final" {print $4; exit}' "$LOG")
+CAMY=$(awk -F, '$1=="E" && $3=="gameover_cam_final" {print $5; exit}' "$LOG")
+ZOOM=$(awk -F, '$1=="E" && $3=="gameover_zoom_final" {print $4; exit}' "$LOG")
+ZOOMALVO=$(awk -F, '$1=="E" && $3=="gameover_zoom_final" {print $5; exit}' "$LOG")
+# O FOCO nao e' constante: ele depende do canvas do pacote, e no harness o
+# canvas e' SINTETICO (a arte nao esta' no repositorio). O jogo publica o alvo
+# que calculou (`gameover_foco`, do ch_foco_morte) e o teste cobra que a camera
+# CHEGOU nele. A formula em si -- com o canvas do pacote REAL, 730x556 -- esta'
+# presa em test/test_char_layout.c: (1033,5 ; 763,0) para o BF do mainStage.
+FOCO_X=$(awk -F, '$1=="E" && $3=="gameover_foco" {print $4; exit}' "$LOG")
+FOCO_Y=$(awk -F, '$1=="E" && $3=="gameover_foco" {print $5; exit}' "$LOG")
+
 DEATH=$(awk -F, '$1=="E" && $3=="play_death" {print $5; exit}' "$LOG")
 GENTER=$(awk -F, '$1=="E" && $3=="gameover_enter" {print $4; exit}' "$LOG")
 GDRAW=$(awk -F, '$1=="E" && $3=="gameover_draw" {print $4; exit}' "$LOG")
@@ -61,6 +108,11 @@ echo "  tela de game over desde ..... ${GENTER:-?}"
 echo "  quadros em ui_state 10 ...... $GSTATE"
 echo "  quads desenhados na tela 10 . ${GDRAW:-?}"
 echo "  misses na morte ............. ${MISSES:-?}"
+echo "  firstDeath (personagem) ..... ${PRIMEIRA:-?}"
+echo "  deathLoop no quadro ......... ${LOOP:-?}"
+echo "  deathConfirm achada ......... ${CONFIRMA:-?}"
+echo "  camera final ................ ${CAMX:-?},${CAMY:-?} (foco ${FOCO_X:-?},${FOCO_Y:-?})"
+echo "  zoom final / alvo ........... ${ZOOM:-?} / ${ZOOMALVO:-?} (milesimos)"
 echo "  reinicio em ................. ${GOUT:-?}"
 echo "  vezes que a musica comecou .. $AUDIOS"
 echo "  contagens terminadas ........ $CINCOS"
@@ -75,6 +127,29 @@ FALHA=0
 [ "$CINCOS" -ge 2 ] || { echo "  FALHA: a contagem regressiva nao recomecou"; FALHA=1; }
 # Uma morte sem nota perdida nao faz sentido: a vida so' cai por miss/ghost.
 [ "${MISSES:-0}" -ge 13 ] || { echo "  FALHA: morte com menos de 13 misses (a vida nao caiu como devia)"; FALHA=1; }
+# A ANIMACAO e a CAMERA do substate.
+[ -n "$FOCO_X" ] || { echo "  FALHA: o jogo nao publicou o foco da camera (gameover_foco)"; FALHA=1; }
+[ -n "$PRIMEIRA" ] || { echo "  FALHA: o BF nao entrou no firstDeath (gameover_primeira_morte)"; FALHA=1; }
+[ -n "$LOOP" ] || { echo "  FALHA: o deathLoop nunca entrou depois do firstDeath"; FALHA=1; }
+if [ -n "$LOOP" ] && [ -n "$GENTER" ] && [ "$LOOP" -le "$GENTER" ]; then
+    echo "  FALHA: deathLoop ($LOOP) antes da tela abrir ($GENTER)"; FALHA=1; fi
+case "${CONFIRMA:-}" in 1) ;; *) echo "  FALHA: o CROSS nao achou o deathConfirm"; FALHA=1;; esac
+# 1 s de fade entre o CROSS e o reinicio (60 quadros, tolerancia de 2).
+if [ -n "$GOUT" ]; then
+    DIF=$((GOUT - RETRY))
+    echo "  fade do confirmDeath ........ $DIF quadros (esperado 60)"
+    if [ "$DIF" -lt 58 ] || [ "$DIF" -gt 62 ]; then
+        echo "  FALHA: o reinicio nao esperou o fade de 1 s ($DIF quadros)"; FALHA=1; fi
+fi
+# A camera converge para o foco (60 quadros de fade quase fecham a conta:
+# 1 - 0,98^180 = 0,973 do caminho; 40 px de tolerancia cobre o resto).
+if [ -n "$CAMX" ] && [ -n "$CAMY" ] && [ -n "$FOCO_X" ] && [ "${FOCO_X:--1}" -ge 0 ]; then
+    DX=$((CAMX - FOCO_X)); DY=$((CAMY - FOCO_Y))
+    [ "$DX" -lt 0 ] && DX=$((-DX)); [ "$DY" -lt 0 ] && DY=$((-DY))
+    if [ "$DX" -gt 40 ] || [ "$DY" -gt 40 ]; then
+        echo "  FALHA: a camera parou longe do foco do BF (${DX}px, ${DY}px)"; FALHA=1; fi
+fi
+[ "${ZOOM:-0}" -eq "${ZOOMALVO:-1}" ] || { echo "  FALHA: o zoom nao chegou em stage.camZoom * death.cameraZoom"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo
@@ -83,4 +158,4 @@ if [ "$FALHA" != 0 ]; then
 fi
 
 echo
-echo "GAME OVER: PASSOU (morte por vida zero, tela desenhada, reinicio tocando de novo)"
+echo "GAME OVER: PASSOU (morte com firstDeath/deathLoop, camera e zoom do original, fade de 1 s, reinicio tocando de novo)"

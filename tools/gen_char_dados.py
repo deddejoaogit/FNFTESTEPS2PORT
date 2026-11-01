@@ -91,6 +91,11 @@ def render(plan):
     linhas.append("  float sing;          /* singTime em passos; 0 = nao definido */")
     linhas.append("  float dance;         /* danceEvery em BATIDAS (CharacterData DEFAULT_DANCEEVERY 1.0) */")
     linhas.append("  float scale;         /* `scale` do CharacterData (1; 6 nos de pixel) */")
+    linhas.append("  /* `death` do CharacterData: para onde a camera vai e quanto ela")
+    linhas.append("     aproxima na tela de GAME OVER (BaseCharacter.hx L200-214:")
+    linhas.append("     getDeathCameraOffsets/getDeathCameraZoom; ausente = [0,0] e 1,0). */")
+    linhas.append("  float dcx,dcy;")
+    linhas.append("  float dzoom;")
     linhas.append("  int anim_first,anim_count;")
     linhas.append("}ch_dados_t;")
     linhas.append("")
@@ -141,8 +146,13 @@ def render(plan):
             oa = a.get("offsets") or [0.0, 0.0]
             anims.append((nome, a.get("prefix") or nome,
                           float(oa[0]), float(oa[1])))
+        morte = d.get("death") or {}
+        moff = morte.get("cameraOffsets") or [0.0, 0.0]
+        mzoom = morte.get("cameraZoom")
+        mzoom = float(mzoom) if mzoom is not None else 1.0
         chars.append({
             "id": cid,
+            "dcx": float(moff[0]), "dcy": float(moff[1]), "dzoom": mzoom,
             "render": RENDER.get(d.get("renderType") or "", RENDER_DEFAULT),
             "flipx": 1 if d.get("flipX") else 0,
             "ox": float(off[0]), "oy": float(off[1]),
@@ -170,11 +180,12 @@ def render(plan):
     linhas.append("")
     linhas.append("static const ch_dados_t ch_chars[]={")
     for c in chars:
-        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%s,%d,%d},'
+        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d},'
                       % (c_str(c["id"]), c["render"], c["flipx"],
                          c_float(c["ox"]), c_float(c["oy"]),
                          c_float(c["cx"]), c_float(c["cy"]), c_float(c["sing"]),
                          c_float(c["dance"]), c_float(c["scale"]),
+                         c_float(c["dcx"]), c_float(c["dcy"]), c_float(c["dzoom"]),
                          c["af"], c["ac"]))
     linhas.append("};")
     linhas.append("#define CH_CHAR_COUNT %d" % len(chars))

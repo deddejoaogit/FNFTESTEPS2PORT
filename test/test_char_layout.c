@@ -319,6 +319,65 @@ int main(void)
         }
     }
 
+    printf("== game over: o foco de camera do setCameraTarget ==\n");
+    {
+        /* GameOverSubState.hx L196-222. O BF do mainStage com o canvas do
+           pacote REAL (365x278, escala de pacote 0,5 -> 730x556 no espaco do
+           original):
+             originalPosition + w/2 = 989,5 - 365 + 17 + 365 = 1006,5
+             - data.cameraOffsets (-18, 36)  -> ida e volta, some
+             - slot.cameraOffsets (-100,-100) -> 1106,5
+             + death.cameraOffsets (-73, 42)  -> 1033,5
+           e em y: 885 - 556 + 14 + 278 = 621 ; +100 = 721 ; +42 = 763.
+           E' o numero que o log do console tem de mostrar em
+           `gameover_cam_final` (com o pacote de verdade). */
+        int bi = ch_find("bf");
+        const bs_slot_t *sl = ch_slot("mainStage", "bf");
+        ch_anchor_t an;
+        CHECK(bi >= 0);
+        CHECK(sl != 0);
+        if (bi >= 0 && sl) {
+            const ch_dados_t *c = &ch_chars[bi];
+            /* O cameraOffsets do personagem TEM de entrar e sair: se algum dia
+               alguem trocar as duas por uma soma (a formula do gameplay), este
+               numero muda e o teste acusa. */
+            CHECK_NEAR(c->cx, -18.0, 1e-4);
+            CHECK_NEAR(c->cy, 36.0, 1e-4);
+            CHECK_NEAR(c->dcx, -73.0, 1e-4);
+            CHECK_NEAR(c->dcy, 42.0, 1e-4);
+            ch_foco_morte(c, sl, 730.0f, 556.0f, &an);
+            CHECK_NEAR(an.cam_x, 1033.5, 1e-3);
+            CHECK_NEAR(an.cam_y, 763.0, 1e-3);
+            /* A ancora do SPRITE e' a mesma do ch_anchor(usa_offsets=1): o
+               game over nao move o personagem, so' a camera. */
+            CHECK_NEAR(an.sprite_x, sl->x - 365.0f + c->ox, 1e-3);
+            CHECK_NEAR(an.sprite_y, sl->y - 556.0f + c->oy, 1e-3);
+            /* Canvas diferente muda SO' a metade que depende dele: em y o
+               foco anda canvas_h/2 (o x nao depende da altura). */
+            ch_foco_morte(c, sl, 730.0f, 400.0f, &an);
+            CHECK_NEAR(an.cam_y, 763.0 + 78.0, 1e-3);
+            CHECK_NEAR(an.cam_x, 1033.5, 1e-3);
+        }
+        /* Geometria ausente nao pode estourar (o desenho chama isto a 60 Hz e
+           o palco pode nao ter slot): devolve zeros. */
+        an.cam_x = an.cam_y = 9.0f;
+        ch_foco_morte(0, 0, 1.0f, 1.0f, &an);
+        CHECK_NEAR(an.cam_x, 0.0, 1e-6);
+        CHECK_NEAR(an.cam_y, 0.0, 1e-6);
+        ch_foco_morte(0, 0, 1.0f, 1.0f, 0);
+        /* E o zoom da morte: 35 personagens sem `death` valem 1,0; os 11 com
+           dado trazem o numero do JSON. */
+        {
+            int com_zoom = 0, com_off = 0;
+            for (i = 0; i < CH_CHAR_COUNT; i++) {
+                if (ch_chars[i].dzoom != 1.0f) com_zoom++;
+                if (ch_chars[i].dcx != 0.0f || ch_chars[i].dcy != 0.0f) com_off++;
+            }
+            CHECK_EQ(com_zoom, 2);      /* pico-blazin 0,8 e sserafim-sakura 1,5 */
+            CHECK_EQ(com_off, 10);     /* 11 personagens tem `death`; um e' [0,0] (bf-pixel) */
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  personagens: 46 personagens, %d animacoes, %d posicoes conferidas\n",
            CH_ANIM_COUNT, CH_CHAR_COUNT * BS_STAGE_PROPS_COUNT * 3);

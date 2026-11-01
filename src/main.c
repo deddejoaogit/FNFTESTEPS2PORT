@@ -270,6 +270,36 @@ static s32 g_countdown_left=0,g_countdown_step=0,g_countdown_beat=0,g_chart_cloc
    g_gameover_drawn serve de prova, como g_result_drawn: "o estado existe" nao
    e' o mesmo que "desenhou alguma coisa". */
 static int g_gameover_frames=0,g_gameover_drawn=0;
+/* CAMERA E ANIMACAO DA TELA DE GAME OVER (GameOverSubState.hx).
+   O original NAO congela a cena: ao morrer, o BF sai do palco e entra no
+   substate na MESMA posicao (`boyfriend.resetCharacter(false)`), a camera
+   passa a seguir um ponto que ele calcula em setCameraTarget() (L196-222) e o
+   zoom persegue `stage.camZoom * death.cameraZoom` -- os dois com
+   suavizacao. Antes o port so' desenhava preto e texto: metade dos eventos
+   dessa tela (a camera indo para o BF, o zoom abrindo ou fechando, o BF
+   morrendo) nao existia.
+
+   Constantes, todas de linha do original:
+   - GO_CAM_LERP: FlxG.camera.follow(..., LOCKON, DEFAULT_CAMERA_FOLLOW_RATE/2)
+     (L220) com DEFAULT_CAMERA_FOLLOW_RATE = 0.04 -> 0.02, e o
+     `adjustedLerp = 1 - (1-followLerp)^(elapsed*60)` do FlxCamera.updateFollow:
+     1 - 0.98^1.001 = 0.020019798.
+   - GO_ZOOM_K: MathUtil.smoothLerpPrecision(base, target, elapsed,
+     CAMERA_ZOOM_DURATION = 0.5) (L100, L265) = target + (base-target) *
+     pow(0.01, elapsed/0.5); com elapsed = 1/59.94 s o fator e' 0.85756425.
+   - GO_FADE_QUADROS: depois do CROSS o original joga `deathConfirm`, espera
+     FADE_TIMER = (comprimento da musica de game over)/7000 -- que sem a musica
+     da' 0 -- e comeca FlxG.camera.fade(BLACK, 1) (L349-372, L425-430); o
+     reinicio acontece no fim do fade, 1 s depois. A MUSICA DE GAME OVER NAO
+     ESTA' NO PACOTE DE DADOS (nem `gameplay/gameover/gameOver`, nem
+     `fnf_loss_sfx`): o port nao inventa o arquivo, conta os 60 quadros do fade
+     e registra `gameover_sem_audio` uma vez. */
+#define GO_CAM_LERP 0.020019798f
+#define GO_ZOOM_K 0.857564250f
+#define GO_FADE_QUADROS 60
+static float g_go_cam_x=0.0f,g_go_cam_y=0.0f,g_go_zoom=1.0f,g_go_ms=0.0f;
+static int g_go_iniciado=0,g_go_anim=-1,g_go_terminando=0,g_go_fade=0,g_go_audio_visto=0;
+static unsigned int g_go_sorteio=0;
 /* PAUSA (ui_state continua 8: no original a pausa e' um SUBSTATE, o PlayState
    continua atras, congelado). g_pause_mode 0 = menu padrao, 1 = troca de
    dificuldade. As entradas do menu padrao sao as do original
@@ -1709,6 +1739,43 @@ static int cena_canvas_mundo(int papel,const bs_slot_t *slot,float *w,float *h)
                            ch_chars[ci].scale,slot->scale);
   if(w)*w=(float)g_cena_texde_w[papel]*em;
   if(h)*h=(float)g_cena_texde_h[papel]*em;}
+ return 1;
+}
+
+/* O PONTO QUE A CAMERA SEGUE NA TELA DE GAME OVER, em unidades do original.
+   GameOverSubState.hx L196-222 (setCameraTarget), linha por linha:
+
+     cameraFollowPoint = boyfriend.cameraFocusPoint
+         - boyfriend._data.cameraOffsets
+         - currentStage._data.characters.bf.cameraOffsets
+         + boyfriend.getDeathCameraOffsets()
+
+   e o `cameraFocusPoint` do BaseCharacter.hx L350-355 e'
+   `originalPosition + width/2, height/2 + cameraOffsets` -- ou seja, o
+   cameraOffsets do PERSONAGEM entra e sai (some), e o que sobra e' o centro
+   do sprite (o `originalPosition + canvas/2`, que em ch_anchor e'
+   sprite + canvas/2) MENOS o cameraOffsets do SLOT do palco MAIS o do death.
+   Nao da' para reaproveitar `ch_anchor`: ele SOMA os dois cameraOffsets, que
+   e' a formula do gameplay. Escrever a do original aqui, com as duas
+   truncagens (`Std.int`) que ela faz, e' a unica forma de nao inventar valor.
+
+   Devolve 0 quando nao ha' cena (sem pacote, sem slot ou antes da carga): quem
+   chama mantem a camera onde ela esta', em vez de pular para um ponto que nao
+   existe. */
+static int go_foco_bf(float *fx,float *fy)
+{
+ const char *stg=g_play_song?g_play_song->stage:"mainStage";
+ const bs_slot_t *sl;
+ ch_anchor_t an;
+ float cw=0.0f,chh=0.0f;
+ int ci=g_cena_bf_ci;
+ if(!g_cena_modo||ci<0||ci>=CH_CHAR_COUNT)return 0;
+ sl=ch_slot(stg,"bf");
+ if(!sl||!cena_canvas_mundo(CH_PAPEL_BF,sl,&cw,&chh))return 0;
+ /* A conta vive em char_layout (ch_foco_morte) para poder ser testada sem GS. */
+ ch_foco_morte(&ch_chars[ci],sl,cw,chh,&an);
+ if(fx)*fx=an.cam_x;
+ if(fy)*fy=an.cam_y;
  return 1;
 }
 
@@ -3570,7 +3637,84 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      1 s (60 quadros) nada e' aceito, igual ao `canInput` do original. */
   if(transition_frame==0&&ui_state==10){
    g_gameover_frames++;
-   if(pressed&PAD_CROSS&&g_gameover_frames>=60){
+   g_go_ms+=TUT_DT*1000.0f;
+   /* PRIMEIRO QUADRO: a animacao e a camera da tela nascem aqui, e nao na
+      transicao, porque no original elas nascem no `update` do substate (o
+      `hasStartedAnimation` de GameOverSubState.hx L230-262) -- o substate e'
+      criado no meio do quadro da morte e so' age no seguinte. */
+   if(!g_go_iniciado){
+    const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    const bs_slot_t *slb=ch_slot(stg,"bf");
+    int ci=g_cena_bf_ci,tem_fake=0;
+    g_go_iniciado=1;
+    /* A camera COMECA onde o gameplay a deixou (o substate nasce sobre o
+       PlayState e a camera do jogo continua sendo a mesma) e o zoom tambem. */
+    g_go_cam_x=g_tut_cam_x;g_go_cam_y=g_tut_cam_y;g_go_zoom=g_tut_zoom;
+    g_go_anim=-1;g_go_terminando=0;g_go_fade=0;
+    /* O avatar do jogador: e' ele que morre (GameOverSubState usa o BF do
+       PlayState, que nos pacotes e' o personagem do slot `bf`). */
+    if(g_cena_modo&&slb&&ci>=0&&g_cena.p[CH_PAPEL_BF].ativo){
+     tem_fake=ch_anim_i(ci,"fakeoutDeath")>=0;
+     /* FlxG.random.bool((1/4096)*100) -- 1 em 4096. O sorteio e'
+        deterministico (LCG semeado pelo quadro) para que duas rodadas do
+        harness com o mesmo roteiro de entrada desenhem o mesmo. */
+     g_go_sorteio=(unsigned int)frame_no*2654435761u+1u;
+     g_go_sorteio=g_go_sorteio*1664525u+1013904223u;
+     if(tem_fake&&(g_go_sorteio>>20)%4096u==0u){
+      if(cc_toca(&g_cena,CH_PAPEL_BF,"fakeoutDeath",0)){g_go_anim=0;telemetry_event("gameover_fakeout",1,(int)frame_no);}
+     }
+     if(g_go_anim<0){
+      if(cc_toca(&g_cena,CH_PAPEL_BF,"firstDeath",0)){
+       g_go_anim=0;
+       /* `isDead = true`: o personagem NAO volta a dancar quando a morte
+          acaba (GameOverSubState.hx L172-177). Sem isso o BF morto dancava. */
+       cc_especial_fixo(&g_cena,CH_PAPEL_BF,1);
+       telemetry_event("gameover_primeira_morte",ci,(int)frame_no);
+      }else telemetry_event("gameover_sem_anim_morte",ci,0);
+     }
+    }else telemetry_event("gameover_sem_cena",g_cena_modo,ci);
+    /* `playBlueBalledSFX()` marca `blueballed = true` (L600-623) e e' o que
+       libera o CROSS; aqui nao ha' o som, entao o que resta e' o estado. */
+    telemetry_event("gameover_enter_camera",(int)g_go_cam_x,(int)g_go_cam_y);
+    { /* O ALVO da camera, medido uma vez: e' contra ele que o harness cobra a
+         convergencia, e no console e' o numero que se compara com a conta do
+         ch_foco_morte (test/test_char_layout.c) e com o `death` do JSON. */
+     float fx=0.0f,fy=0.0f;
+     if(go_foco_bf(&fx,&fy))telemetry_event("gameover_foco",(int)fx,(int)fy);
+     else telemetry_event("gameover_foco",-1,-1);}
+   }
+   {
+    /* A ANIMACAO SEGUE O RELOGIO DO SUBSTATE: acabou o `firstDeath`, entra o
+       `deathLoop` (L305-318) e a musica comecaria junto -- sem o arquivo, so'
+       o evento. */
+    if(g_go_anim==0&&!g_go_terminando&&g_cena.p[CH_PAPEL_BF].ativo&&
+       cc_especial_terminou(&g_cena,CH_PAPEL_BF,(long)g_go_ms)){
+     if(cc_toca(&g_cena,CH_PAPEL_BF,"deathLoop",(long)g_go_ms)){
+      g_go_anim=1;g_go_ms=0.0f;
+      telemetry_event("gameover_loop_morte",0,(int)frame_no);
+      if(!g_go_audio_visto){g_go_audio_visto=1;telemetry_event("gameover_sem_audio",0,0);}
+     }
+    }
+    /* A CAMERA: perseguicao do ponto do BF e zoom para
+       `stage.camZoom * death.cameraZoom`, os dois suavizados com as
+       constantes do original. Roda tambem durante a saida: no original o
+       substate continua atualizando a camera ate' fechar. */
+    {
+     float fx=0.0f,fy=0.0f;
+     if(go_foco_bf(&fx,&fy)){
+      g_go_cam_x+=(fx-g_go_cam_x)*GO_CAM_LERP;
+      g_go_cam_y+=(fy-g_go_cam_y)*GO_CAM_LERP;
+     }
+     {
+      int ci=g_cena_bf_ci;
+      float tz=g_play_zoom*((ci>=0&&ci<CH_CHAR_COUNT)?ch_chars[ci].dzoom:1.0f);
+      g_go_zoom=tz+(g_go_zoom-tz)*GO_ZOOM_K;
+     }
+    }
+   }
+   if(g_go_fade>0){
+    g_go_fade--;
+    if(g_go_fade==0){
     /* Reinicio NO LUGAR: o original fecha o substate e marca needsReset, e o
        PlayState se reinicia. Aqui a cena ja' esta' carregada, entao o que
        precisa voltar ao comeco e' o transporte, o relogio, o cursor do chart,
@@ -3578,10 +3722,41 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        a mesma macro que o Restart Song da pausa usa). */
     PLAY_REINICIAR_MUSICA();
     PLAY_REBOBINAR_AUDIO(audio_fd);
+    /* `boyfriend.isDead = false` e `resetCameraZoom()` (L406-413): o
+       personagem volta a dancar e a camera volta ao zoom do palco. */
+    if(g_cena.p[CH_PAPEL_BF].ativo){
+     /* `boyfriend.resetCharacter(true)` volta o personagem para o idle. */
+     int ai=ch_anim_idle(g_cena_bf_ci,0);
+     cc_especial_fixo(&g_cena,CH_PAPEL_BF,0);
+     if(ai>=0&&g_cena_bf_ci>=0)cc_toca(&g_cena,CH_PAPEL_BF,
+        ch_anims[ch_chars[g_cena_bf_ci].anim_first+ai].name,0);
+    }
+    g_go_iniciado=0;g_go_anim=-1;g_go_terminando=0;g_go_ms=0.0f;
     ui_state=8;target_state=-1;transition_frame=0;transform_mode=0;last=-1;last2=-1;
     telemetry_event("state",8,(int)frame_no);
     telemetry_event("gameover_restart",(int)frame_no,(int)g_play.health);
-   }else if(pressed&PAD_CIRCLE&&g_gameover_frames>=60){
+    /* Prova de que a camera e o zoom REALMENTE chegaram onde o original manda:
+       o ponto do BF (setCameraTarget) e stage.camZoom * death.cameraZoom. */
+    telemetry_event("gameover_cam_final",(int)g_go_cam_x,(int)g_go_cam_y);
+    {int ci=g_cena_bf_ci;
+     telemetry_event("gameover_zoom_final",(int)(g_go_zoom*1000.0f),
+        (int)(g_play_zoom*((ci>=0&&ci<CH_CHAR_COUNT)?ch_chars[ci].dzoom:1.0f)*1000.0f));}
+    }
+   }else if(pressed&PAD_CROSS&&!g_go_terminando&&g_gameover_frames>=2){
+    /* confirmDeath() (L330-372): `isEnding = true`, toca
+       `deathConfirm`+suffix, comeca a musica de saida (sem arquivo aqui) e
+       dispara o fade de 1 s. O reinicio acontece no FIM do fade -- antes o
+       port reiniciava no mesmo quadro, o que e' um evento a menos do que o
+       original mostra. */
+    g_go_terminando=1;g_go_fade=GO_FADE_QUADROS;g_go_ms=0.0f;
+    if(g_cena.p[CH_PAPEL_BF].ativo&&cc_toca(&g_cena,CH_PAPEL_BF,"deathConfirm",0))
+     telemetry_event("gameover_confirmar",1,(int)frame_no);
+    else telemetry_event("gameover_confirmar",0,(int)frame_no);
+   }else if(pressed&PAD_CIRCLE&&!g_go_terminando&&g_gameover_frames>=2){
+    /* goBack() (L544-570): so' depois de `blueballed` (o primeiro quadro) e
+       nunca durante a saida. O deathCounter volta a zero, e e' isso que zera
+       "BLUE BALLS" no HUD do original (PlayState.deathCounter = 0). */
+    g_death_counter=0;
     g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;
     g_story_mode=0;   /* semana abandonada: nao e' mais campanha */
     telemetry_event("gameover_exit",(int)frame_no,0);
@@ -4207,6 +4382,25 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,255);
+   /* O BF MORTO, com a camera e o zoom da tela (go_foco_bf + GO_CAM_LERP /
+      GO_ZOOM_K, no bloco de entrada acima). O original tira o BF do palco e o
+      poe no substate na MESMA posicao, com o fundo PRETO na frente do palco --
+      por isso nada do palco aparece, mas ele aparece. Os textos de HUD tambem
+      nao: a tela de game over cobre tudo.
+      `passo` vai 0 de proposito: no substate nao existe batida, e quem manda
+      na animacao e' o cc_especial_fixo (o personagem esta' morto). */
+   if(g_cena_modo&&g_cena.p[CH_PAPEL_BF].ativo&&g_cena_texde_w[CH_PAPEL_BF]>0){
+    const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    const bs_slot_t *slb=ch_slot(stg,"bf");
+    if(slb)q=cena_desenha(q,CH_PAPEL_BF,slb,0,(long)g_go_ms,g_go_cam_x,g_go_cam_y,0.5f*g_go_zoom);
+   }
+   /* O FADE DA SAIDA (FlxG.camera.fade(BLACK, 1)): 1 s ate' preto, e o reinicio
+      acontece no fim dele. Antes o reinicio era instantaneo e o fade nao
+      existia. */
+   if(g_go_terminando&&g_go_fade>0){
+    int a=255-255*g_go_fade/GO_FADE_QUADROS;
+    if(a>0)q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,(unsigned char)a);
+   }
    q=bind_texture_filter(q,&fonttex,1);
    q=text_draw(q,"GAME OVER",320,150,2.0f,1);
    snprintf(lb,sizeof(lb),"MISSES %d",g_play.missed);

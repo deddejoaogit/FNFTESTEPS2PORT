@@ -33,6 +33,7 @@ int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
     p->t0 = agora;
     p->canto_ate = 0;
     p->especial = 0;
+    p->especial_fixo = 0;
     p->ultimo_passo = INT_MIN;    /* o primeiro passo que valer danca */
     p->danca_cada = 1.0f;         /* CharacterData DEFAULT_DANCEEVERY */
     p->dancas = 0;                /* hasDanced = false -> a primeira e' danceLeft */
@@ -99,6 +100,35 @@ static int anim_ocioso(const cc_papel_t *p, int lado)
     a = cp_anim_i(&p->pacote, (lado & 1) ? "danceRight" : "danceLeft");
     if (a >= 0) return a;
     return cp_anim_i(&p->pacote, (lado & 1) ? "danceLeft" : "danceRight");
+}
+
+void cc_especial_fixo(cc_cena_t *c, int papel, int fixo)
+{
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS) return;
+    c->p[papel].especial_fixo = fixo ? 1 : 0;
+}
+
+/* Duracao de uma animacao em ms, pela taxa da sequencia (centesimos de quadro
+   por segundo). Taxa ausente nao vira "instantaneo": sem fps nao ha' como saber
+   que acabou, entao devolve -1 e quem chama decide. */
+static long duracao_ms(const ch_seq_t *e)
+{
+    if (!e || e->fps100 <= 0 || e->count <= 0) return -1;
+    return (long)((long)e->count * 100000L / (long)e->fps100);
+}
+
+int cc_especial_terminou(const cc_cena_t *c, int papel, long agora)
+{
+    const cc_papel_t *p;
+    ch_seq_t e;
+    long dur;
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS) return 0;
+    p = &c->p[papel];
+    if (!p->ativo || !p->especial || p->anim < 0) return 0;
+    if (cp_seq(&p->pacote, p->anim, &e) != 0) return 0;
+    dur = duracao_ms(&e);
+    if (dur < 0) return 0;
+    return (agora - p->t0) >= dur ? 1 : 0;
 }
 
 void cc_danca_cada(cc_cena_t *c, int papel, float cada)
@@ -282,7 +312,7 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int passo)
     }
     /* Animacao nomeada ou "-end": fica ate' ACABAR. So' sai quando o ultimo
        quadro dela ja' passou (a animacao terminou). */
-    if (p->especial && p->anim >= 0) {
+    if (p->especial && p->anim >= 0 && !p->especial_fixo) {
         ch_seq_t e;
         if (cp_seq(&p->pacote, p->anim, &e) == 0) {
             long passado = agora - p->t0;

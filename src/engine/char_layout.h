@@ -132,6 +132,29 @@ void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
 int ch_offset_anim(int ci, int ai, float escala_personagem, float escala_slot,
                    float *dx, float *dy);
 
+/* O PONTO QUE A CAMERA SEGUE NA TELA DE GAME OVER.
+   GameOverSubState.hx L196-222 (setCameraTarget), linha por linha:
+
+     cameraFollowPoint  = boyfriend.cameraFocusPoint
+                        - boyfriend._data.cameraOffsets
+                        - currentStage._data.characters.bf.cameraOffsets
+                        + boyfriend.getDeathCameraOffsets()
+
+   e o cameraFocusPoint do BaseCharacter.hx L350-355 e'
+   `originalPosition + width/2, height/2 + cameraOffsets`. Ou seja: o
+   cameraOffsets do PERSONAGEM entra e sai (some), e sobra o centro do sprite
+   (o `originalPosition + canvas/2`, que aqui e' sprite + canvas/2) MENOS o
+   cameraOffsets do SLOT do palco MAIS o do `death`.
+
+   Nao da' para reaproveitar ch_anchor: ele SOMA os dois cameraOffsets, que e'
+   a formula do gameplay. Aqui vai a do original, com as duas truncagens
+   (`Std.int`) que ela faz, e nada mais.
+
+   `usa_offsets` e' sempre 1 nesta tela: o BF do game over e' o personagem do
+   jogador, cujo script aplica os globalOffsets. */
+void ch_foco_morte(const ch_dados_t *c, const bs_slot_t *slot,
+                   float canvas_w, float canvas_h, ch_anchor_t *out);
+
 /* QUEM ENTRA EM CENA, E EM QUE SLOT.
    O original nao escolhe o slot pelo personagem, e sim pelo PAPEL: o
    jogador no slot `bf`, o oponente no `dad` e a namorada no `gf`

@@ -205,6 +205,52 @@ int main(void)
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 3);              /* singLEFT-end */
     }
 
+    printf("== animacao SEGURA para a tela de GAME OVER ==\n");
+    {
+        /* O `firstDeath` -> `deathLoop` da tela de morte
+           (GameOverSubState.hx L285-292): com `cc_especial_fixo` o personagem
+           NAO volta a dancar quando a animacao acaba -- ele fica nela ate' o
+           jogo trocar por outra. Sem isso o BF morto voltaria a dancar no meio
+           da tela de game over. */
+        cc_cena_t c;
+        const anim_t a[3] = {
+            { "idle",    0, 2, 2400, 1 },
+            { "firstDeath", 2, 2, 1000, 0 },   /* 200 ms */
+            { "deathLoop",  4, 2, 1000, 1 },
+        };
+        unsigned int n = montar(6, 3, a);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_BF, g_pac, n, 0), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_BF, 0, 0), 0);
+
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_BF, "firstDeath", 0), 1);
+        CHECK_EQ(cc_especial_terminou(&c, CH_PAPEL_BF, 100), 0);
+        CHECK_EQ(cc_especial_terminou(&c, CH_PAPEL_BF, 200), 1);   /* 2 x 100 ms */
+        /* Sem fixo, o quadro seguinte devolve a danca (comportamento normal). */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_BF, 201, 0), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_BF), 0);
+
+        /* Com fixo, ela nunca acaba sozinha: cc_especial_terminou continua
+           dizendo que terminou (e' o que a tela usa para encadear o loop), mas
+           o personagem NAO sai dela. */
+        cc_especial_fixo(&c, CH_PAPEL_BF, 1);
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_BF, "firstDeath", 1000), 1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_BF, 1300, 4), 3);   /* ultimo quadro do firstDeath */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_BF), 1);              /* ainda firstDeath */
+        CHECK_EQ(cc_especial_terminou(&c, CH_PAPEL_BF, 1300), 1);
+        /* Troca para o loop: tambem fica. */
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_BF, "deathLoop", 1400), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_BF), 2);
+        /* deathLoop e' LOOP: 600 ms depois de comecar, o quadro e'
+           600/100 = 6, e 6 % 2 = 0 -> o primeiro quadro dela (4). */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_BF, 2000, 8), 4);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_BF), 2);
+        /* Papel parado nao "terminou" nada, e o indice invalido nao estoura. */
+        CHECK_EQ(cc_especial_terminou(&c, CH_PAPEL_DAD, 0), 0);
+        CHECK_EQ(cc_especial_terminou(&c, 99, 0), 0);
+        CHECK_EQ(cc_especial_terminou(NULL, 0, 0), 0);
+    }
+
     printf("== \"-hold\": olhos do pai e chama do Darnell ==\n");
     {
         /* Caso real do dad.json: idle (nao-loop, 2 quadros a 24 fps) e

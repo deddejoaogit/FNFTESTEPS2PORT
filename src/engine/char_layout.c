@@ -163,6 +163,31 @@ int ch_offset_anim(int ci, int ai, float escala_personagem, float escala_slot,
     return 1;
 }
 
+void ch_foco_morte(const ch_dados_t *c, const bs_slot_t *slot,
+                   float canvas_w, float canvas_h, ch_anchor_t *out)
+{
+    float sx = 0.0f, sy = 0.0f;
+    if (!out) return;
+    out->sprite_x = out->sprite_y = 0.0f;
+    out->cam_x = out->cam_y = 0.0f;
+    if (!c || !slot) return;
+    /* Mesma ancora do sprite que ch_anchor com usa_offsets = 1. */
+    sx = slot->x - canvas_w * 0.5f + c->ox;
+    sy = slot->y - canvas_h + c->oy;
+    out->sprite_x = sx;
+    out->sprite_y = sy;
+    /* originalPosition + w/2 + data.cameraOffsets, menos os dois offsets do
+       original (com a truncagem do Std.int em cada um) e mais o death. */
+    out->cam_x = sx + canvas_w * 0.5f + c->cx;
+    out->cam_x -= (float)(int)c->cx;
+    out->cam_x -= (float)(int)slot->cx;
+    out->cam_x += c->dcx;
+    out->cam_y = sy + canvas_h * 0.5f + c->cy;
+    out->cam_y -= (float)(int)c->cy;
+    out->cam_y -= (float)(int)slot->cy;
+    out->cam_y += c->dcy;
+}
+
 int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS])
 {
     if (!song || !out) return -1;

@@ -1457,16 +1457,19 @@ Agora:
 | gatilho | `health <= HEALTH_MIN` (`PlayState.hx:1255`) | mesmo teste em `g_play.dead` |
 | ao morrer | pausa música/vozes, `songScore = 0`, `health = STARTING` | igual (`fnf_play_move_to_game_over`) |
 | transição | **sem fade** (`skipNextTransIn/Out = true`) | troca imediata de `ui_state`, sem fade |
-| tela | fundo preto opaco, texto "Game Over", BF em `firstDeath` | fundo preto + texto (a arte de morte não está no pacote) |
-| entrada | bloqueada 1 s (`canInput`), depois CROSS reinicia e CIRCLE sai | 60 quadros, depois CROSS reinicia e CIRCLE vai ao Story |
-| reinício | fecha o substate, `needsReset` | transporte, relógio, cursor do chart, tallies, câmera e contagem regressiva voltam ao início |
+| tela | fundo preto opaco, texto "Game Over", BF em `firstDeath` | fundo preto + texto + **BF em `firstDeath`** (seção nova, abaixo) |
+| entrada | `canInput` de 1 s **só para o toque**; ACCEPT_P/BACK_P valem desde o 1º quadro | CROSS/CIRCLE a partir do 2º quadro |
+| reinício | `deathConfirm`, `FlxG.camera.fade(BLACK, 1)`, e o `needsReset` **no fim do fade** | 60 quadros de fade e depois transporte, relógio, cursor do chart, tallies, câmera e contagem regressiva voltam ao início |
 
-Medido (`tools/run_gameover_harness.sh`, 5.000 quadros, duas passadas): morte
-no quadro 3.559 com **13 misses** (13 × 0,08 = 1,04 > 1,0 de vida), 120 quadros
-em `ui_state 10`, 21 quads desenhados na tela 10, reinício no quadro **3.679**,
-música começando **2 vezes** e **2 contagens regressivas** completas. O teste
-falha se o jogador não morrer, se a tela não desenhar, ou se a música não voltar
-a tocar depois do reinício.
+Medido (`tools/run_gameover_harness.sh`, 5.000 quadros, **três** passadas):
+morte no quadro 3.559 com **13 misses** (13 × 0,08 = 1,04 > 1,0 de vida), 180
+quadros em `ui_state 10`, 22 quads desenhados na tela 10, reinício no quadro
+**3.739** — exatamente **60 quadros** depois do CROSS, que é o fade de 1 s —,
+música começando 2 vezes, 2 contagens completas, e na terceira passada o CIRCLE
+sai da tela (`gameover_exit` no quadro 3.679) **sem** reiniciar a música. O teste
+falha se o jogador não morrer, se a tela não desenhar, se o `firstDeath`/
+`deathLoop` não entrarem, se o reinício não esperar o fade, se a câmera não
+chegar no foco ou se o zoom não bater com `stage.camZoom * death.cameraZoom`.
 
 **Fechado também: o roteiro de teste deixou de ser aleatório.**
 
@@ -2681,3 +2684,66 @@ aos 62 s. Nao e' falha, e' "nao observado".
 
 **Suite completa com os pacotes reais no harness:** `ALL SUITES PASSED`
 (346 s), incluindo o sweep ASan/UBSan das 81 combinacoes e o Story Mode.
+
+## Tela de GAME OVER: a animação de morte e a câmera do original
+
+Até aqui a tela de game over existia, mas era um retângulo preto com texto: dos
+eventos que o original mostra nela, **nenhum** acontecia — o BF não morria, a
+câmera não ia para ele, o zoom não mudava e o reinício era instantâneo em vez
+de acontecer no fim de um fade de 1 s. O dado para tudo isso já estava no
+repositório (`assets-data/characters`, `stage_dados.h`); o que faltava era o
+`death` do `CharacterData` chegar ao C.
+
+**O dado que faltava.** `tools/gen_char_dados.py` passou a emitir `dcx, dcy,
+dzoom` (`death.cameraOffsets` e `death.cameraZoom`) em `ch_dados_t`, e
+`src/engine/char_dados.h` foi regerado: 46 personagens, 523 animações. Medido
+nos 46 JSONs: **35 não têm `death`** (valem o padrão do original, `[0,0]` e
+zoom 1,0), **11 têm**, e dois têm zoom diferente de 1: `pico-blazin` 0,8 e
+`sakura` 1,5. As animações de morte existem em **13** personagens — os quatro
+`bf*`, os cinco `pico*`, `pico-playable` (com as variantes `-explosion`),
+`bf-car`, `bf-christmas`, `bf-dark`, `bf-holding-gf`, `pico-holding-nene` e
+`sserafim-sakura`. Nenhum dos 46 tem `death.quote` no pacote: o caminho da
+"frase de morte" (`playDeathQuote`) fica sem dado, **declarado**, e não
+inventado.
+
+**O que o original faz, linha por linha** (`GameOverSubState.hx`):
+
+| Evento | Linha | Port |
+|---|---|---|
+| fundo preto opaco cobrindo `width*2 x height*2` | L139-145 | já tinha |
+| BF sai do palco e entra no substate **na mesma posição**, `isDead = true` | L155-179 | `cc_especial_fixo` (novo): o BF **não volta a dançar** quando a morte acaba |
+| `fakeoutDeath` com 1 em 4096, senão `firstDeath` | L250-259 | sorteio determinístico (LCG semeado pelo quadro), telemetria `gameover_fakeout` |
+| acabou o `firstDeath` -> `deathLoop` + música | L305-318 | `cc_especial_terminou` decide a troca; a música **não está no pacote** (`gameplay/gameover/gameOver*`), e o port registra `gameover_sem_audio` em vez de inventar arquivo |
+| câmera segue `cameraFollowPoint`, `DEFAULT_CAMERA_FOLLOW_RATE/2` | L220 | `GO_CAM_LERP = 0,020019798` (= `1 - 0,98^1,001` do `FlxCamera.updateFollow`) |
+| zoom -> `stage.camZoom * death.cameraZoom`, `smoothLerpPrecision(..., 0,5)` | L100, L265 | `GO_ZOOM_K = 0,85756425` (= `0,01^(1/59,94/0,5)`) |
+| CROSS -> `deathConfirm` e `FlxG.camera.fade(BLACK, 1)`; reset no fim | L271-278, L330-430 | `deathConfirm` + 60 quadros de fade, reinício no fim |
+| CIRCLE -> `goBack()`, `deathCounter = 0` | L544-570 | sai para Freeplay/Story e zera "BLUE BALLS" |
+
+**O foco da câmera** é uma conta do original com três parcelas que se cancelam
+em parte (L196-222):
+
+```
+foco = originalPosition + canvas/2 + data.cameraOffsets      (cameraFocusPoint)
+       - data.cameraOffsets                                  (some)
+       - stage.characters.bf.cameraOffsets
+       + death.cameraOffsets
+```
+
+Ela **não** é a fórmula do gameplay (`ch_anchor` soma os dois offsets). Por isso
+virou `ch_foco_morte()` em `src/engine/char_layout.c`, com as duas truncagens
+(`Std.int`) do original, e teste próprio: com o canvas do pacote real do BF
+(365×278, escala 0,5 → 730×556 no espaço do original) o foco no `mainStage` dá
+**(1033,5 ; 763,0)** — e o gameplay, no mesmo palco, dá (888,5 ; 589,0). Os dois
+números estão presos em `test/test_char_layout.c`.
+
+**Medido no harness** (`tools/run_gameover_harness.sh`, três passadas):
+`gameover_primeira_morte` = personagem 5 (o `bf`), `deathLoop` no quadro 3566
+(o `firstDeath` do BF tem 2 quadros a 24 fps), `gameover_confirmar` = 1, câmera
+final (1022 ; 1003) contra o foco publicado pelo jogo (1033 ; 1009) — o que resta
+é a exponencial do lerp —, zoom final **1100** = alvo **1100** (milesimos),
+reinício **60 quadros** depois do CROSS e CIRCLE saindo sem reiniciar.
+
+**O que continua não provado:** como isso *aparece*. O harness não tem tela; ele
+prova o estado, os quadros pedidos e os números. E a música de game over e o
+`fnf_loss_sfx` **não existem no pacote de dados**: os dois sons da tela ficam
+declarados como dado ausente, não inventados.
