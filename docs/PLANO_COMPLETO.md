@@ -113,8 +113,14 @@ VRAM; 2.929.792 B de imagens embutidas para 2 de 4 telas.
 `src/engine/vram_cache.c` (LRU) existe, testado, e `vram_cache_init()` é
 chamado **zero** vezes em `main.c`.
 
-**Falta:** ligar o cache, fatiar as imagens grandes, 16 bpp nas folhas pequenas,
-frame buffers 512×384 PSMCT16, repack por palco.
+**Estado agora:** o cache está ligado (gftex e stagetex moram no pool, com
+chave de tela), os frame buffers são 640×448 PSMCT16, os 21 palcos foram
+reempacotados da arte real e os 46 personagens também. O que **não** é
+necessário, medido: nenhum pacote dos 67 tem largura acima de 1024 (o maior é
+`tankman-bloody`, 612×516, e o limite de 1024×1024 do PSMCT16 não é tocado), então
+não há imagem para fatiar. O que **falta**: espaço para os ícones de vida do HUD
+— com a arte real, a pior combinação deixa 1.792 B livres no pool (seção "O jogo
+inteiro com os pacotes DE VERDADE").
 
 #### Fechado: o mapa de VRAM agora é uma tabela conferida contra o alocador
 
@@ -202,7 +208,13 @@ coisa a olhar na próxima build (o log já traz `capture_status` e o
 
 ### Fase 6 — Palcos e personagens genéricos (o que falta para 21 e 46)
 
-**Estado medido:** o port desenha **um** palco (`mainStage`, embutido no código
+**Estado medido (atualizado):** este parágrafo descrevia o port antes da Fase 6.
+Hoje ele desenha os **21 palcos** (`bs_props`, 157 props) e os **46
+personagens** (`build/packs/chars`, 10.170 quadros), e as 81 combinações rodam com
+a arte real (seção "O jogo inteiro com os pacotes DE VERDADE"). O texto abaixo
+fica como registro do ponto de partida:
+
+**Estado medido (histórico):** o port desenha **um** palco (`mainStage`, embutido no código
 como `mainstage_tutorial_parallax.rgba`) e **dois** personagens (`bf`, `gf`, em
 pacotes `bf_frames.lz4f` / `gf_frames.lz4f`). Os dados dos outros 20 palcos e 44
 personagens **já existem e estão commitados**, só não há quem os consuma:
@@ -2747,3 +2759,58 @@ reinício **60 quadros** depois do CROSS e CIRCLE saindo sem reiniciar.
 prova o estado, os quadros pedidos e os números. E a música de game over e o
 `fnf_loss_sfx` **não existem no pacote de dados**: os dois sons da tela ficam
 declarados como dado ausente, não inventados.
+
+## O jogo inteiro com os pacotes DE VERDADE: 81/81
+
+Tudo o que o harness rodava até aqui usava os assets **sintéticos** de
+`build/harness_assets` — texturas de 64×64, um prop por palco, três animações
+por personagem. Isso prova a lógica, mas **não prova que o empacotador e o
+leitor do jogo combinam**: um pacote com quadro fora do canvas, `stride` errado,
+PSM trocado ou bloco LZ4 truncado passa nos testes sintéticos e só aparece com
+o pacote real.
+
+`tools/run_realpacks_harness.sh` roda o jogo com os pacotes de verdade, sem
+copiar 330 MB: a raiz de assets é a do harness por **symlink**, menos duas
+pastas — `assets/chars` → `build/packs/chars` (46 personagens) e `assets/stages`
+→ `build/packs/stages` (21 palcos). Ele cobra, por combinação: o harness termina,
+nenhum `palco_sem_vram`, pelo menos 2 personagens carregados (`char_carregado`) e
+pelo menos uma animação de personagem executada (`char_*_animando` — a prova de
+que o pacote real **decodificou pixel**, e não só abriu).
+
+**Medido: 81 de 81 combinações passaram** (27 músicas × 3 dificuldades, 600
+quadros cada, ~48 s).
+
+Sobra do pool de VRAM (2.056.192 B) por música, com a arte real carregada —
+igual nas três dificuldades, porque a dificuldade não muda o elenco:
+
+| música | pool livre (B) | props | | música | pool livre (B) | props |
+|---|---|---|---|---|---|---|
+| tutorial | 355.072 | 3 | | winter-horrorland | 495.360 | 3 |
+| bopeebo / fresh / dadbattle | 338.688 | 3 | | senpai | 36.352 | 8 |
+| spookeez / south | 430.336 | 1 | | roses | 36.096 | 8 |
+| monster | 585.728 | 1 | | thorns | 440.064 | 4 |
+| **pico / philly-nice / blammed** | **1.792** | 5 | | ugh / guns / stress | 478.208 | 14 |
+| satin-panties / high / milf | 532.992 | 8 | | darnell / lit-up / 2hot | 512.256 | 8 |
+| cocoa / eggnog | 258.048 | 6 | | blazin | 358.400 | 4 |
+| | | | | spaghetti | 415.232 | 12 |
+
+Três consequências, todas medidas:
+
+1. **Cabe.** Com a arte real, nenhuma das 81 combinações estoura o pool — o pior
+   caso (`pico`, `philly-nice`, `blammed`, semana 3) deixa **1.792 B** livres.
+   É aperto, não folga: qualquer textura nova (os **ícones de vida** do HUD, por
+   exemplo, que hoje são dado ausente e aparecem como `evento_sem_icone`) não
+   entra sem liberar espaço antes. Esse é o próximo trabalho de VRAM.
+2. **Os pacotes reais funcionam no leitor do jogo.** 46 pacotes, 10.170 quadros,
+   523 animações, 174 MB de arte, decodificados quadro a quadro pelo mesmo
+   código que roda no console.
+3. **O elenco real tem menos de 3 personagens em uma música:** `tutorial` tem 2
+   (o oponente é a própria GF, e o dado não tem `girlfriend`), e o teste cobra
+   ≥ 2 em vez de exigir 3 — o número vem do dado, não de uma suposição.
+
+**Um defeito que apareceu ao escrever isto** — e que teria escondido o teste: a
+lista de músicas era tirada do nome da variável C (`s_philly_nice`) em vez do id
+do dado (`philly-nice`). Oito das 27 músicas nunca começavam, o harness
+"passava" sem entrar no gameplay e as três verificações por combinação davam
+zero. Agora o id vem do primeiro campo da struct, que é o que vira caminho de
+arquivo.

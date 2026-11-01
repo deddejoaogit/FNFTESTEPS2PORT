@@ -461,6 +461,24 @@ python3 tools/check_harness_assets.py || {
     exit 1
 }
 
+# Os pacotes de VERDADE (46 personagens, 21 palcos) nao estao no repositorio --
+# saem de tools/achatar_tudo.sh + tools/pacotar_palcos.py a partir da arte. Se
+# estao no disco, o harness roda o jogo inteiro com eles: e' a unica forma de
+# provar que empacotador e leitor combinam (os sinteticos tem 64x64 e um prop
+# por palco).
+if [ -d build/packs/chars ] && [ -d build/packs/stages ]; then
+    echo
+    echo "== pacotes reais no harness (46 personagens, 21 palcos) =="
+    sh tools/run_realpacks_harness.sh 600 || {
+        echo "  FALHA: o jogo com os pacotes de verdade nao passou"
+        exit 1
+    }
+else
+    echo
+    echo "  SKIP dos pacotes reais: build/packs/chars ou build/packs/stages ausente"
+    echo "       (rode tools/achatar_tudo.sh e tools/pacotar_palcos.py)"
+fi
+
 HARNESS_BIN=build/fnf_harness
 if [ ! -x "$HARNESS_BIN" ]; then
     echo "  (construindo o harness...)"
