@@ -287,6 +287,13 @@ static int g_res_desenhadas=-1;   /* folhas desenhadas no ultimo quadro (telemet
 static int g_res_rank_ok=0;
 static unsigned int g_res_rank_vert_addr=0,g_res_rank_hor_addr=0;
 static int g_res_rank_logado=0;
+/* O PLACAR: os 52 quadros dos dez digitos num UNICO atlas (os dez aparecem ao
+   mesmo tempo e durante o shuffle qualquer valor pode estar em qualquer
+   posicao, entao o conjunto inteiro mora na VRAM: 508.480 B). */
+static int g_res_score_ok=0;
+static unsigned int g_res_score_addr=0;
+static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
+static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
 
 /* Carrega a ARTE da tela de resultado: abre os CFZ4 das tres folhas, pede ao
    pool a VRAM de um quadro de cada e le' o gradiente do fundo. Chamado UMA vez
@@ -2688,6 +2695,27 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
    telemetry_event("resultado_rank_arte",g_res_rank_ok,
                    (int)((rr->vert.w*rr->vert.h*4u)+(rr->hor.w*rr->hor.h*4u)));
   }}
+ /* O PLACAR. Um atlas RGBA cru (nao CFZ4): as dez posicoes mostram digitos
+    diferentes ao mesmo tempo, e durante o shuffle qualquer digito pode cair em
+    qualquer slot. `g_up_bounce` tem 512x256x4 = 524.288 B e o atlas ocupa
+    508.480 B, entao ele cabe no buffer de leitura que a tela ja' usa. */
+ g_res_score_ok=0;g_res_score_addr=0;
+ {unsigned int bytes=(unsigned int)g_res_score.w*g_res_score.h*4u,addr=0;
+  char caminho[96];
+  snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",g_res_score.arquivo);
+  if(bytes<=512u*256u*4u&&
+     read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+     sp_chave(pool,SP_CHAVE_TELA_BASE+0x23u,bytes,&addr)>=0){
+   texbuffer_t t=*tpl;
+   t.width=g_res_score.w;t.psm=GS_PSM_32;t.address=addr;
+   setup_texture_dims(&t,(int)g_res_score.w,(int)g_res_score.h);
+   FlushCache(0);
+   upload_raw(&t,g_up_bounce,(int)g_res_score.w,(int)g_res_score.h);
+   g_res_score_addr=addr;g_res_score_ok=1;
+  }else{
+   telemetry_event("resultado_sem_vram",-2,(int)sp_livre(pool));
+  }
+  telemetry_event("resultado_placar_arte",g_res_score_ok,(int)bytes);}
 }
 static void resultado_soltar(void)
 {
@@ -2695,6 +2723,7 @@ static void resultado_soltar(void)
  res_liberar(&g_res);
  g_res_ok=0;g_res_bg_ok=0;g_res_bg_addr=0;
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
+ g_res_score_ok=0;g_res_score_addr=0;g_res_score_logado=0;g_res_score_final=0;
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
 }
@@ -5724,6 +5753,51 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(desenhadas!=g_res_desenhadas){g_res_desenhadas=desenhadas;
      telemetry_event("resultado_folhas",desenhadas,g_res_ms);}
 
+    /* O PLACAR (ResultScore.hx). Dez slots em x = 17,5 + 32,5*i, y = 152,5
+       (o original: ResultScore(35, 305) com 65 px por slot, em 1280x720).
+       O tempo e o digito vem de `res_score_estado`, que segue os timers do
+       original em 24 avos. Desenha DEPOIS das folhas porque o placar e'
+       `zIndex 1200` e e' o ultimo a entrar na cena.
+       O atlas e' um so': cada slot desenha o retangulo do quadro que a
+       animacao escolheu. */
+    if(g_res_score_ok){
+     texbuffer_t st=stagetex;int slot,desenhados=0;long valor=0;int assentado=1;
+     /* O numero que a tela mostra: o da CAMPANHA no Story Mode, o da musica
+        fora dele -- o mesmo valor que o texto de reserva usa logo abaixo. */
+     long placar=g_story_mode?g_campaign_score:(long)g_play.score;
+     int digitos=res_score_digitos(placar);
+     st.width=g_res_score.w;st.psm=GS_PSM_32;st.address=g_res_score_addr;
+     setup_texture_dims(&st,(int)g_res_score.w,(int)g_res_score.h);
+     q=bind_texture_filter(q,&st,1);
+     for(slot=0;slot<(int)g_res_score.slots;slot++){
+      int dg,qd,idx;const res_score_frame_t *fr;
+      if(!res_score_estado(slot,placar,(unsigned long)g_res_ms,&dg,&qd))continue;
+      idx=res_score_indice(dg,qd);
+      if(idx<0||idx>=(int)RES_SCORE_QUADROS)continue;
+      fr=&g_res_score_frame[idx];
+      q=sprite_region(q,g_res_score.x+g_res_score.dx*(float)slot+(float)fr->ox,
+                      g_res_score.y+(float)fr->oy,
+                      (float)fr->aw,(float)fr->ah,
+                      (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah);
+      desenhados++;
+      /* Monta o numero que ESTA' na tela, nao o que o jogo guarda: e' isso que
+         prova que o digito de cada slot e' o certo. */
+      if(slot>=(int)g_res_score.slots-digitos){
+       valor=valor*10+(long)dg;
+       /* `qd == 4` NAO quer dizer parado: durante o shuffle quase todo quadro
+          desenhado tambem e' o ultimo. Quem diz "assentou" e' o tempo. */
+       if(!res_score_assentado(slot,placar,(unsigned long)g_res_ms))assentado=0;
+      }
+     }
+     if(desenhados>0&&!g_res_score_logado){g_res_score_logado=1;
+      telemetry_event("resultado_placar",desenhados,g_res_ms);}
+     /* Quando todos os digitos estao no ultimo quadro (a animacao assentou), o
+        numero montado dos pixels desenhados tem de ser o placar. */
+     if(g_res_score_logado&&assentado&&!g_res_score_final){
+      g_res_score_final=1;
+      telemetry_event("resultado_placar_final",(int)valor,g_res_ms);
+     }
+    }
     q=bind_texture_filter(q,&fonttex,1);
    }
    if(!res_arte)q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
@@ -5734,10 +5808,14 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    {float tx=res_arte?470.0f:320.0f;float ty=res_arte?-24.0f:0.0f;
    q=text_draw(q,"RESULTS",tx,ty+72,1.6f,1);
    q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),tx,ty+104,1.4f,1);
-   /* Placar: no Story Mode e' o da CAMPANHA (PlayState.hx L3885), nao o da
-      musica isolada. Fora dele, o da musica. */
-   snprintf(lb,sizeof(lb),"SCORE %ld",g_story_mode?g_campaign_score:(long)g_play.score);
-   q=text_draw(q,lb,tx,ty+140,1.1f,1);
+   /* Placar: com a ARTE dos digitos carregada, o numero NAO e' mais texto --
+      ele e' desenhado pelo atlas acima, na posicao da fonte. Sem a arte (pendrive
+      sem o arquivo), o texto continua como reserva. No Story Mode o numero e' o
+      da CAMPANHA (PlayState.hx L3885), e e' esse que o atlas mostra. */
+   if(!g_res_score_ok){
+    snprintf(lb,sizeof(lb),"SCORE %ld",g_story_mode?g_campaign_score:(long)g_play.score);
+    q=text_draw(q,lb,tx,ty+140,1.1f,1);
+   }
    snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
    q=text_draw(q,lb,tx,ty+168,0.9f,1);
    snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);

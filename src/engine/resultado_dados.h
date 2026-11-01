@@ -93,4 +93,93 @@ static const res_rank_t g_res_rank[RES_RANKS] = {
       83u, 250u, 583u },
 };
 
+
+#define RES_SCORE_QUADROS 52u
+
+/* O PLACAR (ResultScore.hx): dez slots, cada um um ScoreNum que toca uma
+ * das 12 animacoes de `resultScreen/score-digital-numbers` -- ZERO..NINE
+ * com 5 quadros cada, mais DISABLED e GONE com um. Os 52 quadros moram
+ * num UNICO atlas (os dez digitos aparecem ao mesmo tempo) e cada um tem
+ * seu retangulo nele e o deslocamento com que o Sparrow o posiciona. */
+typedef struct {
+    unsigned char  digito, quadro;
+    unsigned short ax, ay, aw, ah;  /* retangulo no atlas (metade)     */
+    short          ox, oy;          /* -frameX/-frameY do XML (metade) */
+} res_score_frame_t;
+
+static const res_score_frame_t g_res_score_frame[RES_SCORE_QUADROS] = {
+    {  0u, 0u,    0u,    0u,  47u,  62u,    0,    0 },  /* ZERO    0 */
+    {  0u, 1u,   48u,    0u,  47u,  62u,    0,    0 },  /* ZERO    1 */
+    {  0u, 2u,  432u,   63u,  35u,  50u,    6,    6 },  /* ZERO    2 */
+    {  0u, 3u,  468u,   63u,  35u,  50u,    6,    6 },  /* ZERO    3 */
+    {  0u, 4u,  237u,  177u,  32u,  47u,    8,    8 },  /* ZERO    4 */
+    {  1u, 0u,   96u,    0u,  40u,  62u,    8,    0 },  /* ONE     0 */
+    {  1u, 1u,  137u,    0u,  40u,  62u,    8,    0 },  /* ONE     1 */
+    {  1u, 2u,  504u,   63u,  34u,  50u,    8,    6 },  /* ONE     2 */
+    {  1u, 3u,    0u,  126u,  34u,  50u,    8,    6 },  /* ONE     3 */
+    {  1u, 4u,  336u,  177u,  32u,  46u,    8,    8 },  /* ONE     4 */
+    {  2u, 0u,  178u,    0u,  47u,  62u,    0,    0 },  /* TWO     0 */
+    {  2u, 1u,  226u,    0u,  47u,  62u,    0,    0 },  /* TWO     1 */
+    {  2u, 2u,   35u,  126u,  35u,  50u,    6,    6 },  /* TWO     2 */
+    {  2u, 3u,   71u,  126u,  35u,  50u,    6,    6 },  /* TWO     3 */
+    {  2u, 4u,   72u,  177u,  32u,  48u,    8,    8 },  /* TWO     4 */
+    {  3u, 0u,  274u,    0u,  48u,  62u,    0,    0 },  /* THREE   0 */
+    {  3u, 1u,  323u,    0u,  48u,  62u,    0,    0 },  /* THREE   1 */
+    {  3u, 2u,  107u,  126u,  36u,  50u,    6,    6 },  /* THREE   2 */
+    {  3u, 3u,  144u,  126u,  36u,  50u,    6,    6 },  /* THREE   3 */
+    {  3u, 4u,  105u,  177u,  32u,  48u,    8,    8 },  /* THREE   4 */
+    {  4u, 0u,  372u,    0u,  47u,  62u,    0,    0 },  /* FOUR    0 */
+    {  4u, 1u,  420u,    0u,  47u,  62u,    0,    0 },  /* FOUR    1 */
+    {  4u, 2u,  181u,  126u,  35u,  50u,    6,    6 },  /* FOUR    2 */
+    {  4u, 3u,  217u,  126u,  35u,  50u,    6,    6 },  /* FOUR    3 */
+    {  4u, 4u,  369u,  177u,  32u,  46u,    8,    8 },  /* FOUR    4 */
+    {  5u, 0u,  468u,    0u,  47u,  62u,    0,    0 },  /* FIVE    0 */
+    {  5u, 1u,    0u,   63u,  47u,  62u,    0,    0 },  /* FIVE    1 */
+    {  5u, 2u,  253u,  126u,  35u,  50u,    6,    6 },  /* FIVE    2 */
+    {  5u, 3u,  289u,  126u,  35u,  50u,    6,    6 },  /* FIVE    3 */
+    {  5u, 4u,  138u,  177u,  32u,  48u,    8,    8 },  /* FIVE    4 */
+    {  6u, 0u,   48u,   63u,  47u,  62u,    0,    0 },  /* SIX     0 */
+    {  6u, 1u,   96u,   63u,  47u,  62u,    0,    0 },  /* SIX     1 */
+    {  6u, 2u,  325u,  126u,  35u,  50u,    6,    6 },  /* SIX     2 */
+    {  6u, 3u,  361u,  126u,  35u,  50u,    6,    6 },  /* SIX     3 */
+    {  6u, 4u,  171u,  177u,  32u,  48u,    8,    8 },  /* SIX     4 */
+    {  7u, 0u,  144u,   63u,  47u,  62u,    0,    0 },  /* SEVEN   0 */
+    {  7u, 1u,  192u,   63u,  47u,  62u,    0,    0 },  /* SEVEN   1 */
+    {  7u, 2u,  397u,  126u,  35u,  50u,    6,    6 },  /* SEVEN   2 */
+    {  7u, 3u,  433u,  126u,  35u,  50u,    6,    6 },  /* SEVEN   3 */
+    {  7u, 4u,  270u,  177u,  32u,  47u,    8,    8 },  /* SEVEN   4 */
+    {  8u, 0u,  240u,   63u,  47u,  62u,    0,    0 },  /* EIGHT   0 */
+    {  8u, 1u,  288u,   63u,  47u,  62u,    0,    0 },  /* EIGHT   1 */
+    {  8u, 2u,  469u,  126u,  35u,  50u,    6,    6 },  /* EIGHT   2 */
+    {  8u, 3u,  505u,  126u,  35u,  50u,    6,    6 },  /* EIGHT   3 */
+    {  8u, 4u,  204u,  177u,  32u,  48u,    8,    8 },  /* EIGHT   4 */
+    {  9u, 0u,  336u,   63u,  47u,  62u,    0,    0 },  /* NINE    0 */
+    {  9u, 1u,  384u,   63u,  47u,  62u,    0,    0 },  /* NINE    1 */
+    {  9u, 2u,    0u,  177u,  35u,  50u,    6,    6 },  /* NINE    2 */
+    {  9u, 3u,   36u,  177u,  35u,  50u,    6,    6 },  /* NINE    3 */
+    {  9u, 4u,  303u,  177u,  32u,  47u,    8,    8 },  /* NINE    4 */
+    { 10u, 0u,  402u,  177u,  30u,  44u,    8,    8 },  /* DISABLED 0 */
+    { 11u, 0u,  433u,  177u,  30u,  44u,    8,    8 },  /* GONE    0 */
+};
+
+/* O atlas e a geometria da tela. `inicio_q`, `shuffle_q` e `tween_q` sao
+ * os timers do original em 24 avos de segundo (o mesmo relogio das
+ * animacoes), contados da abertura da tela. */
+typedef struct {
+    unsigned short w, h;
+    const char    *arquivo;
+    unsigned int   vram_bytes;
+    float          x, y, dx;        /* 640x360: 17,5 / 152,5 / 32,5 */
+    unsigned char  slots, quadros_por_digito;
+    unsigned char  digito_disabled, digito_gone;
+    unsigned char  inicio_q, shuffle_q, tween_q, fps;
+} res_score_t;
+
+static const res_score_t g_res_score = {
+    560u, 227u, "resultado/score_digitos.rgba", 508480u,
+    17.5f, 152.5f, 32.5f, 10u,
+    5u, 10u, 11u,
+    37u, 41u, 23u, 24u
+};
+
 #endif /* RESULTADO_DADOS_H */

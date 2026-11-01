@@ -109,6 +109,53 @@ def gerar():
           % (r["flicker_ms"], r["flicker_total_ms"], r["flash_dura_ms"]))
     a("};")
     a("")
+    sc = d["score"]
+    a("")
+    a("#define RES_SCORE_QUADROS %du" % sc["quadros"])
+    a("")
+    a("/* O PLACAR (ResultScore.hx): dez slots, cada um um ScoreNum que toca uma")
+    a(" * das 12 animacoes de `resultScreen/score-digital-numbers` -- ZERO..NINE")
+    a(" * com %d quadros cada, mais DISABLED e GONE com um. Os %d quadros moram"
+      % (sc["quadros_por_digito"], sc["quadros"]))
+    a(" * num UNICO atlas (os dez digitos aparecem ao mesmo tempo) e cada um tem")
+    a(" * seu retangulo nele e o deslocamento com que o Sparrow o posiciona. */")
+    a("typedef struct {")
+    a("    unsigned char  digito, quadro;")
+    a("    unsigned short ax, ay, aw, ah;  /* retangulo no atlas (metade)     */")
+    a("    short          ox, oy;          /* -frameX/-frameY do XML (metade) */")
+    a("} res_score_frame_t;")
+    a("")
+    a("static const res_score_frame_t g_res_score_frame[RES_SCORE_QUADROS] = {")
+    for f in sc["frames"]:
+        a("    { %2du, %du, %4du, %4du, %3du, %3du, %4d, %4d },  /* %-7s %d */"
+          % (f["digito"], f["quadro"], f["ax"], f["ay"], f["aw"], f["ah"],
+             f["ox"], f["oy"],
+             ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN",
+              "EIGHT", "NINE", "DISABLED", "GONE"][f["digito"]], f["quadro"]))
+    a("};")
+    a("")
+    a("/* O atlas e a geometria da tela. `inicio_q`, `shuffle_q` e `tween_q` sao")
+    a(" * os timers do original em 24 avos de segundo (o mesmo relogio das")
+    a(" * animacoes), contados da abertura da tela. */")
+    a("typedef struct {")
+    a("    unsigned short w, h;")
+    a("    const char    *arquivo;")
+    a("    unsigned int   vram_bytes;")
+    a("    float          x, y, dx;        /* 640x360: 17,5 / 152,5 / 32,5 */")
+    a("    unsigned char  slots, quadros_por_digito;")
+    a("    unsigned char  digito_disabled, digito_gone;")
+    a("    unsigned char  inicio_q, shuffle_q, tween_q, fps;")
+    a("} res_score_t;")
+    a("")
+    a("static const res_score_t g_res_score = {")
+    a("    %3du, %3du, \"%s\", %6du," % (sc["w"], sc["h"], sc["atlas"], sc["vram_bytes"]))
+    a("    %.1ff, %.1ff, %.1ff, %du," % (sc["x"], sc["y"], sc["dx"], sc["slots"]))
+    a("    %du, %du, %du," % (sc["quadros_por_digito"], sc["digito_disabled"],
+                            sc["digito_gone"]))
+    a("    %2du, %2du, %2du, %2du" % (sc["inicio_q"], sc["shuffle_q"],
+                                    sc["tween_q"], sc["fps"]))
+    a("};")
+    a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

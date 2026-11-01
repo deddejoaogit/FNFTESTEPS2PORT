@@ -113,6 +113,13 @@ RESF3=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==3 {print $5; exit}' "$
 # em que ele entra (`Scoring.hx` getFlashDelay dividido por 24).
 RESRANKARTE=$(awk -F, '$1=="E" && $3=="resultado_rank_arte" {print $4; exit}' "$LOG")
 RESRANKVISTO=$(awk -F, '$1=="E" && $3=="resultado_rank_arte" {print $5; exit}' "$LOG")
+# O PLACAR: o atlas carregou, os dez slots desenharam, e o numero montado dos
+# digitos que ESTAO na tela tem de ser o placar da musica (`play_result_score`).
+RESPLACARARTE=$(awk -F, '$1=="E" && $3=="resultado_placar_arte" {print $4; exit}' "$LOG")
+RESPLACAR=$(awk -F, '$1=="E" && $3=="resultado_placar" {print $4; exit}' "$LOG")
+RESFINAL=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $4; exit}' "$LOG")
+RESFINALMS=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $5; exit}' "$LOG")
+RESSCORE=$(awk -F, '$1=="E" && $3=="play_result_score" {print $4; exit}' "$LOG")
 RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
 RESRANKMS=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
@@ -141,6 +148,7 @@ echo "  note splash .................. arte=${SPLARTE:-?} criadas=$SPLNOVOS (SIC
 echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} cena=${RESCENA:-?}"
 echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
+echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -231,6 +239,28 @@ else
     D=$((RESRANKMS - ESP_RANK_MS)); [ "$D" -lt 0 ] && D=$((-D))
     echo "  rank na tela ................ $RESRANKIDX aos ${RESRANKMS} ms (getFlashDelay = $ESP_RANK_MS ms)"
     [ "$D" -le 40 ] || { echo "  FALHA: o rank entrou em ${RESRANKMS} ms, e o getFlashDelay do rank $RANK diz $ESP_RANK_MS"; FALHA=1; }
+fi
+
+# O PLACAR. A arte e' um atlas so'; sem ele os digitos nao aparecem. `slots`
+# tem de ser os dez do ResultScore, e o NUMERO montado a partir dos digitos que
+# estao desenhados tem de ser o placar que a musica fez -- e' o que prova que o
+# indice (digito, quadro) e a posicao de cada slot estao certos.
+[ "${RESPLACARARTE:-0}" -eq 1 ] || { echo "  FALHA: o atlas do placar nao carregou"; FALHA=1; }
+[ "${RESPLACAR:-0}" -eq 10 ] || { echo "  FALHA: o placar desenhou ${RESPLACAR:-0} slots (esperado 10)"; FALHA=1; }
+if [ -z "${RESFINAL:-}" ]; then
+    echo "  FALHA: o placar nunca assentou na tela de resultado"; FALHA=1
+else
+    echo "  placar na tela .............. $RESFINAL aos ${RESFINALMS} ms (a musica fez ${RESSCORE:-?})"
+    [ "$RESFINAL" = "${RESSCORE:-x}" ] || { echo "  FALHA: a tela mostra $RESFINAL e o placar da musica e' $RESSCORE"; FALHA=1; }
+    # O slot 9 e' o ultimo a assentar: (i-1) + shuffle(41) + tween(23) +
+    # finalDelay(max(0, digitos-8)) + os 5 quadros do piscar final, em 24 avos.
+    DIG=0; N=${RESSCORE:-0}
+    while [ "$N" -gt 0 ]; do DIG=$((DIG + 1)); N=$((N / 10)); done
+    EXTRA=$((DIG - 8)); [ "$EXTRA" -lt 0 ] && EXTRA=0
+    Q=$((8 + 41 + 23 + EXTRA + 5))
+    ESP=$((Q * 1000 / 24))
+    D=$((RESFINALMS - ESP)); [ "$D" -lt 0 ] && D=$((-D))
+    [ "$D" -le 60 ] || { echo "  FALHA: o placar assentou em ${RESFINALMS} ms; os timers do ResultScore.hx dizem ~$ESP"; FALHA=1; }
 fi
 
 if [ "$FALHA" != 0 ]; then

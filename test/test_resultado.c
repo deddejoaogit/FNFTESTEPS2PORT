@@ -108,6 +108,108 @@ int main(void)
         CHECK(RES_BG_BASE_R == 0xFDu && RES_BG_BASE_G == 0xC0u && RES_BG_BASE_B == 0x5Cu);
     }
 
+    printf("== resultado: os tempos do RANK sao os do Scoring.hx ==\n");
+    /* Scoring.hx L568-586: getFlashDelay em 24 avos -> ms. */
+    CHECK_EQ((int)res_rank(4)->flash_ms, 5375);   /* PERFECT      129/24 */
+    CHECK_EQ((int)res_rank(5)->flash_ms, 5375);   /* PERFECT_GOLD        */
+    CHECK_EQ((int)res_rank(3)->flash_ms, 5083);   /* EXCELLENT    122/24 */
+    CHECK_EQ((int)res_rank(2)->flash_ms, 4542);   /* GREAT        109/24 */
+    CHECK_EQ((int)res_rank(1)->flash_ms, 4458);   /* GOOD         107/24 */
+    CHECK_EQ((int)res_rank(0)->flash_ms, 7750);   /* SHIT         186/24 */
+    /* Rank invalido cai em SHIT (`calculateRank(...) ?? SHIT`, L117). */
+    CHECK_EQ(res_rank_indice(99), 0);
+    CHECK_EQ(res_rank_indice(-1), 0);
+    CHECK_EQ((int)res_rank(99)->flash_ms, 7750);
+    /* O flash da tela: alpha 1 no instante do flash, 0 no fim de 14/24 s. */
+    {
+        const res_rank_t *g = res_rank(2);
+        CHECK_EQ(res_flash_alpha(g, (unsigned long)g->flash_ms - 1ul), 0);
+        CHECK_EQ(res_flash_alpha(g, (unsigned long)g->flash_ms), 255);
+        CHECK_EQ(res_flash_alpha(g, (unsigned long)g->flash_ms + 291ul), 128);
+        CHECK_EQ(res_flash_alpha(g, (unsigned long)g->flash_ms + 584ul), 0);
+        /* O piscar: 2 quadros ligado, 2 desligado (FlxFlicker 2/24*3, 2/24). */
+        CHECK_EQ(res_rank_pisca(g, (unsigned long)g->flash_ms), 1);
+        CHECK_EQ(res_rank_pisca(g, (unsigned long)g->flash_ms + 83ul), 0);
+        CHECK_EQ(res_rank_pisca(g, (unsigned long)g->flash_ms + 166ul), 1);
+        CHECK_EQ(res_rank_pisca(g, (unsigned long)g->flash_ms + 300ul), 1);
+        /* O vertical so' rola depois de 30/24 s, e para cima. */
+        CHECK(res_rank_scroll_y(g, (unsigned long)g->flash_ms + 1000ul) == 0.0f);
+        /* 30/24 s = 1250 ms: no instante exato ainda e' zero. */
+        CHECK(res_rank_scroll_y(g, (unsigned long)g->flash_ms + 1250ul) == 0.0f);
+        CHECK(res_rank_scroll_y(g, (unsigned long)g->flash_ms + 1251ul) < 0.0f);
+        CHECK(res_rank_scroll_y(g, (unsigned long)g->flash_ms + 2250ul) <
+              res_rank_scroll_y(g, (unsigned long)g->flash_ms + 1251ul));
+        /* As linhas horizontais: pares para a esquerda, impares para a direita. */
+        CHECK(res_rank_scroll_x(g, 0, (unsigned long)g->flash_ms + 1000ul) < 0.0f);
+        CHECK(res_rank_scroll_x(g, 1, (unsigned long)g->flash_ms + 1000ul) > 0.0f);
+    }
+
+    printf("== resultado: o PLACAR (ResultScore.hx) ==\n");
+    CHECK_EQ(res_score_digitos(0L), 0);
+    CHECK_EQ(res_score_digitos(7L), 1);
+    CHECK_EQ(res_score_digitos(12345L), 5);
+    CHECK_EQ(res_score_digitos(1234567890L), 10);
+    /* O setter limita a 10 slots (`Math.pow(10, members.length) - 1`). */
+    CHECK_EQ(res_score_digitos(9999999999L), 10);
+    CHECK_EQ(res_score_digitos(-5L), 0);
+    /* O slot 9 e' a UNIDADE. */
+    CHECK_EQ(res_score_final(9, 12345L), 5);
+    CHECK_EQ(res_score_final(8, 12345L), 4);
+    CHECK_EQ(res_score_final(5, 12345L), 1);
+    /* A tabela do atlas: 5 quadros por digito, DISABLED e GONE no fim. */
+    CHECK_EQ(res_score_indice(0, 0), 0);
+    CHECK_EQ(res_score_indice(0, 4), 4);
+    CHECK_EQ(res_score_indice(9, 4), 49);
+    CHECK_EQ(res_score_indice(10, 0), 50);   /* DISABLED */
+    CHECK_EQ(res_score_indice(11, 0), 51);   /* GONE     */
+    CHECK_EQ(res_score_indice(10, 4), 50);   /* DISABLED tem 1 quadro */
+    CHECK_EQ(res_score_indice(0, 99), 4);    /* quadro fora da faixa satura */
+    CHECK_EQ((int)RES_SCORE_QUADROS, 52);   /* 10 x 5 + DISABLED + GONE */
+    CHECK(g_res_score.w <= 1024u && g_res_score.h <= 1024u);
+    {
+        /* A geometria da tela: ResultScore(35, 305) e 65 px por slot. */
+        CHECK(g_res_score.x > 17.0f && g_res_score.x < 18.0f);
+        CHECK(g_res_score.y > 152.0f && g_res_score.y < 153.0f);
+        CHECK(g_res_score.dx > 32.0f && g_res_score.dx < 33.0f);
+        CHECK_EQ((int)g_res_score.slots, 10);
+        CHECK_EQ((int)g_res_score.inicio_q, 37);   /* 37/24 s */
+    }
+    {
+        int dg, qd;
+        /* Antes de 37/24 s (1542 ms) o placar esta' invisivel. */
+        CHECK_EQ(res_score_estado(9, 12345L, 1541ul, &dg, &qd), 0);
+        CHECK_EQ(res_score_estado(9, 12345L, 1542ul, &dg, &qd), 1);
+        /* Os slots a esquerda do primeiro digito ficam em DISABLED. */
+        CHECK_EQ(res_score_estado(0, 12345L, 5000ul, &dg, &qd), 1);
+        CHECK_EQ(dg, 10);
+        CHECK_EQ(qd, 0);
+        /* Durante o shuffle (metade dele): digito do ciclo, no ultimo quadro. */
+        /* slot 9: ini = 8 -> q = 37+20 => k = 49 (ja' passou do shuffle se
+           shuffle=41)... por isso a checagem e' feita com o k calculado. */
+        CHECK_EQ(res_score_estado(9, 12345L, 1542ul, &dg, &qd), 1);
+        /* q=37, ini=8, k=29 -> 29 % 10 = 9, quadro 4. */
+        CHECK_EQ(dg, 9);
+        CHECK_EQ(qd, 4);
+        /* Os timers dos slots partem de (i-1)/24 s, ou seja ANTES de o placar
+           ficar visivel: quando ele aparece, o slot 9 ja' esta' no meio do
+           shuffle. A primeira troca (quadro 0, o `glow`) de cada slot acontece
+           por isso fora da tela -- e' o que a fonte faz, e o port nao muda. */
+        {
+            unsigned long ms = (unsigned long)((9ul * 1000ul) /
+                                               (unsigned long)g_res_score.fps);
+            CHECK_EQ(res_score_estado(9, 12345L, ms, &dg, &qd), 0);  /* escondido */
+            /* k=1 -> digito 1 e quadro 0 (a primeira troca). */
+            CHECK_EQ(dg, 1);
+            CHECK_EQ(qd, 0);
+        }
+        /* Depois de tudo (tween + piscar) o digito e' o final e fica no 4. */
+        CHECK_EQ(res_score_estado(9, 12345L, 900000ul, &dg, &qd), 1);
+        CHECK_EQ(dg, 5);
+        CHECK_EQ(qd, 4);
+        CHECK_EQ(res_score_estado(5, 12345L, 900000ul, &dg, &qd), 1);
+        CHECK_EQ(dg, 1);
+    }
+
     printf("== resultado: sem pacote, nada aparece (e o modulo diz isso) ==\n");
     res_init(&r);
     CHECK_EQ(res_carregar(&r, "/tmp/fnf_nao_existe/"), 0);

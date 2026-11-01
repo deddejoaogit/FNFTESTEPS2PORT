@@ -3127,9 +3127,52 @@ vertical (250 ms alternando a cada 83 ms) e as 12 linhas horizontais em
 fonte, com as formulas isoladas em `engine/resultado.c` (funcoes puras, com a
 linha do original no comentario) e testadas em `test/test_resultado.c`.
 
-Os NUMEROS da tela continuam sendo texto da fonte do port. A arte dos digitos
-(`resultScreen/score-digital-numbers`, 52 subtexturas de 95x125) e a do
-`results-bf`/`results-pico` ainda nao foram empacotadas — e' a proxima peca,
+#### A tela de Resultado: o PLACAR entrou (os digitos do original)
+
+O numero do placar nao e' mais texto: sao os dez `ScoreNum` do `ResultScore.hx`
+(L108-180 e `ResultState.hx` L151), cada um com as 12 animacoes de
+`resultScreen/score-digital-numbers` — `ZERO`..`NINE` com **5 quadros** cada
+mais `DISABLED` e `GONE` com um, **52 quadros** ao todo, num atlas RGBA de
+**560x227** na metade da resolucao.
+
+Por que um ATLAS e nao CFZ4 (o caminho das folhas): na tela os dez slots
+mostram digitos diferentes AO MESMO TEMPO e, durante o shuffle, qualquer valor
+pode cair em qualquer posicao. Nao existe "um quadro por vez": o conjunto
+inteiro precisa estar residente. Custo medido: **508.480 B** de VRAM, o maior
+item da tela — e ele cabe porque o palco ja' foi solto (1.261.568 B livres
+medidos em `pool_cena,9`; a tela ocupa 1.032.496 B com folhas + rank + placar).
+
+O TEMPO e' o do original, em 24 avos de segundo (`ResultScore.hx`):
+
+| quando | o que acontece |
+|---|---|
+| `37/24 s` | `score.visible = true` e `animateNumbers()` |
+| `(i-1)/24 s` | o slot i comeca a embaralhar |
+| `41 x 1/24 s` | `shuffle()`: o digito sobe de 1 em 1, 10 -> 0 -> 1 ... |
+| `23/24 s` | `FlxTween.num(0 -> finalDigit, quadOut)` |
+| `finalDelay/24 s` | a animacao do digito final recomeca no quadro 0 (o piscar) |
+
+Duas coisas que a leitura da fonte obrigou a corrigir no port:
+
+- **Os timers dos slots partem de `(i-1)/24 s`, nao de 37/24 s** — ou seja o
+  shuffle ja' esta' correndo quando o placar aparece. A primeira troca de cada
+  slot (o `glow`, que toca no quadro 0) acontece FORA da tela; o port nao
+  "conserta" isso puxando o timer, porque isso seria mudar o tempo do original.
+- **`quadro == 4` nao quer dizer "parado"**: durante o shuffle o slot tambem
+  desenha o ultimo quadro. Por isso o "assentou" e' por TEMPO
+  (`res_score_assentado`), e e' ele que libera a telemetria do numero final.
+
+Medido no harness (`tools/run_gameplay_harness.sh 5600`):
+`resultado_placar_arte,1,508480`, `resultado_placar,10,1550` (dez slots
+desenhados no primeiro quadro depois de 1.542 ms) e
+`resultado_placar_final,13794,3216` — o numero montado dos DIGITOS QUE ESTAO NA
+TELA igual ao `play_result_score,13794` da musica, 8 ms depois do previsto pelos
+timers (77/24 s = 3.208 ms; a diferenca e' a amostragem de quadro). O harness
+cobra os tres.
+
+Os NUMEROS dos cinco julgamentos (`tallieNumber`), o percentual de conclusao
+(`clearPercent`, com os tres atlas Left/Right/Small) e a arte do
+`results-bf`/`results-pico` ainda nao foram empacotados — sao a proxima peca,
 com o custo ja' medido na tabela abaixo.
 
 #### A tela de Resultado: o que falta, medido

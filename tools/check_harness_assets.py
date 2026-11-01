@@ -125,6 +125,22 @@ for _a, _w, _h in g.resultado_ranks():
     nrank += 1
 ok &= (nrank >= 10)
 
+# O atlas do PLACAR: 52 quadros, o tamanho do plano, e cada um pintado na sua
+# celula (so' o quadro desenhado tem pixel).
+_rs = g.resultado_score()
+if _rs:
+    _a, _w, _h, _fr = _rs
+    _at = g.make_score_atlas(_w, _h, _fr)
+    _pintados = sum(1 for i in range(3, len(_at), 4) if _at[i])
+    _cel = sum(f["aw"] * f["ah"] for f in _fr)
+    print(f"  RESULTADO   {_a:22s} {_w}x{_h} arquivo={len(_at):>9,} "
+          f"quadros={len(_fr)} pintados={_pintados} (celulas={_cel})")
+    ok &= (len(_at) == _w * _h * 4 and len(_fr) == 52 and _pintados == _cel
+           and all(0 <= f["ax"] and f["ax"] + f["aw"] <= _w and
+                   0 <= f["ay"] and f["ay"] + f["ah"] <= _h for f in _fr))
+else:
+    ok = False
+
 bw, bh = g.resultado_folhas()[1:]
 bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")

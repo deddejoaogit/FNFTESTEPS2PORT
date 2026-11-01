@@ -95,4 +95,35 @@ float res_rank_scroll_y(const res_rank_t *r, unsigned long ms);
  * (`(i % 2 == 0) ? -7.0 : 7.0`, L694-698). */
 float res_rank_scroll_x(const res_rank_t *r, int linha, unsigned long ms);
 
+/* ---- O PLACAR (ResultScore.hx L17-75 e L108-180) --------------------------
+ *
+ * `ResultState.create()` L151: `new ResultScore(35, 305, 10, score)` -- dez
+ * `ScoreNum`, em x = 35 + 65*i, cada um com as 12 animacoes de
+ * `resultScreen/score-digital-numbers` (ZERO..NINE com 5 quadros, DISABLED e
+ * GONE com um). Tudo aqui e' funcao PURA do tempo: sem arquivo, sem GS.
+ */
+
+/* Quantos digitos o placar tem (`scoreStart` do `set_scoreShit`): o numero de
+ * digitos decimais de `score`, que a fonte limita a 10 (`Math.pow(10, slots)`).
+ * Placar 0 tem ZERO digitos -- e' o que a fonte faz: nenhum slot anima e todos
+ * ficam em DISABLED. */
+int res_score_digitos(long score);
+
+/* Digito que o slot mostra no fim (o `finalDigit` de cada `ScoreNum`). */
+int res_score_final(int slot, long score);
+
+/* Indice em `g_res_score_frame` da animacao (digito, quadro). */
+int res_score_indice(int digito, int quadro);
+
+/* Quadro do slot `slot` em `ms` (desde a abertura da tela). Escreve o digito e
+ * o quadro da animacao em `*digito`/`*quadro` e devolve 1 se o placar ja'
+ * apareceu (`score.visible`), 0 antes disso. */
+int res_score_estado(int slot, long score, unsigned long ms,
+                     int *digito, int *quadro);
+
+/* 1 = o slot ja' passou do ULTIMO piscar e esta' parado no digito final.
+ * E' o que prova que o numero desenhado na tela e' o placar, e nao um passo do
+ * shuffle (durante o shuffle o slot tambem mostra o quadro 4). */
+int res_score_assentado(int slot, long score, unsigned long ms);
+
 #endif /* RESULTADO_H */

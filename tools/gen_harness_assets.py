@@ -435,6 +435,38 @@ def make_rank_img(w, h, vertical):
     return bytes(out)
 
 
+def resultado_score():
+    """O atlas do PLACAR, do plano commitado: (arquivo, w, h, frames)."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return None
+    d = json.load(open(caminho, encoding="utf-8"))
+    sc = d.get("score")
+    if not sc:
+        return None
+    return sc["atlas"], sc["w"], sc["h"], sc["frames"]
+
+
+def make_score_atlas(w, h, frames):
+    """Atlas sintetico do placar: cada quadro com a COR do (digito, quadro).
+
+    Nao e' so' "tem pixel": o vermelho e' o digito e o verde e' o quadro da
+    animacao, entao da' para conferir na captura que o slot mostra o digito
+    certo. Fica transparente onde o plano nao poe quadro nenhum.
+    """
+    out = bytearray(w * h * 4)
+    for f in frames:
+        for y in range(f["ay"], f["ay"] + f["ah"]):
+            for x in range(f["ax"], f["ax"] + f["aw"]):
+                o = (y * w + x) * 4
+                out[o + 0] = 20 + f["digito"] * 15
+                out[o + 1] = 20 + f["quadro"] * 40
+                out[o + 2] = 200
+                out[o + 3] = 255
+    return bytes(out)
+
+
 def make_resultado_bg(w, h):
     """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
     topo = (0xFE, 0xCC, 0x5C)
@@ -544,6 +576,10 @@ def build(root, charts_src=None):
            for f in resultado_folhas()[0]},
         **{"resultado/%s" % a: make_rank_img(w, h, a.endswith("_vert.rgba"))
            for a, w, h in resultado_ranks()},
+        # O atlas do PLACAR: os 52 quadros dos digitos num unico RGBA, no
+        # tamanho exato que `g_res_score` espera (sem ele os digitos nao saem).
+        **({"resultado/%s" % os.path.basename(resultado_score()[0]):
+           make_score_atlas(*resultado_score()[1:])} if resultado_score() else {}),
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

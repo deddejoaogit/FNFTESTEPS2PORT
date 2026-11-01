@@ -345,7 +345,22 @@ def main():
     with open(os.path.join(args.out, "bg.rgba"), "wb") as f:
         f.write(bytes(bg))
 
+    # ---- OS DIGITOS DO PLACAR (ResultScore.hx / ScoreNum) ----
+    # Vao num ATLAS, e nao em CFZ4: os dez digitos aparecem ao mesmo tempo e
+    # durante o shuffle qualquer valor pode estar em qualquer posicao, entao o
+    # conjunto inteiro precisa estar na VRAM. O empacotador e' o mesmo que roda
+    # sozinho (`tools/empacotar_score_digitos.py`); aqui ele entra no fluxo para
+    # que `--assets` produza a tela toda de uma vez.
+    import empacotar_score_digitos as sd
+    score_dado, prob_score = sd.empacotar(args.assets, args.out)
+    problemas.extend(prob_score)
+    if problemas:
+        for p in problemas:
+            print("  " + p)
+        return 1
+
     plano = {
+        "score": score_dado,
         "ranks": ranks_out,
         "bg_w": bgw, "bg_h": bgh, "bg_arquivo": "resultado/bg.rgba",
         "bg_vram_bytes": bgw * bgh * 4,
@@ -376,6 +391,9 @@ def main():
                  f["inicio_ms"], f["vram_bytes"], len(f["partes"])))
     print("rank: %d pares, o maior custa %d B de VRAM (um par por partida)"
           % (len(ranks_out), rank_max))
+    print("placar: %d quadros num atlas %dx%d, %d B de VRAM"
+          % (score_dado["quadros"], score_dado["w"], score_dado["h"],
+             score_dado["vram_bytes"]))
     print("plano escrito em assets-data/resultado-plan.json")
     return 0
 

@@ -411,6 +411,17 @@ $CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco
 /tmp/fnf_test_pack_stream || exit 1
 echo
 
+# A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
+# (res_flash_alpha / res_rank_pisca / res_rank_scroll_*) e o PLACAR
+# (res_score_estado), com pacotes CFZ4 de verdade montados pelo proprio teste.
+# Sem esta linha o modulo existia sem teste: `test/test_resultado.c` estava no
+# repositorio e nao era compilado por ninguem.
+echo "== resultado: folhas, rank e placar (arte da tela de Resultado) =="
+$CC $FLAGS test/test_resultado.c src/engine/resultado.c src/engine/pack_stream.c \
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_resultado
+/tmp/fnf_test_resultado || exit 1
+echo
+
 echo "== FCH4 round trip: no parameter is dropped =="
 python3 tools/test_fch4.py
 echo
