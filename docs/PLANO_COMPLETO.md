@@ -2546,3 +2546,63 @@ O gerador mudou junto: `tools/gen_char_dados.py` passa a emitir `dx,dy` em
 cobra o contador, o sinal, o fator de escala do slot (1,75 no phillyBlazin), o
 fator 6 dos personagens de pixel e o caso sem offset (devolve 0 e zera a
 saida, para nao vazar o valor da animacao anterior).
+
+## Tremor de camera e ordem de desenho: os dois ultimos pedacos do NOTE KIND
+
+O dado dos kinds ja' estava lido e o canto/animacao ja' tocavam. Faltavam as
+duas outras chamadas que os scripts fazem no MESMO trecho, e as duas eram
+"lidas e nao aplicadas":
+
+| pedaco | no dado | onde | antes | agora |
+|---|---|---|---|---|
+| `shake` | 14 pares | `camGame.shake(0.0025, 0.15)` | nada tremia | `engine/shake.c` |
+| `ordem` | 49 pares | `this.zIndex = 2000/3000; currentStage.refresh()` | sempre o z do slot | `g_z_extra[]` |
+
+As duas sao chamadas INCONDICIONAIS dentro da funcao do script
+(`darnell-blazin.hxc` L306-311: `playAnimation`, `shake`, `moveToBack`), entao
+entram antes de saber se a animacao existe -- igual ao original, onde
+`playAnimation` de um nome inexistente so' escreve no log.
+
+**O tremor.** `FlxCamera.shake(I, D)`: a intensidade e' uma FRACAO do tamanho da
+camera, nao um numero de pixels -- 0,0025 numa camera de 1280x720 da' **+-3,2 px**
+na horizontal e **+-1,8** na vertical, sorteados a cada quadro ate' o tempo
+acabar. A conta esta' em `src/engine/shake.c` com teste proprio
+(`test/test_shake.c`): duracao, amplitude, volta a zero no ultimo quadro,
+sequencia repetivel com a mesma semente e tremor novo substituindo o velho em
+vez de somar. O que **nao** e' igual, de proposito, e' a sequencia de numeros
+aleatorios: o original sorteia pelo `FlxG.random` (semente do jogo) e o port usa
+um LCG proprio, porque o harness precisa do mesmo resultado duas vezes. A
+distribuicao e a amplitude sao as do original; a sequencia alheia nao daria para
+reproduzir de qualquer jeito.
+
+O deslocamento entra na CAMERA (dividido pela escala com que o mundo e'
+desenhado), nao no mundo: e' o que o FlxCamera faz, e por isso o HUD nao treme --
+no original ele esta' em outra camera tambem.
+
+**A ordem.** `moveToBack()` poe `zIndex = 2000` e `moveToFront()` poe 3000, e o
+`currentStage.refresh()` reordena o grupo -- a troca VALE dali em diante, nao
+volta sozinha. E' o Blazin' inteiro: o Darnell soca, vai para tras, e as vezes
+para a frente. Agora o vetor `g_z_extra[]` (um por papel) entra no lugar do z do
+slot e a ordenacao por zIndex que ja' existia faz o resto.
+
+### O defeito que apareceu ao mexer nisso
+
+O vetor de z da ordenacao estava trocado em relacao ao vetor de papeis:
+
+```c
+int zz[3], ord[3] = {CH_PAPEL_GF, CH_PAPEL_BF, CH_PAPEL_DAD};
+zz[0] = z("gf");  zz[1] = z("dad");  zz[2] = z("bf");   /* ERRADO */
+```
+
+A ordenacao troca `zz[i]` e `ord[i]` de lugar JUNTOS, entao o z do DAD era
+aplicado ao BF e vice-versa. Medido no dado: **17 dos 21 palcos** tem
+`z(bf) != z(dad)` (no mainStage 300 contra 200), ou seja, em 17 palcos os dois
+personagens eram desenhados na ordem contraria a' do original -- o pai na frente
+do BF. Era erro de LEITURA de dado: o numero certo estava la', preso ao papel
+errado.
+
+Prova no log (`blazin` hard, 1200 quadros): 13 eventos `nota_kind_fundo`/
+`nota_kind_frente` e 5 `nota_kind_shake`. Suite inteira: `ALL SUITES PASSED`.
+
+**Nao provado:** que tremer +-3,2 px e trocar a ordem *parecam* certos. Nenhum
+dos dois tem como ser julgado sem tela.

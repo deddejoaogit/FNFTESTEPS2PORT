@@ -29,6 +29,7 @@
 #include "engine/stage_pool.h"
 #include "engine/audio_mix.h"
 #include "engine/pack_stream.h"
+#include "engine/shake.h"
 #include "engine/stage_layout.h"
 #include "engine/lz4_bloco.h"
 #include "engine/char_pack.h"
@@ -1364,6 +1365,23 @@ static int g_cena_ci[CH_CENA_PAPEIS];
    nomes existem nos dados ('punchHigh1'/'punchHigh2'). O contador e' POR PAPEL,
    porque o `alternate` do script e' um campo do personagem. */
 static int g_kind_alt[CH_CENA_PAPEIS];
+/* TREMOR DE CAMERA (`PlayState.instance.camGame.shake(...)`), o unico pedaco do
+   NOTE KIND que ainda nao era aplicado. Sao 14 dos 68 pares (personagem, kind):
+   o `weekend-1-punchhigh` do Darnell pede shake(0.0025, 0.15) e o
+   `punchhighblocked` pede (0.002, 0.1) -- os numeros vem do script, nao daqui.
+
+   A forma e' a do FlxCamera.shake: a intensidade e' uma FRACAO da tela da
+   camera e o deslocamento e' sorteado a cada quadro em [-I, I] * tamanho,
+   ate' o tempo acabar. FlxCamera nao guarda a sequencia: quem sorteia e' o
+   `FlxG.random`, com semente do jogo. O port usa um LCG proprio e deterministico
+   (o harness precisa do mesmo resultado duas vezes); o que se preserva e' a
+   DISTRIBUICAO e a amplitude, nao a sequencia de numeros aleatorios alheia. */
+static shk_t g_shake;
+#define SHAKE_CAM_W 1280.0f      /* tamanho da camera do original (1280x720) */
+#define SHAKE_CAM_H 720.0f
+/* zIndex que o script pede: 2000 = moveToBack, 3000 = moveToFront
+   (darnell-blazin.hxc L271-281). 0 = usa o z do slot do palco. */
+static int g_z_extra[CH_CENA_PAPEIS];
 static texbuffer_t g_cena_texde[CH_CENA_PAPEIS];
 static int g_cena_texde_w[CH_CENA_PAPEIS],g_cena_texde_h[CH_CENA_PAPEIS];
 static int g_cena_quadros[CH_CENA_PAPEIS];      /* quadros diferentes subidos */
@@ -1491,7 +1509,8 @@ static int cena_carregar(const sr_song_t *song)
     id no log, e o papel fica vazio -- dado faltando e' reportado, nao tapado. */
  strncpy(g_cena_song,song->id,sizeof g_cena_song-1);
  g_cena_song[sizeof g_cena_song-1]=0;
- for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_ci[i]=-1;g_kind_alt[i]=0;}
+ for(i=0;i<CH_CENA_PAPEIS;i++){g_cena_ci[i]=-1;g_kind_alt[i]=0;g_z_extra[i]=0;}
+ shk_reset(&g_shake,0x9e3779b9u);
  for(i=0;i<CH_CENA_PAPEIS;i++){
   int a;
   if(plano[i].ci<0){telemetry_event("char_vazio",i,0);continue;}
@@ -1822,6 +1841,9 @@ static unsigned short tutorial_lane_button(unsigned int lane){static const unsig
    animacao que o script nao pediu). E' o `nota_kind_sem_anim` do log: o dado
    pede, a arte nao entrega. Devolve 0 so' quando nao ha kind nenhum a aplicar,
    e aí quem chamou toca o canto normal. */
+/* O passo do tremor, uma vez por quadro (o `FlxCamera.update`). O modulo
+   `engine/shake.c` tem a conta e o teste; aqui so' se aplica o resultado. */
+static void cena_shake_passo(void){shk_passo(&g_shake,TUT_DT,SHAKE_CAM_W,SHAKE_CAM_H);}
 static int cena_nota_kind(int papel,const chart_note_t *n,int dir,int missing,
                           long agora,long sing_ms){
  const nk_acao_t *a;const char *kind,*pid;
@@ -1832,6 +1854,15 @@ static int cena_nota_kind(int papel,const chart_note_t *n,int dir,int missing,
  pid=ch_chars[g_cena_ci[papel]].id;
  a=nk_acao(pid,kind);
  if(!a)return 0;
+ /* `ordem` e `shake` sao chamadas INCONDICIONAIS dentro da funcao do script
+    (darnell-blazin.hxc L306-311: playAnimation, shake, moveToBack) -- por isso
+    entram antes de saber se a animacao existe. */
+ if(a->ordem==1){g_z_extra[papel]=2000;telemetry_event("nota_kind_fundo",papel,2000);}
+ else if(a->ordem==2){g_z_extra[papel]=3000;telemetry_event("nota_kind_frente",papel,3000);}
+ if(a->shake_ms>0){
+  shk_inicia(&g_shake,(float)a->shake_forca1000/1000.0f,(float)a->shake_ms/1000.0f);
+  telemetry_event("nota_kind_shake",a->shake_forca1000,a->shake_ms);
+ }
  if(a->tipo==1){
   if(cc_canto_sufixo(&g_cena,papel,dir,missing,a->valor,agora,sing_ms)){
    telemetry_event("nota_kind_sing",papel,(int)dir);
@@ -3934,7 +3965,14 @@ else if(g_cam_t<1.0f){
  g_tut_cam_x=g_cam_from_x+(g_cam_to_x-g_cam_from_x)*k;
  g_tut_cam_y=g_cam_from_y+(g_cam_to_y-g_cam_from_y)*k;
 }else{g_tut_cam_x+=(tcx-g_tut_cam_x)*TUT_CAM_LERP;g_tut_cam_y+=(tcy-g_tut_cam_y)*TUT_CAM_LERP;}
-cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
+/* O TREMOR desloca a CAMERA, nao o mundo: e' o que o FlxCamera.shake faz. A
+   amplitude vem em pixels da tela da camera (1280x720); para virar deslocamento
+   de camera basta dividir pela escala com que o mundo e' desenhado. O HUD nao
+   treme -- ele esta' em outra camera no original tambem. */
+ cena_shake_passo();
+cx=g_tut_cam_x;cy=g_tut_cam_y;
+ if(sc>0.0f){cx-=g_shake.x/sc;cy-=g_shake.y/sc;}
+float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao
@@ -3978,7 +4016,20 @@ cx=g_tut_cam_x;cy=g_tut_cam_y;float x,y,w,h;
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
     int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
     palco_lista_t pl;
-    zz[0]=palco_slot_z(stg,"gf");zz[1]=palco_slot_z(stg,"dad");zz[2]=palco_slot_z(stg,"bf");
+    /* O zIndex do SLOT do palco, ou o que o NOTE KIND mandou (moveToBack/Front).
+       O script faz `this.zIndex = 2000/3000; currentStage.refresh()`, e o
+       refresh reordena o grupo -- ou seja, a troca VALE dali em diante e nao
+       volta sozinha. Antes isto era dado lido e nao aplicado: os 49 pares com
+       `ordem` (o Darnell do blazin inteiro) desenhavam sempre no z do slot. */
+    /* ATENCAO a ORDEM DESTE VETOR: ele anda junto com ord[] na ordenacao
+       (o laco troca zz[i] e ord[i] de lugar juntos), entao zz[i] tem de ser o
+       z do papel ord[i] -- GF, BF, DAD. Estava GF, DAD, BF: o z do DAD era
+       aplicado ao BF e vice-versa, e os dois trocavam de lugar em TODO palco
+       onde os z diferem. Erro de leitura de dado, nao de desenho: o numero
+       certo estava la', preso ao papel errado. */
+    zz[0]=g_z_extra[CH_PAPEL_GF]?g_z_extra[CH_PAPEL_GF]:palco_slot_z(stg,"gf");
+    zz[1]=g_z_extra[CH_PAPEL_BF]?g_z_extra[CH_PAPEL_BF]:palco_slot_z(stg,"bf");
+    zz[2]=g_z_extra[CH_PAPEL_DAD]?g_z_extra[CH_PAPEL_DAD]:palco_slot_z(stg,"dad");
     /* z crescente, como o `FunkinGroup.refresh()` (SortUtil.byZIndex) que o
        Stage chama depois de adicionar todo mundo. A ordem de adicao do
        PlayState e' GF (L2207), BF (L2216) e DAD (L2225), e ela e' o desempate

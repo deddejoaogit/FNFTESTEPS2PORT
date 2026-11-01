@@ -114,6 +114,9 @@ class Atlas:
 
         with open(os.path.join(self.dir, "Animation.json"), encoding="utf-8-sig") as f:
             anim = json.load(f)
+        # Dois formatos de export na mesma arte (ver converte_full).
+        if "ANIMATION" in anim and "AN" not in anim:
+            anim = converte_full(anim)
         self.doc = anim
         self.top = (anim.get("AN") or {}).get("TL", {}) or {}
         self.symbols = {}
@@ -275,6 +278,79 @@ class Atlas:
 
 IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
+
+
+def _mx_full(m):
+    """Matrix3D (4x4) do export FULL -> MX[6] do formato compacto.
+
+    2D, sem ambiguidade: com a forma que `mat_apply` usa
+    (x' = a*x + c*y + tx, y' = b*x + d*y + ty), o 4x4 do Animate da'
+    a=m00, b=m01, c=m10, d=m11, tx=m30, ty=m31.
+    """
+    if not m:
+        return None
+    return [float(m.get("m00", 1.0)), float(m.get("m01", 0.0)),
+            float(m.get("m10", 0.0)), float(m.get("m11", 1.0)),
+            float(m.get("m30", 0.0)), float(m.get("m31", 0.0))]
+
+
+def converte_full(doc):
+    """Export FULL do Adobe Animate (chaves longas: ANIMATION/TIMELINE/LAYERS/
+    Frames/SYMBOL_DICTIONARY) -> a forma COMPACTA que o resto deste arquivo le'
+    (AN/TL/L/FR/I/DU/N/E, SI/ASI/MX/SN/FF).
+
+    Existem dois exports na arte do jogo e so' um era lido. Medido: 64 dos 68
+    Animation.json do clone sao compactos; 4 sao FULL -- e entre eles esta' o
+    `bfFakeOut`, de onde vem o `fakeoutDeath` do BF e do BF do carro. O
+    empacotador dizia "prefixo 'fake out death BF' fora da timeline" e o pacote
+    ficava sem a animacao. O dado estava la'; o leitor e' que nao entendia o
+    formato.
+    """
+    def tl(t):
+        layers = []
+        for lay in (t or {}).get("LAYERS") or []:
+            frs = []
+            for fr in lay.get("Frames") or []:
+                els = []
+                for el in fr.get("elements") or []:
+                    si = el.get("SYMBOL_Instance")
+                    if si:
+                        els.append({"SI": {"SN": si.get("SYMBOL_name"),
+                                           "MX": _mx_full(si.get("Matrix3D")),
+                                           "FF": si.get("firstFrame") or 0}})
+                        continue
+                    asi = el.get("ATLAS_SPRITE_instance")
+                    if asi:
+                        els.append({"ASI": {"N": asi.get("name"),
+                                            "MX": _mx_full(asi.get("Matrix3D"))}})
+                frs.append({"I": fr.get("index") or 0,
+                            "DU": fr.get("duration") or 1,
+                            "N": fr.get("name"),
+                            "E": els})
+            layers.append({"FR": frs})
+        return {"L": layers}
+
+    top = doc.get("ANIMATION") or {}
+    tld = tl(top.get("TIMELINE"))
+    # O rotulo da animacao nao esta' no FR: no formato FULL ele e' o
+    # `SYMBOL_name` do proprio documento. Sem isso `animations()` ficaria vazio
+    # e todo prefixo seria "fora da timeline".
+    rotulo = top.get("SYMBOL_name")
+    if rotulo:
+        for lay in tld["L"]:
+            for fr in lay["FR"]:
+                if fr.get("I") == 0 and not fr.get("N"):
+                    fr["N"] = rotulo
+                    break
+            break
+    sd = []
+    for sym in (doc.get("SYMBOL_DICTIONARY") or {}).get("Symbols") or []:
+        n = sym.get("SYMBOL_name")
+        if n:
+            sd.append({"SN": n, "TL": tl(sym.get("TIMELINE"))})
+    md = doc.get("metadata") or {}
+    return {"AN": {"TL": tld}, "SD": {"S": sd},
+            "MD": {"W": md.get("width") or 0, "H": md.get("height") or 0}}
 
 def mx_matrix(mx):
     """MX[6] -> (a, b, c, d, tx, ty), exactly as FlxElement.fromJSONEx does.
@@ -472,6 +548,16 @@ def main():
             at = atlases[stem]
             labs = anims if at is atlas else at.animations()
             pre = an.get("prefix") or nome
+            # O export as vezes deixa ESPACO no rotulo da timeline ("up ",
+            # "down " no pico-holding-nene) e o character.json pede o nome sem
+            # ele. Casar pelo nome aparado e' o que faz a animacao existir; o
+            # casamento e' REPORTADO e o rotulo usado e' o do atlas, nunca um
+            # nome inventado.
+            if pre not in labs:
+                aparado = {k.strip(): k for k in labs}
+                if pre.strip() in aparado:
+                    pre = aparado[pre.strip()]
+                    print("  %s: prefixo casado com espaco (%r)" % (nome, pre))
             if pre not in labs:
                 faltando.append((nome, "prefixo %r fora da timeline de %s"
                                  % (pre, os.path.basename(at.dir))))

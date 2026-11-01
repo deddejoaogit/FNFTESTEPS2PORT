@@ -179,6 +179,11 @@ echo
 
 # Pacote de personagem (CHP4): o leitor recusa com erro nomeado todo arquivo que
 # nao fecha, e um quadro descomprimido sai byte a byte igual ao empacotado.
+echo "== tremor de camera (shake) =="
+$CC $FLAGS test/test_shake.c src/engine/shake.c -o /tmp/fnf_test_shake -lm
+/tmp/fnf_test_shake
+echo
+
 echo "== pacote de personagem (char_pack) =="
 $CC $FLAGS test/test_char_pack.c src/engine/char_pack.c src/engine/lz4_bloco.c \
     -o /tmp/fnf_test_char_pack

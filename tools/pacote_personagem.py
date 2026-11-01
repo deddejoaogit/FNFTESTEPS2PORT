@@ -491,10 +491,22 @@ def _quadros_da_animacao(nomeados, an):
     idx = an.get("frameIndices")
     if idx:
         sel = []
+        fora = 0
         for i in idx:
             if not isinstance(i, int) or i < 0 or i >= len(nomeados):
-                return None, "frameIndices fora do atlas (%r)" % (i,)
+                fora += 1
+                continue
             sel.append(nomeados[i][1:])
+        if not sel:
+            return None, "frameIndices fora do atlas (%r)" % (idx,)
+        # Indice que passa do fim do atlas NAO derruba a animacao inteira: o
+        # dado manda desenhar 16 quadros e o atlas tem 30 (gf-pixel: o
+        # `danceLeft` pede o indice 30 de um atlas de 0..29). Jogar fora os 15
+        # validos por causa de um invalido deixava a personagem SEM a metade
+        # esquerda da danca. O que nao existe e' descartado e CONTADO, nunca
+        # substituido por outro quadro.
+        if fora:
+            return sel, "%d de %d frameIndices fora do atlas" % (fora, len(idx))
         return sel, None
     pre = an.get("prefix") or an.get("name") or ""
     if not pre:
@@ -534,6 +546,11 @@ def pack_character_chp4(assets, cid, out_dir, escala=None, bpp=16, budget=None,
         if sel is None:
             faltando.append((nome, why))
             continue
+        if why:
+            # Parcial entra no pacote E no aviso: o dado que nao existe e'
+            # reportado, o que existe nao e' jogado fora.
+            print("%-22s   aviso: animacao %-20s parcial (%s)"
+                  % (cid, nome, why))
         grupos.append({"nome": nome, "looped": an.get("looped", True), "frames": sel})
     if not grupos:
         return {"id": cid, "error": "nenhuma animacao com quadro (%r)" % (faltando,)}
