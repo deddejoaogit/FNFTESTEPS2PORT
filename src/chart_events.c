@@ -177,6 +177,9 @@ void chart_events_reset(float default_zoom, float default_scroll)
     st.bop_offset = CHART_DEFAULT_BOP_OFFSET;
     st.bop = 1.0f;
     st.bop_step = 0xFFFFFFFFu;
+    st.hud_zoom = 1.0f;
+    st.hud_zoom_pulsos = 0u;
+    st.bop_sem_parametros = 0u;
 
     st.icon_char = 0;
     st.icon_flipx = 0;
@@ -369,6 +372,16 @@ void chart_events_apply(const chart_event_t *e)
                with intensity defaulting to 1.0, which lands back on the
                constant. So an empty {} resets the bop, exactly as that class's
                own doc comment says. */
+            /* UM CHART v3 NAO TEM PARAMETROS DE EVENTO (o formato guarda um
+               u32 por evento, sem os tres floats do v4/v5). Medido: o
+               `spaghetti-normal.chart` em v3 chega aqui com p0=p1=p2=0, ou
+               seja rate 0, e com rate 0 o original NAO pulsa nem decai
+               (`if (subState == null && cameraZoomRate > 0.0)`). O rate
+               verdadeiro nunca e' 0 nos 105 eventos dos 27 charts (1, 2 ou 4),
+               entao rate 0 aqui quer dizer perda de dado -- e isso vai para o
+               log em vez de virar um "o HUD nao pisca" sem explicacao. O build
+               do pendrive usa build/charts, que e' FCH5 e tem os parametros. */
+            if (!(fx(e->p2) > 0.0f)) st.bop_sem_parametros++;
             chart_events_set_bop((CHART_DEFAULT_BOP_INTENSITY - 1.0f) * fx(e->p0) + 1.0f,
                                  fx(e->p2), fx(e->p1));
             break;
@@ -438,9 +451,26 @@ void chart_events_tick(float dt, u32 step)
             ((step + offset) % period) == 0u) {
             st.bop_step = step;
             st.bop = st.bop_intensity;
+            /* O HUD sobe no MESMO passo, mas so' enquanto nao passou do teto
+               (L1851). Antes o teto era inalcancavel -- o decaimento de 0,95
+               por quadro derruba o valor muito antes de 1,35 --, e a guarda
+               existe porque um evento SetCameraBop com rate menor sobe o
+               suficiente para encostar nele. */
+            if (st.hud_zoom < CHART_HUD_ZOOM_MAX) {
+                st.hud_zoom += (st.bop_intensity - 1.0f) * 2.0f;
+                st.hud_zoom_pulsos++;
+            }
         }
     }
-    st.bop = 1.0f + (st.bop - 1.0f) * powf(CHART_BOP_DECAY, dt * 60.0f);
+    /* O decaimento so' roda com `cameraZoomRate > 0` (L1220: `if (subState ==
+       null && cameraZoomRate > 0.0)`); com rate 0 o multiplicador CONGELA, e
+       nao volta para 1. Vale para os dois: o bop da camera e o do HUD. */
+    if (st.bop_rate > 0.0f) {
+        st.bop = 1.0f + (st.bop - 1.0f) * powf(CHART_BOP_DECAY, dt * 60.0f);
+        /* camHUD.zoom volta para 1,0 (L1227), inclusive no quadro em que subiu
+           -- no original o stepHit roda antes do update do mesmo quadro. */
+        st.hud_zoom = 1.0f + (st.hud_zoom - 1.0f) * powf(CHART_BOP_DECAY, dt * 60.0f);
+    }
 }
 
 const chart_event_state_t *chart_events_state(void) { return &st; }

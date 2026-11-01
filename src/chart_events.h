@@ -88,6 +88,21 @@
 #define CHART_STEPS_PER_BEAT        4        /* Constants.STEPS_PER_BEAT */
 #define CHART_BOP_DECAY             0.95f    /* PlayState.hx:1217 */
 
+/* camHUD.zoom -- a MESMA condicao de passo do bop da camera, mas um valor
+   proprio que so' cresce: PlayState.hx L1846-1859 exige
+   `camHUD.zoom < 1.35 * defaultHUDCameraZoom` antes de somar
+   `hudCameraZoomIntensity * defaultHUDCameraZoom`, e L1227 puxa de volta para
+   `defaultHUDCameraZoom` todo quadro com lerp(.., 0.95^(dt*60)).
+     defaultHUDCameraZoom    = FlxCamera.defaultZoom * 1.0 = 1.0   (L337)
+     hudCameraZoomIntensity  = 0.015 * 2.0 = 0.03                  (L351, L1110
+                               reescreve como (cameraBopIntensity-1)*2)
+     MAX_RELATIVE_CAM_ZOOM   = 1.35                                (L1844)
+   O SetCameraBop troca a intensidade: `(DEFAULT_BOP_INTENSITY - 1.0) *
+   intensity * 2.0` (SetCameraBopSongEvent.hx L47), que e' exatamente
+   `(bop_intensity - 1.0) * 2.0` -- por isso sai do mesmo numero. */
+#define CHART_HUD_ZOOM_INTENSITY 0.03f
+#define CHART_HUD_ZOOM_MAX       1.35f
+
 typedef struct {
     /* Camera focus, FocusCameraSongEvent.hx. char -1 focuses on (x,y) itself,
        0/1/2 add (x,y) as an offset to that character's focus point. */
@@ -117,6 +132,20 @@ typedef struct {
     float bop_offset;    /* in beats */
     float bop;           /* the current multiplier, decays toward 1 */
     u32   bop_step;      /* the step the last bop fired on, 0xFFFFFFFF = none */
+
+    /* camHUD.zoom (PlayState.hx L1227 e L1846-1859). Comeca em 1,0, sobe
+       CHART_HUD_ZOOM_INTENSITY por compasso (mesma condicao do bop) ate'
+       CHART_HUD_ZOOM_MAX e decai para 1,0 todo quadro. Quem desenha o HUD
+       multiplica posicoes e tamanhos por ele, em torno do centro da tela --
+       no original todas as pecas do HUD estao na camHUD (PlayState.hx
+       L959-960, L2024-2026, L2160/L2195, L2257-2264), inclusive a marca de
+       versao. */
+    float hud_zoom;
+    unsigned int hud_zoom_pulsos;   /* quantas vezes subiu (para telemetria) */
+    /* SetCameraBop que chegou SEM o rate -- so' acontece com chart v3, que nao
+       guarda parametro de evento. O dado real tem rate 1, 2 ou 4 nos 105
+       eventos; um zero aqui e' perda de formato, e o log precisa dizer. */
+    unsigned int bop_sem_parametros;
 
     /* SetHealthIcon. icon_ref is a string-table index for the icon id, or
        0xFFFFFFFF when the event carried none. */

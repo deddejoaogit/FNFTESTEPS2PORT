@@ -72,6 +72,11 @@ SCORE_MIN=$(awk -F, 'BEGIN{m=1000000000} $1=="S" && $3==8 {if ($36+0 < m) m = $3
 SALTOS=$(awk -F, '$1=="S" && $3==8 {if (seen && $36 - prev >= 100) n++; prev=$36; seen=1} END{print n+0}' "$LOG")
 CLOCK=$(awk -F, '$1=="S" && $3==8 {if ($27+0 > m) m = $27+0} END{print m+0}' "$LOG")
 MISSES=$(awk -F, '$1=="E" && $3=="play_death" {n++} END{print n+0}' "$LOG")
+# O ZOOM DO HUD (camHUD.zoom). O HUD do original inteiro -- notas, barra,
+# icones, placar e a marca de versao -- esta' nessa camera, e ela sobe 3 % por
+# compasso e decai todo quadro (PlayState.hx L1227, L1846-1859).
+HUDZOOM=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $4; exit}' "$LOG")
+HUDPULSOS=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $5; exit}' "$LOG")
 
 RESULT=$(awk -F, '$1=="S" && $3==9 {n++} END{print n+0}' "$LOG")
 RANK=$(awk -F, '$1=="E" && $3=="play_result" {print $4; exit}' "$LOG")
@@ -97,6 +102,7 @@ echo "  quadros na tela de resultado . $RESULT"
 echo "  rank / clear percent ......... ${RANK:-?} / ${PERC:-?}%"
 echo "  quads desenhados na tela 9 ... ${DRAW:-?}"
 echo "  batida / passos da contagem .. ${CDBEAT:-?} amostras / ${CDPASSOS:-?}"
+echo "  HUD: zoom maximo / pulsos .... ${HUDZOOM:-?} (milesimos) / ${HUDPULSOS:-?}"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -125,6 +131,12 @@ if [ -n "${CDFIM:-}" ]; then
 else
     echo "  FALHA: a contagem regressiva nunca terminou (sem passo AFTER)"; FALHA=1
 fi
+
+# O HUD tem de ter piscado: no tutorial (100 BPM, um pulso por compasso de 4
+# batidas) sao ~29 pulsos em 25 s de musica. Exigir 20 deixa folga para a
+# janela medida sem aceitar "nunca pulsou".
+[ "${HUDZOOM:-0}" -gt 1020 ] || { echo "  FALHA: o zoom do HUD nunca subiu (hud_zoom=$HUDZOOM)"; FALHA=1; }
+[ "${HUDPULSOS:-0}" -ge 20 ] || { echo "  FALHA: o HUD pulsou menos de 20 vezes ($HUDPULSOS)"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo

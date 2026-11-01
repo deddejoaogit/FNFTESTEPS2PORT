@@ -118,6 +118,20 @@ static int g_tutorial_scene_ready=0,g_tutorial_scene_attempted=0,g_tutorial_scen
    plain float. The tween itself, its duration and its ease all live in
    chart_events.c, where they come from the event rather than from here. */
 static float g_tut_zoom=1.1f;
+/* camHUD.zoom (PlayState.hx L1227 e L1846-1859), lido do chart_events a cada
+   quadro. TODO o HUD do original esta' nesta camera -- notas e receptores
+   (L2257-2264), barra de vida e placar (L2024-2026), icones (L2160/L2195) e
+   ate' a marca de versao (L959-960) --, e o zoom dela e' aplicado em torno do
+   CENTRO da tela do jogo: no FlxCamera, `screen = (world - scroll - size/2) *
+   zoom + size/2`, com scroll 0 no HUD. Em 640x360 isso da' centro (320,180).
+   Antes o HUD nao piscava: o valor era zero no port. */
+static float g_hud_zoom=1.0f;
+static float g_hud_zoom_max=1.0f;   /* maior valor visto, para a telemetria */
+static int g_hud_zoom_visto=0;      /* 1 depois do primeiro pulso medido    */
+static int g_hud_zoom_forte=0;      /* 1 depois do primeiro pulso > 1,05    */
+static float hz_x(float x){return 320.0f+(x-320.0f)*g_hud_zoom;}
+static float hz_y(float y){return 180.0f+(y-180.0f)*g_hud_zoom;}
+static float hz_s(float v){return v*g_hud_zoom;}
 /* Os dois numeros com que a musica COMECA, tirados do dado dela: o zoom do
    palco e o scrollSpeed do chart daquela dificuldade. Ficam aqui porque o macro
    de reset (FNF_RESET_PLAY, mais abaixo) e' o lugar que aplica os dois. */
@@ -385,6 +399,7 @@ static int g_death_counter=0;
     g_tutorial_audio_finished=0;g_chart_cursor=g_chart_seen=0; \
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
     chart_events_reset(g_play_zoom, g_play_scroll); \
+    g_hud_zoom=1.0f;g_hud_zoom_max=1.0f;g_hud_zoom_visto=0;g_hud_zoom_forte=0; \
     g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
     g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_cam_seq=-1;g_cam_t=1.0f;g_cam_dur=0.0f; \
     g_cam_modo_visto[0]=g_cam_modo_visto[1]=g_cam_modo_visto[2]=0;g_tut_zoom=g_play_zoom; \
@@ -2084,14 +2099,22 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
 static float tutorial_note_y(s32 delta){return 26.3f+(float)delta*(0.45f/(48.0f*2.0f))*g_tut_scroll;}
 static qword_t *tutorial_notes_draw(qword_t*q,texbuffer_t*atlas,texbuffer_t*font,u32 sample,unsigned short held,u32 frame){
  u32 i,visible=0;unsigned int lane;if(g_tutorial_note_asset_status!=0||g_chart_status!=0)return q;q=bind_texture_filter(q,atlas,0);
- for(lane=0;lane<4;lane++){float x=g_receptor_x[lane];q=sprite_region_alpha(q,x,g_receptor_y[lane],g_note_w[lane],g_note_h[lane],lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);q=sprite_region_alpha(q,x+320.0f,g_receptor_y[lane],g_note_w[lane],g_note_h[lane],lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);}
- for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){chart_note_t note;s32 delta,tail_delta;float x,y,tail_y;int state;if(chart_note(i,&note)<0||note.lane>3)continue;state=g_tutorial_note_state[i];delta=(s32)note.sample-(s32)sample;tail_delta=(s32)(note.sample+note.duration)-(s32)sample;x=g_note_x[note.lane]+(note.must_press?320.0f:0.0f);if(note.duration&&(!note.must_press||state!=2)&&tail_delta>0&&delta<(s32)TUTORIAL_NOTE_AHEAD){y=tutorial_note_y(delta);tail_y=tutorial_note_y(tail_delta);if(tail_y>y){float top=y+g_note_h[note.lane]*.28f;if(top<26.3f)top=26.3f;if(tail_y>360.0f)tail_y=360.0f;if(tail_y>top)q=rect_alpha(q,x+g_note_w[note.lane]*.39f,top,x+g_note_w[note.lane]*.61f,tail_y,224,224,240,150);}}/* As notas do oponente nunca eram retiradas: so o teste de must_press
+ /* ZOOM DO HUD (camHUD.zoom): receptores, trilhas e notas estao nessa camera
+    (PlayState.hx L2257-2264), entao posicao E tamanho saem escalados por
+    g_hud_zoom em torno do centro da tela. O trecho de TEXTURA nao muda -- o
+    zoom e' so' de tela. */
+ for(lane=0;lane<4;lane++){
+  float rw=hz_s(g_note_w[lane]),rh=hz_s(g_note_h[lane]),ry=hz_y(g_receptor_y[lane]);
+  float x=hz_x(g_receptor_x[lane]);
+  q=sprite_region_alpha(q,x,ry,rw,rh,lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);
+  q=sprite_region_alpha(q,hz_x(g_receptor_x[lane]+320.0f),ry,rw,rh,lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);}
+ for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){chart_note_t note;s32 delta,tail_delta;float x,y,tail_y;int state;if(chart_note(i,&note)<0||note.lane>3)continue;state=g_tutorial_note_state[i];delta=(s32)note.sample-(s32)sample;tail_delta=(s32)(note.sample+note.duration)-(s32)sample;x=g_note_x[note.lane]+(note.must_press?320.0f:0.0f);if(note.duration&&(!note.must_press||state!=2)&&tail_delta>0&&delta<(s32)TUTORIAL_NOTE_AHEAD){y=tutorial_note_y(delta);tail_y=tutorial_note_y(tail_delta);if(tail_y>y){float top=y+g_note_h[note.lane]*.28f;if(top<26.3f)top=26.3f;if(tail_y>360.0f)tail_y=360.0f;if(tail_y>top)q=rect_alpha(q,hz_x(x+g_note_w[note.lane]*.39f),hz_y(top),hz_x(x+g_note_w[note.lane]*.61f),hz_y(tail_y),224,224,240,150);}}/* As notas do oponente nunca eram retiradas: so o teste de must_press
    marcava estado, entao elas desciam alem do receptor e iam parar
    perto dos pes do BF. No oficial elas somem quando chegam. O canto
    da GF ja marca estado 3 exatamente nesse instante, entao basta
    usar o mesmo marcador para retira-las. */
 if((note.must_press&&state!=0)||(!note.must_press&&state==3)||delta<-(s32)TUTORIAL_NOTE_LATE||delta>(s32)TUTORIAL_NOTE_AHEAD)continue;
-y=tutorial_note_y(delta);q=sprite_region(q,x,y,g_note_w[note.lane],g_note_h[note.lane],note.lane*56.0f,0.0f,g_note_w[note.lane],g_note_h[note.lane]);visible++;}if((int)visible!=g_tutorial_note_visible){g_tutorial_note_visible=(int)visible;telemetry_event("tutorial_notes_visible",(int)visible,(int)sample);}(void)font;(void)frame;(void)held;return q;}
+y=tutorial_note_y(delta);q=sprite_region(q,hz_x(x),hz_y(y),hz_s(g_note_w[note.lane]),hz_s(g_note_h[note.lane]),note.lane*56.0f,0.0f,g_note_w[note.lane],g_note_h[note.lane]);visible++;}if((int)visible!=g_tutorial_note_visible){g_tutorial_note_visible=(int)visible;telemetry_event("tutorial_notes_visible",(int)visible,(int)sample);}(void)font;(void)frame;(void)held;return q;}
 static qword_t *title_alpha(qword_t*q,texbuffer_t*t,const char*s,float cx,float y,float scale){static const unsigned char gw[36]={38,32,38,37,30,30,38,31,30,38,31,29,39,31,35,32,36,33,34,31,31,38,41,38,38,36,24,16,26,24,24,29,27,28,24,24};float ds=scale*.7142857f,total=0,x;int i,n,idx;for(i=0;s[i];i++){if(s[i]==' ')total+=20*ds;else{idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx>=0&&idx<36)total+=(gw[idx]+3)*ds;}}x=cx-total*.5f;q=bind_texture(q,t);for(i=0;s[i];i++){if(s[i]==' '){x+=20*ds;continue;}idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx<0||idx>=36)continue;n=gw[idx];q=sprite_region(q,x,y,n*ds,47*ds,(idx%9)*42,(idx/9)*48,n,47);x+=(n+3)*ds;}return q;}
 /* audsrv_stop_audio() mutes the stream but does not flush its internal ring.
  * Re-applying the format resets that ring (including when the rate is
@@ -2161,7 +2184,9 @@ static qword_t *countdown_draw(qword_t*q,texbuffer_t*font){
  if(alpha<0.0f)alpha=0.0f;
  if(alpha>1.0f)alpha=1.0f;
  q=bind_texture_filter(q,font,1);
- return text_draw_alpha(q,lb,320.0f,132.0f,2.4f,1,(unsigned char)(alpha*128.0f));
+ /* Countdown.hx L239-240: o sprite da contagem vive na camHUD, entao ele
+    acompanha o zoom do HUD (posicao E tamanho). */
+ return text_draw_alpha(q,lb,hz_x(320.0f),hz_y(132.0f),2.4f*g_hud_zoom,1,(unsigned char)(alpha*128.0f));
 }
 static int rle_decode(const unsigned char*src,u32 src_bytes,unsigned char*dst,u32 dst_bytes){u32 si=0,di=0;while(si<src_bytes&&di<dst_bytes){unsigned int c=src[si++];if(c<128u){u32 n=(c+1u)*4u;if(si+n>src_bytes||di+n>dst_bytes)return-1;memcpy(dst+di,src+si,n);si+=n;di+=n;}else if(c>128u){u32 count=257u-c;if(si+4u>src_bytes||di+count*4u>dst_bytes)return-2;while(count--){memcpy(dst+di,src+si,4);di+=4;}si+=4;}else return-3;}if(si!=src_bytes||di!=dst_bytes)return-4;FlushCache(0);return 0;}
 static u32 g_menu_decode_si=0,g_menu_decode_di=0;static int g_menu_decode_active=0,g_menu_decode_error=0;
@@ -2328,7 +2353,11 @@ static int fmt_score_line(char*out,int cap,int score){
  out[n]=0;
  return n;
 }
-static qword_t*hud_score_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=4.6875f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-1.5f));v.v0.z=0;v.v1.x=FNX_FIM(cursor+5.0f);v.v1.y=FNX_FIM(vy(y-1.5f)+10.0f);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+static qword_t*hud_score_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;/* O TEXTO DO HUD TAMBEM PISCA: o scoreText (e as duas marcas de versao) estao
+   na camHUD no original (PlayState.hx L2026, L959-960), entao o zoom do HUD os
+   escala como qualquer outra peca. Aqui isso vira: posicao pelo hz_*, avanco e
+   altura do glifo x zoom. Com zoom 1,0 os numeros sao identicos aos de antes. */
+ float adv=4.6875f*g_hud_zoom,total=adv*count,cursor,x0=hz_x(x),yb=hz_y(y-1.5f);if(align==1)x0-=total*.5f;else if(align==2)x0-=total;cursor=x0;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(yb));v.v0.z=0;v.v1.x=FNX_FIM(cursor+5.0f*g_hud_zoom);v.v1.y=FNX_FIM(vy(yb)+10.0f*g_hud_zoom);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
 static qword_t*story_vcr(qword_t*q,const char*s,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){const char*p=s,*e;float yy=y;while(1){e=strchr(p,'\n');q=story_vcr_line(q,p,e?(int)(e-p):(int)strlen(p),x,yy,align,r,g,b,a);if(!e)break;p=e+1;yy+=16;}return q;}
 static unsigned char*menu_idle_blend(int mi,int af,int phase){
  const unsigned int*a=g_menu_frame_rw[mi][0][af],*b=g_menu_frame_rw[mi][0][(af+1)%3];u32 bytes=a[1]*a[2]*4u,j;unsigned int wb=(unsigned int)phase,wa=3u-wb;
@@ -3538,7 +3567,16 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
+   /* O ZOOM DO HUD, medido: o maior valor da musica e quantas vezes o HUD
+      subiu. Sem isso, "o HUD pisca" nao teria numero nenhum no log do
+      console -- e um zero aqui significa que a condicao de passo nunca casou. */
+   telemetry_event("hud_zoom",(int)(g_hud_zoom_max*1000.0f),(int)chart_events_state()->hud_zoom_pulsos);
+   /* SetCameraBop sem rate = chart v3 (sem parametro de evento). O build do
+      pendrive usa FCH5, entao um numero aqui significa que o chart carregado
+      nao era o do build. */
+   if(chart_events_state()->bop_sem_parametros)telemetry_event("bop_sem_parametros",
+      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -4053,7 +4091,27 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=rect(q,330,158,330+slider_value*15,174,245,70,150);
   }else if(ui_state==0){
    /* Official title atlas; no provisional menu rectangles. */
-  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();{u32 sp=g_play_samples_per_step;if(!sp)sp=TUT_SAMPLES_PER_STEP;chart_events_tick(TUT_DT,music_clock/sp);}g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;}float sc=.5f*g_tut_zoom*g_tut_bop;/* Alturas de ORIGEM (1280x720) do BF e da GF, usadas abaixo para o foco de
+  }else if(ui_state==8&&g_tutorial_scene_ready){q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);band_set(SCISSOR_TOPO,SCISSOR_BASE);/* Official character-space reconstruction. BFA2 canvases are already stored at half of the original 1280x720 character canvas, while stage positions and metadata offsets remain original-space values. Final top-left follows Stage.addCharacter/BaseCharacter.setScale: feet - full canvas origin + per-character global offset. Camera focus follows BaseCharacter.resetCameraFocusPoint plus stage camera offset. */{const chart_event_state_t*ev=chart_events_state();{u32 sp=g_play_samples_per_step;if(!sp)sp=TUT_SAMPLES_PER_STEP;
+    /* Com a pausa aberta o relogio da musica esta' parado; passar dt=0
+       mantem bop da camera e zoom do HUD parados, como no original, onde o
+       substate suspende o update do PlayState. (O game over tem bloco de
+       desenho proprio, entao nao chega aqui.) */
+    chart_events_tick(g_paused?0.0f:TUT_DT,music_clock/sp);}g_tut_zoom=ev->zoom;g_tut_scroll=ev->scroll;g_tut_bop=ev->bop;
+   /* PAUSA: no original o PlayState.update nao roda com substate aberto
+      (shouldSubstatePause), entao nem o bop da camera nem o zoom do HUD
+      decaem -- eles CONGELAM. Passar dt=0 e' a traducao direta disso. */
+   {float hzm=ev->hud_zoom;if(hzm>g_hud_zoom_max)g_hud_zoom_max=hzm;
+    /* Uma medicao por musica, no primeiro pulso: "o HUD pisca" deixa de ser
+       afirmacao e vira numero no log do console (milesimos do zoom + quantos
+       pulsos ja' aconteceram). */
+    if(!g_hud_zoom_visto&&hzm>1.01f){g_hud_zoom_visto=1;
+     telemetry_event("hud_zoom_pulso",(int)(hzm*1000.0f),(int)ev->hud_zoom_pulsos);}
+    /* Segundo limiar: so' e' alcancado quando um SetCameraBop com intensidade
+       maior que a padrao entra em vigor (spaghetti tem 103 deles, ate' 2,5x e
+       uma batida por pulso). E' a prova de que o EVENTO chega ao HUD. */
+    if(!g_hud_zoom_forte&&hzm>1.05f){g_hud_zoom_forte=1;
+     telemetry_event("hud_zoom_forte",(int)(hzm*1000.0f),(int)ev->hud_zoom_pulsos);}
+    g_hud_zoom=hzm;}}float sc=.5f*g_tut_zoom*g_tut_bop;/* Alturas de ORIGEM (1280x720) do BF e da GF, usadas abaixo para o foco de
    camera. As larguras e as escalas do pacote (`bf_source_w`, `bf_pack_scale`,
    `gf_source_w`, `gf_pack_scale`) saiam daqui e so' alimentavam dois cantos
    (`bf_world_x/y`, `gf_world_x/y`) que ninguem mais lia -- o canto do sprite
@@ -4262,7 +4320,7 @@ float x,y,w,h;
    }
    }
   }
-  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,169.75f,324.0f,300.5f,9.5f,0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
+  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
      da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
      em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o
@@ -4271,11 +4329,13 @@ float x,y,w,h;
     if(sx<171.75f)sx=171.75f;
     if(sx>468.25f)sx=468.25f;
     if(sx>171.75f){
-        q=rect_alpha(q,171.75f,326.0f,sx,331.5f,255,0,0,128);
+        q=rect_alpha(q,hz_x(171.75f),hz_y(326.0f),hz_x(sx),hz_y(331.5f),255,0,0,128);
     }
     if(sx<468.25f){
-        q=rect_alpha(q,sx,326.0f,468.25f,331.5f,102,255,51,128);
-    }}q=sprite_region(q,258.0f,288.5f,75.0f,75.0f,0,128,75,75);q=sprite_region(q,307.0f,288.5f,75.0f,75.0f,155,128,-75,75);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */{/* PlayState.updateScoreText(): "Score: " + FlxStringUtil.formatMoney(
+        q=rect_alpha(q,hz_x(sx),hz_y(326.0f),hz_x(468.25f),hz_y(331.5f),102,255,51,128);
+    }}/* Os dois icones tambem sao camHUD (PlayState.hx L2160, L2195). */
+ q=sprite_region(q,hz_x(258.0f),hz_y(288.5f),hz_s(75.0f),hz_s(75.0f),0,128,75,75);
+ q=sprite_region(q,hz_x(307.0f),hz_y(288.5f),hz_s(75.0f),hz_s(75.0f),155,128,-75,75);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */{/* PlayState.updateScoreText(): "Score: " + FlxStringUtil.formatMoney(
      songScore, SHOW_DECIMALS=false, COMMA_SEPARATED=true). Sem decimais e com
      virgula de milhar, entao 1500 vira "1,500". O texto era literalmente
      "Score: 0" e nunca mudava. */

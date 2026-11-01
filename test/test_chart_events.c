@@ -276,6 +276,74 @@ int main(void)
         ok(chart_events_state()->bop < 1.0356f, "step 5 only decays");
     }
 
+    /* ---- camHUD.zoom, o mesmo passo, um valor proprio ------------------ */
+    /* PlayState.hx L1846-1859: no passo do bop o HUD sobe
+       (cameraBopIntensity-1)*2 = 0,03 por compasso com o dado padrao, e L1227
+       puxa de volta para 1,0 todo quadro com 0,95^(dt*60). O teto de 1,35
+       (MAX_RELATIVE_CAM_ZOOM) so' e' alcancavel com SetCameraBop de rate baixo,
+       que e' o caso do spaghetti: la' sao 103 eventos, a maioria rate 1. */
+    chart_events_reset(1.1f, 1.0f);
+    near(chart_events_state()->hud_zoom, 1.0f, "o HUD comeca em 1,0");
+    ok(chart_events_state()->hud_zoom_pulsos == 0u, "e sem pulsos");
+    chart_events_tick(1.0f / 60.0f, 0u);          /* passo 0: pulsa */
+    /* Sobe 0,03 e decai no MESMO tick: 1 + 0,03 * 0,95^(60/60) = 1,0285. */
+    near(chart_events_state()->hud_zoom, 1.0285f, "o HUD sobe 0,03 e ja' decai uma vez");
+    ok(chart_events_state()->hud_zoom_pulsos == 1u, "um pulso");
+    chart_events_tick(1.0f / 60.0f, 8u);
+    ok(chart_events_state()->hud_zoom < 1.0285f, "passo que nao pulsa so' decai");
+    /* dt=0 e' a pausa: o substate do original suspende o update, entao o valor
+       CONGELA -- nao pula para 1,0 nem continua caindo. */
+    {
+        float antes = chart_events_state()->hud_zoom;
+        int i;
+        for (i = 0; i < 30; i++) chart_events_tick(0.0f, 8u);
+        near(chart_events_state()->hud_zoom, antes, "com dt=0 (pausa) o HUD congela");
+    }
+    /* Rate 0: nem pulsa nem decai (L1220 exige cameraZoomRate > 0). */
+    chart_events_reset(1.1f, 1.0f);
+    chart_events_set_bop(CHART_DEFAULT_BOP_INTENSITY, 0.0f, 0.0f);
+    chart_events_tick(1.0f / 60.0f, 0u);
+    near(chart_events_state()->hud_zoom, 1.0f, "com rate 0 o HUD nunca sobe");
+
+    /* O TETO: com rate 1 e intensidade 2,5 (o primeiro SetCameraBop do milf),
+       cada batida soma (1,0375-1)*2 = 0,075. Rodando 60 passos de 1/60 s a
+       uma batida por segundo... aqui o teste usa dt grande nos passos que
+       pulsam para que o acumulado encoste no teto, e cobra que ele PARE. */
+    load(MILF);
+    chart_events_reset(1.1f, 1.0f);
+    {
+        u32 i;
+        for (i = 0; i < g_info.event_count; i++) {
+            const chart_event_t *e = chart_event(i);
+            if (e && e->type == CHART_EV_SET_CAMERA_BOP) { chart_events_pump(e->sample); break; }
+        }
+        ok(chart_events_state()->hud_zoom < CHART_HUD_ZOOM_MAX, "antes do teto");
+        /* Passo que pulsa com dt=0: sobe sem decair, e e' assim que da' para
+           alcancar o teto em poucos passos. */
+        for (i = 0; i < 40 && chart_events_state()->hud_zoom < CHART_HUD_ZOOM_MAX; i++) {
+            chart_events_tick(0.0f, (u32)(4u * (i + 1u)));
+        }
+        ok(chart_events_state()->hud_zoom >= CHART_HUD_ZOOM_MAX - 1e-5f, "chegou no teto");
+        chart_events_tick(0.0f, 4u * 41u);
+        ok(chart_events_state()->hud_zoom >= CHART_HUD_ZOOM_MAX - 1e-5f, "e PARA no teto");
+        ok(chart_events_state()->hud_zoom <= CHART_HUD_ZOOM_MAX + 0.075f + 1e-5f,
+           "sem passar do teto por mais de um pulso");
+    }
+
+    /* Rate 0 CONGELA o bop e o HUD: PlayState.hx L1220 exige
+       cameraZoomRate > 0 para o decay rodar. Um chart v3 chega aqui com rate 0
+       porque o formato nao guarda os parametros do SetCameraBop -- e o
+       contador diz isso em vez de deixar o HUD mudo sem explicacao. */
+    chart_events_reset(1.1f, 1.0f);
+    chart_events_set_bop(1.03f, 0.0f, 0.0f);
+    chart_events_tick(1.0f / 60.0f, 16u);
+    {
+        float antes = chart_events_state()->bop;
+        ok(antes < 1.03f, "rate 0 nao pulsa (bop abaixo da intensidade)");
+        chart_events_tick(1.0f / 60.0f, 32u);
+        near(chart_events_state()->bop, antes, "e o bop nao decai com rate 0");
+    }
+
     /* ---- SetHealthIcon, from the only chart that has it --------------- */
     /* spaghetti carries all 15 in the game. Each names an icon id, and the
        ids are the SSERAFIM members -- the same names as the character JSONs,

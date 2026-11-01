@@ -117,6 +117,8 @@ PYPAPEIS
 
 TOTAL=0
 OK=0
+HUD_OK=0
+HUD_SEMPAR=0
 FALHOU=""
 AUDIO=0
 
@@ -133,6 +135,13 @@ for sid in $LISTA; do
 
         campo() { awk -F, -v n="$1" -v c="$2" '$1=="E" && $3==n {print $c; exit}' "$LOG" 2>/dev/null; }
         hstart=$(campo harness_start 4)
+        # O ZOOM DO HUD (camHUD.zoom): sobe a cada compasso e decai todo quadro.
+        # Songs SEM SetCameraBop usam o rate padrao (4 batidas) e tem de mostrar
+        # o pulso; as que tem SetCameraBop dependem dos parametros do evento, e
+        # um chart v3 nao os carrega -- o proprio jogo conta isso em
+        # `bop_sem_parametros`.
+        hudz=$(campo hud_zoom_pulso 4)
+        hudnp=$(awk -F, '$1=="E" && $3=="bop_sem_parametros" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         layout=$(campo chart_layout 4)
         cst=$(campo tutorial_chart 4)
         csum=$(campo tutorial_chart 5)
@@ -321,6 +330,9 @@ for sid in $LISTA; do
             motivo="audio nao comecou${motivo:+, $motivo}"
         fi
 
+        if [ -n "${hudz:-}" ]; then HUD_OK=$((HUD_OK + 1)); fi
+        if [ "${hudnp:-0}" -ge 1 ] 2>/dev/null; then HUD_SEMPAR=$((HUD_SEMPAR + 1)); fi
+
         if [ -z "$motivo" ]; then
             OK=$((OK + 1))
             palco_nome=$(awk -v i="${palco:--1}" '$1==i {print $2; exit}' build/sweep/palcos.txt)
@@ -357,6 +369,11 @@ echo
 echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
 echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
 echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar cantando"
+# camHUD.zoom (PlayState.hx L1227/L1846-1859). Toda musica sem SetCameraBop usa o
+# rate padrao de 4 batidas e TEM de pulsar. Com chart v3 o SetCameraBop chega
+# sem parametro (rate 0) e o HUD congela -- fiel ao original, que exige
+# cameraZoomRate > 0 --, e o jogo conta isso em `bop_sem_parametros`.
+echo "  zoom do HUD: pulsou em $HUD_OK de $TOTAL combinacoes ($HUD_SEMPAR com SetCameraBop sem parametro)"
 echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combinacoes"
 # NOTE KINDS: quantos kinds o jogo de fato aplicou. No v3/v4 os charts nem
 # carregam o campo, entao o numero so' vale no passe v5 -- e o teste de
