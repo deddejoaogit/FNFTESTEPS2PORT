@@ -3310,6 +3310,25 @@ livres ao entrar na tela):
 | **total** | **1.254.592** |
 | **sobra** | **6.976** |
 
+#### O que ainda falta na tela de Resultado, medido nesta build
+
+| peca | estado | numero medido |
+|---|---|---|
+| `bgFlash` (o flash amarelo, zIndex 20) | **falta** | sem textura: cor `#FFF1BE` + alpha 1->0 |
+| `soundSystem` (a maquina que cai atras do placar) | **nao cabe** | 65 quadros, canvas 875x963: 841.508 B por quadro a 0,5 em RGBA |
+| animacao do personagem por rank (`results-bf`/`results-pico`) | **nao cabe + formato** | spritesheets de 1003x862 a 4094x2485 (Animate Atlas `AN`/`SD`/`TL`) |
+| `highscoreNew` | **nao cabe** | 524.928 B a 0,5 (75x a sobra) |
+| `results-bf`/`results-pico` como PASTA de arte | **nao e' do jogo** | nenhum `.hx` da v0.8.6 referencia a pasta: so' os `Animation.json`/`sparrow` de dentro dela |
+
+Os tres primeiros nao sao "arte que falta empacotar": sao arte que **nao cabe**
+no orcamento deste port com a fidelidade atual do resto. A sobra e' de 6.976 B e
+o `soundSystem` precisa de 841 KB por quadro **mesmo a meia resolucao**. Para
+entrar, alguma outra peca tem de ceder -- e a candidata medida e' o atlas do
+placar (508.480 B): ele guarda as 5 variantes de brilho de cada digito, e o
+`bgFlash` mostra que 5 quadros de brilho podem ser 1 quadro + alpha do vertice.
+Sem essa troca (que muda a fidelidade do PLACAR, nao dos eventos), `soundSystem`
+e a animacao do personagem ficam fora por medicao, nao por esquecimento.
+
 A sobra de ~7 KB e' o numero que decide o que vem depois: `highscoreNew` a 0,5
 sao 524.928 B, ou seja **setenta e cinco vezes** a sobra. Ele nao entra sem
 degradacao severa (0,25 daria 131.232 B, ainda 19x a sobra) nem sem tirar outra
