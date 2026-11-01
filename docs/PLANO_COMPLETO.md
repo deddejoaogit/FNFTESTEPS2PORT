@@ -338,6 +338,55 @@ com o pool pela metade; agora a conversão mora dentro do `stage_pool` e o teste
 compara em bytes), palco que não cabe falhando limpo (`-1`, sem endereço), e
 troca de palco devolvendo o pool inteiro.
 
+#### Fechado: o orçamento POR MÚSICA — as três músicas que não cabiam
+
+`tools/orcamento_vram.py` é um teste (sai com 1 quando alguma música não cabe) e
+ele **reprovava três**: `stress` (−186.368 B), `cocoa` e `eggnog` (−185.856 B).
+A causa não era o tamanho da arte: eram **três contas diferentes** para o mesmo
+número, e nenhuma delas era a do runtime.
+
+| # | Erro | Efeito |
+|---|---|---|
+| 1 | `vram_budget.stage_limit()` (o limite que o **empacotador** obedece) reservava **um quadro** de cada personagem | os personagens residentes são o **canvas inteiro** do CHP4 (bf 435×461, gf 513×369, dad 368×418 a 0,5 ≈ **1 MB** pelos três): o palco era autorizado com ~1 MB a mais |
+| 2 | o mesmo limite não reservava os **dois ícones** de vida | 49.152 B medidos nos pacotes `ICP1` |
+| 3 | `orcamento_vram.py` media o palco com `cp_tex_bytes` (passo de **64 px** do TBW) | o pool aloca `sp_prop_bytes` = `sw*sh*2` arredondado a **256 B** (`src/engine/stage_vram_data.h`): a ferramenta cobrava 33 a 173 KB a mais por palco do que o jogo pede |
+
+Correção, uma por linha:
+
+- `vram_budget.fixos_bytes()` = **1.810.432 B**, a mesma soma do `orcamento_vram`
+  e do `main.c` (2 framebuffers PSMCT16 de 640×448 + `tex2` 320×256×4 + fonte
+  384×192×4 + `gftex16` 320×32×4).
+- `vram_budget.reserva_por_palco()` lê os **pacotes reais**
+  (`build/packs/chars/*.chp4`, `build/packs/icons/*.icp`) e devolve, para cada
+  palco, o pior caso entre as músicas daquele palco — reservar o pior caso
+  global encolheria palco que não precisava.
+- `pacotar_palcos.stage_limit(bpp, palco)` usa `stage_limit_exato()` e a escala
+  é procurada com `prop_vram_bytes` (o mesmo arredondamento do pool), não com
+  `sw*sh*2` puro.
+- `orcamento_vram.py` passou a usar `prop_vram_bytes` para palco e **mantém**
+  `cp_tex_bytes` para personagem (que é uma textura só, com passo de 64 px).
+
+Só dois palcos passavam do limite novo, e foram reempacotados da arte real
+(`tools/pacotar_palcos.py --assets <clone> --stages <palco>`), com o plano
+**atualizado em vez de reescrito** (`--stages` agora faz merge no
+`stage-props.json`; antes ele apagava os outros 20 palcos):
+
+| palco | escala antes | escala depois | VRAM antes | VRAM depois | limite |
+|---|---|---|---|---|---|
+| `mallXmas` (cocoa, eggnog) | 0,200845 | **0,194** | 1.337.856 B | **1.249.536 B** | 1.250.048 B |
+| `tankmanBattlefield` (stress) | 0,295745 | **0,294** | 1.339.648 B | **1.326.848 B** | 1.327.104 B |
+
+Medido depois (`tools/orcamento_vram.py --detalhe`): **PASSOU: 27 músicas, 0 não
+cabem**. As três apertadas ficam com 256–512 B de folga (é o limite funcionando:
+o palco encolheu só até caber), e a próxima mais apertada
+(`winter-horrorland`) fica com **142.848 B**. No runtime
+(`tools/run_realpacks_harness.sh 600`, 81 combinações): `palco_sem_vram` = 0 em
+todas, e o pool livre vai de **135.936 B** (cocoa/eggnog) a 384.000 B (thorns).
+
+Consequência para o que falta: continua **não** havendo espaço para uma textura
+nova (nota splash, arte de tela) em cocoa/eggnog/stress — qualquer textura nova
+precisa entrar pela `vram_cache` (evictando prop) ou vir de mais reempacotamento.
+
 #### Fechado: o pool no jogo, e o orçamento inteiro de 2.056.192 B
 
 O `main.c` mudou a **ordem** de alocação para o mapa ficar com os slots que o

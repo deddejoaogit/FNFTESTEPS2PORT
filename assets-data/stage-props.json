@@ -1062,195 +1062,6 @@
    "zoom": 1.0
   },
   {
-   "id": "mallXmas",
-   "props": [
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "bgWalls",
-     "scrollx": 0.2,
-     "scrolly": 0.2,
-     "sh": 370,
-     "src_h": 1840,
-     "src_w": 3102,
-     "sw": 623,
-     "sx": 0.8,
-     "sy": 0.8,
-     "tex": "stages/mallXmas/bgWalls.cfz4",
-     "x": -630.0,
-     "y": -492.0,
-     "z": 10
-    },
-    {
-     "anims": [
-      {
-       "count": 13,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 13,
-     "name": "upperBoppers",
-     "scrollx": 0.28,
-     "scrolly": 0.28,
-     "sh": 75,
-     "src_h": 375,
-     "src_w": 2596,
-     "sw": 521,
-     "sx": 0.85,
-     "sy": 0.85,
-     "tex": "stages/mallXmas/upperBoppers.cfz4",
-     "x": -396.0,
-     "y": -98.0,
-     "z": 20
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "bgEscalator",
-     "scrollx": 0.3,
-     "scrolly": 0.3,
-     "sh": 356,
-     "src_h": 1775,
-     "src_w": 3700,
-     "sw": 743,
-     "sx": 0.9,
-     "sy": 0.9,
-     "tex": "stages/mallXmas/bgEscalator.cfz4",
-     "x": -1100.0,
-     "y": -540.0,
-     "z": 30
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "christmasTree",
-     "scrollx": 0.4,
-     "scrolly": 0.4,
-     "sh": 204,
-     "src_h": 1018,
-     "src_w": 662,
-     "sw": 133,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/mallXmas/christmasTree.cfz4",
-     "x": 370.0,
-     "y": -250.0,
-     "z": 40
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "bottomBoppers",
-     "scrollx": 0.9,
-     "scrolly": 0.9,
-     "sh": 135,
-     "src_h": 674,
-     "src_w": 1978,
-     "sw": 397,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/mallXmas/bottomBoppers.cfz4",
-     "x": -300.0,
-     "y": 120.0,
-     "z": 50
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "fgSnow",
-     "scrollx": 1.0,
-     "scrolly": 1.0,
-     "sh": 51,
-     "src_h": 252,
-     "src_w": 3300,
-     "sw": 663,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/mallXmas/fgSnow.cfz4",
-     "x": -1150.0,
-     "y": 680.0,
-     "z": 60
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "santa",
-     "scrollx": 1.0,
-     "scrolly": 1.0,
-     "sh": 150,
-     "src_h": 748,
-     "src_w": 663,
-     "sw": 133,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/mallXmas/santa.cfz4",
-     "x": -840.0,
-     "y": 150.0,
-     "z": 210
-    }
-   ],
-   "scale": 0.200845,
-   "zoom": 0.8
-  },
-  {
    "id": "mallXmasErect",
    "props": [
     {
@@ -3959,455 +3770,6 @@
    "zoom": 0.5
   },
   {
-   "id": "tankmanBattlefield",
-   "props": [
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "tankSky",
-     "scrollx": 0.0,
-     "scrolly": 0.0,
-     "sh": 282,
-     "src_h": 954,
-     "src_w": 1,
-     "sw": 1,
-     "sx": 3000.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankSky.cfz4",
-     "x": -1000.0,
-     "y": -400.0,
-     "z": 10
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "mountains",
-     "scrollx": 0.2,
-     "scrolly": 0.2,
-     "sh": 157,
-     "src_h": 531,
-     "src_w": 1951,
-     "sw": 577,
-     "sx": 1.2,
-     "sy": 1.2,
-     "tex": "stages/tankmanBattlefield/mountains.cfz4",
-     "x": -500.0,
-     "y": -35.0,
-     "z": 11
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "buildings",
-     "scrollx": 0.3,
-     "scrolly": 0.3,
-     "sh": 215,
-     "src_h": 726,
-     "src_w": 1597,
-     "sw": 472,
-     "sx": 1.1,
-     "sy": 1.1,
-     "tex": "stages/tankmanBattlefield/buildings.cfz4",
-     "x": -260.0,
-     "y": -35.0,
-     "z": 13
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "ruins",
-     "scrollx": 0.35,
-     "scrolly": 0.35,
-     "sh": 167,
-     "src_h": 565,
-     "src_w": 1569,
-     "sw": 464,
-     "sx": 1.1,
-     "sy": 1.1,
-     "tex": "stages/tankmanBattlefield/ruins.cfz4",
-     "x": -200.0,
-     "y": 150.0,
-     "z": 13
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "clouds2",
-     "scrollx": 0.4,
-     "scrolly": 0.4,
-     "sh": 69,
-     "src_h": 235,
-     "src_w": 2155,
-     "sw": 637,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/clouds2.cfz4",
-     "x": 0.0,
-     "y": 0.0,
-     "z": 11
-    },
-    {
-     "anims": [
-      {
-       "count": 48,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "smokeLeft"
-      }
-     ],
-     "dance": 0,
-     "frames": 48,
-     "name": "smokeLeft",
-     "scrollx": 0.4,
-     "scrolly": 0.4,
-     "sh": 249,
-     "src_h": 843,
-     "src_w": 511,
-     "sw": 151,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/smokeLeft.cfz4",
-     "x": -380.0,
-     "y": -40.0,
-     "z": 14
-    },
-    {
-     "anims": [
-      {
-       "count": 48,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "smokeRight"
-      }
-     ],
-     "dance": 0,
-     "frames": 48,
-     "name": "smokeRight",
-     "scrollx": 0.4,
-     "scrolly": 0.4,
-     "sh": 277,
-     "src_h": 938,
-     "src_w": 568,
-     "sw": 168,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/smokeRight.cfz4",
-     "x": 1050.0,
-     "y": -35.0,
-     "z": 15
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "watchtower",
-     "scrollx": 0.5,
-     "scrolly": 0.5,
-     "sh": 202,
-     "src_h": 682,
-     "src_w": 369,
-     "sw": 109,
-     "sx": 0.85,
-     "sy": 0.85,
-     "tex": "stages/tankmanBattlefield/watchtower.cfz4",
-     "x": -35.0,
-     "y": 110.0,
-     "z": 21
-    },
-    {
-     "anims": [
-      {
-       "count": 3,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "roll"
-      }
-     ],
-     "dance": 0,
-     "frames": 3,
-     "name": "tankRolling",
-     "scrollx": 0.5,
-     "scrolly": 0.5,
-     "sh": 97,
-     "src_h": 328,
-     "src_w": 319,
-     "sw": 94,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankRolling.cfz4",
-     "x": 300.0,
-     "y": 300.0,
-     "z": 22
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "tankGround",
-     "scrollx": 1.0,
-     "scrolly": 1.0,
-     "sh": 319,
-     "src_h": 1080,
-     "src_w": 1920,
-     "sw": 568,
-     "sx": 1.15,
-     "sy": 1.15,
-     "tex": "stages/tankmanBattlefield/tankGround.cfz4",
-     "x": -420.0,
-     "y": -150.0,
-     "z": 40
-    },
-    {
-     "anims": [
-      {
-       "count": 1,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 1,
-       "name": "idle"
-      }
-     ],
-     "dance": 0,
-     "frames": 1,
-     "name": "tankBricks",
-     "scrollx": 1.0,
-     "scrolly": 1.0,
-     "sh": 15,
-     "src_h": 51,
-     "src_w": 382,
-     "sw": 113,
-     "sx": 1.15,
-     "sy": 1.15,
-     "tex": "stages/tankmanBattlefield/tankBricks.cfz4",
-     "x": 438.0,
-     "y": 715.0,
-     "z": 101
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "tankmanAudience0",
-     "scrollx": 1.7,
-     "scrolly": 1.5,
-     "sh": 133,
-     "src_h": 450,
-     "src_w": 314,
-     "sw": 93,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience0.cfz4",
-     "x": -500.0,
-     "y": 650.0,
-     "z": 1000
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "tankmanAudience2",
-     "scrollx": 1.5,
-     "scrolly": 1.5,
-     "sh": 95,
-     "src_h": 322,
-     "src_w": 295,
-     "sw": 87,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience2.cfz4",
-     "x": 360.0,
-     "y": 980.0,
-     "z": 1002
-    },
-    {
-     "anims": [
-      {
-       "count": 15,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 15,
-     "name": "tankmanAudience3",
-     "scrollx": 3.5,
-     "scrolly": 2.5,
-     "sh": 40,
-     "src_h": 135,
-     "src_w": 590,
-     "sw": 174,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience3.cfz4",
-     "x": 1050.0,
-     "y": 1240.0,
-     "z": 1016
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "tankmanAudience4",
-     "scrollx": 1.5,
-     "scrolly": 1.5,
-     "sh": 98,
-     "src_h": 330,
-     "src_w": 401,
-     "sw": 119,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience4.cfz4",
-     "x": 1200.0,
-     "y": 900.0,
-     "z": 1004
-    },
-    {
-     "anims": [
-      {
-       "count": 14,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 14,
-     "name": "tankmanAudience5",
-     "scrollx": 1.5,
-     "scrolly": 1.5,
-     "sh": 133,
-     "src_h": 450,
-     "src_w": 315,
-     "sw": 93,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience5.cfz4",
-     "x": 1550.0,
-     "y": 700.0,
-     "z": 1003
-    },
-    {
-     "anims": [
-      {
-       "count": 15,
-       "first": 0,
-       "fps": 24.0,
-       "looped": 0,
-       "name": "idle"
-      }
-     ],
-     "dance": 1,
-     "frames": 15,
-     "name": "tankmanAudience1",
-     "scrollx": 2.0,
-     "scrolly": 0.2,
-     "sh": 36,
-     "src_h": 122,
-     "src_w": 472,
-     "sw": 140,
-     "sx": 1.0,
-     "sy": 1.0,
-     "tex": "stages/tankmanBattlefield/tankmanAudience1.cfz4",
-     "x": -300.0,
-     "y": 750.0,
-     "z": 1100
-    }
-   ],
-   "scale": 0.295745,
-   "zoom": 0.9
-  },
-  {
    "id": "tankmanBattlefieldErect",
    "props": [
     {
@@ -4524,6 +3886,644 @@
    ],
    "scale": 0.392488,
    "zoom": 0.7
+  },
+  {
+   "id": "tankmanBattlefield",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankSky",
+     "scrollx": 0.0,
+     "scrolly": 0.0,
+     "sh": 281,
+     "src_h": 954,
+     "src_w": 1,
+     "sw": 1,
+     "sx": 3000.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankSky.cfz4",
+     "x": -1000.0,
+     "y": -400.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "mountains",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 156,
+     "src_h": 531,
+     "src_w": 1951,
+     "sw": 574,
+     "sx": 1.2,
+     "sy": 1.2,
+     "tex": "stages/tankmanBattlefield/mountains.cfz4",
+     "x": -500.0,
+     "y": -35.0,
+     "z": 11
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "buildings",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 214,
+     "src_h": 726,
+     "src_w": 1597,
+     "sw": 470,
+     "sx": 1.1,
+     "sy": 1.1,
+     "tex": "stages/tankmanBattlefield/buildings.cfz4",
+     "x": -260.0,
+     "y": -35.0,
+     "z": 13
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "ruins",
+     "scrollx": 0.35,
+     "scrolly": 0.35,
+     "sh": 166,
+     "src_h": 565,
+     "src_w": 1569,
+     "sw": 461,
+     "sx": 1.1,
+     "sy": 1.1,
+     "tex": "stages/tankmanBattlefield/ruins.cfz4",
+     "x": -200.0,
+     "y": 150.0,
+     "z": 13
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "clouds2",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 69,
+     "src_h": 235,
+     "src_w": 2155,
+     "sw": 634,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/clouds2.cfz4",
+     "x": 0.0,
+     "y": 0.0,
+     "z": 11
+    },
+    {
+     "anims": [
+      {
+       "count": 48,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "smokeLeft"
+      }
+     ],
+     "dance": 0,
+     "frames": 48,
+     "name": "smokeLeft",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 248,
+     "src_h": 843,
+     "src_w": 511,
+     "sw": 150,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/smokeLeft.cfz4",
+     "x": -380.0,
+     "y": -40.0,
+     "z": 14
+    },
+    {
+     "anims": [
+      {
+       "count": 48,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "smokeRight"
+      }
+     ],
+     "dance": 0,
+     "frames": 48,
+     "name": "smokeRight",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 276,
+     "src_h": 938,
+     "src_w": 568,
+     "sw": 167,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/smokeRight.cfz4",
+     "x": 1050.0,
+     "y": -35.0,
+     "z": 15
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "watchtower",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 201,
+     "src_h": 682,
+     "src_w": 369,
+     "sw": 109,
+     "sx": 0.85,
+     "sy": 0.85,
+     "tex": "stages/tankmanBattlefield/watchtower.cfz4",
+     "x": -35.0,
+     "y": 110.0,
+     "z": 21
+    },
+    {
+     "anims": [
+      {
+       "count": 3,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "roll"
+      }
+     ],
+     "dance": 0,
+     "frames": 3,
+     "name": "tankRolling",
+     "scrollx": 0.5,
+     "scrolly": 0.5,
+     "sh": 96,
+     "src_h": 328,
+     "src_w": 319,
+     "sw": 94,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankRolling.cfz4",
+     "x": 300.0,
+     "y": 300.0,
+     "z": 22
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankGround",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 318,
+     "src_h": 1080,
+     "src_w": 1920,
+     "sw": 565,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefield/tankGround.cfz4",
+     "x": -420.0,
+     "y": -150.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "tankBricks",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 15,
+     "src_h": 51,
+     "src_w": 382,
+     "sw": 112,
+     "sx": 1.15,
+     "sy": 1.15,
+     "tex": "stages/tankmanBattlefield/tankBricks.cfz4",
+     "x": 438.0,
+     "y": 715.0,
+     "z": 101
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience0",
+     "scrollx": 1.7,
+     "scrolly": 1.5,
+     "sh": 132,
+     "src_h": 450,
+     "src_w": 314,
+     "sw": 92,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience0.cfz4",
+     "x": -500.0,
+     "y": 650.0,
+     "z": 1000
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience2",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 95,
+     "src_h": 322,
+     "src_w": 295,
+     "sw": 87,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience2.cfz4",
+     "x": 360.0,
+     "y": 980.0,
+     "z": 1002
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 15,
+     "name": "tankmanAudience3",
+     "scrollx": 3.5,
+     "scrolly": 2.5,
+     "sh": 40,
+     "src_h": 135,
+     "src_w": 590,
+     "sw": 174,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience3.cfz4",
+     "x": 1050.0,
+     "y": 1240.0,
+     "z": 1016
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience4",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 97,
+     "src_h": 330,
+     "src_w": 401,
+     "sw": 118,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience4.cfz4",
+     "x": 1200.0,
+     "y": 900.0,
+     "z": 1004
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "tankmanAudience5",
+     "scrollx": 1.5,
+     "scrolly": 1.5,
+     "sh": 132,
+     "src_h": 450,
+     "src_w": 315,
+     "sw": 93,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience5.cfz4",
+     "x": 1550.0,
+     "y": 700.0,
+     "z": 1003
+    },
+    {
+     "anims": [
+      {
+       "count": 15,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 0,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 15,
+     "name": "tankmanAudience1",
+     "scrollx": 2.0,
+     "scrolly": 0.2,
+     "sh": 36,
+     "src_h": 122,
+     "src_w": 472,
+     "sw": 139,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/tankmanBattlefield/tankmanAudience1.cfz4",
+     "x": -300.0,
+     "y": 750.0,
+     "z": 1100
+    }
+   ],
+   "scale": 0.294136,
+   "zoom": 0.9
+  },
+  {
+   "id": "mallXmas",
+   "props": [
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgWalls",
+     "scrollx": 0.2,
+     "scrolly": 0.2,
+     "sh": 357,
+     "src_h": 1840,
+     "src_w": 3102,
+     "sw": 602,
+     "sx": 0.8,
+     "sy": 0.8,
+     "tex": "stages/mallXmas/bgWalls.cfz4",
+     "x": -630.0,
+     "y": -492.0,
+     "z": 10
+    },
+    {
+     "anims": [
+      {
+       "count": 13,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 13,
+     "name": "upperBoppers",
+     "scrollx": 0.28,
+     "scrolly": 0.28,
+     "sh": 73,
+     "src_h": 375,
+     "src_w": 2596,
+     "sw": 504,
+     "sx": 0.85,
+     "sy": 0.85,
+     "tex": "stages/mallXmas/upperBoppers.cfz4",
+     "x": -396.0,
+     "y": -98.0,
+     "z": 20
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "bgEscalator",
+     "scrollx": 0.3,
+     "scrolly": 0.3,
+     "sh": 344,
+     "src_h": 1775,
+     "src_w": 3700,
+     "sw": 718,
+     "sx": 0.9,
+     "sy": 0.9,
+     "tex": "stages/mallXmas/bgEscalator.cfz4",
+     "x": -1100.0,
+     "y": -540.0,
+     "z": 30
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "christmasTree",
+     "scrollx": 0.4,
+     "scrolly": 0.4,
+     "sh": 198,
+     "src_h": 1018,
+     "src_w": 662,
+     "sw": 128,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/christmasTree.cfz4",
+     "x": 370.0,
+     "y": -250.0,
+     "z": 40
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "bottomBoppers",
+     "scrollx": 0.9,
+     "scrolly": 0.9,
+     "sh": 131,
+     "src_h": 674,
+     "src_w": 1978,
+     "sw": 384,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/bottomBoppers.cfz4",
+     "x": -300.0,
+     "y": 120.0,
+     "z": 50
+    },
+    {
+     "anims": [
+      {
+       "count": 1,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 0,
+     "frames": 1,
+     "name": "fgSnow",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 49,
+     "src_h": 252,
+     "src_w": 3300,
+     "sw": 640,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/fgSnow.cfz4",
+     "x": -1150.0,
+     "y": 680.0,
+     "z": 60
+    },
+    {
+     "anims": [
+      {
+       "count": 14,
+       "first": 0,
+       "fps": 24.0,
+       "looped": 1,
+       "name": "idle"
+      }
+     ],
+     "dance": 1,
+     "frames": 14,
+     "name": "santa",
+     "scrollx": 1.0,
+     "scrolly": 1.0,
+     "sh": 145,
+     "src_h": 748,
+     "src_w": 663,
+     "sw": 129,
+     "sx": 1.0,
+     "sy": 1.0,
+     "tex": "stages/mallXmas/santa.cfz4",
+     "x": -840.0,
+     "y": 150.0,
+     "z": 210
+    }
+   ],
+   "scale": 0.194085,
+   "zoom": 0.8
   }
  ]
 }

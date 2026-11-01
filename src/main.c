@@ -5319,11 +5319,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   /* GAME OVER (ui_state 10).
      O original cobre a tela com um retangulo PRETO opaco (FunkinSprite
      makeSolidColor(FlxG.width*2, FlxG.height*2, BLACK) com alpha 1.0 --
-     GameOverSubState.hx:139-145), mostra o BF na animacao firstDeath e o texto
-     de "Game Over". A arte de morte do personagem ainda nao esta' no pacote,
-     entao o que desenha agora e' o fundo preto e o texto; o que o original
-     tambem faz e que e' observavel sem a arte: a tela parar (persistentUpdate
-     = false), o placar voltar a zero e a entrada ficar bloqueada 1 s. */
+     GameOverSubState.hx:149-155) e poe o BF, na MESMA posicao, na animacao
+     firstDeath (L163-172) -- e' TUDO o que a tela tem. Nao ha' arte de fundo
+     nem texto nela: o que o original faz e observavel e ja' esta' aqui -- a
+     tela parar (persistentUpdate = false), o placar voltar a zero, a entrada
+     ficar bloqueada 1 s e a camera seguir o BF morto. */
   if(ui_state==10){
    char lb[48];int q0=g_frame_texture_quads;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
@@ -5339,7 +5339,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    if(g_cena_modo&&g_cena.p[CH_PAPEL_BF].ativo&&g_cena_texde_w[CH_PAPEL_BF]>0){
     const char *stg=g_play_song?g_play_song->stage:"mainStage";
     const bs_slot_t *slb=ch_slot(stg,"bf");
+    int qa=g_frame_texture_quads;
     if(slb)q=cena_desenha(q,CH_PAPEL_BF,slb,0,(long)g_go_ms,g_go_cam_x,g_go_cam_y,0.5f*g_go_zoom);
+    if(g_gameover_drawn==0)telemetry_event("gameover_bf_quads",g_frame_texture_quads-qa,g_cena_desenhos[CH_PAPEL_BF]);
    }
    /* O FADE DA SAIDA: 2 s indo para preto (FlxG.camera.fade(BLACK, 2) ou o
       RetroCameraFade de 2 s no `-pixel`), linear como o FlxFlash do original.
@@ -5350,14 +5352,27 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(a>255)a=255;
     if(a>0)q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,(unsigned char)a);
    }
-   q=bind_texture_filter(q,&fonttex,1);
-   q=text_draw(q,"GAME OVER",320,150,2.0f,1);
-   snprintf(lb,sizeof(lb),"MISSES %d",g_play.missed);
-   q=text_draw(q,lb,320,196,0.9f,1);
-   if(g_gameover_frames<60)q=text_draw(q,"...",320,238,0.9f,1);
-   else q=text_draw(q,"CROSS  RETRY      CIRCLE  EXIT",320,238,0.75f,1);
+   /* NENHUM TEXTO. `GameOverSubState.create()` (L139-172) monta exatamente
+      tres coisas: o retangulo preto, o BF (pego do palco, na MESMA posicao) e
+      o `cameraFollowPoint`. Nao existe "GAME OVER", nao existe "MISSES", nao
+      existe dica de controle -- as dicas de toque do original sao
+      `#if mobile` (`addBackButton`) e o port nao e' mobile.
+      Antes desta build o port DESENHAVA "GAME OVER", "MISSES n" e
+      "CROSS RETRY CIRCLE EXIT": texto que o original nunca mostra. Invencao e'
+      divergencia, entao saiu. O campo 2 do evento (`texto`) e' 0 e o harness
+      cobra que continue 0 -- se alguem voltar a inventar texto, o teste acusa. */
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
-   if(!g_gameover_drawn){g_gameover_drawn=1;telemetry_event("gameover_draw",g_frame_texture_quads-q0,0);}
+   if(!g_gameover_drawn){g_gameover_drawn=1;
+    /* DIAGNOSTICO: quais condicoes deixaram o BF morto de fora. Campo 1 =
+       bits (1 = cena generica, 2 = papel ativo, 4 = textura com largura,
+       8 = slot `bf` do palco achado); campo 2 = largura da textura. Sem isto,
+       "a tela desenhou so' o fundo" nao diz QUAL das quatro falhou. */
+    {const char *stg=g_play_song?g_play_song->stage:"mainStage";
+     telemetry_event("gameover_bf",
+      (g_cena_modo?1:0)|((g_cena.p[CH_PAPEL_BF].ativo?1:0)<<1)|
+      ((g_cena_texde_w[CH_PAPEL_BF]>0?1:0)<<2)|((ch_slot(stg,"bf")?1:0)<<3),
+      g_cena_texde_w[CH_PAPEL_BF]);}
+    telemetry_event("gameover_draw",g_frame_texture_quads-q0,0);}
   }
   /* TELA DE RESULTADO (ui_state 9).
      Todos os numeros vem de engine/gameplay.h -- as mesmas funcoes que

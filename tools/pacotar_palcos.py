@@ -49,7 +49,28 @@ DATA = os.path.join(PROJECT, "assets-data")
 PLAN = os.path.join(DATA, "stage-props.json")
 
 
-def stage_limit(bpp):
+def stage_limit(bpp, sid=None, reservas=None):
+    """Quanto este palco pode pedir de VRAM.
+
+    Antes: framebuffers + fixos + UM QUADRO de cada personagem. Tres erros que
+    somavam ~1 MB de otimismo por musica:
+
+      1. um quadro de personagem nao e' o que fica na VRAM -- fica o CANVAS
+         inteiro do CHP4 (bf 435x461, gf 513x369, dad 368x418 ja' a 0,5 => ~1 MB
+         pelos tres);
+      2. os dois ICONES de vida tambem moram no pool (49.152 B medidos);
+      3. o palco era medido por `sw*sh*2` sem o alinhamento de 256 B do TBP0 que
+         `sp_prop_bytes` aplica.
+
+    Agora o limite sai de `vram_budget.stage_limit_exato`, que usa a MESMA conta
+    do runtime (`src/engine/stage_vram_data.h`) e reserva, para o palco, o pior
+    caso das MUSICAS daquele palco. Foi assim que `cocoa`/`eggnog` (mallXmas,
+    87.808 B acima) e `stress` (tankmanBattlefield, 12.544 B acima) entraram no
+    orcamento -- medido por tools/orcamento_vram.py antes da mudanca.
+    """
+    reservas = reservas if reservas is not None else vb.reserva_por_palco()
+    if sid and sid in reservas:
+        return vb.stage_limit_exato(sid, reservas)
     fb = vb.FB_COUNT * vb.FB_W * vb.FB_H * (bpp // 8)
     fixed = (vb.FONT_W * vb.FONT_H * 4 + vb.HUD_W * vb.HUD_H * (bpp // 8)
              + vb.NOTE_W * vb.NOTE_H * (bpp // 8))
@@ -77,7 +98,11 @@ def _stage_scale(native, limit):
     lo = min(0.0001, hi)
     for _ in range(60):
         mid = (lo + hi) / 2.0
-        total = sum(max(1, int(round(w * mid))) * max(1, int(round(h * mid))) * 2
+        # `vb.prop_vram_bytes`: sw*sh*2 arredondado para 256 B, exatamente o que
+        # `sp_prop_bytes` vai reservar. Contar `sw*sh*2` puro deixava o palco
+        # 255 B x nº de props acima do limite.
+        total = sum(vb.prop_vram_bytes(max(1, int(round(w * mid))),
+                                       max(1, int(round(h * mid))))
                     for w, h in native)
         if total <= limit:
             lo = mid
@@ -208,8 +233,20 @@ def main():
             "stages": []}
     total_bytes = 0
     problems = []
-    limit = stage_limit(args.bpp)
+    reservas = vb.reserva_por_palco()
+    # --stages atualiza SO' os palcos pedidos: o plano e' lido de volta e as
+    # entradas dos outros ficam como estao. Sem isto, reempacotar um palco
+    # apagava os outros 20 do plano (e o header em C sairia incompleto).
+    if args.stages and os.path.isfile(PLAN):
+        antigo = json.load(open(PLAN))
+        feitos = set()
+        for sid, zoom, raw_props in stages:
+            feitos.add(sid)
+        for e in antigo.get("stages", []):
+            if e.get("id") not in feitos:
+                plan["stages"].append(e)
     for sid, zoom, raw_props in stages:
+        limit = stage_limit(args.bpp, sid, reservas)
         props = []
         for p in raw_props:
             # The generator's dict carries what the packer needs, already

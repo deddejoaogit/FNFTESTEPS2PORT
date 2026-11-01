@@ -111,6 +111,11 @@ GSAUS=$(awk -F, '$3=="gameover_sfx_ausente" {n++} END{print n+0}' "$LOG")
 GOLDSEM=$(awk -F, '$3=="gameover_sem_audio" {n++} END{print n+0}' "$LOG")
 GENTER=$(awk -F, '$1=="E" && $3=="gameover_enter" {print $4; exit}' "$LOG")
 GDRAW=$(awk -F, '$1=="E" && $3=="gameover_draw" {print $4; exit}' "$LOG")
+# `GameOverSubState.create()` nao poe TEXTO nenhum na tela de game over (so' o
+# retangulo preto, o BF morto e o ponto de camera). O campo 5 do evento conta os
+# quads de texto desenhados ali, e tem de ser zero: o port ja' desenhou
+# "GAME OVER"/"MISSES"/"CROSS RETRY CIRCLE EXIT", que o original nunca mostra.
+GTXT=$(awk -F, '$1=="E" && $3=="gameover_draw" {print $5; exit}' "$LOG")
 GOUT=$(awk -F, '$1=="E" && $3=="gameover_restart" {print $4; exit}' "$LOG")
 GSTATE=$(awk -F, '$1=="S" && $3==10 {n++} END{print n+0}' "$LOG")
 CINCOS=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {n++} END{print n+0}' "$LOG")
@@ -121,7 +126,7 @@ echo
 echo "  quadro da morte ............. ${DEATH:-?}"
 echo "  tela de game over desde ..... ${GENTER:-?}"
 echo "  quadros em ui_state 10 ...... $GSTATE"
-echo "  quads desenhados na tela 10 . ${GDRAW:-?}"
+echo "  quads desenhados na tela 10 . ${GDRAW:-?} (texto: ${GTXT:-?})"
 echo "  misses na morte ............. ${MISSES:-?}"
 echo "  firstDeath (personagem) ..... ${PRIMEIRA:-?}"
 echo "  deathLoop no quadro ......... ${LOOP:-?}"
@@ -142,6 +147,7 @@ FALHA=0
 [ -n "$GENTER" ] || { echo "  FALHA: a tela de game over nunca abriu"; FALHA=1; }
 [ "$GSTATE" -ge 30 ] || { echo "  FALHA: ui_state 10 durou menos de 30 quadros"; FALHA=1; }
 [ "${GDRAW:-0}" -gt 0 ] || { echo "  FALHA: a tela de game over nao desenhou nada"; FALHA=1; }
+[ "${GTXT:-1}" -eq 0 ] || { echo "  FALHA: a tela de game over desenhou texto -- o original nao tem nenhum"; FALHA=1; }
 [ -n "$GOUT" ]   || { echo "  FALHA: o CROSS nao reiniciou a musica"; FALHA=1; }
 [ "$AUDIOS" -ge 2 ] || { echo "  FALHA: a musica nao voltou a tocar depois do reinicio"; FALHA=1; }
 [ "$CINCOS" -ge 2 ] || { echo "  FALHA: a contagem regressiva nao recomecou"; FALHA=1; }

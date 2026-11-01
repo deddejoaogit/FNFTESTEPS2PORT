@@ -43,9 +43,26 @@ def alinhar(v, a):
 
 
 def cp_tex_bytes(w, h, psm):
-    """Identico a `cp_tex_bytes` (engine/char_pack.c) e a `sp_prop_bytes`."""
+    """Identico a `cp_tex_bytes` (engine/char_pack.c): canvas de PERSONAGEM.
+
+    O personagem e' UMA textura, e a largura do texture buffer do GS e' o passo
+    arredondado para 64 px. O PROP de palco NAO usa esta conta -- ele e' medido
+    por `prop_vram_bytes`, que e' o que `sp_prop_bytes` aloca de fato.
+    """
     passo = (w + 63) & ~63
     return alinhar(passo * h * (2 if psm == 16 else 4), 256)
+
+
+def prop_vram_bytes(sw, sh):
+    """Identico a `sp_prop_bytes` (engine/stage_pool.c).
+
+    `src/engine/stage_vram_data.h` -- gerado por tools/gen_stage_vram.py do
+    MESMO stage-props.json -- guarda `sw*sh*2` arredondado para 256 B, e e' esse
+    o numero que o pool reserva. Antes esta ferramenta cobrava o passo de 64 px
+    do GS (mais 33 a 173 KB por palco) e reprovava tres musicas que o runtime
+    roda; um orcamento que nao e' o do jogo nao decide nada.
+    """
+    return alinhar(int(sw) * int(sh) * 2, 256)
 
 
 def fb_words():
@@ -123,7 +140,7 @@ def main():
                   % (sid, stage))
             falhas += 1
             continue
-        palco = sum(cp_tex_bytes(pr["sw"], pr["sh"], 16) for pr in p["props"])
+        palco = sum(prop_vram_bytes(pr["sw"], pr["sh"]) for pr in p["props"])
         # Os personagens sao fixos durante a musica (o BF troca de textura em
         # tempo real pelo pacote, mas o pior caso de VRAM e' o canvas inteiro).
         pessoas = 0

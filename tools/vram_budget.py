@@ -193,6 +193,126 @@ def ram_scale_limit(native, frames, budget):
     return lo
 
 
+# ---------------------------------------------------------------------------
+# A CONTA EXATA, que e' a do RUNTIME
+#
+# O pool aloca `sp_prop_bytes(prop)` = `sw*sh*2` arredondado para 256 B (o
+# alinhamento do TBP0), e o MESMO numero esta' em
+# src/engine/stage_vram_data.h, que tools/gen_stage_vram.py gera deste plano.
+# O orcamento usava `cp_tex_bytes`, que TAMBEM arredonda a LARGURA para 64 (o
+# TBW do GS) -- e cobrava de 33 a 173 KB a mais por palco do que o jogo aloca.
+# Um orcamento que nao e' o do jogo nao decide nada: era isso que fazia
+# `tools/orcamento_vram.py` reprovar tres musicas que o runtime roda.
+# ---------------------------------------------------------------------------
+VC_ALINHAMENTO = 256
+
+
+def _alinhar(v, a):
+    return (v + (a - 1)) & ~(a - 1)
+
+
+def prop_vram_bytes(sw, sh):
+    """Bytes que o pool reserva para UM quadro de um prop (sp_prop_bytes)."""
+    return _alinhar(int(sw) * int(sh) * 2, VC_ALINHAMENTO)
+
+
+def fixos_bytes():
+    """O que fica FORA do pool (orcamento_vram.py e src/main.c, iguais)."""
+    # fb_words() do orcamento_vram.py conta PALAVRAS de um framebuffer (o GS
+    # endereca em 32 bits); os dois framebuffers PSMCT16 de 640x448 sao 2 x
+    # 143.360 palavras x 4 = 1.146.880 B.
+    fb = 2 * _alinhar(FB_W * (FB_H // 2), 2048) * 4
+    tex2 = _alinhar(HUD_W * HUD_H, 64) * 4             # notas + HUD, PSMCT32
+    fonte = _alinhar(FONT_W * FONT_H, 64) * 4
+    gf = _alinhar(320 * (64 // 2), 64) * 4             # GF do tutorial, PSMCT16
+    return fb + tex2 + fonte + gf
+
+
+# Dois icones de vida por musica, medidos nos pacotes reais (build/packs/icons).
+ICONES_BYTES_PADRAO = 49152
+
+
+def _chp4_bytes(caminho):
+    import struct
+    with open(caminho, "rb") as f:
+        cab = f.read(36)
+    if len(cab) < 36 or cab[:4] != b"CHP4":
+        return 0
+    _v, _nq, _bpq, w, h, _na, psm, _r = struct.unpack("<8I", cab[4:36])
+    passo = (w + 63) & ~63
+    return _alinhar(passo * h * (2 if psm == 16 else 4), VC_ALINHAMENTO)
+
+
+def reserva_por_palco(packs_dir=None, songs_dir=None):
+    """{palco: (bytes_dos_3_personagens, bytes_dos_2_icones)} no PIOR caso.
+
+    O limite do palco tem de ser o da musica MAIS PESADA que usa aquele palco:
+    reservar o pior caso global encolheria palcos que nao precisavam. Sem os
+    pacotes de personagem o dicionario volta vazio e o chamador usa
+    `char_frame_bytes` (o comportamento antigo, mais generoso).
+    """
+    P = PROJECT
+    packs_dir = packs_dir or os.path.join(P, "build", "packs")
+    songs_dir = songs_dir or os.path.join(P, "assets-data", "songs")
+    chars_dir = os.path.join(packs_dir, "chars")
+    icons_dir = os.path.join(packs_dir, "icons")
+    if not os.path.isdir(chars_dir) or not os.path.isdir(songs_dir):
+        return {}
+
+    def icone_bytes(cid):
+        base = os.path.join(P, "assets-data", "characters", (cid or "face") + ".json")
+        iid = "face"
+        if os.path.isfile(base):
+            try:
+                hi = json.load(open(base, encoding="utf-8-sig")).get("healthIcon")
+                if isinstance(hi, dict) and hi.get("id"):
+                    iid = hi["id"]
+            except (ValueError, OSError):
+                pass
+        caminho = os.path.join(icons_dir, iid + ".icp")
+        if not os.path.isfile(caminho):
+            return 0
+        import struct
+        with open(caminho, "rb") as f:
+            cab = f.read(32)
+        w, h, _q, _psm, passo = struct.unpack("<5H", cab[6:16])
+        return _alinhar(passo * h * 2, VC_ALINHAMENTO)
+
+    por_palco = {}
+    for nome in sorted(os.listdir(songs_dir)):
+        if not nome.endswith("-metadata.json"):
+            continue
+        try:
+            d = json.load(open(os.path.join(songs_dir, nome), encoding="utf-8-sig"))
+        except (ValueError, OSError):
+            continue
+        pd = d.get("playData") or {}
+        chars = pd.get("characters") or {}
+        palco = pd.get("stage")
+        if not palco:
+            continue
+        pessoas = 0
+        for papel in ("player", "girlfriend", "opponent"):
+            cid = chars.get(papel)
+            if not cid:
+                continue
+            pessoas += _chp4_bytes(os.path.join(chars_dir, cid + ".chp4"))
+        icones = sum(icone_bytes(chars.get(papel)) for papel in ("player", "opponent"))
+        atual = por_palco.get(palco, (0, ICONES_BYTES_PADRAO))
+        por_palco[palco] = (max(atual[0], pessoas), max(atual[1], icones))
+    return por_palco
+
+
+def stage_limit_exato(palco=None, reservas=None, fixos=None,
+                      icones=ICONES_BYTES_PADRAO):
+    """Quanto o palco pode pedir de VRAM para a musica MAIS PESADA dele."""
+    fixos = fixos_bytes() if fixos is None else fixos
+    pessoas, ic = (0, icones)
+    if palco and reservas and palco in reservas:
+        pessoas, ic = reservas[palco]
+    return VRAM_TOTAL - fixos - pessoas - ic
+
+
 def char_frame_bytes(bpp):
     """Sum of one frame for each character slot, at native size."""
     # bf, gf and dad are the three the port always loads; measured native
