@@ -103,17 +103,38 @@ int main(void)
         CHECK_EQ(pool.cache.faltas, 1u);
     }
 
-    printf("== pool: palco que nao cabe falha limpo, sem endereco invalido ==\n");
+    printf("== pool: palco maior que o pool entra por despejo, e prop grande falha limpo ==\n");
     {
-        unsigned int addr = 0xDEADBEEFu;
-        /* Pool de 1 MB: o tankmanBattlefield (1.700.352 B) nao cabe inteiro. */
-        sp_init(&pool, 452608u, 1024u * 1024u);
-        for (k = 0; k < bs_stage_props[BS_STAGE_PROPS_COUNT - 1].count; k++) {
-            const bs_stage_props_t *st = &bs_stage_props[BS_STAGE_PROPS_COUNT - 1];
-            if (sp_prop(&pool, st->first + k, &addr) < 0) { addr = 0; break; }
+        unsigned int addr = 0xDEADBEEFu, maior = 0;
+        int i, si_maior = 0;
+        /* O palco MAIOR e' medido, nao suposto "o ultimo da tabela". Quando o
+           reempacotamento por musica encolheu o tankmanBattlefield (1.700.352 ->
+           1.486.592 B), o ultimo da tabela deixou de ser o maior e este teste
+           passou a medir outro palco -- acusando falha por motivo errado. */
+        for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
+            unsigned int soma = 0;
+            for (k = 0; k < bs_stage_props[i].count; k++)
+                soma += sp_prop_bytes(bs_stage_props[i].first + k);
+            if (soma > maior) { maior = soma; si_maior = i; }
         }
-        CHECK_EQ(addr, 0u);
-        CHECK(pool.falhas >= 1u);
+        /* Pool de 1 MB e o maior palco pedindo MAIS que isso.
+           O que tem de acontecer NAO e' falha: e' DESPEJO. O `sp_prop` documenta
+           "-1 se nao cabe nem despejando tudo", e o cache e' LRU -- um palco
+           maior que o pool carrega inteiro, so' que reenviando o que foi
+           despejado (o custo que a telemetria mede como replays de textura).
+           Exigir `addr == 0` era exigir o contrario do que o modulo faz: o teste
+           so' passava enquanto o ULTIMO palco da tabela fosse o maior e o
+           caminho de despejo nao fosse exercitado. */
+        CHECK(maior > 1024u * 1024u);
+        sp_init(&pool, 452608u, 1024u * 1024u);
+        for (k = 0; k < bs_stage_props[si_maior].count; k++) {
+            const bs_stage_props_t *st = &bs_stage_props[si_maior];
+            addr = 0xDEADBEEFu;
+            if (sp_prop(&pool, st->first + k, &addr) < 0) break;
+        }
+        CHECK(k == bs_stage_props[si_maior].count);   /* todos couberam */
+        CHECK_EQ(pool.falhas, 0u);                    /* sem falha: houve despejo */
+        CHECK(pool.cache.despejos >= 1u);             /* e o despejo rodou */
         /* E um prop maior que o pool inteiro reprova na hora. */
         sp_init(&pool, 0, 1024u);
         CHECK_EQ(sp_prop(&pool, 0, NULL), -1);
