@@ -111,6 +111,23 @@ GSAUS=$(awk -F, '$3=="gameover_sfx_ausente" {n++} END{print n+0}' "$LOG")
 GOLDSEM=$(awk -F, '$3=="gameover_sem_audio" {n++} END{print n+0}' "$LOG")
 GENTER=$(awk -F, '$1=="E" && $3=="gameover_enter" {print $4; exit}' "$LOG")
 GDRAW=$(awk -F, '$1=="E" && $3=="gameover_draw" {print $4; exit}' "$LOG")
+# O QUE O `gameover_bf` PUBLICA. Campo 4 = bits das quatro condicoes (1 = cena
+# generica, 2 = papel ativo, 4 = textura com largura, 8 = slot `bf` do palco
+# achado); campo 5 = largura do canvas do pacote que o game over esta'
+# desenhando.
+#
+# A largura NAO e' um numero fixo: e' a do pacote CHP4 que a musica carregou.
+# No harness os pacotes sao SINTETICOS (64x64 -- a arte nao esta' no
+# repositorio), entao 64 aqui e' o esperado; com os pacotes de verdade o BF do
+# mainStage tem 365x278 (`build/packs/chars/bf.chp4`). O que o teste cobra,
+# entao, nao e' o numero: e' que a tela de game over desenhe o MESMO pacote que
+# a musica usou -- o jogo publica a largura nos dois momentos
+# (`char_bf_primeiro` no gameplay, `gameover_bf` na tela), e as duas tem de
+# bater. Antes disso, "o BF apareceu pequeno" nao tinha como ser distinguido de
+# "o BF esta' sendo desenhado de outro pacote".
+GBITS=$(awk -F, '$1=="E" && $3=="gameover_bf" {print $4; exit}' "$LOG")
+GBW=$(awk -F, '$1=="E" && $3=="gameover_bf" {print $5; exit}' "$LOG")
+BFPACK=$(awk -F, '$1=="E" && $3=="char_bf_primeiro" {print $5; exit}' "$LOG")
 # `GameOverSubState.create()` nao poe TEXTO nenhum na tela de game over (so' o
 # retangulo preto, o BF morto e o ponto de camera). O campo 5 do evento conta os
 # quads de texto desenhados ali, e tem de ser zero: o port ja' desenhou
@@ -127,6 +144,7 @@ echo "  quadro da morte ............. ${DEATH:-?}"
 echo "  tela de game over desde ..... ${GENTER:-?}"
 echo "  quadros em ui_state 10 ...... $GSTATE"
 echo "  quads desenhados na tela 10 . ${GDRAW:-?} (texto: ${GTXT:-?})"
+echo "  BF do game over ............. bits $GBITS, canvas ${GBW:-?} px (musica: ${BFPACK:-?})"
 echo "  misses na morte ............. ${MISSES:-?}"
 echo "  firstDeath (personagem) ..... ${PRIMEIRA:-?}"
 echo "  deathLoop no quadro ......... ${LOOP:-?}"
@@ -149,6 +167,12 @@ FALHA=0
 [ "${GDRAW:-0}" -gt 0 ] || { echo "  FALHA: a tela de game over nao desenhou nada"; FALHA=1; }
 [ "${GTXT:-1}" -eq 0 ] || { echo "  FALHA: a tela de game over desenhou texto -- o original nao tem nenhum"; FALHA=1; }
 [ -n "$GOUT" ]   || { echo "  FALHA: o CROSS nao reiniciou a musica"; FALHA=1; }
+# O BF MORTO: as quatro condicoes ligadas e o MESMO canvas da musica.
+[ "${GBITS:-0}" -eq 15 ] || { echo "  FALHA: o BF morto nao chegou ao desenho (gameover_bf bits=$GBITS, esperado 15)"; FALHA=1; }
+[ -n "${GBW:-}" ] && [ -n "${BFPACK:-}" ] || { echo "  FALHA: o jogo nao publicou a largura do canvas do BF"; FALHA=1; }
+[ "${GBW:-0}" -gt 0 ] || { echo "  FALHA: o canvas do BF no game over tem largura zero"; FALHA=1; }
+if [ -n "${GBW:-}" ] && [ -n "${BFPACK:-}" ] && [ "$GBW" != "$BFPACK" ]; then
+    echo "  FALHA: o game over desenha um pacote de $GBW px, mas a musica carregou $BFPACK px"; FALHA=1; fi
 [ "$AUDIOS" -ge 2 ] || { echo "  FALHA: a musica nao voltou a tocar depois do reinicio"; FALHA=1; }
 [ "$CINCOS" -ge 2 ] || { echo "  FALHA: a contagem regressiva nao recomecou"; FALHA=1; }
 # Uma morte sem nota perdida nao faz sentido: a vida so' cai por miss/ghost.

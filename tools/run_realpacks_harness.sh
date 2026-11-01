@@ -83,10 +83,17 @@ SONGS=$(awk '/^static const sr_song_t s_/ { getline; if (match($0, /"[^"]*"/)) p
 [ -n "$SONGS" ] || { echo "FALHA: nao consegui ler a lista de musicas do registro"; exit 1; }
 
 echo "== pacotes reais: $(ls build/packs/chars/*.chp4 | wc -l) personagens, $(ls build/packs/stages | wc -l) palcos, $FRAMES quadros por combinacao =="
-printf '%-18s %-4s %-10s %-6s %-6s %s\n' MUSICA DIF "POOL LIVRE" PROPS SEM_VRAM PERSONAGENS
+printf '%-18s %-4s %-10s %-7s %-6s %-6s %s\n' MUSICA DIF "POOL LIVRE" "RAM PALCO" PROPS SEM_VRAM PERSONAGENS
 
 FALHAS=0
 NS=0
+# A MAIOR RAM DE PALCO VISTA NAS 81 COMBINACOES. O teto e' PALCO_RAM_MAX
+# (4 MB de tabela de props no main.c), mas o numero que importa e' o medido: a
+# conta do leitor por quadro custa tabela + UM bloco comprimido, nao o pacote
+# inteiro -- era isso que deixava o `spookyMansion` com 16 MB no papel
+# (tools/check_stage_budget.py, coluna "pacote inteiro") e 462 KB de verdade.
+RAMMAX=0
+RAMQUEM=""
 for s in $SONGS; do
     for d in 0 1 2; do
         rm -f "$LOG"
@@ -103,9 +110,20 @@ for s in $SONGS; do
         PROPS=$(awk -F, '$1=="E" && $3=="palco_pool" {print $5; exit}' "$LOG")
         SEM=$(awk -F, '$3=="palco_sem_vram" {n++} END{print n+0}' "$LOG")
         PERS=$(awk -F, '$3=="char_carregado" {n++} END{print n+0}' "$LOG")
-        printf '%-18s %-4s %-10s %-6s %-6s %s\n' "$s" "$d" "${LIVRE:-?}" "${PROPS:-?}" "$SEM" "$PERS"
+        # ULTIMO `palco_ram` da rodada: o valor ACUMULADO com todos os props do
+        # palco abertos (o evento sai a cada pacote aberto).
+        RAM=$(awk -F, '$1=="E" && $3=="palco_ram" {v=$4} END{print v+0}' "$LOG")
+        RMAX=$(awk -F, '$1=="E" && $3=="palco_ram" {v=$5} END{print v+0}' "$LOG")
+        printf '%-18s %-4s %-10s %-7s %-6s %-6s %s\n' "$s" "$d" "${LIVRE:-?}" "$RAM" "${PROPS:-?}" "$SEM" "$PERS"
         [ "$SEM" = "0" ] || { echo "  FALHA: $s/$d estourou o pool de VRAM"; FALHAS=$((FALHAS + 1)); }
         [ "${PERS:-0}" -ge 2 ] || { echo "  FALHA: $s/$d carregou menos de 2 personagens"; FALHAS=$((FALHAS + 1)); }
+        # A RAM do palco tem de ser MEDIDA e nao pode chegar ao teto: o teto
+        # existe para o jogo recusar um prop em vez de estourar a RAM do EE, mas
+        # um palco que chega perto dele esta' a um prop de perder cena.
+        [ "${RAM:-0}" -gt 0 ] || { echo "  FALHA: $s/$d nao publicou a RAM do palco (palco_ram)"; FALHAS=$((FALHAS + 1)); }
+        if [ -n "${RMAX:-}" ] && [ "${RMAX:-0}" -gt 0 ] && [ "${RAM:-0}" -gt "$RMAX" ]; then
+            echo "  FALHA: $s/$d cobrou $RAM B de RAM no palco, acima do teto $RMAX"; FALHAS=$((FALHAS + 1)); fi
+        if [ "${RAM:-0}" -gt "$RAMMAX" ]; then RAMMAX=${RAM:-0}; RAMQUEM="$s/$d"; fi
         # O evento de animacao sai quando o personagem troca de quadro; ele e' a
         # prova de que o pacote REAL decodificou pixel, e nao so' abriu.
         ANIM=$(awk -F, '$3 ~ /^char_(bf|gf|dad)_animando$/ {n++} END{print n+0}' "$LOG")
@@ -120,5 +138,7 @@ if [ "$FALHAS" != 0 ]; then
     exit 1
 fi
 
+echo
+echo "  maior RAM de palco ......... $RAMMAX B ($RAMQUEM) -- teto PALCO_RAM_MAX"
 echo
 echo "PACOTES REAIS: PASSOU ($NS combinacoes com os 46 personagens e os 21 palcos de verdade)"

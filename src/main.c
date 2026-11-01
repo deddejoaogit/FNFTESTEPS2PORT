@@ -636,6 +636,10 @@ static unsigned char *g_audio_pcm;
    120 quadros = 2 s a 60 fps: tempo de sobra para o pendrive entregar um bloco
    de 8 KB (a 1,5 MB/s isso leva 5 ms). Antes, UM bloco curto ja' parava tudo. */
 #define TUT_AUDIO_FAIL_LIMIT 120
+/* Passo (em pixels) entre as celulas de nota no atlas do HUD: colunas lane*56
+   e duas linhas (y=0 notas, y=56 receptores). E' o MESMO numero do
+   `sprite_region_alpha` abaixo; antes ele aparecia digitado quatro vezes e
+   esta macro existia sem uso. */
 #define TUTORIAL_NOTE_SOURCE_TILE 56.0f
 static const float g_note_w[4]={54.0f,55.0f,55.0f,54.0f};
 static const float g_note_h[4]={55.0f,54.0f,54.0f,55.0f};
@@ -1247,6 +1251,13 @@ static int palco_pack_abrir(const char *path, int r)
     g_palco.count[r] = pk->count;
     g_palco.frame_bytes[r] = pk->frame_bytes;
     telemetry_event("palco_aberto", r, (int)(pk->bytes ? pk->ram * 100u / pk->bytes : 0u));
+    /* A RAM QUE O PALCO REALMENTE COBRA. `pk->ram` e' a conta do leitor por
+       quadro (engine/pack_stream.c: tabela de offsets + UM bloco comprimido),
+       nao o pacote inteiro. O evento existia como razao (percentual do
+       arquivo) e nao como numero absoluto; sem ele, "quanto o palco ocupa da
+       RAM" so' tinha resposta na planilha. Agora tem resposta MEDIDA, e o
+       teto (PALCO_RAM_MAX) vem junto para o harness comparar. */
+    telemetry_event("palco_ram", (int)g_palco.ram_bytes, (int)PALCO_RAM_MAX);
     return 0;
 }
 
@@ -2520,15 +2531,33 @@ static qword_t *tutorial_notes_draw(qword_t*q,texbuffer_t*atlas,texbuffer_t*font
  for(lane=0;lane<4;lane++){
   float rw=hz_s(g_note_w[lane]),rh=hz_s(g_note_h[lane]),ry=hz_y(g_receptor_y[lane]);
   float x=hz_x(g_receptor_x[lane]);
-  q=sprite_region_alpha(q,x,ry,rw,rh,lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);
-  q=sprite_region_alpha(q,hz_x(g_receptor_x[lane]+320.0f),ry,rw,rh,lane*56.0f,56.0f,g_note_w[lane],g_note_h[lane],128);}
+  /* `uw`/`vh` sao o tamanho do PEDACO DA TEXTURA, nao o tamanho na tela: por
+     isso NAO levam hz_s() (o zoom do camHUD muda quanto a nota ocupa na tela,
+     nao quantos pixels do atlas ela amostra). O tamanho desenhado -- `rw`/`rh`
+     acima -- e' que passa por hz_s().
+
+     E' a metade desenhada da arte do original: `notes.png` tem quadros de
+     157x154 (down/up) e 154x157 (left/right) e o note style os desenha em
+     `scale` 0,7 (preload/data/notestyles/funkin.json) -> 109,9x107,8 unidades
+     de 1280x720 -> 55x54 em 640x360. g_note_w/g_note_h guardam exatamente
+     isso, e a celula do atlas tem TUTORIAL_NOTE_SOURCE_TILE px.
+
+     PENDENCIA REGISTRADA, NAO ADIVINHADA: amostrar (u,v)+(54,55) de uma celula
+     de 56 px corta ~2 px da borda direita/embaixo; amostrar a celula inteira
+     (56x56) preservaria a arte toda, mas mostraria a borda do vizinho SE o
+     atlas empacotar as celulas sem folga. Quem decide e' o atlas
+     `tutorial_hud_official_320x256_gsalpha.rgba`, que NAO esta' neste
+     repositorio (veio pronto do Drive) -- entao o comportamento fica como
+     esta' ate' haver o arquivo para medir. */
+  q=sprite_region_alpha(q,x,ry,rw,rh,lane*TUTORIAL_NOTE_SOURCE_TILE,TUTORIAL_NOTE_SOURCE_TILE,g_note_w[lane],g_note_h[lane],128);
+  q=sprite_region_alpha(q,hz_x(g_receptor_x[lane]+320.0f),ry,rw,rh,lane*TUTORIAL_NOTE_SOURCE_TILE,TUTORIAL_NOTE_SOURCE_TILE,g_note_w[lane],g_note_h[lane],128);}
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){chart_note_t note;s32 delta,tail_delta;float x,y,tail_y;int state;if(chart_note(i,&note)<0||note.lane>3)continue;state=g_tutorial_note_state[i];delta=(s32)note.sample-(s32)sample;tail_delta=(s32)(note.sample+note.duration)-(s32)sample;x=g_note_x[note.lane]+(note.must_press?320.0f:0.0f);if(note.duration&&(!note.must_press||state!=2)&&tail_delta>0&&delta<(s32)TUTORIAL_NOTE_AHEAD){y=tutorial_note_y(delta);tail_y=tutorial_note_y(tail_delta);if(tail_y>y){float top=y+g_note_h[note.lane]*.28f;if(top<26.3f)top=26.3f;if(tail_y>360.0f)tail_y=360.0f;if(tail_y>top)q=rect_alpha(q,hz_x(x+g_note_w[note.lane]*.39f),hz_y(top),hz_x(x+g_note_w[note.lane]*.61f),hz_y(tail_y),224,224,240,150);}}/* As notas do oponente nunca eram retiradas: so o teste de must_press
    marcava estado, entao elas desciam alem do receptor e iam parar
    perto dos pes do BF. No oficial elas somem quando chegam. O canto
    da GF ja marca estado 3 exatamente nesse instante, entao basta
    usar o mesmo marcador para retira-las. */
 if((note.must_press&&state!=0)||(!note.must_press&&state==3)||delta<-(s32)TUTORIAL_NOTE_LATE||delta>(s32)TUTORIAL_NOTE_AHEAD)continue;
-y=tutorial_note_y(delta);q=sprite_region(q,hz_x(x),hz_y(y),hz_s(g_note_w[note.lane]),hz_s(g_note_h[note.lane]),note.lane*56.0f,0.0f,g_note_w[note.lane],g_note_h[note.lane]);visible++;}if((int)visible!=g_tutorial_note_visible){g_tutorial_note_visible=(int)visible;telemetry_event("tutorial_notes_visible",(int)visible,(int)sample);}(void)font;(void)frame;(void)held;return q;}
+y=tutorial_note_y(delta);q=sprite_region(q,hz_x(x),hz_y(y),hz_s(g_note_w[note.lane]),hz_s(g_note_h[note.lane]),note.lane*TUTORIAL_NOTE_SOURCE_TILE,0.0f,g_note_w[note.lane],g_note_h[note.lane]);visible++;}if((int)visible!=g_tutorial_note_visible){g_tutorial_note_visible=(int)visible;telemetry_event("tutorial_notes_visible",(int)visible,(int)sample);}(void)font;(void)frame;(void)held;return q;}
 
 /* NOTE SPLASH no quadro. No original o grupo `noteSplashes` tem zIndex 50 e as
    notas tem 30 (Strumline.hx L225-238), entao o brilho desenha POR CIMA das

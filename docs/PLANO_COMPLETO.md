@@ -3056,9 +3056,50 @@ O arquivo `splash.rgba` é copiado para dentro de `g_hud_pixels` antes do upload
 único do HUD, exatamente como a barra de vida. Provado no harness: 29 SICKs →
 29 splashes, pico de 1 na tela, `splash_arte=1` (`tools/run_gameplay_harness.sh`).
 
+Uma terceira linha **saiu** por correção de fato: *"ícone da pausa"*. O
+`PauseSubState.hx` de v0.8.6 **não usa imagem nenhuma**: `buildBackground()`
+(L404-420) monta só um retângulo preto com alpha 0 animado até **0,6** em 0,8 s
+(`FlxEase.quartOut`, L612) e `clearAndAddMenuEntries()` (L923-950) desenha as
+entradas como `AtlasText` `BOLD` em `y = 70*i + 30`, `x = 0`, com as letras
+dobradas de tamanho. `pauseAlt/` existe no clone (`bfLol.png`, `pauseBG.png`,
+`pauseUI.png`) e **não é referenciado por nenhum fonte da v0.8.6** — é arte de
+outra tela/versão. O port já desenha exatamente esse fundo e essas posições
+(`src/main.c`, bloco "SOBREPOSIÇÃO DA PAUSA"), então o que faltava não era arte:
+era a arte não existir nessa tela.
+
+A mesma verificação vale para as *cápsulas da Freeplay*: `shared/images/` do
+clone esparso tem 27 entradas e **nenhuma** pasta `freeplay`. Não é "arte que o
+empacotador não pegou": o clone precisa de `git sparse-checkout add`.
+
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
+| Arte da tela de RESULTADO | `ResultState.hx` (v0.8.6) monta a tela com 9 folhas animadas; o port desenha os mesmos NÚMEROS num painel preto | ver a tabela medida abaixo |
+| Cápsulas da Freeplay | a pasta `freeplay` não está no clone esparso (não é arte ausente do jogo) | `git sparse-checkout add shared/images/freeplay` + empacotador |
+
+#### A tela de Resultado: o que falta, medido
+
+`ResultState.hx` L119-160 e L359-386. Tudo é desenhado em 1280x720; o port
+desenha em 640x360, então a arte entra pela metade. O pool fica com
+**1.269.760 B livres** nessa tela (o palco é solto em `palco_soltar()` ao entrar
+em `ui_state 9`; medido no log do harness: `pool_cena,9,1261568`), então o
+orçamento aqui é de ~1,2 MB — folgado em comparação com a música.
+
+| peça | fonte | quadros | tamanho original | a 0,5 | VRAM de 1 quadro |
+|---|---|---|---|---|---|
+| `results` (banner animado) | `resultScreen/results.png+xml` | 36 | 1130x149 | 565x75 | 169.500 B |
+| `ratingsPopin` | `resultScreen/ratingsPopin` | 16 | 449x419 | 225x210 | 189.000 B |
+| `scorePopin` | `resultScreen/scorePopin` | 30 | 712x145 | 356x73 | 103.952 B |
+| `soundSystem` | `resultScreen/soundSystem` | — | 3432x3069 | — | (só 1 quadro por vez) |
+| `topBarBlack` + `difficulty` | `topBarBlack.png`, `diff_*.png` | 1 | 1294x148 | 647x74 | 191.512 B |
+| `rankText*` / `clearPercent*` | `resultScreen/rankText`, `clearPercent` | 1 por arquivo | vários | ~1/2 | ~50 KB cada |
+| `results-bf` / `results-pico` | `resultScreen/results-bf`, `results-pico` | por rank | — | — | ~150 KB |
+
+Nada disso precisa ficar residente ao mesmo tempo: a tela é uma SEQUÊNCIA
+(`FlxTimer` de 8/24 s para o `soundSystem`, `rankBg`, `resultsAnim` aos 0,05 s,
+`ratingsPopin`/`scorePopin` encadeados por `onFinish`), então o caminho é o
+mesmo dos personagens — quadros LZ4 na RAM, um quadro por vez na VRAM, com
+`pack_stream` — e não um atlas fixo. Isso é trabalho de uma build própria; o
+que a build atual entrega é o número de cada peça e o fato de o espaço existir.
 
 E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
 reais rodam nas 81 combinações; a barra de vida desenha a **moldura do
