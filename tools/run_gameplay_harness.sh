@@ -170,6 +170,11 @@ RESTICKS=$(awk -F, '$1=="E" && $3=="resultado_ticks" {print $4; exit}' "$LOG")
 RESAUDIO=$(awk -F, '$1=="E" && $3=="resultado_audio" {print $4; exit}' "$LOG")
 RESBARRA=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $4; exit}' "$LOG")
 RESBARRA1=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $5; exit}' "$LOG")
+# O FLASH DA TELA (`bgFlash`): acende duas vezes -- em 37/24 s = 1542 ms (junto
+# com a contagem do percentual, 5/24 s de queda) e de novo no `getFlashDelay()`
+# do rank (14/24 s de queda). `campo` 0 = o da contagem, 1 = o do rank.
+RESFLASHT=$(awk -F, '$1=="E" && $3=="resultado_flash" && $4==0 {print $5; exit}' "$LOG")
+RESFLASHR=$(awk -F, '$1=="E" && $3=="resultado_flash" && $4==1 {print $5; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
 # assenta. `campo` 0 = total acertado, 1 = maior combo, 2..5 = sick/good/bad/
 # shit, 6 = erradas.
@@ -218,6 +223,7 @@ echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESP
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
 echo "  percentual no topo .......... na tela=${RESCLEARSMALL:-?}% em x=${RESCLEARSMALLX:-?}.X (esperado 81% e 4215)"
+echo "  flash da tela ............... contagem=${RESFLASHT:-?} ms / rank=${RESFLASHR:-?} ms (esperado 1542 e o mesmo ms da arte do rank)"
 echo "  barra do topo ............... borda ${RESBARRA:-?}.X / ${RESBARRA1:-?}.X (esperado 742 / 317) imagem da dificuldade=${RESDIFARTE:-?} (${RESDIFB:-?} B)"
 echo "  nome da musica .............. arte=${RESNOMEARTE:-?} (${RESNOMEB:-?} B) entrada=${RESNOME:-?}.X / ${RESNOMEY:-?}.X"
 echo "  musica do resultado ......... atraso=${RESMUSATRASO:-?} ms, estado final=${RESMUSEST:-?} (1 = so' intro, 2 = loop direto, 3 = loop depois do intro)"
@@ -299,6 +305,13 @@ done
 #     EXCELLENT, 109 no GREAT, 107 no GOOD e 186 no SHIT (Scoring.hx L568-586).
 [ "${RESRANKARTE:-0}" -eq 1 ] || { echo "  FALHA: a arte do rank nao carregou"; FALHA=1; }
 [ "${RESRANKVISTO:-0}" -gt 20000 ] || { echo "  FALHA: a arte do rank carregou vazia (${RESRANKVISTO:-0} B)"; FALHA=1; }
+# O `bgFlash` do inicio da contagem: `startRankTallySequence()` em 37/24 s.
+if [ -z "${RESFLASHT:-}" ]; then
+    echo "  FALHA: o flash da tela nunca acendeu na contagem do percentual"; FALHA=1
+else
+    [ "$RESFLASHT" -ge 1542 ] && [ "$RESFLASHT" -le 1582 ] || {
+        echo "  FALHA: o flash da contagem acendeu em $RESFLASHT ms (o timer e' 37/24 s = 1542 ms)"; FALHA=1; }
+fi
 if [ -z "${RESRANKIDX:-}" ]; then
     echo "  FALHA: o rank nunca chegou a ser desenhado na tela de resultado"; FALHA=1
 else
@@ -314,6 +327,12 @@ else
     esac
     D=$((RESRANKMS - ESP_RANK_MS)); [ "$D" -lt 0 ] && D=$((-D))
     echo "  rank na tela ................ $RESRANKIDX aos ${RESRANKMS} ms (getFlashDelay = $ESP_RANK_MS ms)"
+    # `displayRankText()` acende o flash no MESMO quadro em que o rank entra.
+    [ -z "${RESFLASHR:-}" ] && { echo "  FALHA: o flash do rank nunca acendeu"; FALHA=1; }
+    if [ -n "${RESFLASHR:-}" ]; then
+        DF=$((RESFLASHR - RESRANKMS)); [ "$DF" -lt 0 ] && DF=$((-DF))
+        [ "$DF" -le 20 ] || { echo "  FALHA: o flash do rank acendeu em $RESFLASHR ms e a arte do rank entrou em $RESRANKMS ms"; FALHA=1; }
+    fi
     [ "$D" -le 40 ] || { echo "  FALHA: o rank entrou em ${RESRANKMS} ms, e o getFlashDelay do rank $ESP_RANK diz $ESP_RANK_MS"; FALHA=1; }
 fi
 

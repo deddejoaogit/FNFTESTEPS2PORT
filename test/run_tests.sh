@@ -412,7 +412,8 @@ $CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco
 echo
 
 # A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
-# (res_flash_alpha / res_rank_pisca / res_rank_scroll_*), o PLACAR
+# (res_flash_alpha / res_flash_alpha_tally / res_flash_cor / res_rank_pisca /
+# res_rank_scroll_*), o PLACAR
 # (res_score_estado), os contadores, o percentual e a barra do topo
 # (res_barra_y / res_dif_y), com pacotes CFZ4 de verdade montados pelo teste.
 # Sem esta linha o modulo existia sem teste: `test/test_resultado.c` estava no

@@ -189,6 +189,25 @@ int res_cp_alpha(unsigned long ms);
 /* 1 durante o `flash(true)` (o `PureColor` branco do original). */
 int res_cp_flash(unsigned long ms);
 
+/* ---- O FLASH DA TELA (`bgFlash`, ResultState.hx L141, L573-574, L668-670) --
+ *
+ * `FlxGradient.createGradientFlxSprite(1280, 720, [0xFFFFF1A6, 0xFFFFF1BE], 90)`:
+ * o 4. parametro e' o `chunkSize`, entao a tela e' oito FAIXAS horizontais
+ * (720/90) de cor solida, cada uma com a cor de uma linha do gradiente. O
+ * sprite nao tem PNG: `res_flash_cor` da' a cor da faixa e o desenho sao oito
+ * trapezios. Ele acende duas vezes, alpha 1 -> 0 em queda linear:
+ *
+ *   37/24 s (com a contagem do percentual), 5/24 s de queda;
+ *   `getFlashDelay()` do rank, 14/24 s de queda (`res_flash_alpha`).
+ */
+#define RES_FLASH_BANDAS 8      /* 720 px / chunkSize 90 */
+
+/* Cor (0..255) da faixa `banda` (0 = topo). */
+void res_flash_cor(int banda, int *r, int *g, int *b);
+
+/* Alpha (0..255) do flash do inicio da contagem do percentual. */
+int res_flash_alpha_tally(unsigned long ms);
+
 /* ---- O CONTADOR PEQUENO DO TOPO (ClearPercentCounter com `small = true`) --
 
  * `ResultState.create()` L143 cria `clearPercentSmall` em

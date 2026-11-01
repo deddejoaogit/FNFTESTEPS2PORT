@@ -308,6 +308,39 @@ int main(void)
         CHECK_EQ(res_cp_flash(4359ul), 0);
     }
 
+    printf("== resultado: o FLASH DA TELA (bgFlash, FlxGradient) ==\n");
+    {
+        int r, g, b, ant = 0, i;
+        /* `startRankTallySequence()` dispara em 37/24 s = 1542 ms e o tween de
+           `alpha: 0` dura 5/24 s = 209 ms (para cima). */
+        CHECK_EQ(res_flash_alpha_tally(1541ul), 0);
+        CHECK_EQ(res_flash_alpha_tally(1542ul), 255);
+        /* 255 - 255*104/209 = 129 (divisao inteira, como res_flash_alpha). */
+        CHECK_EQ(res_flash_alpha_tally(1542ul + 104ul), 129);
+        CHECK_EQ(res_flash_alpha_tally(1542ul + 209ul), 0);
+        CHECK_EQ(res_flash_alpha_tally(999999ul), 0);
+        /* Oito faixas (720 / chunkSize 90), vermelho 255 e verde 241 fixos: o
+           gradiente de 0xFFFFF1A6 a 0xFFFFF1BE so' anda no AZUL, de 166 a 190. */
+        CHECK_EQ(RES_FLASH_BANDAS, 8);
+        for (i = 0; i < RES_FLASH_BANDAS; i++) {
+            res_flash_cor(i, &r, &g, &b);
+            CHECK_EQ(r, 255);
+            CHECK_EQ(g, 241);
+            CHECK(b >= 166 && b <= 190);
+            if (i) CHECK(b > ant);      /* de cima para baixo, sempre mais claro */
+            ant = b;
+        }
+        res_flash_cor(0, &r, &g, &b);
+        CHECK_EQ(b, 168);               /* 166 + 24*(1/16) */
+        res_flash_cor(RES_FLASH_BANDAS - 1, &r, &g, &b);
+        CHECK_EQ(b, 189);               /* 166 + 24*(15/16) */
+        /* Fora da faixa, satura na primeira/ultima em vez de ler lixo. */
+        res_flash_cor(-1, &r, &g, &b);
+        CHECK_EQ(b, 168);
+        res_flash_cor(99, &r, &g, &b);
+        CHECK_EQ(b, 189);
+    }
+
     printf("== resultado: o NOME DA MUSICA (FlxBitmapText) ==\n");
     {
         const res_nome_arte_t *nm = res_nome_do_id("bopeebo");

@@ -399,6 +399,48 @@ static unsigned long res_cp_tween_ms(void)
     return res_cp_q_ms((unsigned long)g_res_cp_geo.tween_q);
 }
 
+/* ---- O FLASH DA TELA (`bgFlash`) ----------------------------------------
+ *
+ * `ResultState.hx` L141:
+ *
+ *     bgFlash = FlxGradient.createGradientFlxSprite(FlxG.width, FlxG.height,
+ *         [0xFFFFF1A6, 0xFFFFF1BE], 90);
+ *
+ * O quarto argumento e' o `chunkSize` (90 px), NAO o angulo: a rotacao fica no
+ * padrao 90 (de cima para baixo). O `FlxGradient` desenha o `Shape` com
+ * `height / chunkSize` = 720 / 90 = **8** linhas e depois escala a bitmap 90x
+ * (`tempBitmap.scaleY = chunkSize`), ou seja: oito faixas horizontais, cada uma
+ * com a cor de UMA linha do gradiente -- sem interpolacao entre as faixas. A
+ * primeira cor fica no topo (`0xFFFFF1A6` = 255,241,166) e a segunda embaixo
+ * (`0xFFFFF1BE` = 255,241,190); o resto do desvio esta' so' no azul.
+ *
+ * O sprite pisca duas vezes, e nas duas o alpha vai de 1 a 0 em tween LINEAR
+ * (`FlxTween.tween(bgFlash, {alpha: 0}, ...)` sem `ease`):
+ *
+ *   37/24 s   `startRankTallySequence()` (L573-574), 5/24 s de queda;
+ *   getFlashDelay()  `displayRankText()` (L668-670), 14/24 s de queda.
+ *
+ * Nao ha' textura: sao oito trapezios de cor solida, 0 byte de VRAM.
+ */
+void res_flash_cor(int banda, int *r, int *g, int *b)
+{
+    int i = banda < 0 ? 0 : (banda >= RES_FLASH_BANDAS ? RES_FLASH_BANDAS - 1 : banda);
+    /* Centro da linha `i` do shape de 8 linhas: (i + 0,5) / 8. */
+    int azul = 166 + (24 * (2 * i + 1) + 8) / 16;
+    if (r) *r = 255;
+    if (g) *g = 241;
+    if (b) *b = azul;
+}
+
+int res_flash_alpha_tally(unsigned long ms)
+{
+    unsigned long ini = res_cp_inicio_ms(), dur = res_cp_q_ms(5), dt;
+    if (!dur || ms < ini) return 0;
+    dt = ms - ini;
+    if (dt >= dur) return 0;
+    return (int)(255ul - (255ul * dt) / dur);
+}
+
 int res_cp_digitos(int alvo)
 {
     int k = 1;

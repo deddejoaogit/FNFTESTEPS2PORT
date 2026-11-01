@@ -338,6 +338,9 @@ static unsigned int g_res_dif_addr=0;
 static int g_res_dif_ind=-1;             /* indice em g_res_dif (0 = easy) */
 static float g_res_dif_h=0.0f;
 static int g_res_barra_logado=0;
+/* `bgFlash` acende duas vezes; um log por janela (0 = na contagem do
+   percentual, 1 = no getFlashDelay do rank). */
+static int g_res_flash_logado[2]={0,0};
 /* O NOME DA MUSICA: um bitmap por titulo (`FlxBitmapText` pre-renderizado) e o
    estado do loop de `timerThenSongName()` (entrada, espera e recirculacao). */
 static int g_res_nome_ok=0;
@@ -2990,6 +2993,7 @@ static void resultado_soltar(void)
  g_res_cp_logado=0;g_res_cp_final=0;g_res_cp_small_logado=0;
  g_res_dif_ok=0;g_res_dif_addr=0;g_res_dif_ind=-1;g_res_dif_h=0.0f;
  g_res_barra_logado=0;
+ g_res_flash_logado[0]=0;g_res_flash_logado[1]=0;
  g_res_nome_ok=0;g_res_nome_addr=0;g_res_nome_pronto=0;g_res_nome_visto=0;
  g_res_nome_ciclos=0;g_res_nome_moveu=0;
  {int k;for(k=0;k<(int)RES_CP_ATLASES;k++)g_res_cp_addr[k]=0;}
@@ -6200,20 +6204,44 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      q=sprite_region(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0.0f,0.0f,
                      (float)RES_BG_W,(float)RES_BG_H);
     }
+    /* bgFlash (zIndex 20): as DUAS piscadas da tela, sem PNG nenhum. O
+       `FlxGradient` do original e' um `chunkSize` de 90 px sobre 720, isto e',
+       oito FAIXAS horizontais de cor solida (sem interpolacao entre elas), com
+       o azul indo de 166 no topo a 190 embaixo -- as cores saem de
+       `res_flash_cor`. Acende em 37/24 s com 5/24 s de queda (junto com a
+       contagem do percentual) e de novo no `getFlashDelay()` do rank com 14/24
+       s. Fica ACIMA do fundo e abaixo de tudo o mais, como o zIndex 20 pede. */
+    if(g_res_rank_ok){
+     const res_rank_t *rr=res_rank(resultado_rank());
+     unsigned long rms=(unsigned long)g_res_ms;
+     int fa=res_flash_alpha(rr,rms),fta=res_flash_alpha_tally(rms),b;
+     if(fa>0||fta>0){
+      /* Um so' `bgFlash` no original: se as duas janelas se tocassem, valeria
+         a ultima escrita do alpha. Aqui as duas nunca se sobrepoem (1,5 s e
+         4,4 s no pior caso), e o maior alpha cobre o caso geral. */
+      unsigned char al=(unsigned char)(fa>fta?fa:fta);
+      if(fta>0&&!g_res_flash_logado[0]){g_res_flash_logado[0]=1;
+       telemetry_event("resultado_flash",0,(int)rms);}
+      if(fa>0&&!g_res_flash_logado[1]){g_res_flash_logado[1]=1;
+       telemetry_event("resultado_flash",1,(int)rms);}
+      for(b=0;b<RES_FLASH_BANDAS;b++){
+       int cr,cg,cb;
+       res_flash_cor(b,&cr,&cg,&cb);
+       q=rect_alpha(q,0.0f,(float)(b*360/RES_FLASH_BANDAS),
+                    (float)SCREEN_W,(float)((b+1)*360/RES_FLASH_BANDAS),
+                    (unsigned char)cr,(unsigned char)cg,(unsigned char)cb,al);
+      }
+     }
+    }
     /* A ARTE DO RANK (ResultState.displayRankText, L667-700). Entra
        `getFlashDelay()`/24 s depois de a tela abrir (5,375 s no PERFECT, 4,542
-       no GREAT, 7,75 no SHIT -- Scoring.hx L568-586), com um flash branco da
-       tela inteira de 14/24 s e um piscar de 0,25 s. As duas imagens do rank
-       rolam: a vertical para cima (-80 px/s em 1280x720), as 12 horizontais
-       para os lados alternados (+-7 px/s). */
+       no GREAT, 7,75 no SHIT -- Scoring.hx L568-586) e as duas imagens do rank
+       rolam: a vertical (zIndex 990) para cima a -80 px/s em 1280x720 e as 12
+       horizontais (zIndex 100) para os lados alternados, +-7 px/s. */
     if(g_res_rank_ok){
      const res_rank_t *rr=res_rank(resultado_rank());
      unsigned long rms=(unsigned long)g_res_ms;
      if(rr&&rms>=(unsigned long)rr->flash_ms){
-      int fa=res_flash_alpha(rr,rms);
-      /* bgFlash: zIndex 20, ou seja por cima do fundo e por baixo de tudo. */
-      if(fa>0)q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,
-                           255,241,166,(unsigned char)fa);
       /* rankTextBack (zIndex 100): as 12 linhas horizontais. Cada uma e' um
          FlxBackdrop -- a imagem repetida com espaco --, entao desenha-se ate'
          cobrir a largura, com a fase vinda da velocidade. */
@@ -6237,47 +6265,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
         }
        }
       }
-      /* rankTextVert (zIndex 990): a faixa vertical em x=618, rolando para
-         cima, com o piscar de entrada. */
-      if(g_res_rank_vert_addr&&res_rank_pisca(rr,rms)){
-       texbuffer_t vt=stagetex;float oy,y;
-       vt.width=rr->vert.w;vt.psm=GS_PSM_32;vt.address=g_res_rank_vert_addr;
-       setup_texture_dims(&vt,rr->vert.w,rr->vert.h);
-       q=bind_texture_filter(q,&vt,1);
-       oy=res_rank_scroll_y(rr,rms);
-       while(oy>0.0f)oy-=(float)rr->vert.h;
-       while(oy<=-(float)rr->vert.h)oy+=(float)rr->vert.h;
-       for(y=rr->vert_y+oy;y<(float)SCREEN_H;y+=(float)rr->vert.h){
-        if(y+(float)rr->vert.h<=0.0f)continue;
-        q=sprite_region(q,rr->vert_x,y,(float)rr->vert.w,(float)rr->vert.h,
-                        0.0f,0.0f,(float)rr->vert.w,(float)rr->vert.h);
-       }
-      }
-      if(!g_res_rank_logado&&res_rank_pisca(rr,rms)){g_res_rank_logado=1;
-       telemetry_event("resultado_rank",resultado_rank(),(int)rms);}
      }
-    }
-    for(i=0;i<(int)RES_FOLHAS;i++){
-     int qd;texbuffer_t ft=stagetex;
-     if(i>=g_res_ok||!g_res_addr[i]||!g_res_pixels)continue;
-     qd=res_quadro(&g_res,i,(unsigned long)g_res_ms);
-     if(qd<0)continue;
-     ft.width=(unsigned int)g_res_folha[i].w;ft.psm=GS_PSM_32;ft.address=g_res_addr[i];
-     if((unsigned int)qd!=g_res_frame[i]){
-      if(res_pixels(&g_res,i,qd,g_res_pixels)==PST_OK){
-       setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
-       FlushCache(0);
-       upload_raw(&ft,g_res_pixels,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
-       g_res_frame[i]=(unsigned int)qd;
-      }else{qd=-1;}
-     }
-     if(qd<0)continue;
-     setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
-     q=bind_texture_filter(q,&ft,1);
-     q=sprite_region(q,g_res_folha[i].x,g_res_folha[i].y,
-                     (float)g_res_folha[i].w,(float)g_res_folha[i].h,
-                     0.0f,0.0f,(float)g_res_folha[i].w,(float)g_res_folha[i].h);
-     desenhadas++;
     }
     /* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 +
        ResultState.hx L577-646). O texto "CLEAR" com o `%` fica em (0,0) do
@@ -6328,6 +6316,82 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       telemetry_event("resultado_clear",pct,g_res_ms);}
      if(!g_res_cp_final&&valor==pct){g_res_cp_final=1;
       telemetry_event("resultado_clear_final",valor,g_res_ms);}
+    }
+    /* O CONTADOR PEQUENO DO TOPO (`ClearPercentCounter` com `small = true`).
+       Entra em `getBFDelay()` (95/24 s; 97/24 s no EXCELLENT), ja' com o valor
+       FINAL -- nao ha' tween aqui: `showSmallClearPercent()` faz
+       `curNumber = clearPercentTarget` e o `drawNumbers()` do grupo mostra o
+       numero de uma vez. O texto (`clearPercentTextSmall`, so' o `%`) fica em
+       x = 40 do grupo e os digitos abaixo, com passo de 32 px, deslocamento
+       de -24 px em x e -4 px em y por digito (L63-80).
+       Posicao: `x = (difficulty.x + difficulty.width) + 60` e
+       `y = (122 - 5) + (blackTopBar.height - 148)`, posto por
+       `timerThenSongName()` (L741-745) -- ou seja, o contador pequeno anda
+       junto com a imagem da dificuldade. */
+    if(g_res_cp_ok&&g_res_dif_ind>=0&&
+       res_cp_small_visivel(resultado_rank(),(unsigned long)g_res_ms)){
+     const res_cp_geo_t *geo=&g_res_cp_geo;
+     const res_cp_atlas_t *at=&g_res_cp_atlas[RES_CP_SMALL];
+     float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+g_res_off_x;
+     float sy=res_cp_small_y_desde((float)g_res_cp_atlas[RES_CP_SMALL].h,
+                                   g_res_t_rel)+g_res_barra.correcao_y+g_res_off_y;
+     int pct=resultado_pct_alvo();
+     int nd=res_cp_digitos(pct),off=res_cp_deslocamento(nd),ind;
+     {texbuffer_t ct=stagetex;
+      ct.width=g_res_cp_texto_small.w;ct.psm=GS_PSM_32;
+      ct.address=g_res_cp_texto_small_addr;
+      setup_texture_dims(&ct,(int)g_res_cp_texto_small.w,
+                         (int)g_res_cp_texto_small.h);
+      q=bind_texture_filter(q,&ct,1);
+      q=sprite_region(q,sx+geo->small_texto_x,sy,
+        (float)g_res_cp_texto_small.w*g_res_cp_texto_small.fator,
+        (float)g_res_cp_texto_small.h*g_res_cp_texto_small.fator,
+        0.0f,0.0f,(float)g_res_cp_texto_small.w,
+        (float)g_res_cp_texto_small.h);}
+     if(g_res_cp_addr[RES_CP_SMALL]){
+      texbuffer_t gt=stagetex;
+      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[RES_CP_SMALL];
+      setup_texture_dims(&gt,(int)at->w,(int)at->h);
+      q=bind_texture_filter(q,&gt,1);
+      for(ind=0;ind<nd;ind++){
+       int d,p10=1,m;const res_cp_frame_t *fr;
+       for(m=nd-1;m>ind;m--)p10*=10;
+       d=(pct/p10)%10;
+       fr=&at->frames[d];
+       q=sprite_region(q,
+         sx+((float)ind+(float)off)*geo->passo_pequeno+geo->small_x_pos+(float)fr->ox,
+         sy+((float)ind+(float)off)*geo->small_y_passo+(float)fr->oy,
+         (float)fr->aw*at->fator,(float)fr->ah*at->fator,
+         (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah);
+      }
+     }
+     if(!g_res_cp_small_logado){g_res_cp_small_logado=1;
+      telemetry_event("resultado_clear_small",pct,(int)(sx*10.0f));}
+    }
+    /* rankTextVert (zIndex 990): a faixa vertical em x=618, rolando para
+       cima, com o piscar de entrada. Vem DEPOIS do percentual (450) e ANTES da
+       dificuldade/nome (1000), que e' a ordem das `zIndex` do original. */
+    if(g_res_rank_ok){
+     const res_rank_t *rr=res_rank(resultado_rank());
+     unsigned long rms=(unsigned long)g_res_ms;
+     if(rr&&rms>=(unsigned long)rr->flash_ms){
+      if(g_res_rank_vert_addr&&res_rank_pisca(rr,rms)){
+       texbuffer_t vt=stagetex;float oy,y;
+       vt.width=rr->vert.w;vt.psm=GS_PSM_32;vt.address=g_res_rank_vert_addr;
+       setup_texture_dims(&vt,rr->vert.w,rr->vert.h);
+       q=bind_texture_filter(q,&vt,1);
+       oy=res_rank_scroll_y(rr,rms);
+       while(oy>0.0f)oy-=(float)rr->vert.h;
+       while(oy<=-(float)rr->vert.h)oy+=(float)rr->vert.h;
+       for(y=rr->vert_y+oy;y<(float)SCREEN_H;y+=(float)rr->vert.h){
+        if(y+(float)rr->vert.h<=0.0f)continue;
+        q=sprite_region(q,rr->vert_x,y,(float)rr->vert.w,(float)rr->vert.h,
+                        0.0f,0.0f,(float)rr->vert.w,(float)rr->vert.h);
+       }
+      }
+      if(!g_res_rank_logado&&res_rank_pisca(rr,rms)){g_res_rank_logado=1;
+       telemetry_event("resultado_rank",resultado_rank(),(int)rms);}
+     }
     }
     /* A IMAGEM DA DIFICULDADE (ResultState.hx L332-334 e L736-750). Ela entra
        de cima: y = -altura em 0,8 s e depois um tween de 0,5 s com `expoOut`
@@ -6398,57 +6462,6 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       }
      }
     }
-    /* O CONTADOR PEQUENO DO TOPO (`ClearPercentCounter` com `small = true`).
-       Entra em `getBFDelay()` (95/24 s; 97/24 s no EXCELLENT), ja' com o valor
-       FINAL -- nao ha' tween aqui: `showSmallClearPercent()` faz
-       `curNumber = clearPercentTarget` e o `drawNumbers()` do grupo mostra o
-       numero de uma vez. O texto (`clearPercentTextSmall`, so' o `%`) fica em
-       x = 40 do grupo e os digitos abaixo, com passo de 32 px, deslocamento
-       de -24 px em x e -4 px em y por digito (L63-80).
-       Posicao: `x = (difficulty.x + difficulty.width) + 60` e
-       `y = (122 - 5) + (blackTopBar.height - 148)`, posto por
-       `timerThenSongName()` (L741-745) -- ou seja, o contador pequeno anda
-       junto com a imagem da dificuldade. */
-    if(g_res_cp_ok&&g_res_dif_ind>=0&&
-       res_cp_small_visivel(resultado_rank(),(unsigned long)g_res_ms)){
-     const res_cp_geo_t *geo=&g_res_cp_geo;
-     const res_cp_atlas_t *at=&g_res_cp_atlas[RES_CP_SMALL];
-     float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+g_res_off_x;
-     float sy=res_cp_small_y_desde((float)g_res_cp_atlas[RES_CP_SMALL].h,
-                                   g_res_t_rel)+g_res_barra.correcao_y+g_res_off_y;
-     int pct=resultado_pct_alvo();
-     int nd=res_cp_digitos(pct),off=res_cp_deslocamento(nd),ind;
-     {texbuffer_t ct=stagetex;
-      ct.width=g_res_cp_texto_small.w;ct.psm=GS_PSM_32;
-      ct.address=g_res_cp_texto_small_addr;
-      setup_texture_dims(&ct,(int)g_res_cp_texto_small.w,
-                         (int)g_res_cp_texto_small.h);
-      q=bind_texture_filter(q,&ct,1);
-      q=sprite_region(q,sx+geo->small_texto_x,sy,
-        (float)g_res_cp_texto_small.w*g_res_cp_texto_small.fator,
-        (float)g_res_cp_texto_small.h*g_res_cp_texto_small.fator,
-        0.0f,0.0f,(float)g_res_cp_texto_small.w,
-        (float)g_res_cp_texto_small.h);}
-     if(g_res_cp_addr[RES_CP_SMALL]){
-      texbuffer_t gt=stagetex;
-      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[RES_CP_SMALL];
-      setup_texture_dims(&gt,(int)at->w,(int)at->h);
-      q=bind_texture_filter(q,&gt,1);
-      for(ind=0;ind<nd;ind++){
-       int d,p10=1,m;const res_cp_frame_t *fr;
-       for(m=nd-1;m>ind;m--)p10*=10;
-       d=(pct/p10)%10;
-       fr=&at->frames[d];
-       q=sprite_region(q,
-         sx+((float)ind+(float)off)*geo->passo_pequeno+geo->small_x_pos+(float)fr->ox,
-         sy+((float)ind+(float)off)*geo->small_y_passo+(float)fr->oy,
-         (float)fr->aw*at->fator,(float)fr->ah*at->fator,
-         (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah);
-      }
-     }
-     if(!g_res_cp_small_logado){g_res_cp_small_logado=1;
-      telemetry_event("resultado_clear_small",pct,(int)(sx*10.0f));}
-    }
     /* A BARRA PRETA DO TOPO (ResultState.hx L342-346). Nao ha' PNG: o original
        monta um retangulo preto de 1295x149 girado de -3,8 graus
        (`BitmapUtil.createResultsBar`) e o poe em `y = -height`, animando ate' 0
@@ -6463,6 +6476,28 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       g_res_barra_logado=1;
       telemetry_event("resultado_barra",(int)(b0*10.0f),(int)(b1*10.0f));
      }
+    }
+    for(i=0;i<(int)RES_FOLHAS;i++){
+     int qd;texbuffer_t ft=stagetex;
+     if(i>=g_res_ok||!g_res_addr[i]||!g_res_pixels)continue;
+     qd=res_quadro(&g_res,i,(unsigned long)g_res_ms);
+     if(qd<0)continue;
+     ft.width=(unsigned int)g_res_folha[i].w;ft.psm=GS_PSM_32;ft.address=g_res_addr[i];
+     if((unsigned int)qd!=g_res_frame[i]){
+      if(res_pixels(&g_res,i,qd,g_res_pixels)==PST_OK){
+       setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+       FlushCache(0);
+       upload_raw(&ft,g_res_pixels,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+       g_res_frame[i]=(unsigned int)qd;
+      }else{qd=-1;}
+     }
+     if(qd<0)continue;
+     setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+     q=bind_texture_filter(q,&ft,1);
+     q=sprite_region(q,g_res_folha[i].x,g_res_folha[i].y,
+                     (float)g_res_folha[i].w,(float)g_res_folha[i].h,
+                     0.0f,0.0f,(float)g_res_folha[i].w,(float)g_res_folha[i].h);
+     desenhadas++;
     }
     /* Quantas folhas estao na tela AGORA (e em que ms). A primeira chamada
        desenha so' o fundo -- as folhas entram em 250/875/1500 ms --, entao sem
