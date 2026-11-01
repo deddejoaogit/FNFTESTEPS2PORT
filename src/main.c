@@ -37,6 +37,7 @@
 #include "engine/char_layout.h"
 #include "engine/notekind.h"
 #include "engine/health_icon.h"
+#include "engine/splash.h"
 #include "gameover_dados.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
@@ -540,6 +541,13 @@ static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_valu
    efeito inventado. */
 static u32 g_ev_icone=0,g_ev_script=0,g_ev_sem_efeito=0,g_ev_avisou=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
+/* NOTE SPLASH: o brilho do acerto SICK. O estado e a geometria vivem em
+   engine/splash.c (que roda no PC); aqui ficam so' o pool, a flag de arte
+   carregada e a telemetria. */
+static nspl_pool_t g_splash;
+static int g_splash_arte_ok=0;      /* 1 = a regiao foi escrita no atlas do HUD */
+static int g_splash_log=0;          /* criacoes ja registradas no log          */
+static int g_splash_desenho=-1;     /* splashes desenhadas no ultimo quadro     */
 /* Every asset the port reads lives under this root on the memory card.
    The registry builds paths beneath it, so a song's chart is
    "<root>/songs/<id>/<difficulty>.chart". */
@@ -2372,6 +2380,11 @@ static int nota_nonscoreable(const chart_note_t *n){return n&&chart_note_kind_is
 static void tutorial_notes_reset(void){
  u32 k,scorable=0,comkind=0,sempontos=0,noanim=0;
  memset(g_tutorial_note_state,0,sizeof(g_tutorial_note_state));
+ /* NOTE SPLASH: pool zerado por musica. A semente muda com o chart para o
+    sorteio de variante/quadros nao repetir a mesma sequencia em toda musica,
+    mas continua deterministica -- o harness tem de poder repetir a corrida. */
+ nspl_init(&g_splash,0x5EED1234u^(u32)g_chart_info.note_count);
+ g_splash_log=0;g_splash_desenho=-1;
  g_tutorial_note_score=0;g_tutorial_note_hits=0;g_tutorial_note_misses=0;g_tutorial_note_combo=0;
  g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;g_custo_frames=0;g_custo_emitido=0;
  /* tallies.totalNotes do original: quantas notas do chart contam para o
@@ -2395,6 +2408,9 @@ static void tutorial_notes_reset(void){
 static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
  u32 i;unsigned int lane;
  if(g_chart_status!=0)return;
+ /* A splash vive 4 quadros a 24 fps +- 2 (~167 ms): quem a mata e' o relogio
+    da musica, nao o quadro. NoteSplash.onAnimationFinished -> kill(). */
+ nspl_passo(&g_splash,(u32)(sample/48u));
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||!note.must_press||g_tutorial_note_state[i])continue;
@@ -2463,6 +2479,18 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
     /* O original mede o erro em milissegundos (PlayState.goodNoteHit:
        noteDiff = songPosition - noteTime). A 48 kHz, um sample e' 1/48 ms. */
     judge=fnf_play_hit(&g_play,(float)offset/48.0f);
+    /* NOTE SPLASH: so' em SICK, e so' quando a nota conta. PlayState.goodNoteHit
+       poe `doesNotesplash = daRating == 'sick'` no evento, e
+       Strumline.playNoteSplash (L1076) exige showNotesplash. Uma nota
+       non_scoreable nao chega aqui (sai no `continue` acima), como no original,
+       onde ela nem entra no goodNoteHit. */
+    if(judge==FNF_JUDGE_SICK&&g_splash_arte_ok){
+     int si=nspl_novo(&g_splash,(int)lane,(u32)(sample/48u));
+     /* Uma linha por splash: o harness exige que o numero de `splash_novo` seja
+        EXATAMENTE o de SICKs do resultado -- nem um a mais (apareceria em
+        GOOD/BAD) nem um a menos (SICK sem brilho). */
+     if(si>=0){g_splash_log++;
+      telemetry_event("splash_novo",(int)g_splash.it[si].lane,g_splash.it[si].variante);}}
     /* COMBO / DROP da GF no ACERTO. BaseCharacter.hx L586-600: o evento leva
        `tallies.combo + 1`, ou seja o combo ja' contando esta nota -- que e' o
        `g_play.combo` depois do fnf_play_hit. `sick`/`good` tocam `combo<N>`
@@ -2501,6 +2529,35 @@ static qword_t *tutorial_notes_draw(qword_t*q,texbuffer_t*atlas,texbuffer_t*font
    usar o mesmo marcador para retira-las. */
 if((note.must_press&&state!=0)||(!note.must_press&&state==3)||delta<-(s32)TUTORIAL_NOTE_LATE||delta>(s32)TUTORIAL_NOTE_AHEAD)continue;
 y=tutorial_note_y(delta);q=sprite_region(q,hz_x(x),hz_y(y),hz_s(g_note_w[note.lane]),hz_s(g_note_h[note.lane]),note.lane*56.0f,0.0f,g_note_w[note.lane],g_note_h[note.lane]);visible++;}if((int)visible!=g_tutorial_note_visible){g_tutorial_note_visible=(int)visible;telemetry_event("tutorial_notes_visible",(int)visible,(int)sample);}(void)font;(void)frame;(void)held;return q;}
+
+/* NOTE SPLASH no quadro. No original o grupo `noteSplashes` tem zIndex 50 e as
+   notas tem 30 (Strumline.hx L225-238), entao o brilho desenha POR CIMA das
+   notas -- e' por isso que esta chamada vem depois de tutorial_notes_draw.
+   A celula mora no atlas do HUD (tex2), na faixa livre abaixo da barra de
+   vida (ver engine/splash.c): nenhuma textura nova, nenhum byte de VRAM novo. */
+static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
+ int i,n=0;u32 ms=(u32)(sample/48u);
+ if(!g_splash_arte_ok)return q;
+ q=bind_texture_filter(q,t,1);   /* LINEAR: a celula e' ampliada ~5x */
+ for(i=0;i<SP_MAX;i++){
+  int qd=nspl_quadro(&g_splash,i,ms),lane;const nspl_cel_t*c;float x,y;
+  if(qd<0)continue;
+  lane=(int)g_splash.it[i].lane;
+  c=nspl_celula(lane,(int)g_splash.it[i].variante);
+  if(!c)continue;
+  /* O original ancora o splash no canto do receptor (Strumline.hx L1087:
+     strum.x + getXPos + INITIAL_OFFSET) e desloca o desenho 0,3 do tamanho
+     para cima e para a esquerda (NoteSplash.hx L56). A conta esta' em
+     engine/splash.c, com a fonte linha a linha. */
+  nspl_posicao(g_receptor_x[lane],g_receptor_y[lane],c,&x,&y);
+  q=sprite_region_alpha(q,hz_x(x),hz_y(y),hz_s(c->dw),hz_s(c->dh),
+    (float)SPLASH_REG_X+(float)c->cx,
+    (float)(SPLASH_REG_Y+(u32)qd*SPLASH_FAIXA+(SPLASH_FAIXA-c->ch)/2u),
+    (float)c->cw,(float)c->ch,(unsigned char)SPLASH_ALPHA);
+  n++;
+ }
+ if(n!=g_splash_desenho){g_splash_desenho=n;telemetry_event("splash_ativos",n,g_splash.criados);}
+ return q;}
 static qword_t *title_alpha(qword_t*q,texbuffer_t*t,const char*s,float cx,float y,float scale){static const unsigned char gw[36]={38,32,38,37,30,30,38,31,30,38,31,29,39,31,35,32,36,33,34,31,31,38,41,38,38,36,24,16,26,24,24,29,27,28,24,24};float ds=scale*.7142857f,total=0,x;int i,n,idx;for(i=0;s[i];i++){if(s[i]==' ')total+=20*ds;else{idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx>=0&&idx<36)total+=(gw[idx]+3)*ds;}}x=cx-total*.5f;q=bind_texture(q,t);for(i=0;s[i];i++){if(s[i]==' '){x+=20*ds;continue;}idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx<0||idx>=36)continue;n=gw[idx];q=sprite_region(q,x,y,n*ds,47*ds,(idx%9)*42,(idx/9)*48,n,47);x+=(n+3)*ds;}return q;}
 /* audsrv_stop_audio() mutes the stream but does not flush its internal ring.
  * Re-applying the format resets that ring (including when the rate is
@@ -4220,6 +4277,27 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     setup_texture_dims(&tex2,320,256);
     upload_raw(&tex2,g_hud_pixels,320,256);
    }}
+  /* NOTE SPLASH: a arte vai para DENTRO do atlas do HUD, na faixa livre abaixo
+     da barra de vida (SPLASH_REG_X, SPLASH_REG_Y) -- as mesmas coordenadas que
+     tools/empacotar_splash.py usou. O arquivo tem a largura da REGIAO
+     (SPLASH_REG_W) e a textura tem SPLASH_TEX_W, entao a copia e' linha a
+     linha, como a barra de vida faz.
+     Custo de VRAM: ZERO. Sem o arquivo, a splash simplesmente nao aparece e o
+     log diz (`splash_arte` = 0) -- nada mais do jogo depende dele. */
+  {int sp=read_exact_path("mass:/FNFPS2/assets/splash.rgba",g_up_bounce,
+                          SPLASH_REG_W*SPLASH_REG_H*4);
+   telemetry_event("splash_arte",sp==0,SPLASH_REG_W*SPLASH_REG_H*4);
+   g_splash_arte_ok=0;
+   if(sp==0){
+    u32 yy;
+    for(yy=0;yy<SPLASH_REG_H;yy++)
+     memcpy(g_hud_pixels+(((u32)(SPLASH_REG_Y+yy)*HUD_TEX_W+(u32)SPLASH_REG_X)*4u),
+            g_up_bounce+(u32)yy*SPLASH_REG_W*4u,(size_t)SPLASH_REG_W*4u);
+    FlushCache(0);
+    setup_texture_dims(&tex2,320,256);
+    upload_raw(&tex2,g_hud_pixels,320,256);
+    g_splash_arte_ok=1;
+   }}
   memset(&g_chart_info,0,sizeof(g_chart_info));g_chart_cursor=g_chart_seen=0;g_chart_last_type=g_chart_last_value=g_chart_last_sample=0;
   /* O reset das notas NAO pode ficar aqui: ele tambem chama fnf_play_reset()
      com o total de notas pontuaveis, e aqui o chart ainda nao foi carregado --
@@ -5180,7 +5258,7 @@ float x,y,w,h;
    }
    }
   }
-  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
+  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=splash_draw(q,&tex2,(u32)g_chart_clock);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
      da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
      em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o

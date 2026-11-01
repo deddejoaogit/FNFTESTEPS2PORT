@@ -72,6 +72,18 @@ else
     echo "          (a barra de vida fica com a arte do atlas)" >&2
 fi
 
+# NOTE SPLASH: a regiao do atlas do HUD que faz o brilho do acerto SICK. Vai
+# para o mesmo lugar que a barra de vida porque e' o mesmo desenho: o jogo le
+# este arquivo e copia para dentro de g_hud_pixels ANTES do upload do tex2.
+# Sem ele o jogo toca igual, so' nao aparece o brilho (log: `splash_arte`=0).
+if [ -f "$UI_SRC/splash.rgba" ]; then
+    cp "$UI_SRC/splash.rgba" "$OUT/FNFPS2/assets/splash.rgba"
+    echo "   splash.rgba: $(wc -c < "$OUT/FNFPS2/assets/splash.rgba") bytes (224x124 do atlas do HUD)"
+else
+    echo "   AVISO: $UI_SRC/splash.rgba nao existe -- rode tools/empacotar_splash.py" >&2
+    echo "          (o acerto SICK fica sem brilho)" >&2
+fi
+
 echo "== copiando o audio da tela de GAME OVER (assets/gameover/) =="
 # Os 13 PCMs (musica de game over nas 4 variantes de sufixo, o gameOverEnd de
 # cada uma, fnf_loss_sfx nas 4, fakeout_death) e o manifesto AUDIO.txt.

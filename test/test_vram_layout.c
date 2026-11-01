@@ -7,6 +7,7 @@
  */
 #include <stdio.h>
 #include "vram_layout.h"
+#include "splash_dados.h"
 
 static int falhas;
 
@@ -41,6 +42,20 @@ int main(void)
     CHECK_EQ(vl_address(VL_TEX2), 286720u);
     CHECK_EQ(vl_address(VL_FONTTEX), 368640u);
     CHECK_EQ(vl_address(VL_GFTEX16), 442368u);
+
+    printf("== vram: o NOTE SPLASH mora dentro do atlas do HUD ==\n");
+    /* A splash nao pede um slot: ela e' uma REGIAO do tex2 (320x256 PSMCT32).
+       Se alguem mover a regiao para fora do slot, o desenho passa a amostrar
+       outra textura e o brilho sai do lugar -- em silencio, porque nao ha'
+       alocacao para falhar. Aqui isso e' uma conta. */
+    CHECK(SPLASH_TEX_W == 320u && SPLASH_TEX_H == 256u);
+    CHECK((unsigned int)vl_slots()[VL_TEX2].w == SPLASH_TEX_W);
+    CHECK((unsigned int)vl_slots()[VL_TEX2].h == SPLASH_TEX_H);
+    CHECK(SPLASH_REG_X + SPLASH_REG_W <= SPLASH_TEX_W);
+    CHECK(SPLASH_REG_Y + SPLASH_REG_H <= SPLASH_TEX_H);
+    /* E nao pode haver VRAM nova para ela: os bytes fixos sao os mesmos de
+       antes da splash existir. */
+    CHECK_EQ(vl_used_words(), 452608u);
 
     printf("== vram: cabe em 4 MiB ==\n");
     CHECK(vl_fits());

@@ -125,6 +125,9 @@ def main():
     fonttex = alinhar(384 * 192, 64) * 4         # fonte, PSMCT32
     gftex16 = alinhar(320 * (64 // 2), 64) * 4   # GF no tutorial, PSMCT16
     fixos += tex2 + fonttex + gftex16
+    # O NOTE SPLASH nao entra: ele e' uma regiao vazia DENTRO do `tex2`
+    # (tools/vram_budget.py: splash_bytes() == 0). Se ele ganhar textura
+    # propria, o numero tem de entrar aqui e nos fixos do runtime.
 
     print("== orcamento de VRAM por musica ==")
     print("  VRAM total ................ %9d B" % VRAM_TOTAL)

@@ -188,6 +188,16 @@ echo
 
 # Pacote de personagem (CHP4): o leitor recusa com erro nomeado todo arquivo que
 # nao fecha, e um quadro descomprimido sai byte a byte igual ao empacotado.
+# NOTE SPLASH: o brilho do acerto SICK. O header C e' a renderizacao do plano
+# (como stage_dados.h), a regiao tem de caber na faixa livre do atlas do HUD e
+# a animacao tem de durar o que o original dura.
+echo "== note splash: dado, regiao e tempo =="
+python3 tools/gen_splash_dados.py --check || exit 1
+python3 tools/empacotar_splash.py --check || exit 1
+$CC $FLAGS test/test_splash.c src/engine/splash.c -o /tmp/fnf_test_splash -lm
+/tmp/fnf_test_splash
+echo
+
 echo "== tremor de camera (shake) =="
 $CC $FLAGS test/test_shake.c src/engine/shake.c -o /tmp/fnf_test_shake -lm
 /tmp/fnf_test_shake

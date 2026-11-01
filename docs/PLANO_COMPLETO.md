@@ -384,8 +384,12 @@ o palco encolheu só até caber), e a próxima mais apertada
 todas, e o pool livre vai de **135.936 B** (cocoa/eggnog) a 384.000 B (thorns).
 
 Consequência para o que falta: continua **não** havendo espaço para uma textura
-nova (nota splash, arte de tela) em cocoa/eggnog/stress — qualquer textura nova
-precisa entrar pela `vram_cache` (evictando prop) ou vir de mais reempacotamento.
+nova em cocoa/eggnog/stress — qualquer textura nova precisa entrar pela
+`vram_cache` (evictando prop) ou vir de mais reempacotamento. O note splash
+escapou dessa regra porque não é textura nova: ele é uma **região vazia de uma
+textura que já existe** (a 2ª lição da barra de vida). Para a arte de tela, que
+é grande e só aparece fora da música, o caminho é outro: ela pode ocupar o pool
+no menu (fase 3) — o pool é liberado quando a música começa.
 
 #### Fechado: o pool no jogo, e o orçamento inteiro de 2.056.192 B
 
@@ -3039,9 +3043,21 @@ posição, animação `firstDeath`) e o ponto de câmera. O port chegou a desenh
 original nunca mostra, e que foi **removido** (o harness agora cobra zero quads
 de texto ali). O que faltava não era arte — era o port ter inventado texto.
 
+Uma segunda linha **saiu** pelo mesmo motivo, mas por outro caminho: *"note
+splashes"*. O original cria o brilho a cada nota SICK
+(`PlayState.goodNoteHit` → `Strumline.playNoteSplash`), e a arte existe no clone
+(`shared/images/noteSplashes.png`, 2048×2048, 8 animações × 4 quadros de
+260×298 / 274×267). O que faltava era espaço — e ele **não** foi preciso: o
+atlas do HUD (`tex2`, 320×256) só é usado até y=112 (notas em `(lane*56, 0)` e
+barra de vida em `(0,112) 301×10`), então a faixa `y=128..255` está vazia e a
+splash coube inteira ali em **224×124** (divisor 4,75 — a maior resolução que
+cabe, escolhida por medida em `tools/empacotar_splash.py`). VRAM nova: **zero**.
+O arquivo `splash.rgba` é copiado para dentro de `g_hud_pixels` antes do upload
+único do HUD, exatamente como a barra de vida. Provado no harness: 29 SICKs →
+29 splashes, pico de 1 na tela, `splash_arte=1` (`tools/run_gameplay_harness.sh`).
+
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
 | Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
 
 E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
@@ -3087,10 +3103,12 @@ O que isso quer dizer, sem otimismo:
   animando ao mesmo tempo, mais os props). Reduzir isso seria remover quadro de
   animação — proibido pela regra do projeto.
 - **A economia que sobrou é de VRAM, não de tempo:** a pior combinação deixa
-  1.792 B livres no pool. Qualquer textura nova (ícones de vida, splashes) exige
-  liberar espaço antes. O candidato medido é a `tex` (320×256 PSMCT32 =
-  327.680 B), que o gameplay com pacotes **não usa** (os personagens vêm do
-  pool) e que o menu já re-sobe ao voltar (`menu_restore`). Isso é uma mudança
-  de layout de VRAM, com o teste `test_vram_layout.c` já cobrindo os endereços —
-  fica para a próxima build, junto com a arte dos ícones, que não está no
-  pacote de dados.
+  1.792 B livres no pool. Textura NOVA exige liberar espaço antes. Duas coisas
+  já saíram dessa fila sem gastar um byte: os ícones de vida (pacote ICP1 por
+  música, com despejo) e o note splash (região vazia do `tex2`, ver a seção de
+  lacunas). O que ainda precisa de espaço é a arte das telas (cápsulas da
+  Freeplay, `AtlasFont` do Resultado, ícone da pausa) — e ela só é desenhada
+  FORA da música, quando o pool está livre. O candidato medido continua sendo a
+  `tex` (320×256 PSMCT32 = 327.680 B), que o gameplay com pacotes **não usa**
+  (os personagens vêm do pool) e que o menu já re-sobe ao voltar
+  (`menu_restore`).

@@ -85,5 +85,16 @@ for name,count,fb in [("bf_frames",43,258*254*4),("gf_frames",87,320*307*2)]:
     print(f"  CFZ4 {name:10s} arquivo={len(pk):>9,} quadros={cnt} blocos_ruins={bad}")
     ok &= good and bad==0 and len(pk) < 8*1024*1024
 
+# NOTE SPLASH: a regiao que o jogo copia para dentro do atlas do HUD. O teste
+# do PC (test/test_splash.c) prova que ela cabe; aqui prova-se que o ARQUIVO
+# que o harness entrega tem exatamente esse tamanho e tem alfa de verdade (um
+# bloco todo transparente passaria no tamanho e nao desenharia nada).
+sw, sh = g.splash_regiao()
+sp = g.make_splash(sw, sh)
+op = sum(1 for i in range(3, len(sp), 4) if sp[i] > 64)
+zero = sum(1 for i in range(3, len(sp), 4) if sp[i] == 0)
+print(f"  SPLASH      {sw}x{sh} arquivo={len(sp):>9,} opacos={op:>6} vazios={zero:>6}")
+ok &= (len(sp) == sw * sh * 4 and op > sw * sh // 4 and zero > 0)
+
 print()
 print("TODOS EXATOS" if ok else "FALHOU")

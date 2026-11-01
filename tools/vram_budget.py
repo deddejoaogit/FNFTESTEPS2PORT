@@ -216,8 +216,28 @@ def prop_vram_bytes(sw, sh):
     return _alinhar(int(sw) * int(sh) * 2, VC_ALINHAMENTO)
 
 
+def splash_bytes():
+    """VRAM que o NOTE SPLASH custa: ZERO, e isso e' medido, nao suposto.
+
+    A splash nao e' textura nova -- ela e' uma regiao da faixa vazia do atlas do
+    HUD (`tex2`, 320x256), logo abaixo da barra de vida. As notas ocupam
+    (lane*56, 0) 56x56 e a barra (0,112) 301x10; de y=128 para baixo nao ha'
+    nada. `tools/empacotar_splash.py` escolhe a maior resolucao que cabe ali
+    (224x124 no divisor 4,75) e `src/engine/splash_dados.h` guarda a regiao.
+
+    A funcao existe para que a pergunta "quanto a splash custa?" tenha UMA
+    resposta no projeto, e ela e' zero. Se um dia a splash ganhar textura
+    propria, e' aqui que o numero entra -- e o orcamento das 27 musicas vai
+    reprovar antes do console.
+    """
+    return 0
+
+
 def fixos_bytes():
-    """O que fica FORA do pool (orcamento_vram.py e src/main.c, iguais)."""
+    """O que fica FORA do pool (orcamento_vram.py e src/main.c, iguais).
+
+    O NOTE SPLASH nao aparece nesta soma de proposito: ver splash_bytes().
+    """
     # fb_words() do orcamento_vram.py conta PALAVRAS de um framebuffer (o GS
     # endereca em 32 bits); os dois framebuffers PSMCT16 de 640x448 sao 2 x
     # 143.360 palavras x 4 = 1.146.880 B.

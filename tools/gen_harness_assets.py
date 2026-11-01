@@ -20,6 +20,7 @@ do jogo devolve erro se qualquer uma nao fechar:
   - o pacote CFZ4/LZ4 (bf_frames.lz4f, gf_frames.lz4f).
 """
 
+import json
 import os
 import struct
 import sys
@@ -290,6 +291,52 @@ def make_health_bar(w=301, h=10):
     return bytes(out)
 
 
+def splash_regiao():
+    """(w, h) da regiao do NOTE SPLASH dentro do atlas do HUD.
+
+    Vem do plano, nao de numero digitado: se `tools/empacotar_splash.py` mudar
+    a resolucao, o asset sintetico acompanha e o jogo continua achando o
+    arquivo com o tamanho que ele espera.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "splash-plan.json")
+    if os.path.isfile(caminho):
+        d = json.load(open(caminho, encoding="utf-8"))
+        return d["regiao"]["w"], d["regiao"]["h"]
+    return 224, 124
+
+
+def make_splash(w, h):
+    """Uma splash sintetica com a FORMA da arte: brilho radial, opaco no centro
+    e transparente nas bordas.
+
+    A regiao e' uma coluna de 4 quadros (um por linha da faixa), entao cada
+    faixa tem de ter conteudo proprio -- um bloco uniforme nao provaria que o
+    jogo pega o QUADRO certo do atlas.
+    """
+    out = bytearray(w * h * 4)
+    faixa = h // 4
+    for y in range(h):
+        quadro = min(3, y // faixa) if faixa else 0
+        # o brilho cresce de um ponto para uma cruz, como o da arte
+        raio = 0.18 + 0.24 * quadro
+        for x in range(w):
+            o = (y * w + x) * 4
+            nx = (x - w * 0.5) / (w * 0.5)
+            ny = ((y % faixa) - faixa * 0.5) / (faixa * 0.5)
+            d = (nx * nx + ny * ny) ** 0.5
+            a = max(0, min(255, int(255.0 * (1.0 - d / raio + 0.25))))
+            out[o + 0] = 255
+            out[o + 1] = 200 - quadrant(y, x)
+            out[o + 2] = 120
+            out[o + 3] = a
+    return bytes(out)
+
+
+def quadrant(y, x):
+    return 0 if (x // 7 + y // 5) % 2 else 40
+
+
 def build(root, charts_src=None):
     a = os.path.join(root, "FNFPS2", "assets")
     os.makedirs(os.path.join(a, "songs", "tutorial"), exist_ok=True)
@@ -369,6 +416,11 @@ def build(root, charts_src=None):
         # moldura do original (borda com alpha parcial, miolo opaco), para o
         # caminho "sobrepor a regiao do atlas" ser exercitado de verdade.
         "health_bar.rgba": make_health_bar(),
+
+        # NOTE SPLASH: o brilho do acerto SICK. Vai para DENTRO do atlas do HUD
+        # (na faixa livre abaixo da barra de vida), entao o tamanho tem de ser
+        # exatamente o da regiao do plano -- nem um byte a mais.
+        "splash.rgba": make_splash(*splash_regiao()),
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

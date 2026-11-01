@@ -88,6 +88,15 @@ ICONEEST=$(awk -F, '$1=="E" && $3=="icone_estado" {n++} END{print n+0}' "$LOG")
 HUDZOOM=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $4; exit}' "$LOG")
 HUDPULSOS=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $5; exit}' "$LOG")
 
+# NOTE SPLASH: o brilho do acerto SICK. `splash_arte` diz que a regiao foi
+# carregada para dentro do atlas do HUD; `splash_novo` sai uma vez por splash e
+# `splash_ativos` so' quando o numero na tela muda.
+SPLARTE=$(awk -F, '$1=="E" && $3=="splash_arte" {print $4; exit}' "$LOG")
+SPLNOVOS=$(grep -c ',splash_novo,' "$LOG" 2>/dev/null || true)
+[ -z "$SPLNOVOS" ] && SPLNOVOS=0
+SPLMAX=$(awk -F, '$1=="E" && $3=="splash_ativos" {if ($4+0 > m) m=$4+0} END{print m+0}' "$LOG")
+SPLSICK=$(awk -F, '$1=="E" && $3=="play_result_tallies" {print int(($4+0)/16777216); exit}' "$LOG")
+
 RESULT=$(awk -F, '$1=="S" && $3==9 {n++} END{print n+0}' "$LOG")
 RANK=$(awk -F, '$1=="E" && $3=="play_result" {print $4; exit}' "$LOG")
 PERC=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
@@ -114,6 +123,7 @@ echo "  quads desenhados na tela 9 ... ${DRAW:-?}"
 echo "  batida / passos da contagem .. ${CDBEAT:-?} amostras / ${CDPASSOS:-?}"
 echo "  HUD: zoom maximo / pulsos .... ${HUDZOOM:-?} (milesimos) / ${HUDPULSOS:-?}"
 echo "  icones de vida ............... ${ICONES:-?} carregado(s), ${ICONEDES:-?} desenho(s), ${ICONEEST:-?} troca(s) de estado"
+echo "  note splash .................. arte=${SPLARTE:-?} criadas=$SPLNOVOS (SICK=$SPLSICK) pico na tela=$SPLMAX"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -154,6 +164,19 @@ fi
 [ "${ICONES:-0}" -ge 2 ] || { echo "  FALHA: menos de dois icones de vida carregaram ($ICONES)"; FALHA=1; }
 [ "${ICONEDES:-0}" -ge 100 ] || { echo "  FALHA: os icones quase nao foram desenhados ($ICONEDES)"; FALHA=1; }
 [ "${ICONEEST:-0}" -ge 1 ] || { echo "  FALHA: nenhum icone trocou de estado (idle/losing/winning)"; FALHA=1; }
+
+# NOTE SPLASH. Tres exigencias, cada uma sobre um numero diferente:
+#   * a arte carregou (sem ela o jogo nao desenha nada e o log diria 0);
+#   * uma splash por SICK, EXATAMENTE -- e' o que prova que ela nao aparece em
+#     GOOD/BAD/SHIT (o original so' a cria em `doesNotesplash`, que e' SICK) nem
+#     falta em algum SICK;
+#   * o pico na tela e' >= 1 (ela chega a ser desenhada) e <= o pool
+#     (SP_MAX = 24), que e' o limite que o teste do PC conhece.
+[ "${SPLARTE:-0}" -eq 1 ] || { echo "  FALHA: a arte do note splash nao carregou (splash_arte=$SPLARTE)"; FALHA=1; }
+[ "$SPLNOVOS" -gt 0 ]      || { echo "  FALHA: nenhuma splash foi criada apesar de haver SICKs"; FALHA=1; }
+[ "$SPLNOVOS" -eq "${SPLSICK:--1}" ] || { echo "  FALHA: $SPLNOVOS splash(es) para $SPLSICK SICK(s) -- tem de ser uma por SICK"; FALHA=1; }
+[ "${SPLMAX:-0}" -ge 1 ]  || { echo "  FALHA: nenhuma splash chegou a ser desenhada"; FALHA=1; }
+[ "${SPLMAX:-0}" -le 24 ] || { echo "  FALHA: $SPLMAX splashes na tela passa do pool (24)"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo
