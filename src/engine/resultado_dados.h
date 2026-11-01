@@ -326,6 +326,7 @@ typedef struct {
     float          y_digitos_grande;
     float          small_x, small_y, small_x_pos, small_y_passo;
     float          small_fixo_x, small_y_alvo, small_texto_x;
+    unsigned int   small_atraso_ms, small_tween_ms;  /* o tween de entrada */
     unsigned short inicio_q, tween_q;
     unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;
     unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */
@@ -335,6 +336,7 @@ static const res_cp_geo_t g_res_cp_geo = {
     415.0f, 145.0f, 36.0f, 16.0f, 36.0f,
     470.0f, 130.0f, -12.0f, -2.0f,
     307.5f, 58.5f, 20.0f,
+    850u, 500u,   /* startDelay 0,85 s, 0,5 s expoOut */
     37u, 58u,
     400u, 250u, 500u, 500u, 36u
 };

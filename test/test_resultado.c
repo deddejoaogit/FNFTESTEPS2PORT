@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <math.h>
 #include "resultado.h"
 
 static int falhas;
@@ -346,6 +347,21 @@ int main(void)
          CHECK(e.x < 410.0f && e.x > 405.0f);
          CHECK(e.y > y0);
         }
+        /* O grupo rola junto: dx/dy e' o que o scroll somou, sem a entrada. */
+        CHECK(e.dx < 0.0f && e.dy > 0.0f);
+        CHECK(fabsf((e.x - e.x0) - e.dx) < 0.01f);
+        CHECK(fabsf((e.y - 0.0f) - (e.dy + 48.6f)) < 1.0f);
+        /* A dificuldade e o percentual pequeno reentram no recomeco do ciclo:
+           `res_dif_y_desde` / `res_cp_small_y_desde` contam do `t0` do ciclo. */
+        CHECK(res_dif_y_desde(29.0f, 0ul) == -29.0f);
+        CHECK(res_dif_y_desde(29.0f, 800ul) == -29.0f);
+        CHECK(res_dif_y_desde(29.0f, 2000ul) == 61.5f);
+        CHECK(res_dif_y(29.0f, 2000ul) == res_dif_y_desde(29.0f, 2000ul));
+        CHECK(res_cp_small_y_desde(18.0f, 0ul) == -18.0f);
+        CHECK(res_cp_small_y_desde(18.0f, 850ul) == -18.0f);
+        CHECK(res_cp_small_y_desde(18.0f, 2000ul) == 58.5f);
+        /* A subida e' monotonica depois do atraso (expoOut). */
+        CHECK(res_cp_small_y_desde(18.0f, 1000ul) < res_cp_small_y_desde(18.0f, 1200ul));
         /* O corte da esquerda: `clipRect = max(0, 520 - x)` (260 na metade). */
         CHECK(res_nome_clip_local(&e) == 0.0f);   /* x < 260 ainda nao? nao: x=408 */
         /* O ciclo recomeca quando `x + largura < 100` (50 na metade). */

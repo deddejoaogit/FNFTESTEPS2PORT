@@ -273,6 +273,7 @@ def gerar():
     a("    float          y_digitos_grande;")
     a("    float          small_x, small_y, small_x_pos, small_y_passo;")
     a("    float          small_fixo_x, small_y_alvo, small_texto_x;")
+    a("    unsigned int   small_atraso_ms, small_tween_ms;  /* o tween de entrada */")
     a("    unsigned short inicio_q, tween_q;")
     a("    unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;")
     a("    unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */")
@@ -287,6 +288,8 @@ def gerar():
                                           g["small_x_pos"], g["small_y_passo"]))
     a("    %.1ff, %.1ff, %.1ff," % (g["small_fixo_x"], g["small_y_alvo"],
                                    g["small_texto_x"]))
+    a("    %3du, %3du,   /* startDelay 0,85 s, 0,5 s expoOut */"
+      % (g["small_atraso_ms"], g["small_tween_ms"]))
     a("    %2du, %2du," % (g["inicio_q"], g["tween_q"]))
     a("    %3du, %3du, %3du, %3du, %2du" % (g["flash_ms"], g["fade_espera_ms"],
                                            g["fade_atraso_ms"], g["fade_ms"],

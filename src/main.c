@@ -346,6 +346,13 @@ static int g_res_nome_visto=0;      /* ja' reportou o primeiro desenho */
 static int g_res_nome_ciclos=0;
 static int g_res_nome_pronto=0;   /* `res_nome_iniciar` ja' rodou */
 static int g_res_nome_moveu=0;    /* ja' reportou o primeiro passo do scroll */
+/* O que o SCROLL do grupo somou: o mesmo `speedOfTween * 60 * elapsed` vai para
+   o nome, a dificuldade e o percentual pequeno (`update()` L806-826), entao o
+   deslocamento e' um so' e `g_res_t_rel` e' o tempo desde o inicio do ciclo
+   (os tres reentram juntos no recomeco). */
+static float g_res_off_x=0.0f;
+static float g_res_off_y=0.0f;
+static unsigned long g_res_t_rel=0ul;
 
 static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
 static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
@@ -2999,6 +3006,42 @@ static int resultado_pct_alvo(void)
   return (int)(c*100.0f);
  }
  return fnf_play_clear_percent(&g_play);
+}
+/* O GRUPO QUE ROLA. `ResultState.update()` (L806-826) soma o MESMO
+   `speedOfTween * 60 * elapsed` em x e y do nome da musica, da imagem da
+   dificuldade e do percentual pequeno, e quando `songName.x + songName.width <
+   100` chama `timerThenSongName()` -- que poe os tres de volta em
+   `y = -height` e repete os tweens de entrada (0,8 s / 0,85 s / 0,9 s com
+   0,5 s de expoOut). Ou seja: a cada ciclo os tres sobem de novo.
+   Roda uma vez por quadro, ANTES de qualquer desenho, porque a dificuldade e''
+   desenhada antes do nome na ordem do original. */
+static void resultado_scroll_passo(void)
+{
+ const res_nome_arte_t *nm;
+ g_res_off_x=0.0f;g_res_off_y=0.0f;g_res_t_rel=(unsigned long)g_res_ms;
+ if(!(g_res_nome_ok&&g_res_dif_ind>=0))return;
+ nm=res_nome_do_id(g_play_song?g_play_song->id:0);
+ if(!(nm&&nm->id))return;
+ if(!g_res_nome_pronto){
+  float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+
+           g_res_nome_geo.x_do_pequeno;
+  res_nome_iniciar(&g_res_nome_estado,0ul,sx,
+                   nm->y_alvo+g_res_barra.correcao_y,
+                   nm->larg_full,(float)nm->h);
+  g_res_nome_pronto=1;
+ }
+ /* `showSmallClearPercent()`: 2,5 s depois, `movingSongStuff = true`. */
+ {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+  if(rr&&(unsigned long)g_res_ms>=(unsigned long)rr->bf_ms+
+                                   (unsigned long)g_res_nome_geo.movimento_atraso_ms)
+   res_nome_soltar(&g_res_nome_estado,(unsigned long)g_res_ms);}
+ if(g_res_nome_ciclos!=g_res_nome_estado.ciclo){
+  g_res_nome_ciclos=g_res_nome_estado.ciclo;
+  telemetry_event("resultado_nome_ciclo",g_res_nome_ciclos,g_res_ms);}
+ res_nome_passo(&g_res_nome_estado,(unsigned long)g_res_ms);
+ g_res_off_x=g_res_nome_estado.dx;
+ g_res_off_y=g_res_nome_estado.dy;
+ g_res_t_rel=(unsigned long)g_res_ms-(unsigned long)g_res_nome_estado.t0;
 }
 static qword_t *title_alpha(qword_t*q,texbuffer_t*t,const char*s,float cx,float y,float scale){static const unsigned char gw[36]={38,32,38,37,30,30,38,31,30,38,31,29,39,31,35,32,36,33,34,31,31,38,41,38,38,36,24,16,26,24,24,29,27,28,24,24};float ds=scale*.7142857f,total=0,x;int i,n,idx;for(i=0;s[i];i++){if(s[i]==' ')total+=20*ds;else{idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx>=0&&idx<36)total+=(gw[idx]+3)*ds;}}x=cx-total*.5f;q=bind_texture(q,t);for(i=0;s[i];i++){if(s[i]==' '){x+=20*ds;continue;}idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx<0||idx>=36)continue;n=gw[idx];q=sprite_region(q,x,y,n*ds,47*ds,(idx%9)*42,(idx/9)*48,n,47);x+=(n+3)*ds;}return q;}
 /* audsrv_stop_audio() mutes the stream but does not flush its internal ring.
@@ -5914,6 +5957,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   if(ui_state==9){
    char lb[64];int q0=g_frame_texture_quads;
    int res_arte=0;
+   /* O grupo do topo (nome, dificuldade e percentual pequeno) anda junto: o
+      estado tem que ser andado ANTES de desenhar, porque a dificuldade e' a
+      primeira das tres na ordem do original. */
+   resultado_scroll_passo();
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    /* A ARTE DO ORIGINAL, quando ela carregou (ver resultado_carregar).
@@ -6082,12 +6129,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(g_res_dif_ok&&g_res_dif_ind>=0){
      texbuffer_t dt=stagetex;
      const res_dif_t *df=&g_res_dif[g_res_dif_ind];
-     float dy=res_dif_y(g_res_dif_h,(unsigned long)g_res_ms);
+     float dy=res_dif_y_desde(g_res_dif_h,g_res_t_rel)+g_res_off_y;
      if(vy(dy+g_res_dif_h)>0.0f&&vy(dy)<(float)SCREEN_H){
       dt.width=df->w;dt.psm=GS_PSM_32;dt.address=g_res_dif_addr;
       setup_texture_dims(&dt,(int)df->w,(int)df->h);
       q=bind_texture_filter(q,&dt,1);
-      q=sprite_region(q,g_res_dif_geo.x,dy,(float)df->w,(float)df->h,
+      q=sprite_region(q,g_res_dif_geo.x+g_res_off_x,dy,(float)df->w,(float)df->h,
                       0.0f,0.0f,(float)df->w,(float)df->h);
      }
     }
@@ -6102,24 +6149,8 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(g_res_nome_ok&&g_res_dif_ind>=0){
      const res_nome_arte_t *nm=res_nome_do_id(g_play_song?g_play_song->id:0);
      if(nm&&nm->id){
-      float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+
-               g_res_nome_geo.x_do_pequeno;
-      if(!g_res_nome_pronto){
-       res_nome_iniciar(&g_res_nome_estado,0ul,sx,
-                        nm->y_alvo+g_res_barra.correcao_y,
-                        nm->larg_full, (float)nm->h);
-       g_res_nome_pronto=1;
-      }
-      /* `showSmallClearPercent()`: 2,5 s depois de entrar, o movimento solta. */
-      {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
-       if(rr&&(unsigned long)g_res_ms>=(unsigned long)rr->bf_ms+
-                                        (unsigned long)g_res_nome_geo.movimento_atraso_ms)
-        res_nome_soltar(&g_res_nome_estado,(unsigned long)g_res_ms);}
-      if(g_res_nome_ciclos!=g_res_nome_estado.ciclo){
-       g_res_nome_ciclos=g_res_nome_estado.ciclo;
-       telemetry_event("resultado_nome_ciclo",g_res_nome_ciclos,g_res_ms);
-      }
-      res_nome_passo(&g_res_nome_estado,(unsigned long)g_res_ms);
+      /* A posicao ja' foi andada por `resultado_scroll_passo()`: aqui so' se
+         desenha o quadrilatero girado (o mesmo do `FlxSprite` do original). */
       if(res_barra_assentada((unsigned long)g_res_ms)){
        const res_nome_t *e=&g_res_nome_estado;
        float clip=res_nome_clip_local(e);
@@ -6169,8 +6200,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
        res_cp_small_visivel((int)fnf_play_rank(&g_play),(unsigned long)g_res_ms)){
      const res_cp_geo_t *geo=&g_res_cp_geo;
      const res_cp_atlas_t *at=&g_res_cp_atlas[RES_CP_SMALL];
-     float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w);
-     float sy=geo->small_y_alvo+g_res_barra.correcao_y;
+     float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+g_res_off_x;
+     float sy=res_cp_small_y_desde((float)g_res_cp_atlas[RES_CP_SMALL].h,
+                                   g_res_t_rel)+g_res_barra.correcao_y+g_res_off_y;
      int pct=resultado_pct_alvo();
      int nd=res_cp_digitos(pct),off=res_cp_deslocamento(nd),ind;
      {texbuffer_t ct=stagetex;

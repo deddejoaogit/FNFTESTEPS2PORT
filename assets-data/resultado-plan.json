@@ -1594,6 +1594,8 @@
    "small_fixo_x": 307.5,
    "small_y_alvo": 58.5,
    "small_texto_x": 20.0,
+   "small_atraso_ms": 850,
+   "small_tween_ms": 500,
    "inicio_q": 37,
    "tween_q": 58,
    "flash_ms": 400,

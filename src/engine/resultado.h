@@ -235,6 +235,7 @@ typedef struct {
     float         y_alvo;   /* alvo do tween de entrada em y                 */
     float         larg, alt;/* tamanho do bitmap do titulo                   */
     float         x, y;     /* saida: canto do sprite, em 640x360            */
+    float         dx, dy;   /* so' o que o SCROLL somou (sem a entrada)      */
 } res_nome_t;
 
 /* Comeca o primeiro ciclo em `ms` (`timerThenSongName(1.0, false)` do create). */
@@ -279,6 +280,17 @@ int res_barra_assentada(unsigned long ms);
 
 /* Deslocamento em y da imagem de dificuldade (altura dela em px, 640x360). */
 float res_dif_y(float altura, unsigned long ms);
+
+/* O mesmo tween, contado a partir de `desde` -- e' o que `update()` faz a cada
+ * recomeco do ciclo: `timerThenSongName()` repo~e `difficulty.y = -height` e
+ * repete o tween de 0,8 s + 0,5 s expoOut. `res_dif_y(h, ms)` e'
+ * `res_dif_y_desde(h, ms)` (o ciclo zero). */
+float res_dif_y_desde(float altura, unsigned long desde);
+
+/* O tween de entrada do PERCENTUAL PEQUENO (`timerThenSongName` L752-757):
+ * `small.y = -height` e vai ate' `small_y_alvo` em 0,5 s com expoOut, com
+ * 0,85 s de atraso. Contado a partir de `desde` porque ele tambem recomeca. */
+float res_cp_small_y_desde(float altura, unsigned long desde);
 
 /* Indice em `g_res_dif` da dificuldade jogada (0..2 = easy/normal/hard), ou
  * -1 se o valor nao for uma das tres do port. */

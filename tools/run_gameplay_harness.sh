@@ -32,12 +32,16 @@
 # tempo virtual do harness.
 #
 # Uso:  tools/run_gameplay_harness.sh [quadros]
+# 7600 quadros (127 s): a musica e o resultado cabem nisso e ainda sobram ~27 s
+# de tela de resultado, o que e' o tempo necessario para o nome da musica
+# RECIRCULAR duas vezes (o ciclo medido e' de ~12,9 s) -- sem isso o teste
+# provaria so' a entrada.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO" || exit 1
 
-FRAMES=${1:-5600}
+FRAMES=${1:-7600}
 LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 CHART=build/harness_assets/FNFPS2/assets/songs/tutorial/normal.chart
 # Entrada no tutorial (as tres primeiras cruzes sao titulo -> menu -> story;
@@ -136,6 +140,17 @@ RESDIFB=$(awk -F, '$1=="E" && $3=="resultado_dif_arte" {print $5; exit}' "$LOG")
 # (`(difficulty.x + difficulty.width) + 60`, em decimos de px).
 RESCLEARSMALL=$(awk -F, '$1=="E" && $3=="resultado_clear_small" {print $4; exit}' "$LOG")
 RESCLEARSMALLX=$(awk -F, '$1=="E" && $3=="resultado_clear_small" {print $5; exit}' "$LOG")
+# O NOME DA MUSICA. `resultado_nome_arte` traz 1 e o tamanho do bitmap do
+# titulo; `resultado_nome` a posicao de entrada (468,5 / -30,0, em decimos);
+# `resultado_nome_move` o primeiro quadro em que ele saiu do x de entrada;
+# `resultado_nome_ciclo` cada recomeco do ciclo (`x + largura < 100`).
+RESNOMEARTE=$(awk -F, '$1=="E" && $3=="resultado_nome_arte" {print $4; exit}' "$LOG")
+RESNOMEB=$(awk -F, '$1=="E" && $3=="resultado_nome_arte" {print $5; exit}' "$LOG")
+RESNOME=$(awk -F, '$1=="E" && $3=="resultado_nome" {print $4; exit}' "$LOG")
+RESNOMEY=$(awk -F, '$1=="E" && $3=="resultado_nome" {print $5; exit}' "$LOG")
+RESNOMEMOVE=$(awk -F, '$1=="E" && $3=="resultado_nome_move" {print $4; exit}' "$LOG")
+RESNOMEMOVEMS=$(awk -F, '$1=="E" && $3=="resultado_nome_move" {print $5; exit}' "$LOG")
+RESNOMECICLOS=$(awk -F, '$1=="E" && $3=="resultado_nome_ciclo" {n++} END{print n+0}' "$LOG")
 RESBARRA=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $4; exit}' "$LOG")
 RESBARRA1=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $5; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
@@ -187,6 +202,8 @@ echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
 echo "  percentual no topo .......... na tela=${RESCLEARSMALL:-?}% em x=${RESCLEARSMALLX:-?}.X (esperado 81% e 4215)"
 echo "  barra do topo ............... borda ${RESBARRA:-?}.X / ${RESBARRA1:-?}.X (esperado 742 / 317) imagem da dificuldade=${RESDIFARTE:-?} (${RESDIFB:-?} B)"
+echo "  nome da musica .............. arte=${RESNOMEARTE:-?} (${RESNOMEB:-?} B) entrada=${RESNOME:-?}.X / ${RESNOMEY:-?}.X"
+echo "  nome: scroll / ciclos ....... saiu do lugar em ${RESNOMEMOVEMS:-?} ms a x=${RESNOMEMOVE:-?}.X, ${RESNOMECICLOS:-?} recomeco(s)"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -360,6 +377,29 @@ else
     [ "$RESBARRA1" -ge 313 ] && [ "$RESBARRA1" -le 321 ] || {
         echo "  FALHA: a borda direita da barra assentou em $RESBARRA1 (esperado 317)"; FALHA=1; }
 fi
+
+# O NOME DA MUSICA: bitmap do titulo carregado, entrada em 468,5 / -30,0 (o
+# `x = clearPercentSmall.x + 94` e o `y = -height` do `timerThenSongName`), o
+# scroll comecando DEPOIS do `showSmallClearPercent` (+2,5 s do `getBFDelay`) e
+# o ciclo recomecando duas vezes em 127 s.
+[ "${RESNOMEARTE:-0}" -eq 1 ] || { echo "  FALHA: o nome da musica nao carregou a arte (${RESNOMEARTE:-?})"; FALHA=1; }
+if [ -z "${RESNOME:-}" ]; then
+    echo "  FALHA: o nome da musica nunca foi desenhado"; FALHA=1
+else
+    [ "$RESNOME" -ge 4675 ] && [ "$RESNOME" -le 4695 ] || {
+        echo "  FALHA: o nome entrou em x=$RESNOME (esperado 4685)"; FALHA=1; }
+    [ "${RESNOMEY:-0}" -ge -310 ] && [ "${RESNOMEY:-0}" -le -290 ] || {
+        echo "  FALHA: o nome entrou em y=$RESNOMEY (esperado -300, y = -altura)"; FALHA=1; }
+fi
+if [ -z "${RESNOMEMOVE:-}" ]; then
+    echo "  FALHA: o nome nunca comecou a andar"; FALHA=1
+else
+    [ "$RESNOMEMOVE" -lt 4680 ] || { echo "  FALHA: o nome reportou o scroll em x=$RESNOMEMOVE (nao saiu da entrada)"; FALHA=1; }
+    [ "${RESNOMEMOVEMS:-0}" -ge 5800 ] || {
+        echo "  FALHA: o nome comecou a andar em ${RESNOMEMOVEMS} ms (antes do getBFDelay + 2,5 s)"; FALHA=1; }
+fi
+[ "${RESNOMECICLOS:-0}" -ge 2 ] || {
+    echo "  FALHA: o nome recomecou ${RESNOMECICLOS:-0} vez(es) em 127 s (esperado 2+)"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo

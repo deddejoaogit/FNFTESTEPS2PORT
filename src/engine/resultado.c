@@ -544,17 +544,34 @@ int res_barra_assentada(unsigned long ms)
                                 + (unsigned long)g_res_barra.tween_q) ? 1 : 0;
 }
 
-float res_dif_y(float altura, unsigned long ms)
+float res_dif_y_desde(float altura, unsigned long desde)
 {
     unsigned long ini = (unsigned long)g_res_dif_geo.atraso_ms;
     unsigned long fim = ini + (unsigned long)g_res_dif_geo.tween_ms;
     float t, e;
-    if (ms <= ini) return -altura;
-    if (ms >= fim) return g_res_dif_geo.y_alvo;
-    t = (float)(ms - ini) / (float)(fim - ini);
+    if (desde <= ini) return -altura;
+    if (desde >= fim) return g_res_dif_geo.y_alvo;
+    t = (float)(desde - ini) / (float)(fim - ini);
     /* FlxEase.expoOut: 1 - 2^(-10t). Em t = 1 vale 1 (2^-10 nao e' zero). */
     e = 1.0f - powf(2.0f, -10.0f * t);
     return -altura + (g_res_dif_geo.y_alvo + altura) * e;
+}
+
+float res_dif_y(float altura, unsigned long ms)
+{
+    return res_dif_y_desde(altura, ms);
+}
+
+float res_cp_small_y_desde(float altura, unsigned long desde)
+{
+    unsigned long ini = (unsigned long)g_res_cp_geo.small_atraso_ms;
+    unsigned long fim = ini + (unsigned long)g_res_cp_geo.small_tween_ms;
+    float t, e;
+    if (desde <= ini) return -altura;
+    if (desde >= fim) return g_res_cp_geo.small_y_alvo;
+    t = (float)(desde - ini) / (float)(fim - ini);
+    e = 1.0f - powf(2.0f, -10.0f * t);   /* FlxEase.expoOut, igual ao original */
+    return -altura + (g_res_cp_geo.small_y_alvo + altura) * e;
 }
 
 int res_dif_indice(int dificuldade)
@@ -654,6 +671,8 @@ static void res_nome_reiniciar(res_nome_t *n, unsigned long ms)
     n->move = n->ramp;
     n->x = n->x0;
     n->y = -n->alt;
+    n->dx = 0.0f;
+    n->dy = 0.0f;
 }
 
 void res_nome_passo(res_nome_t *n, unsigned long ms)
@@ -669,8 +688,10 @@ void res_nome_passo(res_nome_t *n, unsigned long ms)
         float um = (float)((long)n->move - (long)res_nome_ms_ramp(n)) / 1000.0f;
         desloc = res_nome_fator(u, T) - res_nome_fator(um, T);
     }
-    n->x = n->x0 + g_res_nome_geo.vel_x * desloc;
-    n->y = res_nome_y_entrada(n, ms) + g_res_nome_geo.vel_y * desloc;
+    n->dx = g_res_nome_geo.vel_x * desloc;
+    n->dy = g_res_nome_geo.vel_y * desloc;
+    n->x = n->x0 + n->dx;
+    n->y = res_nome_y_entrada(n, ms) + n->dy;
     if (n->x + n->larg < g_res_nome_geo.ciclo_fim_x) res_nome_reiniciar(n, ms);
 }
 

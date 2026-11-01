@@ -3361,10 +3361,27 @@ O texto so' aparece quando a barra assenta (`onComplete` do tween da barra:
 `songName.visible = true`) e e' recortado em `clipRect = max(0, 520 - x)`
 (**260 px** na metade) para nao passar por cima do placar.
 
+**Os tres sprites do topo rolam JUNTOS.** `update()` (L806-826) soma o mesmo
+`speedOfTween * 60 * elapsed` em x e y do nome, da imagem da dificuldade e do
+percentual pequeno, e quando `songName.x + songName.width < 100` chama
+`timerThenSongName()` -- que poe os tres de volta em `y = -height`, repete o
+tween de entrada de cada um (0,8 s / 0,85 s / 0,9 s de atraso, 0,5 s de
+`expoOut`) e espera 3,0 s para voltar a andar. Ou seja: a cada **~12,9 s** a
+dificuldade e o percentual pequeno SOBEM de novo, do mesmo jeito que o titulo.
+Por isso `res_nome_t` guarda `dx`/`dy` (so' o que o scroll somou, sem a entrada)
+e as entradas da dificuldade e do percentual pequeno sao medidas **desde o
+inicio do ciclo** (`res_dif_y_desde`, `res_cp_small_y_desde`), nao desde a
+abertura da tela.
+
+Medido: os recomecos saem em 15.883 / 28.750 / 41.616 ms de tela (passo de
+**12,87 s**), e o `tools/run_gameplay_harness.sh` cobra dois deles.
+
 Medido no harness (`tools/run_gameplay_harness.sh 5600`):
 `resultado_nome_arte,1,17280` (o bitmap do Tutorial), `resultado_nome,4685,-300`
-(entra em 468,5 / -30,0) e `resultado_nome_move,4634,6550` (aos 6550 ms o texto
-ja' andou 5 px para a esquerda, ou seja o scroll comecou).
+(entra em 468,5 / -30,0), `resultado_nome_move,4634,6566` (aos 6566 ms o texto
+ja' tinha saido do x de entrada) e `resultado_nome_ciclo` tres vezes em 127 s de
+harness. O roteiro padrao (`tools/run_gameplay_harness.sh`) passou de 5600 para
+**7600 quadros** para que os dois recomecos caibam no teste.
 
 #### A tela de Resultado: o que falta, medido
 
