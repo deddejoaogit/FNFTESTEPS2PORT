@@ -139,6 +139,30 @@ void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
     out->cam_y = slot->y + c->oy - canvas_h * 0.5f + c->cy + slot->cy;
 }
 
+int ch_offset_anim(int ci, int ai, float escala_personagem, float escala_slot,
+                   float *dx, float *dy)
+{
+    const ch_dados_t *c;
+    const ch_anim_dados_t *a;
+    float s;
+    if (dx) *dx = 0.0f;
+    if (dy) *dy = 0.0f;
+    if (ci < 0 || ci >= CH_CHAR_COUNT) return 0;
+    c = &ch_chars[ci];
+    if (ai < 0 || ai >= c->anim_count) return 0;
+    a = &ch_anims[c->anim_first + ai];
+    if (a->dx == 0.0f && a->dy == 0.0f) return 0;   /* nada a deslocar */
+    /* O fator do flixel e' o scale do SPRITE: CharacterData.scale vezes o
+       scale do slot (Stage.hx L451-455 faz finalScale = getBaseScale() *
+       stageCharData.scale). Negativo porque o original SUBTRAI
+       (Bopper.hx L338-339). */
+    s = (escala_personagem > 0.0f ? escala_personagem : 1.0f)
+        * (escala_slot > 0.0f ? escala_slot : 1.0f);
+    if (dx) *dx = -a->dx * s;
+    if (dy) *dy = -a->dy * s;
+    return 1;
+}
+
 int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS])
 {
     if (!song || !out) return -1;

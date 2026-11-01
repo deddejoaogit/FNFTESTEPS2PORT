@@ -1374,6 +1374,9 @@ static int g_cena_tam_visto[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
 static int g_cena_hold_visto[CH_CENA_PAPEIS];
 static int g_cena_pulos_visto[CH_CENA_PAPEIS];
+/* Um aviso por papel: a primeira animacao com `offsets` proprio aplicada (ver
+   o bloco OFFSETS POR ANIMACAO em cena_desenha). */
+static int g_cena_off_visto[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
 static unsigned int g_cena_pixels_cap=0;
 static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falhou */
@@ -1723,6 +1726,34 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
   float wm=0.0f,hm=0.0f;
   cena_canvas_mundo(papel,slot,&wm,&hm);   /* a MESMA conta que a camera usa */
   ch_anchor(&ch_chars[ci],slot,wm,hm,0.0f,papel==CH_PAPEL_GF?0:1,&an);
+  /* OFFSETS POR ANIMACAO: a posicao do personagem NAO e' a mesma em toda
+     animacao. Bopper.hx L321-325 copia `animationOffsets.get(name)` para
+     `animOffsets` a cada troca de animacao e L338-339 subtrai
+     `(animOffsets - globalOffsets) * scale` no getScreenPosition. Hoje 155 das
+     523 animacoes dos 46 personagens tem offsets proprios (maior: o `ugh` do
+     tankman, [5,-40], que entra justamente pelo NOTE KIND). Sem isto o quadro
+     certo aparecia no lugar do quadro errado -- deslocado, nao faltando, que e'
+     o tipo de erro que so' a captura de tela pega.
+     Fica DEPOIS do ch_anchor porque o foco da CAMERA nao muda: o
+     resetCameraFocusPoint (BaseCharacter.hx L350-355) usa originalPosition +
+     cameraOffsets, que nao levam animOffsets.
+     Aplicado apenas no desenho; `an.cam_x/cam_y` continua saindo do ch_anchor. */
+  {int aoff=cc_anim(&g_cena,papel);
+   if(ci>=0&&aoff>=0&&aoff<g_cena.p[papel].pacote.n_anims){
+    int ai2=ch_anim_i(ci,g_cena.p[papel].pacote.anim[aoff].nome);
+    float odx=0.0f,ody=0.0f;
+    if(ch_offset_anim(ci,ai2,ch_chars[ci].scale,slot->scale,&odx,&ody)){
+     an.sprite_x+=odx;an.sprite_y+=ody;
+     /* Uma medida por papel e por animacao seria ruido; uma por papel, com a
+        PRIMEIRA que teve offset, prova no log do console que a conta rodou. */
+     if(!g_cena_off_visto[papel]){g_cena_off_visto[papel]=1;
+      /* Em centesimos de pixel: os offsets do JSON sao inteiros, e o log tem
+         de mostrar o MESMO numero do dado (o `ugh` do tankman tem de sair -500
+         e +4000, nao -5 e 40). */
+      telemetry_event("char_anim_offset",papel,(int)(odx*100.0f));
+      telemetry_event("char_anim_offset_y",papel,(int)(ody*100.0f));}
+    }
+   }}
   q=bind_texture_filter(q,&g_cena_texde[papel],1);
   {
    float sx=320.0f+(an.sprite_x-cx)*sc,sy=180.0f+(an.sprite_y-cy)*sc;

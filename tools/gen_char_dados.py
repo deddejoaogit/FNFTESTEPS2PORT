@@ -72,7 +72,15 @@ def render(plan):
     linhas.append("/* Uma animacao de um personagem: o nome que o jogo usa (\"idle\",")
     linhas.append("   \"singLEFT\", \"singLEFTmiss\", \"danceLeft\") e o prefixo no atlas")
     linhas.append("   de origem (\"BF idle dance\"), que e' o que o empacotador procura. */")
-    linhas.append("typedef struct{const char*name;const char*prefix;}ch_anim_dados_t;")
+    linhas.append("typedef struct{")
+    linhas.append("  const char*name;   /* nome que o jogo usa (.hx / chart)          */")
+    linhas.append("  const char*prefix; /* prefixo no atlas de origem                 */")
+    linhas.append("  float dx,dy;       /* `offsets` DA ANIMACAO, em pixels de arte;")
+    linhas.append("                        [0,0] quando o JSON nao traz (CharacterData.hx")
+    linhas.append("                        L637 DEFAULT_OFFSETS). Ver Bopper.hx L318-341:")
+    linhas.append("                        getScreenPosition subtrai animOffsets, entao a")
+    linhas.append("                        animacao e' desenhada em pos-animOffsets.       */")
+    linhas.append("}ch_anim_dados_t;")
     linhas.append("")
     linhas.append("typedef struct{")
     linhas.append("  const char*id;")
@@ -124,7 +132,15 @@ def render(plan):
             nome = a.get("name")
             if not nome:
                 continue
-            anims.append((nome, a.get("prefix") or nome))
+            # offsets POR ANIMACAO: Bopper.hx L321-325 (applyAnimationOffsets)
+            # le animationOffsets.get(name) e L338-339 subtrai
+            # (animOffsets - globalOffsets)*scale no getScreenPosition. Sem
+            # `offsets` no JSON o original usa [0,0] (CharacterData.hx L637
+            # DEFAULT_OFFSETS), que NAO e' o mesmo que faltar dado: e' o valor
+            # declarado do padrao.
+            oa = a.get("offsets") or [0.0, 0.0]
+            anims.append((nome, a.get("prefix") or nome,
+                          float(oa[0]), float(oa[1])))
         chars.append({
             "id": cid,
             "render": RENDER.get(d.get("renderType") or "", RENDER_DEFAULT),
@@ -139,10 +155,18 @@ def render(plan):
 
     linhas.append("/* Animacoes de todos os personagens, agrupadas por personagem. */")
     linhas.append("static const ch_anim_dados_t ch_anims[]={")
-    for nome, pref in anims:
-        linhas.append("  {%s,%s}," % (c_str(nome), c_str(pref)))
+    n_com_off = 0
+    for nome, pref, dx, dy in anims:
+        if dx != 0.0 or dy != 0.0:
+            n_com_off += 1
+        linhas.append("  {%s,%s,%s,%s}," % (c_str(nome), c_str(pref),
+                                          c_float(dx), c_float(dy)))
     linhas.append("};")
     linhas.append("#define CH_ANIM_COUNT %d" % len(anims))
+    linhas.append("/* Quantas animacoes tem offsets proprios (nao-[0,0]); as outras"
+                  " desenham")
+    linhas.append("   exatamente onde o personagem esta'. */")
+    linhas.append("#define CH_ANIM_COM_OFFSET %d" % n_com_off)
     linhas.append("")
     linhas.append("static const ch_dados_t ch_chars[]={")
     for c in chars:

@@ -238,6 +238,87 @@ int main(void)
         CHECK_EQ(casos, CH_CHAR_COUNT * BS_STAGE_PROPS_COUNT * 3);
     }
 
+    printf("== personagens: offsets POR ANIMACAO (155 das 523) ==\n");
+    {
+        /* Bopper.hx L338-339: o desenho subtrai (animOffsets - globalOffsets)
+           * scale. O teste cobra as tres partes da conta: o sinal (offset
+           positivo puxa para a esquerda/cima), o fator (o scale do SPRITE, que
+           e' personagem x slot) e o caso sem offset (devolve 0 e nao mexe na
+           posicao).
+           Casos presos a mao, lidos do JSON: `bf-car/firstDeath` = [18,15]
+           (scale 1) e um personagem de PIXEL (scale 6) com offset na primeira
+           animacao que tiver -- ele tem de andar SEIS vezes mais. */
+        int n_com = 0, cim = ch_find("bf-car");
+        float dx = 123.0f, dy = 456.0f;
+        for (i = 0; i < CH_CHAR_COUNT; i++)
+            for (k = 0; k < ch_chars[i].anim_count; k++)
+                if (ch_anims[ch_chars[i].anim_first + k].dx != 0.0f
+                    || ch_anims[ch_chars[i].anim_first + k].dy != 0.0f) n_com++;
+        CHECK_EQ(n_com, CH_ANIM_COM_OFFSET);
+        CHECK_EQ(n_com, 155);
+
+        CHECK(cim >= 0);
+        {
+            int a = ch_anim_i(cim, "firstDeath");
+            CHECK(a >= 0);
+            CHECK_EQ(ch_offset_anim(cim, a, 1.0f, 1.0f, &dx, &dy), 1);
+            CHECK_NEAR(dx, -18.0, 1e-4);
+            CHECK_NEAR(dy, -15.0, 1e-4);
+            /* O scale do slot multiplica: no phillyBlazin os slots sao 1,75. */
+            CHECK_EQ(ch_offset_anim(cim, a, 1.0f, 1.75f, &dx, &dy), 1);
+            CHECK_NEAR(dx, -31.5, 1e-4);
+            CHECK_NEAR(dy, -26.25, 1e-4);
+        }
+        /* Personagem de pixel (scale 6): o mesmo offset anda 6x. */
+        {
+            int pix = -1, a = -1;
+            for (i = 0; i < CH_CHAR_COUNT && pix < 0; i++) {
+                if (ch_chars[i].scale != 6.0f) continue;
+                for (k = 0; k < ch_chars[i].anim_count; k++) {
+                    const ch_anim_dados_t *an = &ch_anims[ch_chars[i].anim_first + k];
+                    if (an->dx != 0.0f) { pix = i; a = k; break; }
+                }
+            }
+            CHECK(pix >= 0);
+            if (pix >= 0) {
+                const ch_anim_dados_t *an = &ch_anims[ch_chars[pix].anim_first + a];
+                CHECK_EQ(ch_offset_anim(pix, a, 6.0f, 1.0f, &dx, &dy), 1);
+                CHECK_NEAR(dx, -an->dx * 6.0, 1e-4);
+                CHECK_NEAR(dy, -an->dy * 6.0, 1e-4);
+            }
+        }
+        /* Animacao sem offsets: nao devolve 1 com zero -- devolve 0, para o
+           desenho poder pular a conta inteira. E zera a saida, senao quem
+           reusa dx/dy aplicaria o valor da animacao anterior. */
+        {
+            int a = ch_anim_i(cim, "idle");
+            dx = 7.0f; dy = 9.0f;
+            if (a >= 0) {
+                CHECK_EQ(ch_offset_anim(cim, a, 1.0f, 1.0f, &dx, &dy), 0);
+                CHECK_NEAR(dx, 0.0, 1e-6);
+                CHECK_NEAR(dy, 0.0, 1e-6);
+            }
+            CHECK_EQ(ch_offset_anim(cim, -1, 1.0f, 1.0f, &dx, &dy), 0);
+            CHECK_EQ(ch_offset_anim(cim, ch_chars[cim].anim_count, 1.0f, 1.0f, &dx, &dy), 0);
+            CHECK_EQ(ch_offset_anim(-1, 0, 1.0f, 1.0f, &dx, &dy), 0);
+            CHECK_EQ(ch_offset_anim(CH_CHAR_COUNT, 0, 1.0f, 1.0f, &dx, &dy), 0);
+            /* NULL nas saidas nao pode estourar: a funcao e' chamada de um
+               caminho de desenho que roda a 60 Hz no console. */
+            CHECK_EQ(ch_offset_anim(cim, 0, 1.0f, 1.0f, NULL, NULL), 0);
+        }
+        /* O `ugh` do tankman e' o caso que o NOTE KIND usa: [5,-40]. */
+        {
+            int tk = ch_find("tankman");
+            int a = tk >= 0 ? ch_anim_i(tk, "ugh") : -1;
+            CHECK(a >= 0);
+            if (a >= 0) {
+                CHECK_EQ(ch_offset_anim(tk, a, 1.0f, 1.0f, &dx, &dy), 1);
+                CHECK_NEAR(dx, -5.0, 1e-4);
+                CHECK_NEAR(dy, 40.0, 1e-4);
+            }
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  personagens: 46 personagens, %d animacoes, %d posicoes conferidas\n",
            CH_ANIM_COUNT, CH_CHAR_COUNT * BS_STAGE_PROPS_COUNT * 3);

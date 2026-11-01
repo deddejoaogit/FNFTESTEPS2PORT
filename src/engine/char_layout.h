@@ -111,6 +111,27 @@ void ch_anchor(const ch_dados_t *c, const bs_slot_t *slot,
                float canvas_w, float canvas_h, float pad, int usa_offsets,
                ch_anchor_t *out);
 
+/* OFFSETS POR ANIMACAO -- a posicao muda quando a animacao muda.
+   Fonte lida no original: Bopper.hx L321-325 (`applyAnimationOffsets` copia
+   `animationOffsets.get(name)` para `animOffsets`) e L336-341
+   (`getScreenPosition` faz `output.x -= (animOffsets[0] - globalOffsets[0]) *
+   scale.x`, idem y). A animacao sem `offsets` no JSON vale [0,0]
+   (CharacterData.hx L637 DEFAULT_OFFSETS), e o personagem desenha onde esta'.
+
+   Por que isto e' uma funcao e nao uma soma no desenho: o fator de escala NAO
+   e' 1 em todo personagem. O `scale` do flixel e' `CharacterData.scale` vezes
+   o `scale` do slot do palco (Stage.hx L451-455), e o delta do original e
+   multiplicado por ele -- nos personagens de pixel (scale 6) uma animacao com
+   offset [12,-6] anda 72 px na horizontal, nao 12. Devolve o delta JA' no
+   espaco em que ch_anchor() trabalha (unidades do original 1280x720), com o
+   sinal do original (offset positivo puxa o sprite para CIMA/ESQUERDA).
+
+   `ai` e' o indice da animacao DENTRO do personagem (o mesmo de ch_anim_i);
+   `escala_personagem` e' ch_chars[ci].scale, `escala_slot` e' slot->scale.
+   Devolve 0 se o personagem/animacao nao existem (e zera dx,dy). */
+int ch_offset_anim(int ci, int ai, float escala_personagem, float escala_slot,
+                   float *dx, float *dy);
+
 /* QUEM ENTRA EM CENA, E EM QUE SLOT.
    O original nao escolhe o slot pelo personagem, e sim pelo PAPEL: o
    jogador no slot `bf`, o oponente no `dad` e a namorada no `gf`

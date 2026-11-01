@@ -2502,3 +2502,47 @@ Os três headers saíram do mesmo plano, e o `--check` de cada um roda na suíte
 `src/engine/stage_vram_data.h` (tabela de VRAM). O teste de layout prende
 712×389 escrito à mão de propósito: se o empacotador mudar a escala, o número
 tem de ser reconferido em vez de o teste acompanhar sozinho.
+
+## Offsets por animacao: 155 das 523 animacoes estavam desenhadas no lugar errado
+
+O personagem nao fica no mesmo lugar em todas as animacoes -- cada animacao do
+`character.json` pode trazer `offsets`, e o original aplica o da animacao
+corrente quando ela comeca. O port somava so' o `offsets` do PERSONAGEM (o
+`globalOffsets`) e ignorava o da animacao: **155 das 523 animacoes dos 46
+personagens** tem offset proprio, e todas as 155 apareciam deslocadas. Nao e'
+um caso de canto raro: `bf-christmas/idle` e' [-5,0], `bf-christmas/singDOWN`
+e' [-10,-50], e o `ugh` do tankman -- que e' justamente um NOTE KIND -- e'
+[5,-40].
+
+A regra foi lida, nao deduzida:
+
+- `Bopper.hx` L321-325 (`applyAnimationOffsets`): toda troca de animacao copia
+  `animationOffsets.get(name)` para `animOffsets`;
+- `Bopper.hx` L336-341 (`getScreenPosition`): `output.x -= (animOffsets[0] -
+  globalOffsets[0]) * scale.x`, idem y;
+- animacao sem `offsets` no JSON recebe `[0,0]` (`CharacterData.hx` L637
+  `DEFAULT_OFFSETS`) -- que e' o valor declarado do padrao, nao dado faltando.
+
+O `* scale` e' a parte que se erra com facilidade: o scale do sprite e'
+`CharacterData.scale` vezes o `scale` do slot do palco (`Stage.hx` L451-455,
+`finalScale = getBaseScale() * stageCharData.scale`). Com os personagens de
+pixel (scale 6) uma animacao de offset [12,-6] anda **72** px na horizontal,
+nao 12. `ch_offset_anim()` recebe as duas escalas e devolve o delta ja' no
+espaco do `ch_anchor()`.
+
+O que muda no desenho: `cena_desenha()` aplica o delta DEPOIS do
+`ch_anchor()`. O foco da CAMERA nao muda -- o `resetCameraFocusPoint`
+(`BaseCharacter.hx` L350-355) usa `originalPosition + cameraOffsets`, que nao
+levam `animOffsets`. Aplicar o offset na camera moveria a camera a cada
+animacao, que e' um defeito que nao existe no original.
+
+Prova no log do console, uma vez por papel: `char_anim_offset` e
+`char_anim_offset_y`, em centesimos de pixel (para sair o mesmo numero do
+dado). No `ugh` do tankman: `-500` e `4000`, que e' [5,-40] com o sinal do
+original.
+
+O gerador mudou junto: `tools/gen_char_dados.py` passa a emitir `dx,dy` em
+`ch_anims[]` e `CH_ANIM_COM_OFFSET` (155), e o teste `test_char_layout.c`
+cobra o contador, o sinal, o fator de escala do slot (1,75 no phillyBlazin), o
+fator 6 dos personagens de pixel e o caso sem offset (devolve 0 e zera a
+saida, para nao vazar o valor da animacao anterior).
