@@ -3640,8 +3640,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   }
   /* GAME OVER: entrada, reinicio e saida.
      CROSS reinicia a musica e CIRCLE volta ao Story Menu, como no original
-     (ACCEPT_P -> confirmDeath() -> needsReset; BACK_P -> goBack()). Antes de
-     1 s (60 quadros) nada e' aceito, igual ao `canInput` do original. */
+     (ACCEPT_P -> confirmDeath() -> needsReset; BACK_P -> goBack()).
+     O `canInput` de 1 s do original (L186-189) NAO bloqueia o controle: ele
+     existe para o toque, e o ACCEPT_P/BACK_P nao o consultam (L271-278). Por
+     isso aqui as duas teclas valem a partir do segundo quadro do substate --
+     o primeiro e' o que arma `blueballed`. */
   if(transition_frame==0&&ui_state==10){
    g_gameover_frames++;
    g_go_ms+=TUT_DT*1000.0f;
