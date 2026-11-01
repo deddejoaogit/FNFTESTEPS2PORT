@@ -119,6 +119,7 @@ TOTAL=0
 OK=0
 HUD_OK=0
 HUD_SEMPAR=0
+ICONE_OK=0
 FALHOU=""
 AUDIO=0
 
@@ -140,6 +141,10 @@ for sid in $LISTA; do
         # o pulso; as que tem SetCameraBop dependem dos parametros do evento, e
         # um chart v3 nao os carrega -- o proprio jogo conta isso em
         # `bop_sem_parametros`.
+        # ICONES DE VIDA: um por lado, com a arte do `healthIcon` do personagem.
+        # Em toda musica os dois tem de carregar e aparecer no pacote de desenho.
+        nicone=$(awk -F, '$1=="E" && $3=="icone_carregado" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        icdes=$(campo icone_desenho 4)
         hudz=$(campo hud_zoom_pulso 4)
         hudnp=$(awk -F, '$1=="E" && $3=="bop_sem_parametros" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         layout=$(campo chart_layout 4)
@@ -324,6 +329,12 @@ for sid in $LISTA; do
             fi
         fi
 
+        if [ "${nicone:-0}" -lt 2 ] 2>/dev/null; then
+            motivo="icone de vida nao carregou nos dois lados${motivo:+, $motivo}"
+        elif [ "${icdes:-0}" -lt 20 ] 2>/dev/null; then
+            motivo="icones de vida quase nao desenhados${motivo:+, $motivo}"
+        fi
+
         if [ "${naudio:-0}" -ge 1 ]; then
             AUDIO=$((AUDIO + 1))
         else
@@ -331,6 +342,7 @@ for sid in $LISTA; do
         fi
 
         if [ -n "${hudz:-}" ]; then HUD_OK=$((HUD_OK + 1)); fi
+        if [ "${nicone:-0}" -ge 2 ] 2>/dev/null; then ICONE_OK=$((ICONE_OK + 1)); fi
         if [ "${hudnp:-0}" -ge 1 ] 2>/dev/null; then HUD_SEMPAR=$((HUD_SEMPAR + 1)); fi
 
         if [ -z "$motivo" ]; then
@@ -374,6 +386,9 @@ echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar c
 # sem parametro (rate 0) e o HUD congela -- fiel ao original, que exige
 # cameraZoomRate > 0 --, e o jogo conta isso em `bop_sem_parametros`.
 echo "  zoom do HUD: pulsou em $HUD_OK de $TOTAL combinacoes ($HUD_SEMPAR com SetCameraBop sem parametro)"
+# Icones de vida: quantas combinacoes mostram os DOIS (a checagem por musica
+# esta' acima; este numero denuncia uma musica que caiu no caminho antigo).
+echo "  icones de vida: $ICONE_OK de $TOTAL combinacoes com os dois icones carregados"
 echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combinacoes"
 # NOTE KINDS: quantos kinds o jogo de fato aplicou. No v3/v4 os charts nem
 # carregam o campo, entao o numero so' vale no passe v5 -- e o teste de

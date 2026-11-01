@@ -75,6 +75,14 @@ MISSES=$(awk -F, '$1=="E" && $3=="play_death" {n++} END{print n+0}' "$LOG")
 # O ZOOM DO HUD (camHUD.zoom). O HUD do original inteiro -- notas, barra,
 # icones, placar e a marca de versao -- esta' nessa camera, e ela sobe 3 % por
 # compasso e decai todo quadro (PlayState.hx L1227, L1846-1859).
+# ICONES DE VIDA. Os dois existem no original em TODA musica (PlayState.hx
+# L2155 jogador-2, L2190 jogador-1), com a arte do `healthIcon` do personagem e
+# 'face' quando ele nao declara um. Antes desta build o HUD mostrava dois
+# retangulos do atlas do tutorial: a arte existia no repositorio oficial e nunca
+# tinha sido empacotada.
+ICONES=$(awk -F, '$1=="E" && $3=="icone_carregado" {n++} END{print n+0}' "$LOG")
+ICONEDES=$(awk -F, '$1=="E" && $3=="icone_desenho" {print $4; exit}' "$LOG")
+ICONEEST=$(awk -F, '$1=="E" && $3=="icone_estado" {n++} END{print n+0}' "$LOG")
 HUDZOOM=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $4; exit}' "$LOG")
 HUDPULSOS=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $5; exit}' "$LOG")
 
@@ -103,6 +111,7 @@ echo "  rank / clear percent ......... ${RANK:-?} / ${PERC:-?}%"
 echo "  quads desenhados na tela 9 ... ${DRAW:-?}"
 echo "  batida / passos da contagem .. ${CDBEAT:-?} amostras / ${CDPASSOS:-?}"
 echo "  HUD: zoom maximo / pulsos .... ${HUDZOOM:-?} (milesimos) / ${HUDPULSOS:-?}"
+echo "  icones de vida ............... ${ICONES:-?} carregado(s), ${ICONEDES:-?} desenho(s), ${ICONEEST:-?} troca(s) de estado"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -137,6 +146,12 @@ fi
 # janela medida sem aceitar "nunca pulsou".
 [ "${HUDZOOM:-0}" -gt 1020 ] || { echo "  FALHA: o zoom do HUD nunca subiu (hud_zoom=$HUDZOOM)"; FALHA=1; }
 [ "${HUDPULSOS:-0}" -ge 20 ] || { echo "  FALHA: o HUD pulsou menos de 20 vezes ($HUDPULSOS)"; FALHA=1; }
+# Os DOIS icones tem de carregar, aparecer no pacote de desenho e nao ficar
+# congelados: o oponente sai de "idle" quando a vida passa do limiar (o roteiro
+# do tutorial deixa a vida cair e subir).
+[ "${ICONES:-0}" -ge 2 ] || { echo "  FALHA: menos de dois icones de vida carregaram ($ICONES)"; FALHA=1; }
+[ "${ICONEDES:-0}" -ge 100 ] || { echo "  FALHA: os icones quase nao foram desenhados ($ICONEDES)"; FALHA=1; }
+[ "${ICONEEST:-0}" -ge 1 ] || { echo "  FALHA: nenhum icone trocou de estado (idle/losing/winning)"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo

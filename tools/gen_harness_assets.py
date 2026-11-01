@@ -416,9 +416,49 @@ def build(root, charts_src=None):
                 f.write(pacote)
             nchar += 1
 
+    # ICONES DE VIDA: um pacote ICP1 por id de icone que o dado pede. Como no
+    # resto do harness o CONTEUDO e' sintetico -- o que se prova aqui e' o
+    # caminho (abrir, conferir o cabecalho, achar VRAM no pool, subir o quadro e
+    # trocar de estado pelo limiar), nao a arte. O TAMANHO e' o de verdade
+    # (96x96 com passo 128, ou 32x32 com passo 64 no pixel art), porque e' ele
+    # que entra na conta de VRAM.
+    nicone = 0
+    ids_icone = set()
+    if os.path.isdir(chars_json):
+        for arq in sorted(os.listdir(chars_json)):
+            if not arq.endswith(".json"):
+                continue
+            d = _json.load(open(os.path.join(chars_json, arq)))
+            hi = d.get("healthIcon")
+            ids_icone.add((hi or {}).get("id") or "face")
+        ids_icone.add("face")
+        for iid in sorted(ids_icone):
+            pixel = 1 if iid.endswith("-pixel") or iid in (
+                "face", "senpai", "senpai-angry", "spirit", "bf-pixel") else 0
+            alvo = 32 if pixel else 96
+            passo = 64 if pixel else 128
+            quadros = 2
+            dados = bytearray()
+            for q in range(quadros):
+                # RGBA5551: opaco, com um tom diferente por quadro para o teste
+                # poder ver a troca de estado.
+                # RGBA5551 com alfa ligado; o R muda entre os quadros para o
+                # harness poder provar que o quadro foi trocado.
+                v = 0x8000 | (0x1F if q == 0 else 0x03) | (0x1F << 10)
+                dados += (v.to_bytes(2, "little")) * (passo * alvo)
+            cab = struct.pack("<4s8H3I", b"ICP1", 1, alvo, alvo, quadros, 16, passo,
+                              pixel, 0, passo * alvo * 2, len(dados),
+                              sum(dados) & 0xFFFFFFFF)
+            destino = os.path.join(a, "icons", iid + ".icp")
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            with open(destino, "wb") as f:
+                f.write(cab + bytes(dados))
+            nicone += 1
+
     total = sum(len(v) for v in files.values())
     print(f"assets sinteticos: {len(files)} arquivos + {nchart} charts + "
-          f"{npalco} props de palco + {nchar} personagens, {total:,} bytes, em {a}")
+          f"{npalco} props de palco + {nchar} personagens + {nicone} icones, "
+          f"{total:,} bytes, em {a}")
     for name in ("menu_cache.rle", "bf_frames.lz4f", "gf_frames.lz4f"):
         print(f"  {name:22s} {len(files[name]):>10,} bytes")
     if not nchart:

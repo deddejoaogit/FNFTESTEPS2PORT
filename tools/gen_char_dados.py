@@ -97,6 +97,23 @@ def render(plan):
     linhas.append("  float dcx,dcy;")
     linhas.append("  float dzoom;")
     linhas.append("  int anim_first,anim_count;")
+    linhas.append("  /* O ICONE DE VIDA do HUD (`CharacterData.healthIcon`). O original:")
+    linhas.append("       HealthIcon.configure(data)   (play/components/HealthIcon.hx)")
+    linhas.append("         data.id       ?? Constants.DEFAULT_HEALTH_ICON ('face',")
+    linhas.append("                          util/Constants.hx L210)")
+    linhas.append("         data.isPixel  ?? false  -> PIXEL_ICON_SIZE 32 em vez de 150")
+    linhas.append("         data.shouldBop?? true   -> o pulo por passo")
+    linhas.append("         data.scale    ?? 1.0")
+    linhas.append("         data.offsets  ?? [0,0]")
+    linhas.append("         data.flipX    ?? false  (o codigo do original usa `?? false`)")
+    linhas.append("     Personagem SEM healthIcon no JSON usa o 'face' -- e' o valor")
+    linhas.append("     declarado do padrao, nao um chute. tools/orcamento_vram.py e")
+    linhas.append("     tools/check_char_icones.py leem o mesmo dado. */")
+    linhas.append("  const char*icone;")
+    linhas.append("  int icone_pixel;      /* isPixel: 1 desenha o icone de 32 px */")
+    linhas.append("  int icone_flip;")
+    linhas.append("  int icone_bop;        /* shouldBop */")
+    linhas.append("  float icone_scale,icone_ox,icone_oy;")
     linhas.append("}ch_dados_t;")
     linhas.append("")
     linhas.append("#define CH_RENDER_MULTIANIMATEATLAS 0")
@@ -146,6 +163,19 @@ def render(plan):
             oa = a.get("offsets") or [0.0, 0.0]
             anims.append((nome, a.get("prefix") or nome,
                           float(oa[0]), float(oa[1])))
+        hi = d.get("healthIcon")
+        if not isinstance(hi, dict):
+            hi = {}
+        # Ausente NAO e' zero: DEFAULT_HEALTH_ICON, DEFAULT_SCALE dos icones=1,0
+        # e offsets [0,0] sao os valores que o proprio original preenche.
+        iid = hi.get("id") or "face"
+        isc = hi.get("scale")
+        isc = float(isc) if isc is not None else 1.0
+        ioff = hi.get("offsets")
+        ioff = [float(ioff[0]), float(ioff[1])] if (ioff and len(ioff) == 2) else [0.0, 0.0]
+        # `shouldBop` e' lido pelo original so' quando aparece; ausente = true.
+        sbop = hi.get("shouldBop")
+        sbop = 1 if (sbop is None or sbop) else 0
         morte = d.get("death") or {}
         moff = morte.get("cameraOffsets") or [0.0, 0.0]
         mzoom = morte.get("cameraZoom")
@@ -161,6 +191,16 @@ def render(plan):
             "scale": esc,
             "dance": deve,
             "af": first, "ac": len(anims) - first,
+            "icone": iid,
+            # `isPixel` e' o que decide entre o icone de 150 e o de 32 no
+            # original (HealthIcon.PIXEL_ICON_SIZE). O dado do pacote de arte
+            # usa o mesmo campo; aqui ele fica no cabecalho do personagem para o
+            # jogo nao ter de abrir o PNG do icone para saber o tamanho.
+            "icone_pixel": 1 if hi.get("isPixel") else 0,
+            "icone_flip": 1 if hi.get("flipX") else 0,
+            "icone_bop": sbop,
+            "icone_scale": isc,
+            "icone_ox": ioff[0], "icone_oy": ioff[1],
         })
 
     linhas.append("/* Animacoes de todos os personagens, agrupadas por personagem. */")
@@ -180,13 +220,16 @@ def render(plan):
     linhas.append("")
     linhas.append("static const ch_dados_t ch_chars[]={")
     for c in chars:
-        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d},'
+        linhas.append('  {%s,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%s,%d,%d,%d,%s,%s,%s},'
                       % (c_str(c["id"]), c["render"], c["flipx"],
                          c_float(c["ox"]), c_float(c["oy"]),
                          c_float(c["cx"]), c_float(c["cy"]), c_float(c["sing"]),
                          c_float(c["dance"]), c_float(c["scale"]),
                          c_float(c["dcx"]), c_float(c["dcy"]), c_float(c["dzoom"]),
-                         c["af"], c["ac"]))
+                         c["af"], c["ac"],
+                         c_str(c["icone"]), c["icone_pixel"], c["icone_flip"],
+                         c["icone_bop"], c_float(c["icone_scale"]),
+                         c_float(c["icone_ox"]), c_float(c["icone_oy"])))
     linhas.append("};")
     linhas.append("#define CH_CHAR_COUNT %d" % len(chars))
     linhas.append("")

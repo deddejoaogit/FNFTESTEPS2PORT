@@ -36,6 +36,7 @@
 #include "engine/char_cena.h"
 #include "engine/char_layout.h"
 #include "engine/notekind.h"
+#include "engine/health_icon.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
 #include <stdio.h>
@@ -408,6 +409,10 @@ static int g_death_counter=0;
     g_countdown_beat=(s32)(4u*g_play_samples_per_step); \
     if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP); \
     g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left; \
+    /* A vida comeca em HEALTH_STARTING (= HEALTH_MAX/2 = 1,0) e a interpolada \
+       nasce igual a ela; o pulo dos icones comeca do zero. */ \
+    g_vida_lerp=1.0f;g_icone_ultimo_passo=-1;g_icone_desenhos=0; \
+    {int _l;for(_l=0;_l<ICONE_LADOS;_l++)hi_bop_reset(&g_icone_bop[_l]);} \
   }while(0)
 /* Volta a tocar do ponto em que a pausa pegou. */
 #define PLAY_RETOMAR_AUDIO(fd,amostra) do{ \
@@ -1294,6 +1299,240 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
     telemetry_event("pool_cena", novo_ui, (int)sp_livre(&g_pool));
 }
 
+/* ===== ICONES DE VIDA DO HUD (engine/health_icon.c) =====
+   Um por lado: 0 = jogador (BF), 1 = oponente. O pacote ICP1
+   (tools/empacotar_icones.py) traz os quadros no formato do original --
+   idle, losing e, quando existe, winning -- e o jogo troca de quadro pelo
+   limiar do `HealthIcon.updateHealthIcon`. A arte e' a do repositorio oficial
+   (preload/images/icons/icon-<id>.png), que sempre existiu e nunca tinha sido
+   empacotada. */
+#define ICONE_JOGADOR 0
+#define ICONE_OPONENTE 1
+#define ICONE_LADOS 2
+static hi_pack_t g_icone_pack[ICONE_LADOS];
+static unsigned char *g_icone_mem[ICONE_LADOS];
+static unsigned int g_icone_mem_bytes[ICONE_LADOS];
+static texbuffer_t g_icone_tex[ICONE_LADOS];
+static unsigned int g_icone_chave[ICONE_LADOS];
+static int g_icone_ativo[ICONE_LADOS];
+static int g_icone_quadro[ICONE_LADOS];   /* quadro que esta' na VRAM */
+static int g_icone_estado[ICONE_LADOS];   /* HI_IDLE/PERDENDO/GANHANDO   */
+static int g_icone_flip[ICONE_LADOS];
+static int g_icone_pixel[ICONE_LADOS];
+static int g_icone_bopa[ICONE_LADOS];     /* shouldBop do CharacterData  */
+static float g_icone_escala[ICONE_LADOS]; /* `scale` do healthIcon        */
+static float g_icone_offx[ICONE_LADOS],g_icone_offy[ICONE_LADOS];
+static hi_bop_t g_icone_bop[ICONE_LADOS];
+static int g_icone_ultimo_passo=-1;
+static unsigned int g_icone_desenhos=0;    /* quantos icones foram ao pacote */
+/* Vida INTERPOLADA (PlayState.healthLerp, L2767-2779): a barra e os icones
+   andam por ela, e o estado dos icones pela vida crua (HealthIcon L305/L325).
+   Sem isso a barra salta de um valor ao outro no mesmo quadro do acerto. */
+static float g_vida_lerp=1.0f;
+
+/* ============ ICONES DE VIDA: carga, estado e desenho ============
+   O pacote vem de mass:/FNFPS2/assets/icons/<id>.icp (tools/empacotar_icones.py).
+   Cada lado tem a sua chave no pool (+6 jogador, +7 oponente) e fica FIXO
+   enquanto a musica roda -- o quadro e' reenviado quando o estado muda, e um
+   despejo no meio do quadro daria icone em branco. */
+#define ICONE_CHAVE_JOGADOR (SP_CHAVE_TELA_BASE + 6u)
+#define ICONE_CHAVE_OPONENTE (SP_CHAVE_TELA_BASE + 7u)
+
+static u32 cena_spv(void);   /* definida mais abaixo, usada pelo pulo do icone */
+
+static float icone_escala_quadro(int lado)
+{
+    if (lado < 0 || lado >= ICONE_LADOS) return 1.0f;
+    return hi_bop_escala(&g_icone_bop[lado]);
+}
+
+static void icone_soltar(void)
+{
+    int i;
+    for (i = 0; i < ICONE_LADOS; i++) {
+        sp_soltar(&g_pool, ICONE_CHAVE_JOGADOR + (unsigned int)i);
+        if (g_icone_mem[i]) { free(g_icone_mem[i]); g_icone_mem[i] = 0; }
+        g_icone_ativo[i] = 0;
+        g_icone_quadro[i] = -1;
+        g_icone_estado[i] = -1;
+        hi_bop_reset(&g_icone_bop[i]);
+    }
+}
+
+/* Sobe UM quadro do icone para a textura dele. */
+static int icone_envia(int lado, int quadro)
+{
+    const unsigned char *src;
+    if (lado < 0 || lado >= ICONE_LADOS) return -1;
+    if (!g_icone_ativo[lado] || quadro < 0) return -1;
+    src = hi_quadro(g_icone_mem[lado], &g_icone_pack[lado], (unsigned int)quadro);
+    if (!src) return -1;
+    FlushCache(0);
+    upload_raw_psm(&g_icone_tex[lado], (unsigned char *)src,
+                   (int)g_icone_pack[lado].passo, (int)g_icone_pack[lado].h, GS_PSM_16);
+    g_icone_quadro[lado] = quadro;
+    return 0;
+}
+
+/* Carrega o icone do lado `lado` para o personagem `ci` (-1 = ninguem). */
+static int icone_carregar(int lado, int ci)
+{
+    char path[96];
+    int fd, rc;
+    long tam = 0;
+    unsigned int key = ICONE_CHAVE_JOGADOR + (unsigned int)lado;
+    const char *id;
+    if (lado < 0 || lado >= ICONE_LADOS) return -1;
+    g_icone_ativo[lado] = 0;
+    g_icone_quadro[lado] = -1;
+    g_icone_estado[lado] = -1;
+    sp_soltar(&g_pool, key);
+    if (ci < 0 || ci >= CH_CHAR_COUNT) {
+        /* Sem personagem nao ha' icone: o original tambem nao cria o
+           `HealthIcon` quando o papel nao existe (PlayState L2155/L2190 estao
+           dentro dos `if` de cada personagem). */
+        telemetry_event("icone_sem_personagem", lado, ci);
+        return -1;
+    }
+    id = ch_chars[ci].icone ? ch_chars[ci].icone : "face";
+    snprintf(path, sizeof path, "mass:/FNFPS2/assets/icons/%s.icp", id);
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        telemetry_event("icone_sem_arte", lado, (int)id[0]);
+        return -2;
+    }
+    tam = lseek(fd, 0, SEEK_END);
+    if (tam <= 0 || tam > 262144L) {
+        close(fd);
+        telemetry_event("icone_tamanho", lado, (int)tam);
+        return -3;
+    }
+    lseek(fd, 0, SEEK_SET);
+    if (!g_icone_mem[lado] || g_icone_mem_bytes[lado] < (unsigned int)tam) {
+        if (g_icone_mem[lado]) free(g_icone_mem[lado]);
+        g_icone_mem[lado] = memalign(128, (unsigned int)tam);
+        g_icone_mem_bytes[lado] = g_icone_mem[lado] ? (unsigned int)tam : 0u;
+    }
+    if (!g_icone_mem[lado]) { close(fd); return -4; }
+    if (read(fd, g_icone_mem[lado], (int)tam) != (int)tam) {
+        close(fd);
+        telemetry_event("icone_leitura", lado, (int)tam);
+        return -5;
+    }
+    close(fd);
+    rc = hi_pack_ler(g_icone_mem[lado], (unsigned int)tam, &g_icone_pack[lado]);
+    if (rc != 0) {
+        telemetry_event("icone_pacote", lado, rc);
+        return -6;
+    }
+    g_icone_tex[lado].width = g_icone_pack[lado].passo;
+    g_icone_tex[lado].psm = GS_PSM_16;
+    g_icone_tex[lado].address = 0;
+    { unsigned int addr = 0;
+      if (sp_chave(&g_pool, key, hi_vram_bytes(&g_icone_pack[lado]), &addr) < 0) {
+          telemetry_event("icone_sem_vram", lado, (int)hi_vram_bytes(&g_icone_pack[lado]));
+          return -7;
+      }
+      g_icone_tex[lado].address = addr;
+      sp_fixar(&g_pool, key); }
+    g_icone_chave[lado] = key;
+    g_icone_flip[lado] = ch_chars[ci].icone_flip;
+    g_icone_pixel[lado] = ch_chars[ci].icone_pixel;
+    g_icone_bopa[lado] = ch_chars[ci].icone_bop;
+    g_icone_escala[lado] = ch_chars[ci].icone_scale > 0.0f ? ch_chars[ci].icone_scale : 1.0f;
+    g_icone_offx[lado] = ch_chars[ci].icone_ox;
+    g_icone_offy[lado] = ch_chars[ci].icone_oy;
+    g_icone_ativo[lado] = 1;
+    hi_bop_reset(&g_icone_bop[lado]);
+    g_icone_estado[lado] = -1;
+    telemetry_event("icone_carregado", lado, (int)hi_vram_bytes(&g_icone_pack[lado]));
+    telemetry_event("icone_quadros", (int)g_icone_pack[lado].quadros, (int)g_icone_pack[lado].w);
+    return icone_envia(lado, 0);
+}
+
+/* A cada passo: se o passo casa com bopEvery (4 = uma vez por batida, o
+   `Constants.STEPS_PER_BEAT` do original) e o personagem deve pular, comeca o
+   tween do pulo (HealthIcon L337-360). */
+static void icone_passo(int passo)
+{
+    int lado;
+    if (passo < 0 || passo == g_icone_ultimo_passo) return;
+    g_icone_ultimo_passo = passo;
+    if (passo % 4 != 0) return;
+    for (lado = 0; lado < ICONE_LADOS; lado++) {
+        if (!g_icone_ativo[lado] || !g_icone_bopa[lado]) continue;
+        /* stepLengthMs / 1000: o pulo dura min(stepLength*2, 0,175) s. */
+        hi_bop_passo(&g_icone_bop[lado], (float)cena_spv() / 48000.0f);
+    }
+}
+
+/* Estado do icone pela vida CRUA (HealthIcon L325: updateHealthIcon(health))
+   e subida do quadro quando ele muda. */
+static void icone_atualiza(float health)
+{
+    int lado;
+    for (lado = 0; lado < ICONE_LADOS; lado++) {
+        unsigned int estado;
+        float vida;
+        if (!g_icone_ativo[lado]) continue;
+        vida = (lado == ICONE_JOGADOR) ? health : hi_vida_oponente(health);
+        estado = hi_estado(vida, g_icone_pack[lado].quadros);
+        if ((int)estado != g_icone_estado[lado]) {
+            g_icone_estado[lado] = (int)estado;
+            if (icone_envia(lado, (int)estado) == 0)
+                telemetry_event("icone_estado", lado, (int)estado);
+        }
+    }
+}
+
+/* Desenha os dois icones na camHUD. `vida_lerp` e' a vida interpolada (0..2),
+   que e' o que o `healthBar.value` do original vale (PlayState L2767-2779). */
+static qword_t *icone_desenha(qword_t *q, float vida_lerp)
+{
+    int lado;
+    /* A barra de verdade, em px de 640x360: fundo (169,75; 324) 300,5x9,5 do
+       original; o FlxBar interno tem 8 px a menos (593 -> 296,5) e comeca 4 px
+       dentro (x=171,75), com altura 326 (y do fundo + 4). */
+    const float barra_x = 171.75f, barra_w = 296.5f, barra_y = 326.0f;
+    for (lado = 0; lado < ICONE_LADOS; lado++) {
+        float x = 0.0f, y = 0.0f, px, w, h;
+        if (!g_icone_ativo[lado]) continue;
+        /* `size` escala o icone (snapToTargetSize: setGraphicSize(150 * size))
+           e o pulo soma 20 % sobre ele. */
+        px = HI_TELA_PX * g_icone_escala[lado] * icone_escala_quadro(lado);
+        w = px + g_icone_offx[lado];
+        h = px + g_icone_offy[lado];
+        hi_posicao(lado == ICONE_JOGADOR ? 0 : 1, barra_x, barra_w, barra_y,
+                   vida_lerp, w, h, &x, &y);
+        g_icone_desenhos++;
+        q = bind_texture_filter(q, &g_icone_tex[lado], g_icone_pixel[lado] ? 0 : 1);
+        if (g_icone_flip[lado]) {
+            texrect_t r2;
+            float cy0, cy1, cv0, cv1;
+            float dx = hz_x(x), dy = hz_y(y), dw = hz_s(w), dh = hz_s(h);
+            if (band_clip_v(vy(dy), vy(dy + dh), 0.0f, (float)g_icone_pack[lado].h,
+                            &cy0, &cy1, &cv0, &cv1)) {
+                g_frame_texture_quads++;
+                r2.v0.x = FNX_INI(dx); r2.v0.y = FNX_INI(cy0); r2.v0.z = 0;
+                r2.v1.x = FNX_FIM(dx + dw); r2.v1.y = FNX_FIM(cy1); r2.v1.z = 0;
+                band_clip_texel(cv0, cv1, &r2.t0.v, &r2.t1.v);
+                /* flipX: o original espelha o sprite, ou seja troca o u dos
+                   dois cantos. */
+                r2.t0.u = (float)g_icone_pack[lado].w - 0.5f;
+                r2.t1.u = 0.5f;
+                r2.color = rgba(0x80, 0x80, 0x80, 0x80);
+                dl_sprite(dx, dy, dw, dh, (float)g_icone_pack[lado].w, cv0,
+                          -(float)g_icone_pack[lado].w, cv1 - cv0, 0x80, &r2);
+                q = draw_rect_textured(q, 0, &r2);
+            }
+        } else {
+            q = sprite_region(q, hz_x(x), hz_y(y), hz_s(w), hz_s(h), 0.0f, 0.0f,
+                              (float)g_icone_pack[lado].w, (float)g_icone_pack[lado].h);
+        }
+    }
+    return q;
+}
+
 /* z dos personagens de um palco. A ordem de desenho do Stage.hx e' a de um
    unico grupo ordenado por `zIndex`, com personagens e props juntos, e o z de
    CADA personagem esta' no slot do palco (bs_slots[]). Os valores de reserva
@@ -1469,6 +1708,7 @@ static int g_cena_off_visto[CH_CENA_PAPEIS];
 static unsigned char *g_cena_pixels=0;
 static unsigned int g_cena_pixels_cap=0;
 static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falhou */
+
 static unsigned int g_cena_ram=0;
 static int g_cena_dad_ci=-1;         /* personagem do slot dad        */
 static int g_cena_bf_ci=-1,g_cena_gf_ci=-1;   /* jogador e namorada     */
@@ -1522,6 +1762,10 @@ static void cena_soltar(void)
 {
  custo_emite();
  int i;
+ /* O icone tambem e' da cena: solta a chave do pool e a memoria junto com os
+    pacotes de personagem (senao a proxima musica herdaria o icone da anterior
+    e a VRAM ficaria presa). */
+ icone_soltar();
  for(i=0;i<CH_CENA_PAPEIS;i++){if(g_cena_mem[i])free(g_cena_mem[i]);g_cena_mem[i]=0;g_cena_mem_bytes[i]=0;}
  g_cena_ram=0;
  g_cena_estado=0;
@@ -1738,6 +1982,11 @@ static int cena_carregar(const sr_song_t *song)
     O oponente do Tutorial e' a propria GF, e ela entra pelo slot `dad`. */
  g_cena_modo=g_cena.p[CH_PAPEL_BF].ativo?1:0;
  g_cena_estado=g_cena.p[CH_PAPEL_DAD].ativo?1:-3;
+ /* Os dois icones do HUD: o do jogador e o do oponente, com a arte que o
+    `healthIcon` do personagem pede (HealthIcon.hx; ausente = 'face'). Eles
+    dependem da CENA, entao nascem aqui junto com os pacotes. */
+ icone_carregar(ICONE_JOGADOR,g_cena_bf_ci);
+ icone_carregar(ICONE_OPONENTE,g_cena_dad_ci);
  return g_cena_estado>0?0:-3;
 }
 
@@ -3442,6 +3691,23 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    telemetry_event("tutorial_audio_end",(int)music_clock,(int)frame_no);
    custo_emite();
   }
+  /* VIDA INTERPOLADA E ICONES DE VIDA (HealthIcon).
+     O original atualiza a vida da barra por quadro com
+     `healthLerp = FlxMath.lerp(healthLerp, health, 0.15)` (PlayState.hx
+     L2767-2779) e os icones usam `healthBar.value` (= healthLerp) para a
+     POSICAO e `health` para o ESTADO (HealthIcon.hx L305, L325). Como o lerp do
+     original nao usa o tempo decorrido, ele e' por QUADRO -- copiar com dt
+     daria a velocidade errada.
+     O pulo do icone roda a cada passo que casa com bopEvery (4). */
+  if(ui_state==8){
+   float alvo=g_play.health;
+   if(alvo<0.0f)alvo=0.0f;
+   if(alvo>2.0f)alvo=2.0f;
+   g_vida_lerp+=(alvo-g_vida_lerp)*0.15f;
+   icone_atualiza(alvo);
+   icone_passo(cena_passo());
+   {int _l;for(_l=0;_l<ICONE_LADOS;_l++)hi_bop_tick(&g_icone_bop[_l],TUT_DT);}
+  }
   /* Tutorial note timing follows the submitted/played audio sample clock. */
   
 
@@ -3617,6 +3883,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       subiu. Sem isso, "o HUD pisca" nao teria numero nenhum no log do
       console -- e um zero aqui significa que a condicao de passo nunca casou. */
    telemetry_event("hud_zoom",(int)(g_hud_zoom_max*1000.0f),(int)chart_events_state()->hud_zoom_pulsos);
+   /* Os dois icones de vida: carregaram, desenharam e trocaram de estado?
+      Sem esta linha, "o icone aparece" nao teria prova. */
+   telemetry_event("icone_desenho",(int)g_icone_desenhos,
+      (g_icone_ativo[ICONE_JOGADOR]?1:0)|(g_icone_ativo[ICONE_OPONENTE]?2:0));
    /* SetCameraBop sem rate = chart v3 (sem parametro de evento). O build do
       pendrive usa FCH5, entao um numero aqui significa que o chart carregado
       nao era o do build. */
@@ -4370,7 +4640,9 @@ float x,y,w,h;
      da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
      em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o
      numero fixo que estava aqui e so' valia no primeiro quadro. */
-    float hf=fnf_play_health_ratio(&g_play),sx=468.25f-296.5f*hf;
+    /* A barra usa a vida INTERPOLADA (healthBar.value = healthLerp), nao a
+       crua: o original nunca mostra o valor instantaneo. */
+    float hf=g_vida_lerp*0.5f,sx=468.25f-296.5f*hf;
     if(sx<171.75f)sx=171.75f;
     if(sx>468.25f)sx=468.25f;
     if(sx>171.75f){
@@ -4378,9 +4650,10 @@ float x,y,w,h;
     }
     if(sx<468.25f){
         q=rect_alpha(q,hz_x(sx),hz_y(326.0f),hz_x(468.25f),hz_y(331.5f),102,255,51,128);
-    }}/* Os dois icones tambem sao camHUD (PlayState.hx L2160, L2195). */
- q=sprite_region(q,hz_x(258.0f),hz_y(288.5f),hz_s(75.0f),hz_s(75.0f),0,128,75,75);
- q=sprite_region(q,hz_x(307.0f),hz_y(288.5f),hz_s(75.0f),hz_s(75.0f),155,128,-75,75);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */{/* PlayState.updateScoreText(): "Score: " + FlxStringUtil.formatMoney(
+    }}/* Os dois icones tambem sao camHUD (PlayState.hx L2160, L2195). A arte vem do
+   pacote de icone de cada personagem (assets/icons/<id>.icp), e nao mais de um
+   pedaco do atlas do tutorial: o rosto e' o do personagem que esta' cantando. */
+ q=icone_desenha(q,g_vida_lerp);/* scoreText: FlxBitmapText defaults autoSize=true and fieldWidth=0; official FlxBitmapText states alignment has no visual effect in autoSize mode. Therefore glyph origin is exactly x=(339.5+601-190)/2=375.25, not a 190px field ending at 470.25. Four half-pixel black passes reconstruct borderSize=1 before the white glyph pass. */{/* PlayState.updateScoreText(): "Score: " + FlxStringUtil.formatMoney(
      songScore, SHOW_DECIMALS=false, COMMA_SEPARATED=true). Sem decimais e com
      virgula de milhar, entao 1500 vira "1,500". O texto era literalmente
      "Score: 0" e nunca mudava. */
