@@ -108,7 +108,8 @@ if [ ! -d "$GO_SRC" ]; then
     echo "FALTA $GO_SRC -- rode tools/empacotar_audio.py --assets <clone do funkin.assets>" >&2
     exit 1
 fi
-mkdir -p "$OUT/FNFPS2/assets/gameover" "$OUT/FNFPS2/assets/pause"
+mkdir -p "$OUT/FNFPS2/assets/gameover" "$OUT/FNFPS2/assets/pause" "$OUT/FNFPS2/assets/result"
+NRES=0
 NGO=0
 NPAUSA=0
 for f in "$GO_SRC"/*.pcm; do
@@ -117,10 +118,18 @@ for f in "$GO_SRC"/*.pcm; do
         # MUSICA DA PAUSA (`breakfast`, `breakfast-pico`) -- vai para
         # assets/pause/, que e' onde PauseSubState procura.
         breakfast*) cp "$f" "$OUT/FNFPS2/assets/pause/"; NPAUSA=$((NPAUSA+1)) ;;
+        # A MUSICA E OS SONS DA TELA DE RESULTADO (`res_*`, `scroll_menu`,
+        # `confirm_menu`, `tickle_fight`): ResultState procura em
+        # `resultScreen/...` no original, mas no port os PCM ficam em
+        # assets/result/ (mesma divisao de gameover/ e pause/).
+        res_*|scroll_menu*|confirm_menu*|tickle_fight*)
+            cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
     esac
 done
 echo "   $NPAUSA PCM(s) de pausa em assets/pause/"
+echo "   $NRES PCM(s) da tela de resultado em assets/result/"
+[ "$NRES" -ge 15 ] || { echo "FALTAM arquivos de audio do resultado em $GO_SRC ($NRES de 15)" >&2; exit 1; }
 [ "$NPAUSA" -ge 2 ] || { echo "FALTAM as musicas de pausa em $GO_SRC (breakfast.pcm/breakfast-pico.pcm)" >&2; exit 1; }
 [ "$NGO" -ge 13 ] || { echo "FALTAM arquivos de audio do game over em $GO_SRC ($NGO de 13)" >&2; exit 1; }
 [ -f "$GO_SRC/AUDIO.txt" ] && cp "$GO_SRC/AUDIO.txt" "$OUT/FNFPS2/assets/gameover/"
@@ -230,6 +239,7 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
        FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)
        FNFPS2/assets/pause/          a musica da pausa (breakfast*.pcm)
+       FNFPS2/assets/result/         a musica + os 3 sons do resultado (15 .pcm)
    Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
    os fundos nao aparecem. Sem gameover/ a tela de game over fica sem som
    (musica, o sfx do blue balls e o gameOverEnd do confirmar). Os dois casos deixam evento no log

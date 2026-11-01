@@ -92,6 +92,41 @@ SONS = [
 ]
 
 
+# MUSICA DA TELA DE RESULTADO (`ResultState.hx` L502-546). O caminho sai de
+# `getResultsMusicPath(rank)` do PERSONAGEM JOGAVEL (`players/<owner>.json`):
+# os dois donos deste projeto sao `bf` e `pico`, e o `spaghetti` (sserafim)
+# nao tem dono no registro -> `getCharacterOwnerId(...) ?? 'bf'` = bf.
+# Cada rank tem um arquivo; quando existe um `-intro`, o original toca o intro
+# UMA vez e depois passa para o arquivo principal em loop (L505-524).
+# As quatro pastas do clone de arte, medidas: resultsNORMAL e resultsNORMAL-pico
+# NAO tem intro; as outras seis tem. O `-intro` do resultsEXCELLENT-pico tem
+# 104,79 s (o do bf, 5,24 s) -- e' ele que determina o tamanho do pacote.
+RESULTADOS = [
+    ("shared/music/resultsPERFECT/resultsPERFECT", "res_perfect", True),
+    ("shared/music/resultsPERFECT-pico/resultsPERFECT-pico", "res_perfect_pico", True),
+    ("shared/music/resultsPERFECT-pico/resultsPERFECT-pico-intro", "res_perfect_pico_intro", False),
+    ("shared/music/resultsEXCELLENT/resultsEXCELLENT", "res_excellent", True),
+    ("shared/music/resultsEXCELLENT/resultsEXCELLENT-intro", "res_excellent_intro", False),
+    ("shared/music/resultsEXCELLENT-pico/resultsEXCELLENT-pico", "res_excellent_pico", True),
+    ("shared/music/resultsEXCELLENT-pico/resultsEXCELLENT-pico-intro", "res_excellent_pico_intro", False),
+    ("shared/music/resultsNORMAL/resultsNORMAL", "res_normal", True),
+    ("shared/music/resultsNORMAL-pico/resultsNORMAL-pico", "res_normal_pico", True),
+    ("shared/music/resultsSHIT/resultsSHIT", "res_shit", True),
+    ("shared/music/resultsSHIT/resultsSHIT-intro", "res_shit_intro", False),
+    ("shared/music/resultsSHIT-pico/resultsSHIT-pico", "res_shit_pico", True),
+]
+# OS SONS DA TELA DE RESULTADO. `scrollMenu` toca a cada aumento do percentual
+# (`FunkinSound.playOnce(Paths.sound('scrollMenu'))`, L598) e `confirmMenu` no
+# fim do tween (`playOnce(Paths.sound('confirmMenu'))`, L609). `tickleFight` e'
+# o `sound` de uma das animacoes do BF (`players/bf.json`, resultsPERFECT/perfect
+# -> `shared:tickleFight`), tocado no `afterRankTallySequence`.
+SONS_RESULTADO = [
+    ("preload/sounds/scrollMenu", "scroll_menu", False),
+    ("preload/sounds/confirmMenu", "confirm_menu", False),
+    ("shared/sounds/tickleFight", "tickle_fight", False),
+]
+
+
 def reamostra(dados, taxa_origem):
     """44,1 kHz -> 48 kHz por interpolacao linear.
 
@@ -136,7 +171,8 @@ def main():
     manifesto = []
     faltando = []
     total = 0
-    for grupo, itens in (("MUSICA", MUSICAS), ("PAUSA", PAUSA), ("SOM", SONS)):
+    for grupo, itens in (("MUSICA", MUSICAS), ("PAUSA", PAUSA), ("SOM", SONS),
+                         ("RESULT", RESULTADOS), ("RESULT", SONS_RESULTADO)):
         for origem, nome, loop in itens:
             ogg = os.path.join(args.assets, origem + ".ogg")
             if not os.path.isfile(ogg):

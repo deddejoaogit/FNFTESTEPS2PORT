@@ -675,6 +675,29 @@ def build(root, charts_src=None):
         "pause/breakfast.pcm": pcm(2 * 48000 * 4, 352),
         "pause/breakfast-pico.pcm": pcm(2 * 48000 * 4, 358),
 
+        # AUDIO DA TELA DE RESULTADO (mass:/FNFPS2/assets/result/).
+        # A musica vem do DONO do personagem jogavel, nao da musica: o harness
+        # toca o `bopeebo` (player `bf`) e chega no rank GREAT, ou seja
+        # `res_normal` -- mas todos os conjuntos sao gerados para que qualquer
+        # rank/musica do sweep ache o seu. 2 s bastam: o que o teste cobra e'
+        # que o arquivo abra no `getMusicDelay` do rank e que o ring ande.
+        # O `-intro` tem 1 s: e' o que prova a TROCA para o loop no fim dele.
+        "result/res_perfect.pcm": pcm(2 * 48000 * 4, 300),
+        "result/res_perfect_pico.pcm": pcm(2 * 48000 * 4, 302),
+        "result/res_perfect_pico_intro.pcm": pcm(1 * 48000 * 4, 304),
+        "result/res_excellent.pcm": pcm(2 * 48000 * 4, 306),
+        "result/res_excellent_intro.pcm": pcm(1 * 48000 * 4, 308),
+        "result/res_excellent_pico.pcm": pcm(2 * 48000 * 4, 310),
+        "result/res_excellent_pico_intro.pcm": pcm(1 * 48000 * 4, 312),
+        "result/res_normal.pcm": pcm(2 * 48000 * 4, 314),
+        "result/res_normal_pico.pcm": pcm(2 * 48000 * 4, 316),
+        "result/res_shit.pcm": pcm(2 * 48000 * 4, 318),
+        "result/res_shit_intro.pcm": pcm(1 * 48000 * 4, 320),
+        "result/res_shit_pico.pcm": pcm(2 * 48000 * 4, 322),
+        "result/scroll_menu.pcm": pcm(48000 * 4 // 8, 342),
+        "result/confirm_menu.pcm": pcm(48000 * 4 // 8, 344),
+        "result/tickle_fight.pcm": pcm(48000 * 4 // 8, 346),
+
         "font.rgba": rgba_pattern(384, 192, 1),
         "title_alphabet.rgba": rgba_pattern(384, 192, 2),
         "title_prompt_l.rgba": rgba_pattern(512, 192, 3),

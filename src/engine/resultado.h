@@ -258,6 +258,32 @@ float res_nome_clip_local(const res_nome_t *n);
 /* A linha da tabela de titulos da musica `id` (zero se nao houver). */
 const res_nome_arte_t *res_nome_do_id(const char *id);
 
+/* ---- A MUSICA DA TELA DE RESULTADO ---------------------------------------
+ *
+ * `ResultState.hx` L502-550. No `getMusicDelay()` do rank o original pede
+ * `getMusicPath(playerCharacter, rank)`; quem decide o arquivo e' o DONO do
+ * personagem jogavel (`PlayerRegistry.getCharacterOwnerId(...) ?? 'bf'`), e
+ * cada dono tem o seu conjunto (`results*` para o bf, `results*-pico` para o
+ * pico). Quando o arquivo base tem um `-intro`, o original toca o intro UMA vez
+ * e depois passa para o principal em loop (L506-524); quando nao tem, toca o
+ * principal direto (L536-541).
+ */
+
+/* O dono dos results do personagem jogavel: 0 = bf, 1 = pico. Um personagem
+ * fora da tabela cai no `RES_MUSICA_DONO_PADRAO`, que e' o `?? 'bf'`. */
+int res_musica_dono(const char *player);
+
+/* A linha de (dono, rank): o PCM principal e o intro (NULL quando nao existe).
+ * `rank` fora da faixa e `dono` invalido caem no primeiro. */
+const res_musica_t *res_musica(int dono, int rank);
+
+/* `getMusicDelay()` em ms para o rank (Scoring.hx L530-547). */
+unsigned int res_musica_atraso_ms(int rank);
+
+/* Instante (ms desde a abertura da tela) em que o tween do percentual grande
+ * termina -- e' o `onComplete` que toca o `confirmMenu` (L609). */
+unsigned long res_cp_confirm_ms(void);
+
 /* ---- A BARRA PRETA DO TOPO E A IMAGEM DA DIFICULDADE ---------------------
  *
  * `ResultState.create()` L342-360: a barra nasce em `y = -height` e desliza

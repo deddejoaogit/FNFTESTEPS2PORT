@@ -3376,6 +3376,65 @@ abertura da tela.
 Medido: os recomecos saem em 15.883 / 28.750 / 41.616 ms de tela (passo de
 **12,87 s**), e o `tools/run_gameplay_harness.sh` cobra dois deles.
 
+#### A musica e os dois `playOnce` do resultado (medido)
+
+`ResultState.hx` L502-550 e L592-609. Ate' esta build a tela de resultado era
+MUDA: entrava em `ui_state 9` com `audsrv_stop_audio()` e nada mais.
+
+**A musica vem do DONO do personagem jogavel, nao da musica.**
+`getMusicPath` = `playerCharacter?.getResultsMusicPath(rank) ?? 'resultsNORMAL'`
+e `getResultsMusicPath` (PlayableCharacter.hx L126-145) le
+`results.music.<RANK>` do `players/<dono>.json`. Neste projeto os donos sao dois:
+`bf` (que possui `bf`, `bf-car`, `bf-christmas`, `bf-holding-gf`, `bf-pixel` e,
+pelo `?? 'bf'`, o `sserafim-sakura` do spaghetti) e `pico` (`pico-playable`,
+`pico-blazin`). Cada dono tem o SEU conjunto de arquivos:
+
+| rank | bf | pico | `getMusicDelay()` |
+|---|---|---|---|
+| LOSS (SHIT) | `resultsSHIT` **+ intro** | `resultsSHIT-pico` | 2/24 s = 84 ms |
+| GOOD | `resultsNORMAL` | `resultsNORMAL-pico` | 3/24 s = 125 ms |
+| GREAT | `resultsNORMAL` | `resultsNORMAL-pico` | 5/24 s = 209 ms |
+| EXCELLENT | `resultsEXCELLENT` **+ intro** | `resultsEXCELLENT-pico` **+ intro** | 0 |
+| PERFECT / PERFECT_GOLD | `resultsPERFECT` | `resultsPERFECT-pico` **+ intro** | 95/24 s = 3959 ms |
+
+O `-intro` toca **uma vez** e o principal entra em loop no fim dele (o
+`onComplete` de L506-524); onde nao existe intro (medido no clone de arte: o
+`resultsNORMAL` dos dois e o `resultsSHIT-pico`/`resultsPERFECT` do bf), o
+principal toca direto (L536-541). No port:
+
+- `tools/empacotar_audio.py` converte os 12 OGG em PCM 48 kHz (135,3 MB) e os
+  tres sons; `tools/empacotar_resultado_musica.py` gera o bloco `musica` do
+  plano (dono x rank, intro, atraso) **conferindo que cada PCM existe**;
+- no jogo, `resmus_iniciar` abre o intro com `audio_ring_start_loop(fd, 0)` e, no
+  `audio_ring_eof()`, troca para o principal com `audio_ring_trocar_fonte(fd, 1)`
+  -- e' o mesmo `onComplete` do original;
+- **o rank PERFECT pede musica em 3959 ms, mas os ticks do percentual comecam em
+  1542 ms**: o anel ja' esta' rodando em SILENCIO+OVERLAY quando a musica chega,
+  e nesse caso ela entra por `audio_ring_trocar_fonte` (o caminho que o game over
+  ja' usava para a musica entrar por baixo do `loss_sfx`). Isto foi um BUG
+  medido: a primeira versao so' iniciava a musica se o anel nao existisse, e os
+  ranks PERFECT/PERFECT_GOLD ficavam sem musica para sempre.
+
+Os dois `playOnce`: `scrollMenu` a cada AUMENTO do percentual (L592-604, um por
+quadro em que o numero muda -- 35 a 36 no harness) e `confirmMenu` no
+`onComplete` do tween de 58/24 s (L609, 3959 ms).
+
+**Limite conhecido, medido:** o anel tem UMA voz secundaria (o overlay). Cada
+`playOnce` do original e' um `FlxSound` independente e eles podem soar juntos;
+aqui um tick novo RECOMECA o overlay em vez de somar com o anterior. Os eventos
+sao os mesmos e emitem no mesmo instante (comprovado nos 35 ticks), o que se
+perde e' a cauda de um tick quando outro chega em menos de 0,44 s, e o
+`confirmMenu` cortando o ultimo tick. E' limite de vozes do anel, nao evento
+removido -- esta' na lista de pendencias do console.
+
+**Como cada rank foi provado.** O roteiro do harness chega sempre no GREAT, e
+metade da tela depende do rank. Por isso o binario do harness ganhou
+`FNF_RANK=<0..5>` (`test/ps2harness/ps2h.c`, so' no harness):
+`tools/run_resultado_rank_harness.sh` roda os seis e cobra, em cada um, a arte
+do `rankText` daquele rank, o `getFlashDelay`, o `getMusicDelay`, o par
+intro+loop (nos dois que tem intro) e o loop direto (nos quatro que nao tem). A
+suite roda os dois extremos (LOSS e PERFECT).
+
 Medido no harness (`tools/run_gameplay_harness.sh 5600`):
 `resultado_nome_arte,1,17280` (o bitmap do Tutorial), `resultado_nome,4685,-300`
 (entra em 468,5 / -30,0), `resultado_nome_move,4634,6566` (aos 6566 ms o texto

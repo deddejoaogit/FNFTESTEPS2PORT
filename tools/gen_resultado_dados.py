@@ -404,6 +404,48 @@ def gerar():
     a("static const res_dif_geo_t g_res_dif_geo = { %.1ff, %.1ff, %3du, %3du };"
       % (dg["x"], dg["y_alvo"], dg["atraso_ms"], dg["tween_ms"]))
     a("")
+    mu = d.get("musica")
+    if mu:
+        a("/* A MUSICA DA TELA DE RESULTADO (ResultState.hx L502-550). O arquivo sai")
+        a(" * de `getResultsMusicPath(rank)` do DONO do personagem jogavel")
+        a(" * (`players/<dono>.json`); quando o dono tem `-intro`, o original toca o")
+        a(" * intro UMA vez e depois o principal em loop (L506-524), e quando nao tem")
+        a(" * (o `resultsNORMAL`, medido no clone) toca o principal direto (L536).")
+        a(" * `atraso_ms` e' o `getMusicDelay()` de cada rank (Scoring.hx L530-547) em")
+        a(" * milissegundos, arredondado para cima como todo `q/24` deste port. */")
+        a("#define RES_MUSICA_DONOS %du" % len(mu["donos"]))
+        a("#define RES_MUSICA_JOGADORES %du" % len(mu["jogadores"]))
+        a("#define RES_MUSICA_DONO_PADRAO %du   /* o `?? \'bf\'` do original */"
+          % mu["donos"].index(mu["padrao"]))
+        a("")
+        a("typedef struct {")
+        a("    const char    *arquivo;   /* o PCM principal (loop)               */")
+        a("    const char    *intro;     /* o `-intro`, ou NULL quando nao existe */")
+        a("} res_musica_t;")
+        a("")
+        a("static const res_musica_t g_res_musica[RES_MUSICA_DONOS][RES_RANKS] = {")
+        for i, dono in enumerate(mu["donos"]):
+            a("    {   /* %s */" % dono)
+            for linha in mu["tabela"][dono]:
+                intro = ('"%s"' % linha["intro"]) if linha["intro"] else "0"
+                a('     { "%s", %s },   /* %s */'
+                  % (linha["arquivo"], intro, linha["rank"]))
+            a("    },")
+        a("};")
+        a("")
+        a("/* `getMusicDelay()` em ms (q/24 arredondado para cima). */")
+        a("static const unsigned int g_res_musica_atraso_ms[RES_RANKS] = { %s };"
+          % ", ".join("%du" % ((q * 1000 + 23) // 24) for q in mu["atraso_q"]))
+        a("")
+        a("typedef struct { const char *id; unsigned char dono; } res_jogador_t;")
+        a("")
+        a("/* O `player` de cada musica do projeto -> o DONO dos results. Quem nao")
+        a(" * esta' na tabela cai no `RES_MUSICA_DONO_PADRAO` (o `?? \'bf\'`). */")
+        a("static const res_jogador_t g_res_jogadores[RES_MUSICA_JOGADORES] = {")
+        for ident, dono in mu["jogadores"]:
+            a('    { "%s", %du },' % (ident, mu["donos"].index(dono)))
+        a("};")
+        a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

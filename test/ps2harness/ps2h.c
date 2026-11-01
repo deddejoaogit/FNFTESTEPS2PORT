@@ -1374,3 +1374,14 @@ int ps2h_semana_inicial(void)
     const char *e = getenv("FNF_START_WEEK");
     return (e && *e) ? atoi(e) : -1;
 }
+
+/* FNF_RANK=<0..5>: forca o rank da TELA DE RESULTADO (0 LOSS, 1 GOOD, 2 GREAT,
+   3 EXCELLENT, 4 PERFECT, 5 PERFECT_GOLD). Cada rank troca a arte do rankText,
+   os atrasos (`getMusicDelay`) e o par musica+intro, entao sem isto so' um rank
+   seria exercitado -- e o `-intro` (que existe no LOSS e no EXCELLENT do bf)
+   nunca tocaria no teste. So' o binario do harness tem esta funcao. */
+int ps2h_rank_forcado(void)
+{
+    const char *e = getenv("FNF_RANK");
+    return (e && *e) ? atoi(e) : -1;
+}

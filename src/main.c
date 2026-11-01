@@ -243,6 +243,7 @@ static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up
 const char *ps2h_musica_inicial(void);
 int ps2h_dificuldade_inicial(void);
 int ps2h_semana_inicial(void);
+int ps2h_rank_forcado(void);
 #endif
 static const sr_song_t *g_play_song=0;
 static unsigned g_play_level=0,g_play_song_index=0;
@@ -345,6 +346,7 @@ static res_nome_t g_res_nome_estado;
 static int g_res_nome_visto=0;      /* ja' reportou o primeiro desenho */
 static int g_res_nome_ciclos=0;
 static int g_res_nome_pronto=0;   /* `res_nome_iniciar` ja' rodou */
+static int g_res_rank_forcado_logado=0;
 static int g_res_nome_moveu=0;    /* ja' reportou o primeiro passo do scroll */
 /* O que o SCROLL do grupo somou: o mesmo `speedOfTween * 60 * elapsed` vai para
    o nome, a dificuldade e o percentual pequeno (`update()` L806-826), entao o
@@ -2763,6 +2765,7 @@ static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
  return q;}
 #define RES_ASSET_DIR "mass:/FNFPS2/assets/"
 static void resultado_soltar(void);
+static int resultado_rank(void);   /* o rank da TELA (com o override de harness) */
 static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
 {
  int i,maior=0;
@@ -2808,7 +2811,7 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
     por `fnf_play_rank`), lidas para `g_up_bounce` e subidas para o pool. Nao se
     carrega os cinco ranks: cada partida mostra um. */
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;
- {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+ {const res_rank_t *rr=res_rank(resultado_rank());
   int okv=0,okh=0;
   if(rr){
    char caminho[96];unsigned int addr=0;
@@ -2997,6 +3000,25 @@ static void resultado_soltar(void)
    (`talliesLevel`, o mesmo criterio dos contadores); na Freeplay, o da musica
    (`fnf_play_clear_percent`). Usado pelo contador GRANDE e pelo PEQUENO do
    topo -- os dois mostram o mesmo numero. */
+/* DIAGNOSTICO DE HARNESS (`-DPS2H`): forca o rank da tela de resultado.
+   Existe porque cada rank muda a ARTE (par vertical/horizontal do rankText), os
+   ATRASOS (`getMusicDelay`/`getFlashDelay`/`getHighscoreDelay`) e o par
+   musica+intro -- e sem isto so' o rank que o roteiro produz (GREAT) seria
+   exercitado. Nunca ativo no console: `ps2h_rank_forcado` so' existe no
+   binario do harness e devolve -1 em producao. */
+static int resultado_rank(void)
+{
+ int r=(int)fnf_play_rank(&g_play);
+#ifdef PS2H
+ {int f=ps2h_rank_forcado();
+  if(f>=0&&f<(int)RES_RANKS){
+   if(!g_res_rank_forcado_logado){g_res_rank_forcado_logado=1;
+    telemetry_event("resultado_rank_forcado",f,r);}
+   return f;
+  }}
+#endif
+ return r;
+}
 static int resultado_pct_alvo(void)
 {
  if(g_story_mode){
@@ -3031,7 +3053,7 @@ static void resultado_scroll_passo(void)
   g_res_nome_pronto=1;
  }
  /* `showSmallClearPercent()`: 2,5 s depois, `movingSongStuff = true`. */
- {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+ {const res_rank_t *rr=res_rank(resultado_rank());
   if(rr&&(unsigned long)g_res_ms>=(unsigned long)rr->bf_ms+
                                    (unsigned long)g_res_nome_geo.movimento_atraso_ms)
    res_nome_soltar(&g_res_nome_estado,(unsigned long)g_res_ms);}
@@ -3393,6 +3415,194 @@ static int pause_audio_bombear(void)
  return enviado;
 }
 /* ======================= FIM DA MUSICA DA PAUSA =========================== */
+
+/* =================== MUSICA E SONS DA TELA DE RESULTADO ==================== */
+/* `ResultState.hx` L502-550 (musica), L598 e L609 (os dois `playOnce`).
+ *
+ * A musica sai do DONO do personagem jogavel, nao da musica: `bf` toca
+ * `results*` e `pico` toca `results*-pico`, e o `spaghetti` (sserafim) nao tem
+ * dono no registro -- cai no `?? 'bf'` do original. O `-intro`, quando existe,
+ * toca UMA vez e depois passa para o principal em loop (o `onComplete` do
+ * `FunkinSound.load` do intro, L510-523).
+ *
+ * DOIS `playOnce` na tela: `scrollMenu` a cada AUMENTO do percentual durante o
+ * tween de 58/24 s (L592-604, so' quando o numero muda) e `confirmMenu` no
+ * `onComplete` do tween (L609).
+ *
+ * O LIMITE CONHECIDO: o anel de audio tem UMA voz secundaria (o overlay). Cada
+ * `playOnce` do original e' um `FlxSound` independente e os dois podem soar
+ * juntos; aqui um tick novo RECOMECA o overlay em vez de somar com o anterior.
+ * Os eventos sao os mesmos (cada um comeca no seu instante) -- o que se perde
+ * e' a cauda de um tick quando outro chega em menos de 0,44 s, e o
+ * `confirmMenu` cortando o ultimo tick. E' limite de vozes do anel, medido, e
+ * esta' na lista de pendencias do console. */
+#define RES_AUDIO_DIR "mass:/FNFPS2/assets/result/"
+/* 0 = nenhum anel; 1 = intro tocando; 2 = principal em loop; 3 = silencio +
+   overlay (o primeiro tick chegou antes da musica). */
+static int g_resmus_estado=0;
+static int g_resmus_fd=-1;        /* principal (loop)                   */
+static int g_resmus_intro_fd=-1;  /* intro (toca uma vez)               */
+static int g_resmus_tick_fd=-1;   /* scrollMenu                         */
+static int g_resmus_conf_fd=-1;   /* confirmMenu                        */
+static int g_resmus_ultimo=-1;    /* ultimo valor do percentual (tick)  */
+static int g_resmus_confirmou=0;  /* o confirmMenu ja' tocou            */
+static int g_resmus_musica_ms=-1; /* instante do `getMusicDelay` deste rank */
+static unsigned int g_resmus_enviado=0;
+static int g_resmus_ticks=0;      /* quantos ticks o percentual disparou */
+static int g_resmus_pediu=0;      /* a musica ja' foi pedida (nao repetir) */
+
+static int resmus_abrir(const char *nome)
+{
+ char caminho[96];
+ if(!nome||!nome[0])return -1;
+ snprintf(caminho,sizeof(caminho),RES_AUDIO_DIR "%s.pcm",nome);
+ return open(caminho,O_RDONLY);
+}
+
+/* Para tudo e fecha os fds. O anel e' parado ANTES do close: e' ele que le
+ * esses fds (mesma ordem de pause_audio_parar). */
+static void resmus_parar(void)
+{
+ if(g_resmus_estado==0&&g_resmus_fd<0&&g_resmus_intro_fd<0&&
+    g_resmus_tick_fd<0&&g_resmus_conf_fd<0)return;
+ if(g_audio_ok){
+  audsrv_stop_audio();
+  audio_ring_stop();
+ }
+ if(g_resmus_fd>=0){close(g_resmus_fd);g_resmus_fd=-1;}
+ if(g_resmus_intro_fd>=0){close(g_resmus_intro_fd);g_resmus_intro_fd=-1;}
+ if(g_resmus_tick_fd>=0){close(g_resmus_tick_fd);g_resmus_tick_fd=-1;}
+ if(g_resmus_conf_fd>=0){close(g_resmus_conf_fd);g_resmus_conf_fd=-1;}
+ g_resmus_estado=0;g_resmus_ultimo=-1;g_resmus_confirmou=0;
+ g_resmus_musica_ms=-1;g_resmus_enviado=0;g_resmus_ticks=0;g_resmus_pediu=0;
+}
+
+/* Um `playOnce`: reusa o fd (volta ao inicio) e pede a voz secundaria. Sem anel
+ * ainda (rank com `getMusicDelay` grande), abre o anel em silencio+overlay --
+ * e' o modo que o `audio_ring_start_overlay` ja' existe para o game over. */
+static void resmus_sfx(int *cache,const char *nome)
+{
+ int rc;
+ if(!g_audio_ok)return;
+ if(*cache<0)*cache=resmus_abrir(nome);
+ if(*cache<0){telemetry_event("resultado_sfx_ausente",(int)nome[0],0);return;}
+ if(g_resmus_estado==0){
+  rc=audio_ring_start_overlay(*cache);
+  if(rc!=0){telemetry_event("resultado_sfx_falhou",rc,0);return;}
+  g_resmus_estado=3;
+  return;
+ }
+ rc=audio_ring_trocar_overlay(*cache);
+ if(rc!=0)telemetry_event("resultado_sfx_falhou",rc,1);
+}
+
+/* `getMusicDelay()`: abre a musica do rank (intro + loop, ou so' loop). */
+static void resmus_iniciar(int rank)
+{
+ const res_musica_t *m;
+ int rc;
+ if(!g_audio_ok)return;
+ m=res_musica(res_musica_dono(g_play_song?g_play_song->player:0),rank);
+ if(!m||!m->arquivo)return;
+ if(m->intro&&m->intro[0]){
+  g_resmus_intro_fd=resmus_abrir(m->intro);
+  g_resmus_fd=resmus_abrir(m->arquivo);
+  if(g_resmus_intro_fd>=0&&g_resmus_fd>=0){
+   if(g_resmus_estado==3)rc=audio_ring_trocar_fonte(g_resmus_intro_fd,0);
+   else rc=audio_ring_start_loop(g_resmus_intro_fd,0);
+   if(rc==0){
+    g_resmus_estado=1;
+    telemetry_event("resultado_musica",1,g_resmus_intro_fd);
+    return;
+   }
+   telemetry_event("resultado_musica_falhou",rc,1);
+  }
+  if(g_resmus_intro_fd>=0){close(g_resmus_intro_fd);g_resmus_intro_fd=-1;}
+ }else{
+  g_resmus_fd=resmus_abrir(m->arquivo);
+  if(g_resmus_fd>=0){
+   if(g_resmus_estado==3)rc=audio_ring_trocar_fonte(g_resmus_fd,1);
+   else rc=audio_ring_start_loop(g_resmus_fd,1);
+   if(rc==0){
+    g_resmus_estado=2;
+    telemetry_event("resultado_musica",2,g_resmus_fd);
+    return;
+   }
+   telemetry_event("resultado_musica_falhou",rc,2);
+  }
+ }
+ telemetry_event("resultado_sem_musica",0,(int)(m->arquivo[0]));
+}
+
+/* Bombeia o anel para o audsrv (o mesmo laco do game over e da pausa). */
+static int resmus_bombear(void)
+{
+ int voltas=0,enviado=0;
+ if(!g_audio_ok)return 0;
+ while(audsrv_available()>=AUDIO_READ_CHUNK&&voltas++<64){
+  int n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK),j;
+  if(n<=0)break;
+  j=audio_play_complete((char*)g_audio_pcm,n);
+  if(j<=0)break;
+  g_resmus_enviado+=(unsigned int)(j/4);
+  enviado+=j;
+ }
+ return enviado;
+}
+
+/* Um passo por quadro na tela de resultado: o atraso do rank, a troca
+ * intro->loop no fim do intro, os ticks do percentual e o confirmMenu. */
+static void resmus_passo(int rank,int pct_alvo)
+{
+ int valor;
+ if(!g_audio_ok)return;
+ if(g_resmus_musica_ms<0){
+  g_resmus_musica_ms=(int)res_musica_atraso_ms(rank);
+  telemetry_event("resultado_musica_atraso",g_resmus_musica_ms,rank);
+ }
+ /* A musica entra no `getMusicDelay` do rank. O anel pode ja' estar rodando em
+    SILENCIO+OVERLAY (estado 3), porque os ticks do percentual comecam em 37/24 s
+    e o PERFECT so' pede musica em 95/24 s -- nesse caso `resmus_iniciar` usa
+    `audio_ring_trocar_fonte`, como o game over faz com a musica que entra por
+    baixo do sfx. */
+ if(!g_resmus_pediu&&(g_resmus_estado==0||g_resmus_estado==3)&&
+    g_res_ms>=(unsigned long)g_resmus_musica_ms){
+  g_resmus_pediu=1;
+  resmus_iniciar(rank);
+ }
+ /* `onComplete` do intro: `audio_ring_start_loop(fd,0)` para no fim e
+    `audio_ring_eof()` e' o aviso; o principal entra em loop no lugar. */
+ if(g_resmus_estado==1&&audio_ring_eof()){
+  if(g_resmus_fd>=0&&audio_ring_trocar_fonte(g_resmus_fd,1)==0){
+   g_resmus_estado=2;
+   telemetry_event("resultado_musica",3,g_resmus_fd);
+  }
+ }
+ /* Os ticks: so' quando o numero AUMENTA (L592-604). */
+ if(res_cp_visivel((unsigned long)g_res_ms)){
+  valor=res_cp_valor(pct_alvo,(unsigned long)g_res_ms);
+  if(g_resmus_ultimo<0)g_resmus_ultimo=valor;
+  else if(valor>g_resmus_ultimo){
+   resmus_sfx(&g_resmus_tick_fd,"scroll_menu");
+   g_resmus_ticks++;
+   g_resmus_ultimo=valor;
+  }
+ }
+ if(!g_resmus_confirmou&&
+    (unsigned long)g_res_ms>=res_cp_confirm_ms()){
+  g_resmus_confirmou=1;
+  resmus_sfx(&g_resmus_conf_fd,"confirm_menu");
+  telemetry_event("resultado_confirm",(int)g_res_ms,0);
+  /* A prova de que os dois `playOnce` sairam e de que o anel ENTREGOU audio:
+     `resultado_ticks` conta os `scrollMenu` (um por aumento do percentual, como
+     o `if (clearPercentLerp != curNumber)` do L592-604) e `resultado_audio`
+     traz as amostras que foram para o audsrv. */
+  telemetry_event("resultado_ticks",g_resmus_ticks,0);
+  telemetry_event("resultado_audio",(int)g_resmus_enviado,g_resmus_estado);
+ }
+ resmus_bombear();
+}
+
 
 static qword_t *text_draw_alpha(qword_t*q,const char*s,float x,float y,float scale,int align,unsigned char alpha){int len=(int)strlen(s),i;float total=0,cursor;
  for(i=0;i<len;i++){unsigned char ch=(unsigned char)s[i];if(ch<32||ch>127)ch='?';total+=g_font_widths[ch-32]*0.5f*scale;}
@@ -4912,7 +5122,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;resmus_parar();telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
    /* A ARTE DA TELA DE RESULTADO. O palco ja' foi solto logo acima, entao o
       pool tem ~1,2 MB livres: e' aqui que as tres folhas e o gradiente do
       fundo entram. `g_res_t0` marca o instante da abertura, porque os timers
@@ -5307,7 +5517,7 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
      telemetry_event("story_begin",story_level,g_playlist_n);
     }else telemetry_event("story_sem_musicas",story_level,0);}
   }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}
-   else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}
+   else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;resmus_parar();}
    else if(ui_state==10){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
   frame_mark("F.STATE",ui_state*100+transition_frame);
   if(audio_playing)visual_frame++;
@@ -5961,6 +6171,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       estado tem que ser andado ANTES de desenhar, porque a dificuldade e' a
       primeira das tres na ordem do original. */
    resultado_scroll_passo();
+   /* A musica e os dois `playOnce` da tela (o `getMusicDelay` do rank, os
+      ticks do percentual e o `confirmMenu` no fim do tween). */
+   resmus_passo(resultado_rank(),resultado_pct_alvo());
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    /* A ARTE DO ORIGINAL, quando ela carregou (ver resultado_carregar).
@@ -5994,7 +6207,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
        rolam: a vertical para cima (-80 px/s em 1280x720), as 12 horizontais
        para os lados alternados (+-7 px/s). */
     if(g_res_rank_ok){
-     const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+     const res_rank_t *rr=res_rank(resultado_rank());
      unsigned long rms=(unsigned long)g_res_ms;
      if(rr&&rms>=(unsigned long)rr->flash_ms){
       int fa=res_flash_alpha(rr,rms);
@@ -6041,7 +6254,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
        }
       }
       if(!g_res_rank_logado&&res_rank_pisca(rr,rms)){g_res_rank_logado=1;
-       telemetry_event("resultado_rank",(int)fnf_play_rank(&g_play),(int)rms);}
+       telemetry_event("resultado_rank",resultado_rank(),(int)rms);}
      }
     }
     for(i=0;i<(int)RES_FOLHAS;i++){
@@ -6197,7 +6410,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
        `timerThenSongName()` (L741-745) -- ou seja, o contador pequeno anda
        junto com a imagem da dificuldade. */
     if(g_res_cp_ok&&g_res_dif_ind>=0&&
-       res_cp_small_visivel((int)fnf_play_rank(&g_play),(unsigned long)g_res_ms)){
+       res_cp_small_visivel(resultado_rank(),(unsigned long)g_res_ms)){
      const res_cp_geo_t *geo=&g_res_cp_geo;
      const res_cp_atlas_t *at=&g_res_cp_atlas[RES_CP_SMALL];
      float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+g_res_off_x;
@@ -6374,7 +6587,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       de LEIAUTE (o dado e' o mesmo), nao de evento. */
    {float tx=res_arte?470.0f:320.0f;float ty=res_arte?-24.0f:0.0f;
    q=text_draw(q,"RESULTS",tx,ty+72,1.6f,1);
-   q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),tx,ty+104,1.4f,1);
+   q=text_draw(q,fnf_rank_name(resultado_rank()),tx,ty+104,1.4f,1);
    /* Placar: com a ARTE dos digitos carregada, o numero NAO e' mais texto --
       ele e' desenhado pelo atlas acima, na posicao da fonte. Sem a arte (pendrive
       sem o arquivo), o texto continua como reserva. No Story Mode o numero e' o

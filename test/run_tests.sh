@@ -626,12 +626,33 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     # quadros da contagem regressiva (3 s a 100 BPM) tambem entram nessa conta,
     # e 5600 deixava 12 quadros de margem -- margem curta demais para um teste
     # que existe justamente para nao passar por sorte.
-    if ! sh tools/run_gameplay_harness.sh 5800 > /tmp/fnf_gameplay.log 2>&1; then
+    # 7600 e nao 5800: o nome da musica so' RECIRCULA duas vezes depois de
+    # ~27 s de tela de resultado (o ciclo medido e' de 12,87 s), e o gate cobra
+    # os dois recomecos. 5800 quadros terminavam antes do primeiro.
+    if ! sh tools/run_gameplay_harness.sh 7600 > /tmp/fnf_gameplay.log 2>&1; then
         tail -20 /tmp/fnf_gameplay.log
         echo "  FALHA: o gameplay de ponta a ponta nao passou"
         exit 1
     fi
     tail -6 /tmp/fnf_gameplay.log
+
+    # O RANK DA TELA DE RESULTADO. O roteiro normal chega sempre no GREAT, e
+    # metade da tela depende do rank: o par de arte do rankText, os quatro
+    # atrasos (getMusicDelay/getFlashDelay/getHighscoreDelay/getBFDelay) e o par
+    # musica+intro. Aqui rodam os dois extremos: o LOSS (arte menor, musica em
+    # 2/24 s, `resultsSHIT` COM intro) e o PERFECT (arte maior, musica em 95/24
+    # s, `resultsPERFECT` SEM intro). A varredura completa dos seis e'
+    # tools/run_resultado_rank_harness.sh.
+    for rk in 0 4; do
+        echo
+        echo "== resultado no harness: rank $rk forcado =="
+        if ! FNF_RANK=$rk sh tools/run_gameplay_harness.sh 7600 > /tmp/fnf_rank_$rk.log 2>&1; then
+            tail -20 /tmp/fnf_rank_$rk.log
+            echo "  FALHA: a tela de resultado com o rank $rk forcado nao passou"
+            exit 1
+        fi
+        grep -E "^  (rank na tela|musica do resultado|ticks / audio)" /tmp/fnf_rank_$rk.log
+    done
 
     # GAME OVER: o caminho oposto. Aqui o roteiro NAO aperta nada, entao as
     # notas viram MISS, a vida chega a zero e o jogo tem de abrir a tela de

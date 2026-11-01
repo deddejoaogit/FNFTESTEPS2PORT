@@ -443,4 +443,57 @@ typedef struct {
 
 static const res_dif_geo_t g_res_dif_geo = { 277.5f, 61.5f, 800u, 500u };
 
+/* A MUSICA DA TELA DE RESULTADO (ResultState.hx L502-550). O arquivo sai
+ * de `getResultsMusicPath(rank)` do DONO do personagem jogavel
+ * (`players/<dono>.json`); quando o dono tem `-intro`, o original toca o
+ * intro UMA vez e depois o principal em loop (L506-524), e quando nao tem
+ * (o `resultsNORMAL`, medido no clone) toca o principal direto (L536).
+ * `atraso_ms` e' o `getMusicDelay()` de cada rank (Scoring.hx L530-547) em
+ * milissegundos, arredondado para cima como todo `q/24` deste port. */
+#define RES_MUSICA_DONOS 2u
+#define RES_MUSICA_JOGADORES 8u
+#define RES_MUSICA_DONO_PADRAO 0u   /* o `?? 'bf'` do original */
+
+typedef struct {
+    const char    *arquivo;   /* o PCM principal (loop)               */
+    const char    *intro;     /* o `-intro`, ou NULL quando nao existe */
+} res_musica_t;
+
+static const res_musica_t g_res_musica[RES_MUSICA_DONOS][RES_RANKS] = {
+    {   /* bf */
+     { "res_shit", "res_shit_intro" },   /* SHIT */
+     { "res_normal", 0 },   /* GOOD */
+     { "res_normal", 0 },   /* GREAT */
+     { "res_excellent", "res_excellent_intro" },   /* EXCELLENT */
+     { "res_perfect", 0 },   /* PERFECT */
+     { "res_perfect", 0 },   /* PERFECT_GOLD */
+    },
+    {   /* pico */
+     { "res_shit_pico", 0 },   /* SHIT */
+     { "res_normal_pico", 0 },   /* GOOD */
+     { "res_normal_pico", 0 },   /* GREAT */
+     { "res_excellent_pico", "res_excellent_pico_intro" },   /* EXCELLENT */
+     { "res_perfect_pico", "res_perfect_pico_intro" },   /* PERFECT */
+     { "res_perfect_pico", "res_perfect_pico_intro" },   /* PERFECT_GOLD */
+    },
+};
+
+/* `getMusicDelay()` em ms (q/24 arredondado para cima). */
+static const unsigned int g_res_musica_atraso_ms[RES_RANKS] = { 84u, 125u, 209u, 0u, 3959u, 3959u };
+
+typedef struct { const char *id; unsigned char dono; } res_jogador_t;
+
+/* O `player` de cada musica do projeto -> o DONO dos results. Quem nao
+ * esta' na tabela cai no `RES_MUSICA_DONO_PADRAO` (o `?? 'bf'`). */
+static const res_jogador_t g_res_jogadores[RES_MUSICA_JOGADORES] = {
+    { "bf", 0u },
+    { "bf-car", 0u },
+    { "bf-christmas", 0u },
+    { "bf-holding-gf", 0u },
+    { "bf-pixel", 0u },
+    { "pico-blazin", 1u },
+    { "pico-playable", 1u },
+    { "sserafim-sakura", 0u },
+};
+
 #endif /* RESULTADO_DADOS_H */

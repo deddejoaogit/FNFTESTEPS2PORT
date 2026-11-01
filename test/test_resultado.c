@@ -377,6 +377,46 @@ int main(void)
         }
     }
 
+    printf("== resultado: a MUSICA do resultado (por dono e rank) ==\n");
+    {
+        /* `getCharacterOwnerId(...) ?? 'bf'`: quem nao esta' em `ownedChars` cai
+           no bf -- e' o caso do `sserafim-sakura` do spaghetti. */
+        CHECK(res_musica_dono("bf") == 0);
+        CHECK(res_musica_dono("bf-pixel") == 0);
+        CHECK(res_musica_dono("pico-playable") == 1);
+        CHECK(res_musica_dono("pico-blazin") == 1);
+        CHECK(res_musica_dono("sserafim-sakura") == 0);
+        CHECK(res_musica_dono("nao-existe") == 0);
+        CHECK(res_musica_dono(NULL) == 0);
+        /* O bf: GREAT/GOOD usam o `resultsNORMAL`, que NAO tem intro (medido no
+           clone); o SHIT e o EXCELLENT tem. */
+        CHECK(strcmp(res_musica(0, 1)->arquivo, "res_normal") == 0);
+        CHECK(strcmp(res_musica(0, 2)->arquivo, "res_normal") == 0);
+        CHECK(res_musica(0, 2)->intro == NULL);
+        CHECK(strcmp(res_musica(0, 0)->arquivo, "res_shit") == 0);
+        CHECK(res_musica(0, 0)->intro != NULL);
+        CHECK(strcmp(res_musica(0, 3)->arquivo, "res_excellent") == 0);
+        CHECK(res_musica(0, 3)->intro != NULL);
+        /* O pico tem o conjunto proprio (`-pico`) e o PERFECT dele tem intro. */
+        CHECK(strcmp(res_musica(1, 4)->arquivo, "res_perfect_pico") == 0);
+        CHECK(res_musica(1, 4)->intro != NULL);
+        CHECK(strcmp(res_musica(1, 2)->arquivo, "res_normal_pico") == 0);
+        CHECK(res_musica(1, 2)->intro == NULL);
+        /* Rank/dono invalidos caem no primeiro (o `default` do original). */
+        CHECK(res_musica(9, 9) == res_musica(0, 0));
+        /* `getMusicDelay()`: 2/24, 3/24, 5/24, 0, 95/24, 95/24 arredondados
+           para cima (`(q*1000+23)/24`), como todo q/24 deste port. */
+        CHECK(res_musica_atraso_ms(0) == 84);
+        CHECK(res_musica_atraso_ms(1) == 125);
+        CHECK(res_musica_atraso_ms(2) == 209);
+        CHECK(res_musica_atraso_ms(3) == 0);
+        CHECK(res_musica_atraso_ms(4) == 3959);
+        CHECK(res_musica_atraso_ms(5) == 3959);
+        /* O `confirmMenu` toca no fim do tween do percentual grande:
+           (37 + 58)/24 s = 3958,33 -> 3959 ms. */
+        CHECK(res_cp_confirm_ms() == 3959);
+    }
+
     printf("== resultado: o CONTADOR PEQUENO do topo ==\n");
     /* `getBFDelay()`: 95/24 s = 3.958 ms (EXCELLENT e' o unico com 97/24). */
     CHECK_EQ((int)g_res_rank[2].bf_ms, 3958);

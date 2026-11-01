@@ -42,6 +42,11 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO" || exit 1
 
 FRAMES=${1:-7600}
+# FNF_RANK=<0..5> forca o rank da tela de resultado (so' o harness tem esse
+# gancho). As conferencias abaixo passam a usar o rank FORCADO: e' o unico jeito
+# de exercitar as cinco artes do rankText, os cinco `getMusicDelay` e o par
+# musica+intro -- o roteiro normal chega sempre no GREAT.
+RANK_FORCADO=${FNF_RANK:--1}
 LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 CHART=build/harness_assets/FNFPS2/assets/songs/tutorial/normal.chart
 # Entrada no tutorial (as tres primeiras cruzes sao titulo -> menu -> story;
@@ -151,6 +156,18 @@ RESNOMEY=$(awk -F, '$1=="E" && $3=="resultado_nome" {print $5; exit}' "$LOG")
 RESNOMEMOVE=$(awk -F, '$1=="E" && $3=="resultado_nome_move" {print $4; exit}' "$LOG")
 RESNOMEMOVEMS=$(awk -F, '$1=="E" && $3=="resultado_nome_move" {print $5; exit}' "$LOG")
 RESNOMECICLOS=$(awk -F, '$1=="E" && $3=="resultado_nome_ciclo" {n++} END{print n+0}' "$LOG")
+# A MUSICA E OS SONS DA TELA DE RESULTADO. `resultado_musica_atraso` e' o
+# `getMusicDelay` do rank; `resultado_musica` reporta cada passo do transporte
+# (1 = intro comecou, 2 = principal em loop, 3 = trocou do intro para o loop no
+# fim do intro). `resultado_ticks` conta os `scrollMenu` e `resultado_audio` os
+# bytes que foram para o audsrv.
+RESMUSATRASO=$(awk -F, '$1=="E" && $3=="resultado_musica_atraso" {print $4; exit}' "$LOG")
+RESMUSEST=$(awk -F, '$1=="E" && $3=="resultado_musica" {print $4; exit}' "$LOG")
+RESMUSINTRO=$(awk -F, '$1=="E" && $3=="resultado_musica" && $4==1 {n++} END{print n+0}' "$LOG")
+RESMUSLOOP=$(awk -F, '$1=="E" && $3=="resultado_musica" && $4==2 {n++} END{print n+0}' "$LOG")
+RESMUSTROCA=$(awk -F, '$1=="E" && $3=="resultado_musica" && $4==3 {n++} END{print n+0}' "$LOG")
+RESTICKS=$(awk -F, '$1=="E" && $3=="resultado_ticks" {print $4; exit}' "$LOG")
+RESAUDIO=$(awk -F, '$1=="E" && $3=="resultado_audio" {print $4; exit}' "$LOG")
 RESBARRA=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $4; exit}' "$LOG")
 RESBARRA1=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $5; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
@@ -203,6 +220,8 @@ echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR
 echo "  percentual no topo .......... na tela=${RESCLEARSMALL:-?}% em x=${RESCLEARSMALLX:-?}.X (esperado 81% e 4215)"
 echo "  barra do topo ............... borda ${RESBARRA:-?}.X / ${RESBARRA1:-?}.X (esperado 742 / 317) imagem da dificuldade=${RESDIFARTE:-?} (${RESDIFB:-?} B)"
 echo "  nome da musica .............. arte=${RESNOMEARTE:-?} (${RESNOMEB:-?} B) entrada=${RESNOME:-?}.X / ${RESNOMEY:-?}.X"
+echo "  musica do resultado ......... atraso=${RESMUSATRASO:-?} ms, estado final=${RESMUSEST:-?} (1 = so' intro, 2 = loop direto, 3 = loop depois do intro)"
+echo "  ticks / audio no audsrv ..... ${RESTICKS:-?} scrollMenu / ${RESAUDIO:-?} B"
 echo "  nome: scroll / ciclos ....... saiu do lugar em ${RESNOMEMOVEMS:-?} ms a x=${RESNOMEMOVE:-?}.X, ${RESNOMECICLOS:-?} recomeco(s)"
 
 FALHA=0
@@ -283,8 +302,10 @@ done
 if [ -z "${RESRANKIDX:-}" ]; then
     echo "  FALHA: o rank nunca chegou a ser desenhado na tela de resultado"; FALHA=1
 else
-    [ "$RESRANKIDX" = "$RANK" ] || { echo "  FALHA: a arte mostrada e' do rank $RESRANKIDX e o jogo calculou $RANK"; FALHA=1; }
-    case "$RANK" in
+    ESP_RANK=$RANK
+    [ "$RANK_FORCADO" -ge 0 ] && ESP_RANK=$RANK_FORCADO
+    [ "$RESRANKIDX" = "$ESP_RANK" ] || { echo "  FALHA: a arte mostrada e' do rank $RESRANKIDX e o esperado era $ESP_RANK"; FALHA=1; }
+    case "$ESP_RANK" in
         0) ESP_RANK_MS=7750 ;;   # 186/24
         1) ESP_RANK_MS=4458 ;;   # 107/24
         2) ESP_RANK_MS=4542 ;;   # 109/24
@@ -293,8 +314,36 @@ else
     esac
     D=$((RESRANKMS - ESP_RANK_MS)); [ "$D" -lt 0 ] && D=$((-D))
     echo "  rank na tela ................ $RESRANKIDX aos ${RESRANKMS} ms (getFlashDelay = $ESP_RANK_MS ms)"
-    [ "$D" -le 40 ] || { echo "  FALHA: o rank entrou em ${RESRANKMS} ms, e o getFlashDelay do rank $RANK diz $ESP_RANK_MS"; FALHA=1; }
+    [ "$D" -le 40 ] || { echo "  FALHA: o rank entrou em ${RESRANKMS} ms, e o getFlashDelay do rank $ESP_RANK diz $ESP_RANK_MS"; FALHA=1; }
 fi
+
+# A MUSICA DO RESULTADO. `getMusicDelay` (Scoring.hx L530-547): 2/24 no SHIT,
+# 3/24 no GOOD, 5/24 no GREAT, 0 no EXCELLENT e 95/24 no PERFECT. O `-intro`
+# existe no SHIT e no EXCELLENT do bf e no EXCELLENT/PERFECT do pico; o GREAT de
+# qualquer um dos dois NAO tem intro -- e o caso do roteiro normal.
+ESP_MUS_MS=209; ESP_INTRO=0
+[ "$RANK_FORCADO" -ge 0 ] && ESP_RANK_R=$RANK_FORCADO || ESP_RANK_R=$RANK
+case "$ESP_RANK_R" in
+    0) ESP_MUS_MS=84 ; ESP_INTRO=1 ;;   # 2/24,  resultsSHIT + intro
+    1) ESP_MUS_MS=125; ESP_INTRO=0 ;;   # 3/24,  resultsNORMAL
+    2) ESP_MUS_MS=209; ESP_INTRO=0 ;;   # 5/24,  resultsNORMAL
+    3) ESP_MUS_MS=0  ; ESP_INTRO=1 ;;   # 0,     resultsEXCELLENT + intro
+    *) ESP_MUS_MS=3959; ESP_INTRO=0 ;;  # 95/24, resultsPERFECT
+esac
+if [ -z "${RESMUSATRASO:-}" ]; then
+    echo "  FALHA: a musica do resultado nunca foi pedida (getMusicDelay)"; FALHA=1
+else
+    [ "$RESMUSATRASO" = "$ESP_MUS_MS" ] || {
+        echo "  FALHA: a musica foi pedida em ${RESMUSATRASO} ms e o getMusicDelay do rank $ESP_RANK_R diz $ESP_MUS_MS"; FALHA=1; }
+fi
+if [ "$ESP_INTRO" = 1 ]; then
+    [ "${RESMUSINTRO:-0}" -ge 1 ] && [ "${RESMUSTROCA:-0}" -ge 1 ] || {
+        echo "  FALHA: este rank tem intro e o transporte nao tocou intro->loop (intro=${RESMUSINTRO:-0} troca=${RESMUSTROCA:-0})"; FALHA=1; }
+else
+    [ "${RESMUSLOOP:-0}" -ge 1 ] || { echo "  FALHA: a musica principal (loop) nao comecou"; FALHA=1; }
+fi
+[ "${RESTICKS:-0}" -ge 10 ] || { echo "  FALHA: os ticks do percentual nao tocaram (${RESTICKS:-0} scrollMenu)"; FALHA=1; }
+[ "${RESAUDIO:-0}" -gt 40000 ] || { echo "  FALHA: o anel entregou ${RESAUDIO:-0} B ao audsrv (esperado > 1 s de PCM)"; FALHA=1; }
 
 # O PLACAR. A arte e' um atlas so'; sem ele os digitos nao aparecem. `slots`
 # tem de ser os dez do ResultScore, e o NUMERO montado a partir dos digitos que

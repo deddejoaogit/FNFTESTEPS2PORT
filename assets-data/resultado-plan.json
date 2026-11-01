@@ -2047,5 +2047,141 @@
   "clip_x": 260.0,
   "ciclo_fim_x": 50.0,
   "linha": "ResultState.hx L119-122, L736-765, L792-836"
+ },
+ "musica": {
+  "ranks": [
+   "SHIT",
+   "GOOD",
+   "GREAT",
+   "EXCELLENT",
+   "PERFECT",
+   "PERFECT_GOLD"
+  ],
+  "atraso_q": [
+   2,
+   3,
+   5,
+   0,
+   95,
+   95
+  ],
+  "donos": [
+   "bf",
+   "pico"
+  ],
+  "padrao": "bf",
+  "jogadores": [
+   [
+    "bf",
+    "bf"
+   ],
+   [
+    "bf-car",
+    "bf"
+   ],
+   [
+    "bf-christmas",
+    "bf"
+   ],
+   [
+    "bf-holding-gf",
+    "bf"
+   ],
+   [
+    "bf-pixel",
+    "bf"
+   ],
+   [
+    "pico-blazin",
+    "pico"
+   ],
+   [
+    "pico-playable",
+    "pico"
+   ],
+   [
+    "sserafim-sakura",
+    "bf"
+   ]
+  ],
+  "tabela": {
+   "bf": [
+    {
+     "rank": "SHIT",
+     "arquivo": "res_shit",
+     "intro": "res_shit_intro",
+     "base": "resultsSHIT"
+    },
+    {
+     "rank": "GOOD",
+     "arquivo": "res_normal",
+     "intro": "",
+     "base": "resultsNORMAL"
+    },
+    {
+     "rank": "GREAT",
+     "arquivo": "res_normal",
+     "intro": "",
+     "base": "resultsNORMAL"
+    },
+    {
+     "rank": "EXCELLENT",
+     "arquivo": "res_excellent",
+     "intro": "res_excellent_intro",
+     "base": "resultsEXCELLENT"
+    },
+    {
+     "rank": "PERFECT",
+     "arquivo": "res_perfect",
+     "intro": "",
+     "base": "resultsPERFECT"
+    },
+    {
+     "rank": "PERFECT_GOLD",
+     "arquivo": "res_perfect",
+     "intro": "",
+     "base": "resultsPERFECT"
+    }
+   ],
+   "pico": [
+    {
+     "rank": "SHIT",
+     "arquivo": "res_shit_pico",
+     "intro": "",
+     "base": "resultsSHIT-pico"
+    },
+    {
+     "rank": "GOOD",
+     "arquivo": "res_normal_pico",
+     "intro": "",
+     "base": "resultsNORMAL-pico"
+    },
+    {
+     "rank": "GREAT",
+     "arquivo": "res_normal_pico",
+     "intro": "",
+     "base": "resultsNORMAL-pico"
+    },
+    {
+     "rank": "EXCELLENT",
+     "arquivo": "res_excellent_pico",
+     "intro": "res_excellent_pico_intro",
+     "base": "resultsEXCELLENT-pico"
+    },
+    {
+     "rank": "PERFECT",
+     "arquivo": "res_perfect_pico",
+     "intro": "res_perfect_pico_intro",
+     "base": "resultsPERFECT-pico"
+    },
+    {
+     "rank": "PERFECT_GOLD",
+     "arquivo": "res_perfect_pico",
+     "intro": "res_perfect_pico_intro",
+     "base": "resultsPERFECT-pico"
+    }
+   ]
+  },
+  "linha": "ResultState.hx L502-550; Scoring.hx L530-547; PlayableCharacter.hx L126-145"
  }
 }

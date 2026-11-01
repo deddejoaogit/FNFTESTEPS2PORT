@@ -695,6 +695,37 @@ void res_nome_passo(res_nome_t *n, unsigned long ms)
     if (n->x + n->larg < g_res_nome_geo.ciclo_fim_x) res_nome_reiniciar(n, ms);
 }
 
+int res_musica_dono(const char *player)
+{
+    unsigned int i;
+    if (!player || !player[0]) return (int)RES_MUSICA_DONO_PADRAO;
+    for (i = 0; i < (unsigned int)RES_MUSICA_JOGADORES; i++) {
+        if (strcmp(g_res_jogadores[i].id, player) == 0)
+            return (int)g_res_jogadores[i].dono;
+    }
+    return (int)RES_MUSICA_DONO_PADRAO;
+}
+
+const res_musica_t *res_musica(int dono, int rank)
+{
+    if (dono < 0 || dono >= (int)RES_MUSICA_DONOS) dono = (int)RES_MUSICA_DONO_PADRAO;
+    if (rank < 0 || rank >= (int)RES_RANKS) rank = 0;
+    return &g_res_musica[dono][rank];
+}
+
+unsigned int res_musica_atraso_ms(int rank)
+{
+    if (rank < 0 || rank >= (int)RES_RANKS) rank = 0;
+    return g_res_musica_atraso_ms[rank];
+}
+
+unsigned long res_cp_confirm_ms(void)
+{
+    unsigned int q = (unsigned int)g_res_cp_geo.inicio_q +
+                     (unsigned int)g_res_cp_geo.tween_q;
+    return (unsigned long)((q * 1000u + 23u) / 24u);
+}
+
 float res_nome_clip_local(const res_nome_t *n)
 {
     float c;
