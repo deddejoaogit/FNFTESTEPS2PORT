@@ -189,4 +189,31 @@ int res_cp_alpha(unsigned long ms);
 /* 1 durante o `flash(true)` (o `PureColor` branco do original). */
 int res_cp_flash(unsigned long ms);
 
+/* ---- A BARRA PRETA DO TOPO E A IMAGEM DA DIFICULDADE ---------------------
+ *
+ * `ResultState.create()` L342-360: a barra nasce em `y = -height` e desliza
+ * ate' 0 num `FlxTween` de 7/24 s com `FlxEase.quartOut`, com `startDelay` de
+ * 3/24 s; no `onComplete` o nome da musica (`songName.visible = true`) aparece.
+ * `timerThenSongName()` (L736-750) poe a dificuldade em
+ * `y = -difficulty.height` e a leva ate' `122 + (barra.height - 148)` num
+ * tween de 0,5 s com `FlxEase.expoOut` e 0,8 s de atraso.
+ *
+ * A barra NAO tem PNG: `BitmapUtil.createResultsBar` monta um retangulo preto
+ * de 1295x149 girado de -3,8 graus. A geometria que sobra (`g_res_barra`) e' a
+ * reta da borda de baixo; o jogo desenha um trapezio de cor solida.
+ */
+
+/* Deslocamento em y da barra (0 = assentada, negativo = ainda entrando). */
+float res_barra_y(unsigned long ms);
+
+/* 1 = a barra chegou ao fim do tween (`onComplete`: o nome da musica aparece). */
+int res_barra_assentada(unsigned long ms);
+
+/* Deslocamento em y da imagem de dificuldade (altura dela em px, 640x360). */
+float res_dif_y(float altura, unsigned long ms);
+
+/* Indice em `g_res_dif` da dificuldade jogada (0..2 = easy/normal/hard), ou
+ * -1 se o valor nao for uma das tres do port. */
+int res_dif_indice(int dificuldade);
+
 #endif /* RESULTADO_H */

@@ -307,6 +307,65 @@ int main(void)
         CHECK_EQ(res_cp_flash(4359ul), 0);
     }
 
+    printf("== resultado: a BARRA do topo e a imagem da DIFICULDADE ==\n");
+    /* A barra nao tem PNG: `BitmapUtil.createResultsBar` monta um retangulo de
+       1295x149 girado de -3,8 graus. O que o desenho usa e' a reta da borda de
+       baixo -- em 640x360 ela vai de ~74,2 (x=0) a ~31,7 (x=640). */
+    {
+        CHECK(g_res_barra.altura > 74.0f && g_res_barra.altura < 75.0f);
+        CHECK(g_res_barra.borda_y0 > 74.0f && g_res_barra.borda_y0 < 74.4f);
+        CHECK(g_res_barra.borda_y1 > 31.5f && g_res_barra.borda_y1 < 31.9f);
+        /* (blackTopBar.height - 148) na metade da tela. */
+        CHECK(g_res_barra.correcao_y >= 0.0f && g_res_barra.correcao_y < 1.0f);
+        CHECK_EQ((int)g_res_barra.atraso_q, 3);
+        CHECK_EQ((int)g_res_barra.tween_q, 7);
+        /* y = -altura ate' 3/24 s (125 ms), tween de 7/24 s ate' 10/24 s (417). */
+        CHECK(res_barra_y(0ul) == -g_res_barra.altura);
+        CHECK(res_barra_y(125ul) == -g_res_barra.altura);
+        CHECK(res_barra_y(126ul) > -g_res_barra.altura);
+        /* Sobe: -74,5 -> 0 (quanto maior o ms, mais perto de zero). */
+        CHECK(res_barra_y(200ul) < 0.0f);
+        CHECK(res_barra_y(200ul) < res_barra_y(300ul));
+        CHECK(res_barra_y(300ul) < res_barra_y(416ul));
+        CHECK(res_barra_y(416ul) < 0.0f);
+        CHECK(res_barra_y(417ul) == 0.0f);
+        CHECK(res_barra_y(999999ul) == 0.0f);
+        /* `onComplete`: e' ele que torna o nome da musica visivel. */
+        CHECK_EQ(res_barra_assentada(416ul), 0);
+        CHECK_EQ(res_barra_assentada(417ul), 1);
+    }
+    /* A dificuldade: `-height` ate' 122 + (barra.height - 148) em 0,5 s com
+       `expoOut`, 0,8 s depois de a tela abrir. */
+    CHECK_EQ((int)RES_DIFS, 5);
+    {
+        int k;
+        for (k = 0; k < (int)RES_DIFS; k++) {
+            CHECK(g_res_dif[k].w > 0u && g_res_dif[k].h > 0u);
+            CHECK(g_res_dif[k].vram_bytes == (unsigned)g_res_dif[k].w *
+                                              g_res_dif[k].h * 4u);
+            CHECK(g_res_dif[k].arquivo != NULL);
+        }
+        CHECK(g_res_dif_geo.x > 277.0f && g_res_dif_geo.x < 278.0f);
+        CHECK(g_res_dif_geo.y_alvo > 61.0f && g_res_dif_geo.y_alvo < 62.0f);
+        CHECK_EQ((int)g_res_dif_geo.atraso_ms, 800);
+        CHECK_EQ((int)g_res_dif_geo.tween_ms, 500);
+    }
+    CHECK_EQ(res_dif_indice(0), 0);
+    CHECK_EQ(res_dif_indice(1), 1);
+    CHECK_EQ(res_dif_indice(2), 2);
+    CHECK_EQ(res_dif_indice(3), -1);      /* erect/nightmare nao existem no port */
+    CHECK_EQ(res_dif_indice(-1), -1);
+    {
+        float h = (float)g_res_dif[1].h;
+        CHECK(res_dif_y(h, 0ul) == -h);
+        CHECK(res_dif_y(h, 800ul) == -h);
+        CHECK(res_dif_y(h, 900ul) > -h);
+        CHECK(res_dif_y(h, 900ul) < res_dif_y(h, 1000ul));
+        CHECK(res_dif_y(h, 1000ul) < g_res_dif_geo.y_alvo);
+        CHECK(res_dif_y(h, 1300ul) == g_res_dif_geo.y_alvo);
+        CHECK(res_dif_y(h, 999999ul) == g_res_dif_geo.y_alvo);
+    }
+
     printf("== resultado: sem pacote, nada aparece (e o modulo diz isso) ==\n");
     res_init(&r);
     CHECK_EQ(res_carregar(&r, "/tmp/fnf_nao_existe/"), 0);

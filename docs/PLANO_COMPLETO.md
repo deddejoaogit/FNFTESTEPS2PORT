@@ -3249,10 +3249,70 @@ se possa fingir com tint, e trocar o TFX por desenho nao se prova no harness
 (ele conta quads; quem prova cor e' a tela do console). Fica registrado como
 pendencia com o caminho tecnico pronto (o `res_cp_flash` ja' diz a janela).
 
-O que ainda nao tem arte: a barra do topo (`blackTopBar` e' procedural no
-original, `BitmapUtil.createResultsBar`), a imagem da dificuldade (`diff_*`), o
-nome da musica (`tardlingSpritesheet`) e o `results-bf`/`results-pico` — com o
+A **barra do topo** e a **imagem da dificuldade** sairam desta lista na build
+seguinte — ver a secao abaixo. Continuam sem arte: o nome da musica
+(`tardlingSpritesheet`), o `highscoreNew` e o `results-bf`/`results-pico`, com o
 custo ja' medido na tabela abaixo.
+
+#### A barra do topo e a imagem da dificuldade (medido)
+
+`ResultState.hx` L332-334 e L342-360, `BitmapUtil.createResultsBar`. Duas pecas
+com naturezas opostas:
+
+**A barra nao tem PNG — e nunca teve.** `BitmapUtil.createResultsBar()` monta um
+`BitmapData` de **1295x149** cheio de preto, aplica `matrix.rotate(-3,8°)`,
+`matrix.translate(-15, 0)` e recorta em `(0, 0, 1280, 149)`. O que sobra na tela
+e' "tudo acima de uma reta inclinada". Reproduzir isso com 1295x149 de textura
+(191.512 B a 0,5) seria empacotar um retangulo preto — e o recorte do GS ainda
+cortaria em 1024 px de largura. Entao o port desenha a **geometria**: calcula a
+reta da borda de baixo com a mesma matriz (0,5 de escala: **y = 74,2 em x = 0** e
+**y = 31,7 em x = 640**) e emite **um trapezio** (`barra_trapezio`, PRIM
+`TRIANGLE_FAN` de quatro vertices, o mesmo formato de qwords que o `draw_rect_filled`
+do ps2sdk usa). Custo: **0 byte de VRAM e 3 qwords por quadro** — medido no
+harness (`resultado_barra,742,317`, ou seja 74,2 e 31,7 em decimos).
+
+O movimento e' o do original, sem atalho: `y = -height` ate' **3/24 s** (125 ms) e
+depois `FlxTween` de **7/24 s** com `quartOut` ate' 0; o `onComplete` do tween e'
+o que torna o nome da musica visivel (`res_barra_assentada` marca esse instante).
+
+**A imagem da dificuldade e' um arquivo por partida.** `diff_${difficultyId}`
+com 555 (x, em 1280x720) e `y = -height`, um tween de **0,5 s** com `expoOut` e
+**0,8 s** de atraso ate' `122 + (blackTopBar.height - 148)` = 123 na fonte (61,5
+na metade). Cinco arquivos existem no clone, mas o port tem tres dificuldades —
+carrega **um**:
+
+| dificuldade | 0,5 | VRAM |
+|---|---|---|
+| `diff_easy` | 78x26 | 8.112 B |
+| `diff_normal` | 114x29 | 13.224 B |
+| `diff_hard` | 80x26 | 8.320 B |
+| `diff_erect` (empacotado, inalcancavel hoje) | 101x28 | 11.312 B |
+| `diff_nightmare` (idem) | 164x32 | 20.992 B |
+
+O `LeftMaskShader` do original **nao recorta nada**: `swagMaskX = difficulty.x - 30`
+(L357) e `swagSprX = difficulty.x` (L811, dentro do `update`), entao
+`cutOff / textureWidth` e' negativo e `uv.x < negativo` nunca vale. A condicao
+esta' registrada no codigo para ninguem "consertar" um shader que nao recorta.
+
+**Orcamento depois destas duas pecas** (medido, `pool_cena,9 = 1.261.568` B
+livres ao entrar na tela):
+
+| peca | bytes |
+|---|---|
+| tres folhas animadas (`results`, `ratingsPopin`, `scorePopin`) | 457.928 |
+| gradiente do fundo (16x360) | 23.040 |
+| placar (52 quadros de digitos num atlas) | 508.480 |
+| percentual (3 atlas + 2 textos) | 129.452 |
+| rank (o par maior, PERFECT) | 76.736 |
+| contadores de julgamento | 16.896 |
+| imagem da dificuldade (normal) | 13.224 |
+| **total** | **1.225.756** |
+| **sobra** | **35.812** |
+
+A sobra de ~35 KB e' o numero que decide o que vem depois: `highscoreNew` a 0,5
+sao 524.928 B, ou seja **quinze vezes** a sobra. Ele nao entra sem degradacao
+severa (0,25 daria 131.232 B, ainda 3,6x a sobra) nem sem tirar outra peca da
+tela — decisao registrada, nao tomada por chute.
 
 #### A tela de Resultado: o que falta, medido
 
@@ -3268,7 +3328,7 @@ orçamento aqui é de ~1,2 MB — folgado em comparação com a música.
 | `ratingsPopin` | `resultScreen/ratingsPopin` | 16 | 449x419 | 225x210 | 189.000 B |
 | `scorePopin` | `resultScreen/scorePopin` | 30 | 712x145 | 356x73 | 103.952 B |
 | `soundSystem` | `resultScreen/soundSystem` | — | 3432x3069 | — | (só 1 quadro por vez) |
-| `topBarBlack` + `difficulty` | `topBarBlack.png`, `diff_*.png` | 1 | 1294x148 | 647x74 | 191.512 B |
+| `topBarBlack` (procedural: 0 B) + `difficulty` | `diff_*.png` | 1 | 1294x148 + 228x58 | 647x74 + 114x29 | **0 B** + 13.224 B |
 | `rankText*` / `clearPercent*` | `resultScreen/rankText`, `clearPercent` | 1 por arquivo | vários | ~1/2 | ~50 KB cada |
 | `results-bf` / `results-pico` | `resultScreen/results-bf`, `results-pico` | por rank | — | — | ~150 KB |
 

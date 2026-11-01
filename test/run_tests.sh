@@ -412,13 +412,16 @@ $CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco
 echo
 
 # A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
-# (res_flash_alpha / res_rank_pisca / res_rank_scroll_*) e o PLACAR
-# (res_score_estado), com pacotes CFZ4 de verdade montados pelo proprio teste.
+# (res_flash_alpha / res_rank_pisca / res_rank_scroll_*), o PLACAR
+# (res_score_estado), os contadores, o percentual e a barra do topo
+# (res_barra_y / res_dif_y), com pacotes CFZ4 de verdade montados pelo teste.
 # Sem esta linha o modulo existia sem teste: `test/test_resultado.c` estava no
 # repositorio e nao era compilado por ninguem.
-echo "== resultado: folhas, rank e placar (arte da tela de Resultado) =="
+# `-lm`: `res_dif_y` usa `powf` para o `FlxEase.expoOut`, o mesmo caminho que
+# `chart_events.c` ja' usa no binario do PS2 (newlib fornece a libm la').
+echo "== resultado: folhas, rank, placar, percentual e barra do topo =="
 $CC $FLAGS test/test_resultado.c src/engine/resultado.c src/engine/pack_stream.c \
-    src/engine/lz4_bloco.c -o /tmp/fnf_test_resultado
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_resultado -lm
 /tmp/fnf_test_resultado || exit 1
 echo
 

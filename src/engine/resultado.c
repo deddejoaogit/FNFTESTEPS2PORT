@@ -1,5 +1,6 @@
 #include "resultado.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -482,4 +483,60 @@ int res_cp_flash(unsigned long ms)
 {
     unsigned long ini = res_cp_inicio_ms() + res_cp_tween_ms();
     return (ms >= ini && ms < ini + (unsigned long)g_res_cp_geo.flash_ms) ? 1 : 0;
+}
+
+/* ---- A BARRA DO TOPO E A DIFICULDADE (ResultState.hx L342-360, L736-750) --
+
+   Dois tweens, ambos com o MESMO arredondamento para CIMA que o percentual usa
+   (`res_cp_q_ms`): o instante de q/24 s e' o teto da divisao, e a duracao e' a
+   diferenca entre os dois extremos (10/24 - 3/24 = 417 - 125 = 292 ms, e nao
+   291,6 truncado). E' o mesmo criterio que fez o teste do
+   percentual passar: a comparacao e' "ja' chegou?", e uma janela de 1 ms a
+   menos faz o quadro de chegada ser o anterior. */
+
+static unsigned long res_barra_q_ms(unsigned long q)
+{
+    return (q * 1000ul + 23ul) / 24ul;
+}
+
+float res_barra_y(unsigned long ms)
+{
+    const unsigned long ini = res_barra_q_ms((unsigned long)g_res_barra.atraso_q);
+    const unsigned long fim = res_barra_q_ms((unsigned long)g_res_barra.atraso_q
+                                             + (unsigned long)g_res_barra.tween_q);
+    float t, e;
+    if (ms <= ini) return -g_res_barra.altura;
+    if (ms >= fim) return 0.0f;
+    t = (float)(ms - ini) / (float)(fim - ini);
+    e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);   /* FlxEase.quartOut */
+    return -g_res_barra.altura * (1.0f - e);
+}
+
+int res_barra_assentada(unsigned long ms)
+{
+    return ms >= res_barra_q_ms((unsigned long)g_res_barra.atraso_q
+                                + (unsigned long)g_res_barra.tween_q) ? 1 : 0;
+}
+
+float res_dif_y(float altura, unsigned long ms)
+{
+    unsigned long ini = (unsigned long)g_res_dif_geo.atraso_ms;
+    unsigned long fim = ini + (unsigned long)g_res_dif_geo.tween_ms;
+    float t, e;
+    if (ms <= ini) return -altura;
+    if (ms >= fim) return g_res_dif_geo.y_alvo;
+    t = (float)(ms - ini) / (float)(fim - ini);
+    /* FlxEase.expoOut: 1 - 2^(-10t). Em t = 1 vale 1 (2^-10 nao e' zero). */
+    e = 1.0f - powf(2.0f, -10.0f * t);
+    return -altura + (g_res_dif_geo.y_alvo + altura) * e;
+}
+
+int res_dif_indice(int dificuldade)
+{
+    /* `diff_${params.difficultyId}`: o port so' tem tres dificuldades
+       (0 = easy, 1 = normal, 2 = hard). Os arquivos `diff_erect` e
+       `diff_nightmare` ficam empacotados para o dia em que o port tiver essas
+       dificuldades -- nao ha' como chegar neles hoje. */
+    if (dificuldade < 0 || dificuldade > 2) return -1;
+    return dificuldade;
 }

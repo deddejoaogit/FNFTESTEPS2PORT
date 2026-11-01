@@ -289,6 +289,56 @@ def gerar():
                                            g["abaixo"]))
     a("};")
     a("")
+    tb = d["topbar"]
+    b = tb["barra"]
+    dg = tb["dificuldade"]
+    a("")
+    a("#define RES_DIFS %du" % len(tb["dificuldades"]))
+    a("")
+    a("/* A BARRA PRETA DO TOPO. Nao ha' PNG: o original a monta em codigo")
+    a(" * (`BitmapUtil.createResultsBar`) -- um retangulo preto de %dx%d girado de"
+      " %.1f graus. A forma que sobra na tela e' \"tudo acima da reta de"
+      " baixo\":" % (b["largura_src"], b["altura_src"], b["angulo"]))
+    a(" * `borda_y0` em x = 0 e `borda_y1` em x = 640 (em 640x360). O jogo desenha")
+    a(" * faixas pretas, sem textura. A barra entra deslizando de cima: tween de")
+    a(" * `-altura` ate' 0 em %d/24 s, quartOut, com %d/24 s de atraso."
+      % (b["tween_q"], b["atraso_q"]))
+    a(" * `correcao_y` e' `(blackTopBar.height - 148)`, o deslocamento que a fonte")
+    a(" * aplica em tudo que fica abaixo da barra. */")
+    a("typedef struct {")
+    a("    float          borda_y0, borda_y1, altura, correcao_y;")
+    a("    unsigned char  atraso_q, tween_q;")
+    a("} res_barra_t;")
+    a("")
+    a("static const res_barra_t g_res_barra = {")
+    a("    %.1ff, %.1ff, %.1ff, %.1ff, %du, %du"
+      % (b["borda_y0"], b["borda_y1"], b["altura_half"], b["correcao_y"],
+         b["atraso_q"], b["tween_q"]))
+    a("};")
+    a("")
+    a("/* A IMAGEM DA DIFICULDADE (`resultScreen/diff_<id>`): x = 555 na fonte,")
+    a(" * entrando de cima em 0,5 s com `expoOut` e 0,8 s de atraso. */")
+    a("typedef struct {")
+    a("    unsigned short w, h;")
+    a("    const char    *arquivo;")
+    a("    unsigned int   vram_bytes;")
+    a("} res_dif_t;")
+    a("")
+    a("static const res_dif_t g_res_dif[RES_DIFS] = {")
+    for nome in ("easy", "normal", "hard", "erect", "nightmare"):
+        dd = tb["dificuldades"][nome]
+        a('    { %3du, %2du, "%s", %5du },   /* diff_%s */'
+          % (dd["w"], dd["h"], dd["arquivo"], dd["vram_bytes"], nome))
+    a("};")
+    a("")
+    a("typedef struct {")
+    a("    float        x, y_alvo;")
+    a("    unsigned int atraso_ms, tween_ms;")
+    a("} res_dif_geo_t;")
+    a("")
+    a("static const res_dif_geo_t g_res_dif_geo = { %.1ff, %.1ff, %3du, %3du };"
+      % (dg["x"], dg["y_alvo"], dg["atraso_ms"], dg["tween_ms"]))
+    a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

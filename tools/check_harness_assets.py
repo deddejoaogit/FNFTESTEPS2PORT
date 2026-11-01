@@ -176,6 +176,23 @@ if _rc:
 else:
     ok = False
 
+# A IMAGEM DA DIFICULDADE (barra do topo): 640x360 sem arte, e cada uma com o
+# tamanho EXATO que o gerador prometeu -- um byte a mais ou a menos e o
+# `read_exact_path` falha no console.
+_rtopo = g.resultado_topo()
+ok &= (len(_rtopo) == 5)
+_hashes = set()
+for _i, (_a, _w, _h, _n) in enumerate(_rtopo):
+    _im = g.make_dif_img(_w, _h, _i + 1)
+    _op = sum(1 for _k in range(3, len(_im), 4) if _im[_k] > 64)
+    _hashes.add(bytes(_im[:4096]))
+    print(f"  RESULTADO   {_a:22s} {_w}x{_h} arquivo={len(_im):>9,} "
+          f"opacos={_op:>6} ({_n})")
+    ok &= (len(_im) == _w * _h * 4 and 0 < _op < _w * _h)
+# As cinco tem de ser DIFERENTES: o teste prova que o arquivo da dificuldade
+# jogada foi aberto, e nao um qualquer.
+ok &= (len(_hashes) == 5)
+
 bw, bh = g.resultado_folhas()[1:]
 bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")

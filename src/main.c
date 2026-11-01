@@ -328,6 +328,15 @@ static unsigned int g_res_cp_addr[RES_CP_ATLASES];
 static unsigned int g_res_cp_texto_addr=0,g_res_cp_texto_small_addr=0;
 static int g_res_cp_logado=0,g_res_cp_final=0;
 
+/* A BARRA DO TOPO E A DIFICULDADE. A barra nao tem textura (trapezio de cor
+   solida: 0 B de VRAM); a imagem da dificuldade e' UM dos cinco `diff_*.rgba`
+   -- cada partida carrega so' o da dificuldade jogada. */
+static int g_res_dif_ok=0;
+static unsigned int g_res_dif_addr=0;
+static int g_res_dif_ind=-1;             /* indice em g_res_dif (0 = easy) */
+static float g_res_dif_h=0.0f;
+static int g_res_barra_logado=0;
+
 static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
 static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
 
@@ -1026,6 +1035,41 @@ static float vy(float y){return (g_viewport_360&&!g_vy_direto)?VY_OFFSET+y*VY_FA
 static color_t rgba(unsigned char r,unsigned char g,unsigned char b,unsigned char a){color_t c;c.r=r;c.g=g;c.b=b;c.a=a;c.q=1.0f;return c;}
 static qword_t *rect_alpha(qword_t*q,float x0,float y0,float x1,float y1,unsigned char r,unsigned char g,unsigned char b,unsigned char a){rect_t v;v.v0.x=FNX_INI(x0);v.v0.y=FNX_INI(vy(y0));v.v0.z=0;v.v1.x=FNX_FIM(x1);v.v1.y=FNX_FIM(vy(y1));v.v1.z=0;v.color=rgba(r,g,b,a);return draw_rect_filled(q,0,&v);}
 static qword_t *rect(qword_t*q,float x0,float y0,float x1,float y1,unsigned char r,unsigned char g,unsigned char b){return rect_alpha(q,x0,y0,x1,y1,r,g,b,0x80);}
+/* TRAPEZIO DE COR SOLIDA, SEM TEXTURA (a barra preta do topo do ResultState).
+   `rect`/`draw_rect_filled` so' fazem retangulo alinhado aos eixos; a barra do
+   original tem a BORDA DE BAIXO INCLINADA (o PNG e' um retangulo preto girado
+   de -3,8 graus), entao ela precisa de quatro vertices quaisquer.
+
+   Os dois triangulos vao num COMANDO so' (um TRIANGLE_FAN de quatro vertices:
+   v0,v1,v2 e v0,v2,v3), no MESMO formato de qwords que o ps2sdk usa para o
+   retangulo -- se o formato divergisse, o pacote corromperia o resto do quadro
+   e nao so' a barra. Custo por quadro: 3 qwords, zero textura, zero VRAM. */
+static u32 g_frame_flat_quads;   /* trapezios de cor solida (a barra do topo) */
+static qword_t *barra_trapezio(qword_t*q,float x0,float x1,float ytop,
+                               float yb0,float yb1,unsigned char a){
+ color_t cor;
+ cor.rgbaq=0;cor.r=0;cor.g=0;cor.b=0;cor.a=a;cor.q=1.0f;
+ /* REGLIST com 6 registros num UNICO laco -- o mesmo formato que
+    draw_rect_filled emite (draw2d.c L190-210: tag NLOOP=1, NREG=4,
+    PRIM+RGBAQ num qword e dois XYZ2 no outro). Aqui sao QUATRO vertices,
+    entao NREG=6 e o reglist tem dois XYZ2 a mais. */
+ q->dw[0]=GIF_SET_TAG(1,0,0,0,GIF_FLG_REGLIST,6);
+ q->dw[1]=((u64)GIF_REG_PRIM)<<0|((u64)GIF_REG_RGBAQ)<<4|
+          ((u64)GIF_REG_XYZ2)<<8|((u64)GIF_REG_XYZ2)<<12|
+          ((u64)GIF_REG_XYZ2)<<16|((u64)GIF_REG_XYZ2)<<20;
+ q++;
+ q->dw[0]=GIF_SET_PRIM(GS_PRIM_TRIANGLE_FAN,0,0,0,1,0,0,0,0);
+ q->dw[1]=cor.rgbaq;
+ q++;
+ q->dw[0]=GIF_SET_XYZ(ftoi4(x0+2047.5625f),ftoi4(vy(ytop)+2047.5625f),0);
+ q->dw[1]=GIF_SET_XYZ(ftoi4(x1+2047.5625f),ftoi4(vy(ytop)+2047.5625f),0);
+ q++;
+ q->dw[0]=GIF_SET_XYZ(ftoi4(x1+2048.5625f),ftoi4(vy(yb1)+2048.5625f),0);
+ q->dw[1]=GIF_SET_XYZ(ftoi4(x0+2048.5625f),ftoi4(vy(yb0)+2048.5625f),0);
+ q++;
+ g_frame_flat_quads++;
+ return q;
+}
 /* Dithering do GS: obrigatorio quando o framebuffer e' de 16 bits.
    draw_setup_environment() desliga (GS_SET_DTHE(GS_DISABLE)) a cada quadro,
    porque o padrao do ps2sdk assume framebuffer de 32 bits -- onde dither e'
@@ -2669,7 +2713,7 @@ static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
  return q;}
 #define RES_ASSET_DIR "mass:/FNFPS2/assets/"
 static void resultado_soltar(void);
-static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
+static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
 {
  int i,maior=0;
  resultado_soltar();
@@ -2828,6 +2872,33 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
   }
   g_res_cp_ok=certo;
   telemetry_event("resultado_clear_arte",g_res_cp_ok,(int)bytes_total);}
+ /* A IMAGEM DA DIFICULDADE (`resultScreen/diff_<id>`, ResultState.hx L332-334).
+    Nao se carrega os cinco arquivos: cada partida mostra o da dificuldade
+    jogada. Se o arquivo nao estiver no pendrive, a tela perde so' essa imagem
+    (a barra preta e' desenhada de qualquer jeito, porque ela nao e' textura). */
+ g_res_dif_ok=0;g_res_dif_addr=0;g_res_dif_ind=-1;g_res_dif_h=0.0f;
+ {int di=res_dif_indice(dificuldade);
+  if(di>=0&&di<(int)RES_DIFS){
+   const res_dif_t *df=&g_res_dif[di];
+   unsigned int bytes=(unsigned int)df->w*df->h*4u,addr=0;
+   char caminho[96];
+   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",df->arquivo);
+   g_res_dif_ind=di;
+   if(bytes<=512u*256u*4u&&
+      read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+      sp_chave(pool,SP_CHAVE_TELA_BASE+0x30u,bytes,&addr)>=0){
+    texbuffer_t t=*tpl;
+    t.width=df->w;t.psm=GS_PSM_32;t.address=addr;
+    setup_texture_dims(&t,(int)df->w,(int)df->h);
+    FlushCache(0);
+    upload_raw(&t,g_up_bounce,(int)df->w,(int)df->h);
+    g_res_dif_addr=addr;g_res_dif_ok=1;
+    g_res_dif_h=(float)df->h;
+   }else{
+    telemetry_event("resultado_sem_vram",-9,(int)sp_livre(pool));
+   }
+   telemetry_event("resultado_dif_arte",g_res_dif_ok,bytes);
+  }else telemetry_event("resultado_dif_arte",-1,dificuldade);}
 }
 static void resultado_soltar(void)
 {
@@ -2840,6 +2911,8 @@ static void resultado_soltar(void)
  {int k;for(k=0;k<(int)RES_TALLIES;k++)g_res_tally_logado[k]=0;}
  g_res_cp_ok=0;g_res_cp_texto_addr=0;g_res_cp_texto_small_addr=0;
  g_res_cp_logado=0;g_res_cp_final=0;
+ g_res_dif_ok=0;g_res_dif_addr=0;g_res_dif_ind=-1;g_res_dif_h=0.0f;
+ g_res_barra_logado=0;
  {int k;for(k=0;k<(int)RES_CP_ATLASES;k++)g_res_cp_addr[k]=0;}
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
@@ -4718,7 +4791,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       pool tem ~1,2 MB livres: e' aqui que as tres folhas e o gradiente do
       fundo entram. `g_res_t0` marca o instante da abertura, porque os timers
       do original (6/24, 21/24 e 36/24 s) contam a partir dela. */
-   resultado_carregar(&g_pool,&stagetex);
+   resultado_carregar(&g_pool,&stagetex,story_diff);
    g_res_t0=GetTimerSystemTime();g_res_ms=0;g_res_logado=0;
    /* O ZOOM DO HUD, medido: o maior valor da musica e quantas vezes o HUD
       subiu. Sem isso, "o HUD pisca" nao teria numero nenhum no log do
@@ -5863,6 +5936,99 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
                      0.0f,0.0f,(float)g_res_folha[i].w,(float)g_res_folha[i].h);
      desenhadas++;
     }
+    /* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 +
+       ResultState.hx L577-646). O texto "CLEAR" com o `%` fica em (0,0) do
+       grupo e os digitos abaixo dele, em `y = 36`; cada digito usa o glifo
+       `Left` ou `Right` conforme a posicao, e o primeiro anda 1 posicao para a
+       direita com um digito / para a esquerda com tres. O numero sobe do
+       `alvo - 36` ate' o alvo num tween quartOut de 58/24 s e depois some.
+       O ALVO e' o mesmo que a fonte usa: no Story Mode o percentual da SEMANA
+       (`talliesLevel`), fora dele o da musica. */
+    if(g_res_cp_ok&&res_cp_visivel((unsigned long)g_res_ms)){
+     const res_cp_geo_t *geo=&g_res_cp_geo;
+     int pct,valor,nd,ind,off,alpha=res_cp_alpha((unsigned long)g_res_ms);
+     if(g_story_mode){
+      float c=g_camp_total_notas>0
+              ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/
+                (float)g_camp_total_notas):0.0f;
+      if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
+      pct=(int)(c*100.0f);
+     }else pct=fnf_play_clear_percent(&g_play);
+     valor=res_cp_valor(pct,(unsigned long)g_res_ms);
+     nd=res_cp_digitos(valor);
+     off=res_cp_deslocamento(nd);
+     /* O texto "CLEAR" + "%". */
+     {texbuffer_t ct=stagetex;
+      ct.width=g_res_cp_texto.w;ct.psm=GS_PSM_32;ct.address=g_res_cp_texto_addr;
+      setup_texture_dims(&ct,(int)g_res_cp_texto.w,(int)g_res_cp_texto.h);
+      q=bind_texture_filter(q,&ct,1);
+      q=sprite_region_alpha(q,geo->x,geo->y,
+        (float)g_res_cp_texto.w*g_res_cp_texto.fator,
+        (float)g_res_cp_texto.h*g_res_cp_texto.fator,
+        0.0f,0.0f,(float)g_res_cp_texto.w,(float)g_res_cp_texto.h,
+        (unsigned char)alpha);}
+     for(ind=0;ind<nd;ind++){
+      int d,p10=1,m,vq;const res_cp_atlas_t *at;const res_cp_frame_t *fr;
+      texbuffer_t gt=stagetex;
+      for(m=nd-1;m>ind;m--)p10*=10;
+      d=(valor/p10)%10;
+      vq=res_cp_variante(nd,ind);
+      at=&g_res_cp_atlas[vq?RES_CP_RIGHT:RES_CP_LEFT];
+      fr=&at->frames[d];
+      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[vq?RES_CP_RIGHT:RES_CP_LEFT];
+      setup_texture_dims(&gt,(int)at->w,(int)at->h);
+      q=bind_texture_filter(q,&gt,1);
+      q=sprite_region_alpha(q,
+        geo->x+((float)ind+(float)off)*geo->passo_grande+(float)fr->ox,
+        geo->y+geo->y_digitos_grande+(float)fr->oy,
+        (float)fr->aw*at->fator,(float)fr->ah*at->fator,
+        (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah,
+        (unsigned char)alpha);
+     }
+     /* Telemetria: o valor no primeiro quadro e o valor ASSENTADO (depois do
+        tween), que e' o numero que fica na tela antes do fade. */
+     if(!g_res_cp_logado){g_res_cp_logado=1;
+      telemetry_event("resultado_clear",pct,g_res_ms);}
+     if(!g_res_cp_final&&valor==pct){g_res_cp_final=1;
+      telemetry_event("resultado_clear_final",valor,g_res_ms);}
+    }
+    /* A IMAGEM DA DIFICULDADE (ResultState.hx L332-334 e L736-750). Ela entra
+       de cima: y = -altura em 0,8 s e depois um tween de 0,5 s com `expoOut`
+       ate' 61,5 (`122 + (blackTopBar.height - 148)`, na metade da tela).
+       zIndex 1000 no original, ou seja por baixo da barra (1010) e do grupo
+       do placar/contadores (1200): durante a entrada ela passa POR TRAS da
+       barra preta, que ja' esta' descendo ao mesmo tempo.
+       O `LeftMaskShader` do original (L355-357) NAO recorta nada: `swagMaskX`
+       e' `difficulty.x - 30` e `swagSprX` e' `difficulty.x` (L811), entao
+       `cutOff/textureWidth` e' negativo e a condicao `uv.x < negativo` nunca
+       vale. Nao ha' shader a reproduzir. */
+    if(g_res_dif_ok&&g_res_dif_ind>=0){
+     texbuffer_t dt=stagetex;
+     const res_dif_t *df=&g_res_dif[g_res_dif_ind];
+     float dy=res_dif_y(g_res_dif_h,(unsigned long)g_res_ms);
+     if(vy(dy+g_res_dif_h)>0.0f&&vy(dy)<(float)SCREEN_H){
+      dt.width=df->w;dt.psm=GS_PSM_32;dt.address=g_res_dif_addr;
+      setup_texture_dims(&dt,(int)df->w,(int)df->h);
+      q=bind_texture_filter(q,&dt,1);
+      q=sprite_region(q,g_res_dif_geo.x,dy,(float)df->w,(float)df->h,
+                      0.0f,0.0f,(float)df->w,(float)df->h);
+     }
+    }
+    /* A BARRA PRETA DO TOPO (ResultState.hx L342-346). Nao ha' PNG: o original
+       monta um retangulo preto de 1295x149 girado de -3,8 graus
+       (`BitmapUtil.createResultsBar`) e o poe em `y = -height`, animando ate' 0
+       em 7/24 s com `quartOut` depois de 3/24 s. A borda de baixo e' uma RETA,
+       entao aqui ela e' um trapezio de cor solida: 0 byte de VRAM, 3 qwords por
+       quadro. `borda_y0/y1` saem da matriz do original (ver
+       tools/empacotar_topbar.py). */
+    {float by=res_barra_y((unsigned long)g_res_ms);
+     float b0=by+g_res_barra.borda_y0,b1=by+g_res_barra.borda_y1;
+     q=barra_trapezio(q,0.0f,(float)SCREEN_W,-80.0f,b0,b1,0x80);
+     if(!g_res_barra_logado&&res_barra_assentada((unsigned long)g_res_ms)){
+      g_res_barra_logado=1;
+      telemetry_event("resultado_barra",(int)(b0*10.0f),(int)(b1*10.0f));
+     }
+    }
     /* Quantas folhas estao na tela AGORA (e em que ms). A primeira chamada
        desenha so' o fundo -- as folhas entram em 250/875/1500 ms --, entao sem
        este evento "a tela desenhou 99 quads" nao diz se a ARTE chegou a
@@ -5976,62 +6142,6 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      }
      if(desenhados!=g_res_tally_desenho){g_res_tally_desenho=desenhados;
       telemetry_event("resultado_tallies",desenhados,g_res_ms);}
-    }
-    /* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 +
-       ResultState.hx L577-646). O texto "CLEAR" com o `%` fica em (0,0) do
-       grupo e os digitos abaixo dele, em `y = 36`; cada digito usa o glifo
-       `Left` ou `Right` conforme a posicao, e o primeiro anda 1 posicao para a
-       direita com um digito / para a esquerda com tres. O numero sobe do
-       `alvo - 36` ate' o alvo num tween quartOut de 58/24 s e depois some.
-       O ALVO e' o mesmo que a fonte usa: no Story Mode o percentual da SEMANA
-       (`talliesLevel`), fora dele o da musica. */
-    if(g_res_cp_ok&&res_cp_visivel((unsigned long)g_res_ms)){
-     const res_cp_geo_t *geo=&g_res_cp_geo;
-     int pct,valor,nd,ind,off,alpha=res_cp_alpha((unsigned long)g_res_ms);
-     if(g_story_mode){
-      float c=g_camp_total_notas>0
-              ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/
-                (float)g_camp_total_notas):0.0f;
-      if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
-      pct=(int)(c*100.0f);
-     }else pct=fnf_play_clear_percent(&g_play);
-     valor=res_cp_valor(pct,(unsigned long)g_res_ms);
-     nd=res_cp_digitos(valor);
-     off=res_cp_deslocamento(nd);
-     /* O texto "CLEAR" + "%". */
-     {texbuffer_t ct=stagetex;
-      ct.width=g_res_cp_texto.w;ct.psm=GS_PSM_32;ct.address=g_res_cp_texto_addr;
-      setup_texture_dims(&ct,(int)g_res_cp_texto.w,(int)g_res_cp_texto.h);
-      q=bind_texture_filter(q,&ct,1);
-      q=sprite_region_alpha(q,geo->x,geo->y,
-        (float)g_res_cp_texto.w*g_res_cp_texto.fator,
-        (float)g_res_cp_texto.h*g_res_cp_texto.fator,
-        0.0f,0.0f,(float)g_res_cp_texto.w,(float)g_res_cp_texto.h,
-        (unsigned char)alpha);}
-     for(ind=0;ind<nd;ind++){
-      int d,p10=1,m,vq;const res_cp_atlas_t *at;const res_cp_frame_t *fr;
-      texbuffer_t gt=stagetex;
-      for(m=nd-1;m>ind;m--)p10*=10;
-      d=(valor/p10)%10;
-      vq=res_cp_variante(nd,ind);
-      at=&g_res_cp_atlas[vq?RES_CP_RIGHT:RES_CP_LEFT];
-      fr=&at->frames[d];
-      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[vq?RES_CP_RIGHT:RES_CP_LEFT];
-      setup_texture_dims(&gt,(int)at->w,(int)at->h);
-      q=bind_texture_filter(q,&gt,1);
-      q=sprite_region_alpha(q,
-        geo->x+((float)ind+(float)off)*geo->passo_grande+(float)fr->ox,
-        geo->y+geo->y_digitos_grande+(float)fr->oy,
-        (float)fr->aw*at->fator,(float)fr->ah*at->fator,
-        (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah,
-        (unsigned char)alpha);
-     }
-     /* Telemetria: o valor no primeiro quadro e o valor ASSENTADO (depois do
-        tween), que e' o numero que fica na tela antes do fade. */
-     if(!g_res_cp_logado){g_res_cp_logado=1;
-      telemetry_event("resultado_clear",pct,g_res_ms);}
-     if(!g_res_cp_final&&valor==pct){g_res_cp_final=1;
-      telemetry_event("resultado_clear_final",valor,g_res_ms);}
     }
     q=bind_texture_filter(q,&fonttex,1);
    }

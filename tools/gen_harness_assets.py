@@ -533,6 +533,39 @@ def make_cp_img(w, h, tom):
     return bytes(out)
 
 
+def resultado_topo():
+    """A imagen da dificuldade (barra do topo), do plano: [(arquivo, w, h, nome)]."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return []
+    d = json.load(open(caminho, encoding="utf-8"))
+    tb = d.get("topbar") or {}
+    out = []
+    for nome, img in (tb.get("dificuldades") or {}).items():
+        out.append((img["arquivo"], img["w"], img["h"], nome))
+    return out
+
+
+def make_dif_img(w, h, semente):
+    """Imagem sintetica da dificuldade: um bloco com alpha parcial.
+
+    A imagem de verdade e' uma "etiqueta" que entra por cima da barra preta.
+    Aqui ela e' um padrao diagonal que muda de cor por dificuldade, para o
+    teste provar que o arquivo CERTO foi aberto (easy/normal/hard diferentes).
+    """
+    out = bytearray(w * h * 4)
+    for y in range(h):
+        for x in range(w):
+            o = (y * w + x) * 4
+            dentro = ((x + y) % 7) < 4
+            out[o + 0] = 40 + (semente * 60) % 200
+            out[o + 1] = 200 - (semente * 30) % 120
+            out[o + 2] = 90 + semente * 25
+            out[o + 3] = 255 if dentro else 0
+    return bytes(out)
+
+
 def make_resultado_bg(w, h):
     """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
     topo = (0xFE, 0xCC, 0x5C)
@@ -659,6 +692,11 @@ def build(root, charts_src=None):
            make_cp_img(t["w"], t["h"], 200)
            for t in resultado_clear()["texto"].values()}
           if resultado_clear() else {}),
+        # A IMAGEM DA DIFICULDADE (barra do topo). A barra preta em si nao tem
+        # arquivo: ela e' um trapezio desenhado em codigo (0 B de VRAM).
+        **{"resultado/%s" % os.path.basename(a):
+           make_dif_img(w, h, i + 1)
+           for i, (a, w, h, _n) in enumerate(resultado_topo())},
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

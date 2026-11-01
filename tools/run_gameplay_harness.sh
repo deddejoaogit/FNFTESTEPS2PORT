@@ -125,6 +125,14 @@ RESCLEAR=$(awk -F, '$1=="E" && $3=="resultado_clear_final" {print $4; exit}' "$L
 RESCLEARMS=$(awk -F, '$1=="E" && $3=="resultado_clear_final" {print $5; exit}' "$LOG")
 RESCLEARPCT=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
 RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
+# A BARRA DO TOPO e a imagem da dificuldade. A barra nao tem arte (trapezio
+# desenhado em codigo); o que se cobra e' que a IMAGEM da dificuldade da musica
+# jogada tenha carregado e que a barra tenha assentado (borda de baixo nos
+# valores que `BitmapUtil.createResultsBar` produz: ~74,2 e ~31,7 em 640x360).
+RESDIFARTE=$(awk -F, '$1=="E" && $3=="resultado_dif_arte" {print $4; exit}' "$LOG")
+RESDIFB=$(awk -F, '$1=="E" && $3=="resultado_dif_arte" {print $5; exit}' "$LOG")
+RESBARRA=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $4; exit}' "$LOG")
+RESBARRA1=$(awk -F, '$1=="E" && $3=="resultado_barra" {print $5; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
 # assenta. `campo` 0 = total acertado, 1 = maior combo, 2..5 = sick/good/bad/
 # shit, 6 = erradas.
@@ -172,6 +180,7 @@ echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVIST
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
+echo "  barra do topo ............... borda ${RESBARRA:-?}.X / ${RESBARRA1:-?}.X (esperado 742 / 317) imagem da dificuldade=${RESDIFARTE:-?} (${RESDIFB:-?} B)"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -319,6 +328,20 @@ if [ -z "${RESCLEAR:-}" ]; then
 else
     [ "$RESCLEAR" = "${RESCLEARPCT:-x}" ] || { echo "  FALHA: o percentual na tela e' $RESCLEAR e o jogo calculou $RESCLEARPCT"; FALHA=1; }
     [ "${RESCLEARMS:-0}" -ge 1542 ] || { echo "  FALHA: o percentual apareceu em ${RESCLEARMS} ms (antes do timer de 37/24 s)"; FALHA=1; }
+fi
+
+# A BARRA DO TOPO. A barra em si e' geometria (0 B de VRAM): o que se cobra e'
+# que a borda de baixo tenha chegado aos valores do original em decimos de px
+# (`borda_y0` = 74,2 e `borda_y1` = 31,7 em 640x360) e que a imagem da
+# dificuldade jogada (normal no harness) tenha carregado.
+[ "${RESDIFARTE:-0}" -eq 1 ] || { echo "  FALHA: a imagem da dificuldade nao carregou (${RESDIFARTE:-?})"; FALHA=1; }
+if [ -z "${RESBARRA:-}" ]; then
+    echo "  FALHA: a barra do topo nunca assentou"; FALHA=1
+else
+    [ "$RESBARRA" -ge 738 ] && [ "$RESBARRA" -le 746 ] || {
+        echo "  FALHA: a borda esquerda da barra assentou em $RESBARRA (esperado 742)"; FALHA=1; }
+    [ "$RESBARRA1" -ge 313 ] && [ "$RESBARRA1" -le 321 ] || {
+        echo "  FALHA: a borda direita da barra assentou em $RESBARRA1 (esperado 317)"; FALHA=1; }
 fi
 
 if [ "$FALHA" != 0 ]; then

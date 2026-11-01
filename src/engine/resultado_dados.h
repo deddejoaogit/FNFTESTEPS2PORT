@@ -336,4 +336,46 @@ static const res_cp_geo_t g_res_cp_geo = {
     400u, 250u, 500u, 500u, 36u
 };
 
+
+#define RES_DIFS 5u
+
+/* A BARRA PRETA DO TOPO. Nao ha' PNG: o original a monta em codigo
+ * (`BitmapUtil.createResultsBar`) -- um retangulo preto de 1295x149 girado de -3.8 graus. A forma que sobra na tela e' "tudo acima da reta de baixo":
+ * `borda_y0` em x = 0 e `borda_y1` em x = 640 (em 640x360). O jogo desenha
+ * faixas pretas, sem textura. A barra entra deslizando de cima: tween de
+ * `-altura` ate' 0 em 7/24 s, quartOut, com 3/24 s de atraso.
+ * `correcao_y` e' `(blackTopBar.height - 148)`, o deslocamento que a fonte
+ * aplica em tudo que fica abaixo da barra. */
+typedef struct {
+    float          borda_y0, borda_y1, altura, correcao_y;
+    unsigned char  atraso_q, tween_q;
+} res_barra_t;
+
+static const res_barra_t g_res_barra = {
+    74.2f, 31.7f, 74.5f, 0.5f, 3u, 7u
+};
+
+/* A IMAGEM DA DIFICULDADE (`resultScreen/diff_<id>`): x = 555 na fonte,
+ * entrando de cima em 0,5 s com `expoOut` e 0,8 s de atraso. */
+typedef struct {
+    unsigned short w, h;
+    const char    *arquivo;
+    unsigned int   vram_bytes;
+} res_dif_t;
+
+static const res_dif_t g_res_dif[RES_DIFS] = {
+    {  78u, 26u, "resultado/diff_easy.rgba",  8112u },   /* diff_easy */
+    { 114u, 29u, "resultado/diff_normal.rgba", 13224u },   /* diff_normal */
+    {  80u, 26u, "resultado/diff_hard.rgba",  8320u },   /* diff_hard */
+    { 101u, 28u, "resultado/diff_erect.rgba", 11312u },   /* diff_erect */
+    { 164u, 32u, "resultado/diff_nightmare.rgba", 20992u },   /* diff_nightmare */
+};
+
+typedef struct {
+    float        x, y_alvo;
+    unsigned int atraso_ms, tween_ms;
+} res_dif_geo_t;
+
+static const res_dif_geo_t g_res_dif_geo = { 277.5f, 61.5f, 800u, 500u };
+
 #endif /* RESULTADO_DADOS_H */

@@ -1594,5 +1594,59 @@
    "abaixo": 36,
    "linha": "ClearPercentCounter.hx L22-140 e ResultState.hx L577-646"
   }
+ },
+ "topbar": {
+  "barra": {
+   "largura_src": 1295,
+   "altura_src": 149,
+   "borda_y0": 74.166,
+   "borda_y1": 31.657,
+   "angulo": -3.8,
+   "translate_x": -15,
+   "altura_half": 74.5,
+   "atraso_q": 3,
+   "tween_q": 7,
+   "correcao_y": 0.5
+  },
+  "dificuldades": {
+   "easy": {
+    "arquivo": "resultado/diff_easy.rgba",
+    "w": 78,
+    "h": 26,
+    "vram_bytes": 8112
+   },
+   "normal": {
+    "arquivo": "resultado/diff_normal.rgba",
+    "w": 114,
+    "h": 29,
+    "vram_bytes": 13224
+   },
+   "hard": {
+    "arquivo": "resultado/diff_hard.rgba",
+    "w": 80,
+    "h": 26,
+    "vram_bytes": 8320
+   },
+   "erect": {
+    "arquivo": "resultado/diff_erect.rgba",
+    "w": 101,
+    "h": 28,
+    "vram_bytes": 11312
+   },
+   "nightmare": {
+    "arquivo": "resultado/diff_nightmare.rgba",
+    "w": 164,
+    "h": 32,
+    "vram_bytes": 20992
+   }
+  },
+  "dificuldade": {
+   "x": 277.5,
+   "y_alvo": 61.5,
+   "atraso_ms": 800,
+   "tween_ms": 500,
+   "linha": "ResultState.hx L332-334 e L736-758"
+  },
+  "linha": "BitmapUtil.hx L11-25 (barra) e ResultState.hx L342-360"
  }
 }
