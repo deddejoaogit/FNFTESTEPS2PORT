@@ -2437,3 +2437,26 @@ Custo medido do empacotamento: ~12 min por personagem (decodificar o atlas
 inteiro, compor cada quadro e comprimir em LZ4 bloco a bloco), 46 personagens,
 ~250 MB de pacotes. Por isso `FORCAR=1` reempacota o que já existe: sem isso uma
 correção no empacotador nunca chegava aos pacotes antigos.
+
+### O sweep passou a cobrar o kind APLICADO, não só carregado
+
+O sweep já conferia que o `k` do JSON chegava ao runtime (`chart_notas_com_kind`
+= número do JSON, no contêiner v5). Faltava a segunda metade: **o kind
+acontecer**. Um kind que chegasse ao jogo e não fizesse nada passaria com o
+teste verde — que é exatamente o estado em que ele ficou por 32 builds.
+
+Agora `build/sweep/kinds.txt` ganhou a coluna `KIND_JOGAVEL`: quantas notas com
+kind caem nos primeiros **6 s** e têm ação no personagem que está em cena
+(`assets-data/notekinds.json` × `playData` da música). No passe v5, se
+`KIND_JOGAVEL ≥ 1` e o log não tem nenhum `nota_kind_sing`/`nota_kind_anim`/
+`nota_kind_sem_anim`, a combinação **falha**.
+
+O 6 s não é escolha: é a medição da própria passada. 1.200 quadros chegam a
+~10 s de música (o resto é boot, título e contagem), então uma janela de 15 s
+fazia o `2hot` falhar por uma nota que a passada nem alcança — a primeira nota
+de kind dele está em 8,9 s. Com 6 s sobram `blazin` (24 notas jogáveis) e `ugh`
+(1), e o `2hot` fica de fora por não ser alcançável, não por estar errado.
+
+Medido no passe v5 completo: **81/81 combinações, 42 aplicações de kind**, e o
+resumo do sweep passou a imprimir esse número (`note kinds aplicados pelo jogo:
+42 nota(s) em toda a passada`).

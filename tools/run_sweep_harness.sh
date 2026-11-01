@@ -67,16 +67,42 @@ PYMAPA
 # concordar com o JSON: no v5 o numero e' o do JSON, no v3/v4 e' zero, porque
 # esses containers nao tem onde guardar o campo.
 python3 - <<'PYKINDS' > build/sweep/kinds.txt
+# Colunas: sid diff com_kind non_scoreable noanim KIND_JOGAVEL
+#
+# KIND_JOGAVEL e' quantas notas com kind caem nos primeiros 6 s E tem acao no
+# personagem que esta' em cena (assets-data/notekinds.json x playData). E' o que
+# o sweep cobra no passe v5: se existe nota de kind jogavel, o log TEM de ter
+# pelo menos um `nota_kind_*`. Sem esse numero, um kind que parasse de ser
+# aplicado passaria calado -- e foi assim que ele ficou 32 builds sem
+# tratamento nenhum.
+#
+# Por que 6 s e nao 20: medido no próprio sweep. Uma passada de 1200 quadros
+# chega a ~10 s de MUSICA (o resto do tempo e' boot, titulo e contagem
+# regressiva), entao a janela tem de ser menor que isso -- com 15 s o 2hot
+# falhava por um kind que a passada nem chega a alcancar (a primeira nota de
+# kind dele esta' em 8,9 s). 6 s e' o que sobra com folga, e ainda cobre o
+# `blazin` (24 notas) e o `ugh` (1).
 import json, glob, os
+nk = json.load(open("assets-data/notekinds.json"))["personagens"] if os.path.isfile("assets-data/notekinds.json") else {}
 for f in sorted(glob.glob("assets-data/charts/*-chart.json")):
     sid = os.path.basename(f)[:-len("-chart.json")]
     d = json.load(open(f))
+    meta = "assets-data/songs/%s-metadata.json" % sid
+    ids = []
+    if os.path.isfile(meta):
+        ch = json.load(open(meta)).get("playData", {}).get("characters", {}) or {}
+        ids = [v for v in ch.values() if isinstance(v, str)]
+    acoes = set()
+    for cid in ids:
+        acoes.update(nk.get(cid, {}))
     for diff in ("easy", "normal", "hard"):
         notas = d.get("notes", {}).get(diff, []) or []
         com = sum(1 for n in notas if n.get("k"))
         sem = sum(1 for n in notas if n.get("k") == "non_scoreable")
         noa = sum(1 for n in notas if n.get("k") == "noanim")
-        print(sid, diff, com, sem, noa)
+        jog = sum(1 for n in notas
+                  if n.get("k") in acoes and float(n.get("t", 0) or 0) < 6000.0)
+        print(sid, diff, com, sem, noa, jog)
 PYKINDS
 # Quais papeis cada musica tem no playData. Sai do DADO, nao do log: e' o que o
 # sweep cobra (tem `girlfriend`? entao a GF tem de aparecer na tela).
@@ -205,7 +231,14 @@ for sid in $LISTA; do
         esac
         kexp=$(awk -v s="$sid" -v d="$dn" '$1==s && $2==d {print $3; exit}' build/sweep/kinds.txt 2>/dev/null)
         kexp=${kexp:-0}
-        [ "${FNF_SWEEP_FMT:-v3}" = "v5" ] || kexp=0
+        # Quantas notas de kind o sweep exige que o JOGO tenha aplicado (nota
+        # dentro da janela varrida e kind que o personagem em cena implementa).
+        kjog=$(awk -v s="$sid" -v d="$dn" '$1==s && $2==d {print $6; exit}' build/sweep/kinds.txt 2>/dev/null)
+        kjog=${kjog:-0}
+        kacoes=$(awk -F, '$1=="E" && ($3=="nota_kind_sing" || $3=="nota_kind_anim" || $3=="nota_kind_sem_anim") {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        kacoes=${kacoes:-0}
+        KACOES=$(( ${KACOES:-0} + kacoes ))
+        [ "${FNF_SWEEP_FMT:-v3}" = "v5" ] || { kexp=0; kjog=0; }
         charruim=$(awk -F, '$1=="E" && ($3=="char_pacote_ruim" || $3=="char_sem_vram" || $3=="char_sem_staging") {n++} END{print n+0}' "$LOG" 2>/dev/null)
         palco=$(campo palco_entra 4)
         nicon=$(awk -F, '$1=="E" && $3=="evento_sem_icone" {n++} END{print n+0}' "$LOG" 2>/dev/null)
@@ -235,6 +268,10 @@ for sid in $LISTA; do
         # kind e' o do JSON; nos outros formatos ele TEM de ser zero (o campo
         # nao existe la'), e um zero no v5 seria o campo perdido de novo.
         [ "${kcom:-0}" -eq "${kexp:-0}" ] 2>/dev/null || motivo="note kinds: $kcom nota(s) com kind, esperado ${kexp:-0}${motivo:+, $motivo}"
+        # A segunda metade da prova: o kind tem de ACONTECER, nao so' chegar.
+        if [ "${kjog:-0}" -ge 1 ] && [ "${kacoes:-0}" -eq 0 ]; then
+            motivo="note kinds: $kjog nota(s) jogavel(is) e nenhum nota_kind_* no log${motivo:+, $motivo}"
+        fi
         [ "${npalco:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum prop de palco desenhado${motivo:+, $motivo}"
         if [ "${nholdtem:-0}" -ge 1 ] && [ "${nhold:-0}" -eq 0 ]; then
             motivo="o personagem tem animacao -hold e nunca entrou nela${motivo:+, $motivo}"
@@ -321,6 +358,10 @@ echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
 echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
 echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar cantando"
 echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combinacoes"
+# NOTE KINDS: quantos kinds o jogo de fato aplicou. No v3/v4 os charts nem
+# carregam o campo, entao o numero so' vale no passe v5 -- e o teste de
+# "kind jogavel tem de gerar evento" so' existe la'.
+echo "  note kinds aplicados pelo jogo: ${KACOES:-0} nota(s) em toda a passada"
 
 # CUSTO POR QUADRO: resumo da Fase 5. Sem esta tabela, "otimizado" e' adjetivo.
 if [ -s build/sweep/custo.txt ]; then
