@@ -182,4 +182,62 @@ static const res_score_t g_res_score = {
     37u, 41u, 23u, 24u
 };
 
+
+#define RES_TALLIES 7u
+#define RES_TALLY_FRAMES 10u
+
+/* Os CONTADORES DE JULGAMENTO (TallyCounter.hx L14-90 e ResultState.hx
+ * L418-490): dez glifos do atlas `resultScreen/tallieNumber`, um por
+ * digito, e os sete contadores -- posicao, cor e qual numero cada um
+ * mostra. `campo` e' o indice do valor: 0 totalNotesHit, 1 maxCombo,
+ * 2 sick, 3 good, 4 bad, 5 shit, 6 missed (a ordem do `ratingGrp`). */
+typedef struct {
+    unsigned char  digito;
+    unsigned short ax, ay, aw, ah;
+    short          ox, oy;
+} res_tally_frame_t;
+
+static const res_tally_frame_t g_res_tally_frame[RES_TALLY_FRAMES] = {
+    {  0u,   70u,   23u,  17u,  18u,    0,    0 },  /* digito 0 */
+    {  1u,    0u,   23u,  16u,  21u,    0,    0 },  /* digito 1 */
+    {  2u,   17u,   23u,  18u,  21u,    0,    0 },  /* digito 2 */
+    {  3u,    0u,    0u,  17u,  22u,    0,    0 },  /* digito 3 */
+    {  4u,   36u,   23u,  16u,  20u,    0,    0 },  /* digito 4 */
+    {  5u,   18u,    0u,  18u,  22u,    0,    0 },  /* digito 5 */
+    {  6u,   37u,    0u,  17u,  22u,    0,    0 },  /* digito 6 */
+    {  7u,   55u,    0u,  17u,  22u,    0,    0 },  /* digito 7 */
+    {  8u,   53u,   23u,  16u,  20u,    0,    0 },  /* digito 8 */
+    {  9u,   73u,    0u,  16u,  22u,    0,    0 },  /* digito 9 */
+};
+
+typedef struct {
+    unsigned short w, h;
+    const char    *arquivo;
+    unsigned int   vram_bytes;
+    float          dx;          /* 43 px por digito, em 1280 -> 21,5 */
+    unsigned int   atraso_base_ms, atraso_passo_ms, tween_ms;
+    unsigned char  ajuste_1000; /* 30 px para a esquerda com 1000+ notas */
+} res_tallies_t;
+
+static const res_tallies_t g_res_tallies = {
+     96u,  44u, "resultado/tallies.rgba", 16896u, 21.5f,
+    1200u, 300u, 500u, 30u
+};
+
+typedef struct {
+    unsigned char  campo;       /* qual numero do jogo (ver acima) */
+    float          x, y;
+    unsigned char  r, g, b;     /* a cor do `flavour` do TallyCounter */
+} res_tally_t;
+
+static const res_tally_t g_res_tally[RES_TALLIES] = {
+    { 0u,  187.5f,   75.0f, 0xFF, 0xFF, 0xFF },  /* total_hit */
+    { 1u,  187.5f,  100.0f, 0xFF, 0xFF, 0xFF },  /* max_combo */
+    { 2u,  115.0f,  138.5f, 0x89, 0xE5, 0x9E },  /* sick */
+    { 3u,  105.0f,  165.5f, 0x89, 0xC9, 0xE5 },  /* good */
+    { 4u,   95.0f,  192.5f, 0xE6, 0xCF, 0x8A },  /* bad */
+    { 5u,  110.0f,  219.5f, 0xE6, 0x8C, 0x8A },  /* shit */
+    { 6u,  130.0f,  246.5f, 0xC6, 0x8A, 0xE6 },  /* missed */
+};
+
 #endif /* RESULTADO_DADOS_H */

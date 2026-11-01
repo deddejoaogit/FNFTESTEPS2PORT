@@ -121,6 +121,23 @@ RESFINAL=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $4; exit}' "$
 RESFINALMS=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $5; exit}' "$LOG")
 RESSCORE=$(awk -F, '$1=="E" && $3=="play_result_score" {print $4; exit}' "$LOG")
 RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
+# Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
+# assenta. `campo` 0 = total acertado, 1 = maior combo, 2..5 = sick/good/bad/
+# shit, 6 = erradas.
+RESTALLYARTE=$(awk -F, '$1=="E" && $3=="resultado_tallies_arte" {print $4; exit}' "$LOG")
+tally_de() {
+    awk -F, -v c="$1" '$1=="E" && $3=="resultado_tally" && $4==c {print $5; exit}' "$LOG"
+}
+RESTALLY_0=$(tally_de 0)   # total acertado
+RESTALLY_1=$(tally_de 1)   # maior combo
+RESTALLY_2=$(tally_de 2)   # sick
+RESTALLY_3=$(tally_de 3)   # good
+RESTALLY_4=$(tally_de 4)   # bad
+RESTALLY_5=$(tally_de 5)   # shit
+RESTALLY_6=$(tally_de 6)   # erradas
+RESTALLYVAL=$(awk -F, '$1=="E" && $3=="play_result_tallies" {print $4; exit}' "$LOG")
+RESTALLYMISS=$(awk -F, '$1=="E" && $3=="play_result_tallies" {print $5; exit}' "$LOG")
+RESMAXCOMBO=$(awk -F, '$1=="E" && $3=="play_result_score" {print $5; exit}' "$LOG")
 RESRANKMS=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
@@ -149,6 +166,7 @@ echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} 
 echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
+echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -261,6 +279,30 @@ else
     ESP=$((Q * 1000 / 24))
     D=$((RESFINALMS - ESP)); [ "$D" -lt 0 ] && D=$((-D))
     [ "$D" -le 60 ] || { echo "  FALHA: o placar assentou em ${RESFINALMS} ms; os timers do ResultScore.hx dizem ~$ESP"; FALHA=1; }
+fi
+
+# OS CONTADORES DE JULGAMENTO. Sem a arte eles voltam a ser texto (e o harness
+# falha, porque o teste roda com os assets do plano). Cada numero desenhado tem
+# de ser o que o jogo contou -- `play_result_tallies` traz sick/good/bad/shit
+# empacotados e as erradas no campo 2.
+[ "${RESTALLYARTE:-0}" -eq 1 ] || { echo "  FALHA: o atlas dos contadores nao carregou"; FALHA=1; }
+[ -n "${RESTALLY_0:-}" ] && [ -n "${RESTALLY_1:-}" ] && [ -n "${RESTALLY_2:-}" ] &&
+    [ -n "${RESTALLY_3:-}" ] && [ -n "${RESTALLY_4:-}" ] && [ -n "${RESTALLY_5:-}" ] &&
+    [ -n "${RESTALLY_6:-}" ] || { echo "  FALHA: algum contador nunca assentou na tela"; FALHA=1; }
+if [ -n "${RESTALLYVAL:-}" ]; then
+    E_SICK=$(( (RESTALLYVAL >> 24) & 255 ))
+    E_GOOD=$(( (RESTALLYVAL >> 16) & 255 ))
+    E_BAD=$(( (RESTALLYVAL >> 8) & 255 ))
+    E_SHIT=$(( RESTALLYVAL & 255 ))
+    E_HIT=$((E_SICK + E_GOOD + E_BAD + E_SHIT))
+    [ "${RESTALLY_2:-x}" = "$E_SICK" ] || { echo "  FALHA: contador SICK na tela ${RESTALLY_2:-?}, jogo $E_SICK"; FALHA=1; }
+    [ "${RESTALLY_3:-x}" = "$E_GOOD" ] || { echo "  FALHA: contador GOOD na tela ${RESTALLY_3:-?}, jogo $E_GOOD"; FALHA=1; }
+    [ "${RESTALLY_4:-x}" = "$E_BAD" ]  || { echo "  FALHA: contador BAD na tela ${RESTALLY_4:-?}, jogo $E_BAD"; FALHA=1; }
+    [ "${RESTALLY_5:-x}" = "$E_SHIT" ] || { echo "  FALHA: contador SHIT na tela ${RESTALLY_5:-?}, jogo $E_SHIT"; FALHA=1; }
+    [ "${RESTALLY_6:-x}" = "${RESTALLYMISS:-y}" ] || { echo "  FALHA: contador MISS na tela ${RESTALLY_6:-?}, jogo ${RESTALLYMISS:-?}"; FALHA=1; }
+    # `totalNotesHit` do original conta cada nota pontuavel acertada uma vez.
+    [ "${RESTALLY_0:-x}" = "$E_HIT" ] || { echo "  FALHA: total acertado na tela ${RESTALLY_0:-?}, jogo $E_HIT"; FALHA=1; }
+    [ "${RESTALLY_1:-x}" = "${RESMAXCOMBO:-y}" ] || { echo "  FALHA: maior combo na tela ${RESTALLY_1:-?}, jogo ${RESMAXCOMBO:-?}"; FALHA=1; }
 fi
 
 if [ "$FALHA" != 0 ]; then

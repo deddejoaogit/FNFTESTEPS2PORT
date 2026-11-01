@@ -126,4 +126,32 @@ int res_score_estado(int slot, long score, unsigned long ms,
  * shuffle (durante o shuffle o slot tambem mostra o quadro 4). */
 int res_score_assentado(int slot, long score, unsigned long ms);
 
+/* ---- OS CONTADORES DE JULGAMENTO (TallyCounter.hx L14-90) ----------------
+ *
+ * Sete contadores, cada um com o seu numero do jogo, a sua posicao e a sua cor
+ * (`cor` no `flavour`). Cada um aparece em `(0.3 * i) + 1.20` s e o numero
+ * sobe de 0 ate' o alvo num `FlxTween` de 0,5 s com `FlxEase.quartOut`.
+ * Funcoes puras: o main.c so' desenha os glifos que elas apontam.
+ */
+
+/* Indice do glifo do digito `d` (0..9) em `g_res_tally_frame`. */
+int res_tally_glifo(int d);
+
+/* Quantos digitos o numero `n` ocupa no contador. Zero conta como UM digito
+ * (`if (seperatedScore.length == 0) seperatedScore.push(0)`). */
+int res_tally_digitos(int n);
+
+/* 1 = o contador `i` ja' apareceu (`(0.3 * i) + 1.20` s). */
+int res_tally_visivel(int i, unsigned long ms);
+
+/* O numero desenhado no contador `i` em `ms`, contado do aparecimento dele.
+ * Antes de `tween_ms` e' o valor do tween (arredondado como `Math.round`),
+ * depois disso e' o alvo: no original o `update` so' redesenha enquanto
+ * `curNumber < neededNumber`. */
+int res_tally_valor(int alvo, int i, unsigned long ms);
+
+/* Deslocamento em x do contador `i`: `totalNotesHit` e `maxCombo` andam 30 px
+ * para a esquerda quando o total de notas passadas de 1000 (L446-450). */
+float res_tally_ajuste_x(int i, int total_hit);
+
 #endif /* RESULTADO_H */

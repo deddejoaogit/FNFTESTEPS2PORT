@@ -261,6 +261,22 @@ static int g_story_week=0;        /* a semana da campanha (o Story Menu pode est
 static int g_playlist_n=0;        /* musicas da semana */
 static int g_playlist_i=0;        /* qual delas esta' tocando */
 static long g_campaign_score=0;   /* soma dos placares das musicas ja' tocadas */
+/* OS TALLIES DA SEMANA. No Story Mode o ResultState NAO usa os tallies da
+   musica: usa `Highscore.talliesLevel` (`PlayState.hx` L3873: `talliesToUse =
+   isStoryMode ? talliesLevel : tallies`), que soma todas as musicas jogadas na
+   semana. O port somava so' o placar; agora soma os julgamentos e o combo
+   tambem, senao a tela de resultado do Story mostraria os numeros da ULTIMA
+   musica com o placar da semana. */
+static int g_camp_sick=0,g_camp_good=0,g_camp_bad=0,g_camp_shit=0;
+static int g_camp_missed=0,g_camp_maxcombo=0,g_camp_hits=0;
+static void campanha_zerar(void){g_campaign_score=0;g_camp_sick=0;g_camp_good=0;
+ g_camp_bad=0;g_camp_shit=0;g_camp_missed=0;g_camp_maxcombo=0;g_camp_hits=0;}
+static void campanha_somar(const void *play_v){
+ const fnf_play_t *p=(const fnf_play_t*)play_v;
+ g_campaign_score+=p->score;
+ g_camp_sick+=p->sick;g_camp_good+=p->good;g_camp_bad+=p->bad;g_camp_shit+=p->shit;
+ g_camp_missed+=p->missed;g_camp_hits+=p->sick+p->good+p->bad+p->shit;
+ if(p->max_combo>g_camp_maxcombo)g_camp_maxcombo=p->max_combo;}
 /* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
 static u32 g_play_samples_per_step=0;
 /* Tela de resultado (ui_state 9). O original vai para ResultState quando a
@@ -292,6 +308,13 @@ static int g_res_rank_logado=0;
    posicao, entao o conjunto inteiro mora na VRAM: 508.480 B). */
 static int g_res_score_ok=0;
 static unsigned int g_res_score_addr=0;
+/* OS CONTADORES DE JULGAMENTO: dez glifos (96x44 = 16.896 B) e sete
+   contadores. `g_res_tally_logado[i]` marca o contador que ja' foi reportado
+   depois de assentar (telemetria). */
+static int g_res_tally_ok=0;
+static unsigned int g_res_tally_addr=0;
+static unsigned char g_res_tally_logado[RES_TALLIES];
+static int g_res_tally_desenho=-1;
 static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
 static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
 
@@ -1173,6 +1196,15 @@ static qword_t *sprite_region_phys(qword_t*q,float x,float y0,float w,float hp,f
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
  r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+/* Igual a sprite_region_alpha, mas com COR no vertice: e' o `color` do sprite
+   do flixel (o `flavour` do TallyCounter). No GS o vertice multiplica a textura
+   (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0 -- por isso a cor do flixel
+   (0..255) e' dividida por 2 aqui: 0xFF vira 0x80, e o branco nao apaga nada. */
+static qword_t *sprite_region_cor(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t r;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
+ band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
+ r.color=rgba(cr,cg,cb,0x80);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
 static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh,unsigned char a){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
@@ -2716,6 +2748,26 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
    telemetry_event("resultado_sem_vram",-2,(int)sp_livre(pool));
   }
   telemetry_event("resultado_placar_arte",g_res_score_ok,(int)bytes);}
+ /* OS CONTADORES DE JULGAMENTO (96x44 = 16.896 B). Aqui cabe tudo no buffer de
+    leitura; se nao coubesse, o teste acusaria o tamanho errado no plano. */
+ g_res_tally_ok=0;g_res_tally_addr=0;
+ {unsigned int bytes=(unsigned int)g_res_tallies.w*g_res_tallies.h*4u,addr=0;
+  char caminho[96];
+  snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",
+           g_res_tallies.arquivo);
+  if(bytes<=512u*256u*4u&&
+     read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+     sp_chave(pool,SP_CHAVE_TELA_BASE+0x24u,bytes,&addr)>=0){
+   texbuffer_t t=*tpl;
+   t.width=g_res_tallies.w;t.psm=GS_PSM_32;t.address=addr;
+   setup_texture_dims(&t,(int)g_res_tallies.w,(int)g_res_tallies.h);
+   FlushCache(0);
+   upload_raw(&t,g_up_bounce,(int)g_res_tallies.w,(int)g_res_tallies.h);
+   g_res_tally_addr=addr;g_res_tally_ok=1;
+  }else{
+   telemetry_event("resultado_sem_vram",-3,(int)sp_livre(pool));
+  }
+  telemetry_event("resultado_tallies_arte",g_res_tally_ok,(int)bytes);}
 }
 static void resultado_soltar(void)
 {
@@ -2724,6 +2776,8 @@ static void resultado_soltar(void)
  g_res_ok=0;g_res_bg_ok=0;g_res_bg_addr=0;
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
  g_res_score_ok=0;g_res_score_addr=0;g_res_score_logado=0;g_res_score_final=0;
+ g_res_tally_ok=0;g_res_tally_addr=0;g_res_tally_desenho=-1;
+ {int k;for(k=0;k<(int)RES_TALLIES;k++)g_res_tally_logado[k]=0;}
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
 }
@@ -4065,7 +4119,7 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
   if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
 #ifdef PS2H
-  if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;g_campaign_score=0;g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
+  if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;campanha_zerar();g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
   if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
 #endif
   if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9||ui_state==10||ui_state==11);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
@@ -4330,7 +4384,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     telemetry_event("play_result",(int)rk,fnf_play_clear_percent(&g_play));
     telemetry_event("play_result_score",g_play.score,g_play.max_combo);
     telemetry_event("play_result_tallies",(g_play.sick<<24)|(g_play.good<<16)|(g_play.bad<<8)|(g_play.shit&0xff),g_play.missed);
-    g_campaign_score+=g_play.score;
+    campanha_somar(&g_play);
     if(g_story_mode&&g_playlist_i+1<g_playlist_n){
      /* Proxima musica da semana, SEM tela de resultado e com o mesmo
         corte de transicao que o original (skipNextTransIn/Out). */
@@ -4723,7 +4777,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
            (PauseSubState.hx L1046-1056). Nao era o caso do reinicio: parar e
            recoemecar a MESMA musica nao apaga o que as musicas anteriores
            somaram. */
-        if(diff_list[g_pause_sel]!=story_diff)g_campaign_score=0;
+        if(diff_list[g_pause_sel]!=story_diff)campanha_zerar();
         story_diff=diff_list[g_pause_sel];
         g_paused=0;g_pause_mode=0;g_pause_sel=0;
         pause_audio_parar();
@@ -4983,7 +5037,7 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
     const sr_level_t*lvsel=sr_level(story_level);
     if(lvsel&&lvsel->song_count){
      g_story_mode=1;g_story_week=story_level;g_fp_active=0;g_fp_play_song=0;
-     g_playlist_n=(int)lvsel->song_count;g_playlist_i=0;g_campaign_score=0;
+     g_playlist_n=(int)lvsel->song_count;g_playlist_i=0;campanha_zerar();
      g_practice_mode=0;fnf_play_set_practice(&g_play,0);
      g_play_level=(unsigned)story_level;g_play_song_index=0;
      g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
@@ -5798,6 +5852,68 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       telemetry_event("resultado_placar_final",(int)valor,g_res_ms);
      }
     }
+    /* OS SETE CONTADORES DE JULGAMENTO (TallyCounter.hx, ResultState.hx
+       L418-490). Cada um aparece em `(0.3*i) + 1.20` s e conta de 0 ate' o
+       alvo num tween de 0,5 s (quartOut). Os numeros vem do MESMO lugar que a
+       fonte usa: no Story Mode sao os tallies da SEMANA (`talliesLevel`), fora
+       dele os da musica (`tallies`). */
+    if(g_res_tally_ok){
+     int alvo[RES_TALLIES],ci,desenhados=0,hit;
+     texbuffer_t tt=stagetex;
+     /* `totalNotesHit`: cada nota pontuavel acertada conta UMA vez
+        (`PlayState.hx` L3161), e cada acerto vira um julgamento -- por isso a
+        soma dos quatro. */
+     if(g_story_mode){
+      hit=g_camp_sick+g_camp_good+g_camp_bad+g_camp_shit;
+      alvo[0]=hit;alvo[1]=g_camp_maxcombo;alvo[2]=g_camp_sick;
+      alvo[3]=g_camp_good;alvo[4]=g_camp_bad;alvo[5]=g_camp_shit;
+      alvo[6]=g_camp_missed;
+     }else{
+      hit=g_play.sick+g_play.good+g_play.bad+g_play.shit;
+      alvo[0]=hit;alvo[1]=g_play.max_combo;alvo[2]=g_play.sick;
+      alvo[3]=g_play.good;alvo[4]=g_play.bad;alvo[5]=g_play.shit;
+      alvo[6]=g_play.missed;
+     }
+     tt.width=g_res_tallies.w;tt.psm=GS_PSM_32;tt.address=g_res_tally_addr;
+     setup_texture_dims(&tt,(int)g_res_tallies.w,(int)g_res_tallies.h);
+     q=bind_texture_filter(q,&tt,1);
+     for(ci=0;ci<(int)RES_TALLIES;ci++){
+      const res_tally_t *ct=&g_res_tally[ci];
+      unsigned char cr=(unsigned char)((ct->r*128u+127u)/255u);
+      unsigned char cg=(unsigned char)((ct->g*128u+127u)/255u);
+      unsigned char cb=(unsigned char)((ct->b*128u+127u)/255u);
+      int valor,nd,k,v;
+      float bx;
+      if(!res_tally_visivel(ci,(unsigned long)g_res_ms))continue;
+      valor=res_tally_valor(alvo[ct->campo],ci,(unsigned long)g_res_ms);
+      nd=res_tally_digitos(valor);
+      bx=ct->x+res_tally_ajuste_x(ct->campo,hit);
+      v=valor;
+      for(k=0;k<nd;k++){
+       /* Do digito MAIS significativo para o menos: o original posiciona o
+          primeiro do array (que ja' vem invertido) em x = 0. */
+       int p10=1,m,d;
+       const res_tally_frame_t *fr;
+       for(m=nd-1;m>k;m--)p10*=10;
+       d=(v/p10)%10;
+       fr=&g_res_tally_frame[res_tally_glifo(d)];
+       q=sprite_region_cor(q,bx+(float)k*g_res_tallies.dx+(float)fr->ox,
+        ct->y+(float)fr->oy,(float)fr->aw,(float)fr->ah,
+        (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah,cr,cg,cb);
+       desenhados++;
+      }
+      /* Um evento por contador, no instante em que ele ASSENTA: e' o numero
+         que a tela mostra, para o harness comparar com o do jogo. */
+      if(!g_res_tally_logado[ci]&&
+         (unsigned long)g_res_ms>=(unsigned long)(g_res_tallies.atraso_base_ms+
+          g_res_tallies.atraso_passo_ms*ci+g_res_tallies.tween_ms)){
+       g_res_tally_logado[ci]=1;
+       telemetry_event("resultado_tally",ct->campo,valor);
+      }
+     }
+     if(desenhados!=g_res_tally_desenho){g_res_tally_desenho=desenhados;
+      telemetry_event("resultado_tallies",desenhados,g_res_ms);}
+    }
     q=bind_texture_filter(q,&fonttex,1);
    }
    if(!res_arte)q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
@@ -5816,12 +5932,17 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     snprintf(lb,sizeof(lb),"SCORE %ld",g_story_mode?g_campaign_score:(long)g_play.score);
     q=text_draw(q,lb,tx,ty+140,1.1f,1);
    }
-   snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
-   q=text_draw(q,lb,tx,ty+168,0.9f,1);
-   snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
-   q=text_draw(q,lb,tx,ty+190,0.9f,1);
-   snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
-   q=text_draw(q,lb,tx,ty+216,0.9f,1);
+   /* Com a arte dos contadores carregada, os cinco julgamentos e o combo NAO
+      sao mais texto: sao os `TallyCounter` desenhados acima, na posicao e na
+      cor do original. O texto fica so' como reserva. */
+   if(!g_res_tally_ok){
+    snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
+    q=text_draw(q,lb,tx,ty+168,0.9f,1);
+    snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
+    q=text_draw(q,lb,tx,ty+190,0.9f,1);
+    snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
+    q=text_draw(q,lb,tx,ty+216,0.9f,1);
+   }
    snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
    q=text_draw(q,lb,tx,ty+242,1.1f,1);
    q=text_draw(q,"CROSS  CONTINUE",tx,ty+272,0.8f,1);}   /* fecha o bloco do leiaute */

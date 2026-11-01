@@ -308,3 +308,59 @@ int res_score_assentado(int slot, long score, unsigned long ms)
     fim += d + (unsigned long)g_res_score.quadros_por_digito;
     return (q >= fim) ? 1 : 0;
 }
+
+/* ---- OS CONTADORES DE JULGAMENTO -----------------------------------------
+ *
+ * `TallyCounter.hx` L42-77 monta o numero a partir de `Math.round(curNumber)`
+ * e posiciona os digitos a cada `43 * scale.x` px, do MAIS significativo para
+ * o menos. `update()` (L36-40) so' redesenha enquanto `curNumber < needed`.
+ * O tween e' `FlxEase.quartOut`: 1 - (1 - t)^3.
+ */
+
+int res_tally_glifo(int d)
+{
+    if (d < 0) d = 0;
+    if (d > 9) d = 9;
+    return d;
+}
+
+int res_tally_digitos(int n)
+{
+    int k = 1;
+    if (n < 0) n = 0;
+    while (n >= 10) { n /= 10; k++; }
+    return k;
+}
+
+int res_tally_visivel(int i, unsigned long ms)
+{
+    unsigned long ini;
+    if (i < 0 || i >= (int)RES_TALLIES) return 0;
+    /* `new FlxTimer().start((0.3 * ind) + 1.20, ...)` (ResultState L481-488). */
+    ini = (unsigned long)g_res_tallies.atraso_base_ms
+          + (unsigned long)g_res_tallies.atraso_passo_ms * (unsigned long)i;
+    return (ms >= ini) ? 1 : 0;
+}
+
+int res_tally_valor(int alvo, int i, unsigned long ms)
+{
+    unsigned long ini, dt;
+    float t, e;
+    if (alvo < 0) alvo = 0;
+    if (i < 0 || i >= (int)RES_TALLIES) return alvo;
+    ini = (unsigned long)g_res_tallies.atraso_base_ms
+          + (unsigned long)g_res_tallies.atraso_passo_ms * (unsigned long)i;
+    if (ms <= ini) return 0;
+    dt = ms - ini;
+    if (dt >= (unsigned long)g_res_tallies.tween_ms) return alvo;
+    t = (float)dt / (float)g_res_tallies.tween_ms;
+    e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);   /* quartOut */
+    return (int)((float)alvo * e + 0.5f);               /* Math.round */
+}
+
+float res_tally_ajuste_x(int i, int total_hit)
+{
+    if (i != 0 && i != 1) return 0.0f;      /* so' totalNotesHit e maxCombo */
+    if (total_hit < 1000) return 0.0f;
+    return -(float)g_res_tallies.ajuste_1000;
+}

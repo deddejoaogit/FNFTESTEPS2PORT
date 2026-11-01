@@ -156,6 +156,61 @@ def gerar():
                                     sc["tween_q"], sc["fps"]))
     a("};")
     a("")
+    tl = d["tallies"]
+    a("")
+    a("#define RES_TALLIES %du" % len(tl["contadores"]))
+    a("#define RES_TALLY_FRAMES %du" % len(tl["frames"]))
+    a("")
+    a("/* Os CONTADORES DE JULGAMENTO (TallyCounter.hx L14-90 e ResultState.hx")
+    a(" * L418-490): dez glifos do atlas `resultScreen/tallieNumber`, um por")
+    a(" * digito, e os sete contadores -- posicao, cor e qual numero cada um")
+    a(" * mostra. `campo` e' o indice do valor: 0 totalNotesHit, 1 maxCombo,")
+    a(" * 2 sick, 3 good, 4 bad, 5 shit, 6 missed (a ordem do `ratingGrp`). */")
+    a("typedef struct {")
+    a("    unsigned char  digito;")
+    a("    unsigned short ax, ay, aw, ah;")
+    a("    short          ox, oy;")
+    a("} res_tally_frame_t;")
+    a("")
+    a("static const res_tally_frame_t g_res_tally_frame[RES_TALLY_FRAMES] = {")
+    for f in tl["frames"]:
+        a("    { %2du, %4du, %4du, %3du, %3du, %4d, %4d },  /* digito %d */"
+          % (f["digito"], f["ax"], f["ay"], f["aw"], f["ah"], f["ox"], f["oy"],
+             f["digito"]))
+    a("};")
+    a("")
+    a("typedef struct {")
+    a("    unsigned short w, h;")
+    a("    const char    *arquivo;")
+    a("    unsigned int   vram_bytes;")
+    a("    float          dx;          /* 43 px por digito, em 1280 -> 21,5 */")
+    a("    unsigned int   atraso_base_ms, atraso_passo_ms, tween_ms;")
+    a("    unsigned char  ajuste_1000; /* 30 px para a esquerda com 1000+ notas */")
+    a("} res_tallies_t;")
+    a("")
+    a("static const res_tallies_t g_res_tallies = {")
+    a("    %3du, %3du, \"%s\", %5du, %.1ff," % (tl["w"], tl["h"],
+                                               tl["atlas"], tl["vram_bytes"],
+                                               tl["dx"]))
+    a("    %4du, %3du, %3du, %2du" % (tl["atraso_base_ms"],
+                                     tl["atraso_passo_ms"], tl["tween_ms"],
+                                     tl["ajuste_1000"]))
+    a("};")
+    a("")
+    a("typedef struct {")
+    a("    unsigned char  campo;       /* qual numero do jogo (ver acima) */")
+    a("    float          x, y;")
+    a("    unsigned char  r, g, b;     /* a cor do `flavour` do TallyCounter */")
+    a("} res_tally_t;")
+    a("")
+    a("static const res_tally_t g_res_tally[RES_TALLIES] = {")
+    for c in tl["contadores"]:
+        a("    { %du, %6.1ff, %6.1ff, 0x%02X, 0x%02X, 0x%02X },  /* %s */"
+          % (["total_hit", "max_combo", "sick", "good", "bad", "shit",
+              "missed"].index(c["campo"]), c["x"], c["y"], c["r"], c["g"],
+             c["b"], c["campo"]))
+    a("};")
+    a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

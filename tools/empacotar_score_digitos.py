@@ -57,80 +57,16 @@ DIGITO_DISABLED = 10        # indice de DISABLED em numToString
 DIGITO_GONE = 11            # o "GONE" que `set_finalDigit` toca
 
 HALF = 0.5
-MAX_TEX = 1024
-# Larguras candidatas do atlas. A escolhida e' a de MENOR area depois de
-# empacotar de verdade (`escolher_largura`): 512, a "obvia", deixava 10% da
-# textura sobrando nas linhas, e esta tela conta a VRAM byte a byte.
-LARGURAS = (256, 320, 384, 448, 480, 512, 560, 640, 768, 1024)
-GAP = 1                     # 1 px entre quadros: nenhum filtro pega o vizinho
+MAX_TEX = 1024          # o limite do GS, repetido aqui so' para a mensagem
 
 
-def ler_xml(caminho):
-    import xml.etree.ElementTree as ET
-    q = {}
-    for st in ET.parse(caminho).getroot():
-        a = st.attrib
-        nome = a.get("name")
-        if not nome:
-            continue
-        q[nome] = {
-            "x": int(a["x"]), "y": int(a["y"]),
-            "w": int(a["width"]), "h": int(a["height"]),
-            "fx": int(a.get("frameX", 0)), "fy": int(a.get("frameY", 0)),
-            "fw": int(a["frameWidth"]) if "frameWidth" in a else int(a["width"]),
-            "fh": int(a["frameHeight"]) if "frameHeight" in a else int(a["height"]),
-        }
-    return q
+# O empacotamento de quadros num atlas (ler o XML, cortar, prateleiras) e' o
+# mesmo em todas as pecas desta tela: mora em tools/atlas_frames.py.
+sys.path.insert(0, HERE)
+import atlas_frames as af  # noqa: E402
 
-
-def quadros_do_prefixo(quadros, prefixo):
-    """Quadros de uma animacao, na ordem do `addByPrefix` do flixel."""
-    achados = []
-    for nome in quadros:
-        if not nome.startswith(prefixo):
-            continue
-        resto = nome[len(prefixo):]
-        if not resto.isdigit():
-            continue
-        achados.append((int(resto), nome))
-    achados.sort()
-    return [n for _i, n in achados]
-
-
-def prateleiras(pecas, largura):
-    """Empacota a maior altura primeiro, uma linha por vez.
-
-    Devolve (posicoes [(ax, ay) por peca], altura total). Nada se sobrepoe: uma
-    peca que nao cabe na linha corrente comeca a proxima.
-    """
-    ordem = sorted(range(len(pecas)), key=lambda i: -pecas[i]["ah"])
-    pos = [None] * len(pecas)
-    x = y = 0
-    altura_linha = 0
-    for i in ordem:
-        w, h = pecas[i]["aw"], pecas[i]["ah"]
-        if x + w > largura:
-            x = 0
-            y += altura_linha + GAP
-            altura_linha = 0
-        pos[i] = (x, y)
-        x += w + GAP
-        altura_linha = max(altura_linha, h)
-    return pos, y + altura_linha
-
-
-def escolher_largura(pecas):
-    """A largura de MENOR area total (largura x altura) entre as candidatas."""
-    melhor = None
-    for largura in LARGURAS:
-        pos, altura = prateleiras(pecas, largura)
-        area = largura * altura
-        if melhor is None or area < melhor[0]:
-            melhor = (area, largura, pos, altura)
-    _area, largura, pos, altura = melhor
-    for p, (ax, ay) in zip(pecas, pos):
-        p["ax"], p["ay"] = ax, ay
-    return largura, altura
+ler_xml = af.ler_xml
+quadros_do_prefixo = af.quadros_do_prefixo
 
 
 def empacotar(assets, out):
@@ -186,10 +122,14 @@ def empacotar(assets, out):
                       "cw": int(round(q["fw"] * HALF)),
                       "ch": int(round(q["fh"] * HALF))})
 
-    largura, atlas_h = escolher_largura(pecas)
-    if atlas_h > MAX_TEX:
-        problemas.append("score: o atlas passa de %d px de altura" % MAX_TEX)
+    escolha = af.escolher_largura([(p["aw"], p["ah"]) for p in pecas])
+    if not escolha:
+        problemas.append("score: os quadros nao cabem num atlas de %d px"
+                         % af.MAX_TEX)
         return None, problemas
+    largura, atlas_h, pos = escolha
+    for p, (ax, ay) in zip(pecas, pos):
+        p["ax"], p["ay"] = ax, ay
 
     atlas = Image.new("RGBA", (largura, atlas_h), (0, 0, 0, 0))
     for p in pecas:

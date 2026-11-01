@@ -3170,10 +3170,51 @@ TELA igual ao `play_result_score,13794` da musica, 8 ms depois do previsto pelos
 timers (77/24 s = 3.208 ms; a diferenca e' a amostragem de quadro). O harness
 cobra os tres.
 
-Os NUMEROS dos cinco julgamentos (`tallieNumber`), o percentual de conclusao
-(`clearPercent`, com os tres atlas Left/Right/Small) e a arte do
-`results-bf`/`results-pico` ainda nao foram empacotados — sao a proxima peca,
-com o custo ja' medido na tabela abaixo.
+#### A tela de Resultado: os CONTADORES DE JULGAMENTO
+
+Os sete `TallyCounter` do `ResultState` (`TallyCounter.hx`) tambem sairam do
+texto: o atlas `resultScreen/tallieNumber` (dez glifos, um quadro cada) entra
+empacotado por recorte num **96x44 = 16.896 B**, e cada contador desenha os
+seus digitos com **21,5 px** de espacamento (43 px em 1280), na cor do
+`flavour` do original:
+
+| contador | posicao (640x360) | cor |
+|---|---|---|
+| notas acertadas | (187,5, 75) | branco |
+| maior combo | (187,5, 100) | branco |
+| SICK | (115, 138,5) | `0x89E59E` |
+| GOOD | (105, 165,5) | `0x89C9E5` |
+| BAD | (95, 192,5) | `0xE6CF8A` |
+| SHIT | (110, 219,5) | `0xE68C8A` |
+| erradas | (130, 246,5) | `0xC68AE6` |
+
+Cada um aparece em `(0,3*i) + 1,20` s e sobe de 0 ate' o alvo num tween de
+0,5 s com `FlxEase.quartOut` (`1 - (1-t)^3`), arredondado como o `Math.round`
+do original — o desenho e' por TEMPO, nao por estado acumulado, entao nao ha'
+contador paralelo para divergir. Acima de 1000 notas acertadas, os dois
+primeiros andam 30 px para a esquerda, como em `ResultState.hx` L446-450
+(senao o numero de quatro digitos sairia da tela).
+
+Duas coisas de fidelidade que apareceram aqui:
+
+- **O number exibido vem do lugar certo**: no Story Mode o `ResultState` usa
+  `Highscore.talliesLevel` (a SEMANA), nao os tallies da musica
+  (`PlayState.hx` L3873). O port somava so' o placar da campanha; agora soma
+  julgamentos, erradas e maior combo tambem (e zera junto, nos tres pontos em
+  que a campanha zera).
+- **`totalNotesHit` nao e' "notas da musica"**: e' quantas notas pontuaveis
+  foram ACERTADAS (`PlayState.hx` L3161 conta uma vez por acerto), ou seja
+  `sick + good + bad + shit`. As erradas nao entram.
+
+Medido no harness: `resultado_tallies_arte,1,16896` e os sete
+`resultado_tally,<campo>,<numero>` — 29 acertadas, 10 de combo, SICK 29, GOOD 0,
+BAD 0, SHIT 0, 3 erradas, iguais ao `play_result_tallies`/`play_result_score` da
+musica. A cor vai no vertice (o GS multiplica a textura) com `flixel / 2`,
+porque no GS `0x80` e' 1,0.
+
+O percentual de conclusao (`clearPercent`, com os tres atlas Left/Right/Small)
+e a arte do `results-bf`/`results-pico` ainda nao foram empacotados — sao a
+proxima peca, com o custo ja' medido na tabela abaixo.
 
 #### A tela de Resultado: o que falta, medido
 

@@ -210,6 +210,48 @@ int main(void)
         CHECK_EQ(dg, 1);
     }
 
+    printf("== resultado: os CONTADORES de julgamento (TallyCounter.hx) ==\n");
+    CHECK_EQ((int)RES_TALLIES, 7);
+    CHECK_EQ((int)RES_TALLY_FRAMES, 10);
+    {
+        int i;
+        for (i = 0; i < (int)RES_TALLIES; i++) {
+            /* A ordem do `ratingGrp`: totalNotesHit, maxCombo, sick, good,
+               bad, shit, missed. */
+            CHECK_EQ((int)g_res_tally[i].campo, i);
+            CHECK(g_res_tally[i].x >= 0.0f && g_res_tally[i].x < 320.0f);
+            CHECK(g_res_tally[i].y >= 0.0f && g_res_tally[i].y < 360.0f);
+        }
+        /* As cores do `flavour` (ResultState.hx L457-476). */
+        CHECK(g_res_tally[0].r == 0xFF && g_res_tally[0].g == 0xFF && g_res_tally[0].b == 0xFF);
+        CHECK(g_res_tally[2].r == 0x89 && g_res_tally[2].g == 0xE5 && g_res_tally[2].b == 0x9E);
+        CHECK(g_res_tally[6].r == 0xC6 && g_res_tally[6].g == 0x8A && g_res_tally[6].b == 0xE6);
+    }
+    /* `res_tally_digitos`: zero conta como UM digito. */
+    CHECK_EQ(res_tally_digitos(0), 1);
+    CHECK_EQ(res_tally_digitos(7), 1);
+    CHECK_EQ(res_tally_digitos(29), 2);
+    CHECK_EQ(res_tally_digitos(1234), 4);
+    /* A entrada e' (0.3 * ind) + 1.20 s. */
+    CHECK_EQ(res_tally_visivel(0, 1199ul), 0);
+    CHECK_EQ(res_tally_visivel(0, 1200ul), 1);
+    CHECK_EQ(res_tally_visivel(2, 1799ul), 0);
+    CHECK_EQ(res_tally_visivel(2, 1800ul), 1);
+    CHECK_EQ(res_tally_visivel(6, 2999ul), 0);
+    CHECK_EQ(res_tally_visivel(6, 3000ul), 1);
+    /* O tween: 0 no inicio, o alvo em 0,5 s, e no meio um valor intermediario
+       (quartOut comeca depressa). */
+    CHECK_EQ(res_tally_valor(100, 0, 1200ul), 0);
+    CHECK(res_tally_valor(100, 0, 1450ul) > 50);
+    CHECK(res_tally_valor(100, 0, 1450ul) < 100);
+    CHECK_EQ(res_tally_valor(100, 0, 1700ul), 100);
+    CHECK_EQ(res_tally_valor(100, 0, 999999ul), 100);
+    /* O ajuste de 1000 notas: so' nos dois primeiros, e so' a partir de 1000. */
+    CHECK(res_tally_ajuste_x(0, 999) == 0.0f);
+    CHECK(res_tally_ajuste_x(0, 1000) < 0.0f);
+    CHECK(res_tally_ajuste_x(1, 1500) < 0.0f);
+    CHECK(res_tally_ajuste_x(2, 1500) == 0.0f);
+
     printf("== resultado: sem pacote, nada aparece (e o modulo diz isso) ==\n");
     res_init(&r);
     CHECK_EQ(res_carregar(&r, "/tmp/fnf_nao_existe/"), 0);

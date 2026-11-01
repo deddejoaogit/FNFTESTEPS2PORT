@@ -467,6 +467,37 @@ def make_score_atlas(w, h, frames):
     return bytes(out)
 
 
+def resultado_tallies():
+    """O atlas dos contadores de julgamento, do plano: (arquivo, w, h, frames)."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return None
+    d = json.load(open(caminho, encoding="utf-8"))
+    tl = d.get("tallies")
+    if not tl:
+        return None
+    return tl["atlas"], tl["w"], tl["h"], tl["frames"]
+
+
+def make_tally_atlas(w, h, frames):
+    """Atlas sintetico dos contadores: cada glifo no seu retangulo.
+
+    O vermelho e' o DIGITO, entao a captura mostra qual numero foi desenhado
+    (o branco do original nao daria para distinguir um digito do outro).
+    """
+    out = bytearray(w * h * 4)
+    for f in frames:
+        for y in range(f["ay"], f["ay"] + f["ah"]):
+            for x in range(f["ax"], f["ax"] + f["aw"]):
+                o = (y * w + x) * 4
+                out[o + 0] = 30 + f["digito"] * 22
+                out[o + 1] = 200
+                out[o + 2] = 90
+                out[o + 3] = 255
+    return bytes(out)
+
+
 def make_resultado_bg(w, h):
     """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
     topo = (0xFE, 0xCC, 0x5C)
@@ -580,6 +611,10 @@ def build(root, charts_src=None):
         # tamanho exato que `g_res_score` espera (sem ele os digitos nao saem).
         **({"resultado/%s" % os.path.basename(resultado_score()[0]):
            make_score_atlas(*resultado_score()[1:])} if resultado_score() else {}),
+        # O atlas dos CONTADORES DE JULGAMENTO (sem ele os numeros viram texto).
+        **({"resultado/%s" % os.path.basename(resultado_tallies()[0]):
+           make_tally_atlas(*resultado_tallies()[1:])}
+          if resultado_tallies() else {}),
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),
