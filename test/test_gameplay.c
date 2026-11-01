@@ -243,6 +243,55 @@ static void test_play_sequence(void)
     CHECK_NEAR(fnf_play_health_ratio(&p), 0.0, 1e-6);
 }
 
+/* PRACTICE MODE (PlayState.isPracticeMode).
+   O original condiciona a MORTE ao modo (`PlayState.hx` L1255:
+   `if (health <= HEALTH_MIN && !isPracticeMode && !isPlayerDying)`), mas NAO
+   condiciona a vida: ela chega a HEALTH_MIN e fica la'. `applyScore` continua
+   pontuando e os tallies continuam contando -- o que o Practice invalida e' o
+   highscore, nao a partida. Aqui se prova justamente isso: vida no chao, `dead`
+   em zero, tallies crescendo, e o `practice` sobrevivendo ao reset (Restart
+   Song e Change Difficulty recomecam no MESMO PlayState no original). */
+static void test_practice_mode(void)
+{
+    fnf_play_t p;
+
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 100);
+    CHECK(p.practice == 0);
+    { int i; for (i = 0; i < 13; i++) fnf_play_miss(&p); }
+    CHECK(p.dead == 1);                    /* ainda morre sem Practice */
+
+    fnf_play_move_to_game_over(&p);
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 100);
+    fnf_play_set_practice(&p, 1);
+    CHECK(p.practice == 1);
+    { int i; for (i = 0; i < 40; i++) fnf_play_miss(&p); }
+    CHECK(p.dead == 0);                    /* nunca morre */
+    CHECK_NEAR(p.health, FNF_HEALTH_MIN, 1e-6);
+    CHECK(p.missed == 40);                 /* tallies continuam contando */
+    CHECK(p.score < 0);                    /* e o placar tambem */
+
+    /* Ghost miss tambem nao mata -- os dois caminhos que baixam a vida ate' o
+       chao precisam da mesma condicao. */
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 100);
+    { int i; for (i = 0; i < 40; i++) fnf_play_ghost(&p); }
+    CHECK(p.dead == 0);
+    { int i; for (i = 0; i < 40; i++) fnf_play_hit(&p, 0.0f); }
+    CHECK(p.health > FNF_HEALTH_MIN);      /* a vida volta a subir */
+    CHECK(p.dead == 0);
+
+    /* `resetPlaying()` recomeca no MESMO PlayState: o Practice sobrevive. */
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 100);
+    CHECK(p.practice == 1);
+    { int i; for (i = 0; i < 20; i++) fnf_play_miss(&p); }
+    CHECK(p.dead == 0);
+
+    /* E desligar volta a matar. */
+    fnf_play_set_practice(&p, 0);
+    fnf_play_reset(&p, FNF_SCORING_PBOT1, 100);
+    { int i; for (i = 0; i < 13; i++) fnf_play_miss(&p); }
+    CHECK(p.dead == 1);
+}
+
 static void test_move_to_game_over(void)
 {
     fnf_play_t p;
@@ -329,6 +378,8 @@ int main(void)
     test_play_sequence();
     printf("== gameplay: game over ==\n");
     test_move_to_game_over();
+    printf("== gameplay: practice mode ==\n");
+    test_practice_mode();
     printf("== gameplay: resultado ==\n");
     test_result();
 

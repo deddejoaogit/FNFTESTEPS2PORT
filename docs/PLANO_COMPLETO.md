@@ -1506,16 +1506,45 @@ sobreposição por cima — mesma estrutura, sem duplicar a cena.
 | abrir | `controls.PAUSE_P` (START) | START em `ui_state 8` |
 | congela | `shouldSubstatePause` + `persistentUpdate = false` | relógio da música, contagem, eventos e áudio param |
 | fundo | alpha 0 → 0,6 em 0,8 s, `FlxEase.quartOut` | idem, `153 · quartOut(t)` |
-| menu | Resume / Restart Song / Change Difficulty / Enable Practice Mode / Exit to Menu | as 4 primeiras menos **Practice Mode** (ver abaixo) |
+| menu | Resume / Restart Song / Change Difficulty / Enable Practice Mode / Exit to Menu | as cinco, na mesma ordem (ver abaixo) |
 | posição | `y = 70·i + 30`, `x = 0` em 1280×720 | metade disso em 640×360 |
 | entrada | primeiro quadro ignora (`justOpened`) | `g_pause_frame >= 2` |
 | metadados | nome da música, dificuldade, `N Blue Balls` | iguais, no canto superior direito |
 | Change Difficulty | lista as dificuldades que a música tem + Back | `SR_DIFF_*` do registro + Back; escolher recarrega chart e cena |
 
-**Por que "Enable Practice Mode" não está lá:** o Practice Mode do original é
-um modo de jogo (sem morte, começando numa seção escolhida), não um item de
-menu. Uma entrada que não faz o que promete é pior que a ausência dela; ela
-entra quando o modo existir.
+**"Enable Practice Mode" (fechado).** A entrada ficou de fora por muito tempo
+com a justificativa de que "o Practice Mode do original é um modo de jogo
+inteiro". Lido o original (v0.8.6), **não é**: no `PlayState` atual o Practice
+Mode é um **campo do PlayState** (`isPracticeMode`, L387) que só muda uma
+coisa — a morte:
+
+```haxe
+if (health <= Constants.HEALTH_MIN && !isPracticeMode && !isPlayerDying)   // L1255
+```
+
+A música continua começando do zero (não há seleção de seção nesta versão), a
+vida **chega** a `HEALTH_MIN` e fica lá, e `applyScore()` continua pontuando e
+contando tallies; o que o Practice invalida é o **highscore/medalha**
+(`ResultState.hx` L1132, `isScoreValid`) — e o port não grava highscore.
+Ou seja, o que faltava era pequeno e mensurável:
+
+| Item | Original | Port |
+|---|---|---|
+| ligar/desligar | `PauseSubState.enablePracticeMode` (L1129) | quinta entrada da pausa |
+| `filter` da entrada | `() -> !isPracticeMode` (L71) | a lista é montada por quadro: 5 entradas, 4 com o modo ligado |
+| menu depois de ligar | `regenerateMenu()` — seleção volta ao primeiro item, a entrada some | idem, e a pausa **não** fecha |
+| morte | `health <= HEALTH_MIN && !isPracticeMode` | `fnf_play_t.practice` — `dead` nunca vira 1 |
+| vida | chega a 0 e fica | igual (`fnf_play` já saturava no mínimo) |
+| metadados | `metadataPractice` = `'PRACTICE MODE'` (L512-516) | linha extra no canto direito da pausa |
+| sobrevive ao reset | `resetPlaying()` no MESMO PlayState (needsReset) | `fnf_play_reset` preserva `practice` |
+| some com um PlayState novo | `isPracticeMode = params.practiceMode ?? false` (L762) | zerado nas cinco entradas de música |
+
+Medido (`tools/run_practice_harness.sh 5800`, música tocando **sem** roteiro de
+notas de propósito — errar tudo é o que leva a vida ao chão): `pause_menu` com
+**5** entradas, `pause_practice` com `dead = 0`, `pause_menu` com **4** depois,
+`vida_zero` com `dead = 0`, **zero** `play_death`, 508 quadros de resultado e a
+música chegando ao fim. E o caminho da morte continua provado no
+`run_gameover_harness.sh`.
 
 **Fechado: a música da pausa.** `startPauseMusic()`
 (`PauseSubState.hx` L365-383) carrega `breakfast$musicSuffix` em **loop**,
@@ -2958,7 +2987,6 @@ faltou escrever. A lista existe para não deixar nada implícito.
 | Arte da tela de GAME OVER | o original cobre a tela com um fundo preto opaco e desenha o texto; a arte de fundo/texto dessa tela não foi empacotada | empacotar os PNGs da tela e desenhá-los no lugar do preto + texto |
 | Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
 | Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
-| Practice Mode | modo de jogo inteiro no original (sem morte, começando numa seção) | decisão de escopo: o port hoje não oferece a entrada na pausa (oferecer uma entrada que não faz o que promete é pior) |
 
 E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
 reais rodam nas 81 combinações; a barra de vida desenha a **moldura do

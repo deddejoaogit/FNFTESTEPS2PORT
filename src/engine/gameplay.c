@@ -167,6 +167,15 @@ void fnf_play_reset(fnf_play_t *play, fnf_scoring_t system, int total_notes)
     play->total_notes_hit = 0;
     play->total_notes = total_notes < 0 ? 0 : total_notes;
     play->dead = 0;
+    /* `practice` NAO e' zerado aqui: no original `resetPlaying()` recomeca a
+       musica no MESMO PlayState, entao `isPracticeMode` sobrevive ao Restart
+       Song e ao Change Difficulty. Quem zera e' o PlayState novo. */
+}
+
+void fnf_play_set_practice(fnf_play_t *play, int ligado)
+{
+    if (!play) return;
+    play->practice = ligado ? 1 : 0;
 }
 
 static void play_apply(fnf_play_t *play, fnf_judge_t judge, int score)
@@ -184,7 +193,7 @@ static void play_apply(fnf_play_t *play, fnf_judge_t judge, int score)
     play->health += fnf_judge_health(judge);
     if (play->health > FNF_HEALTH_MAX) play->health = FNF_HEALTH_MAX;
     if (play->health < FNF_HEALTH_MIN) play->health = FNF_HEALTH_MIN;
-    if (play->health <= FNF_HEALTH_MIN) play->dead = 1;
+    if (play->health <= FNF_HEALTH_MIN && !play->practice) play->dead = 1;
 
     if (fnf_judge_breaks_combo(judge)) {
         play->combo = 0;
@@ -232,7 +241,7 @@ void fnf_play_ghost(fnf_play_t *play)
        Constants.HEALTH_GHOST_MISS_PENALTY e SCORE_GHOST_MISS_PENALTY. */
     play->health += FNF_HEALTH_GHOST_MISS_PENALTY;
     if (play->health < FNF_HEALTH_MIN) play->health = FNF_HEALTH_MIN;
-    if (play->health <= FNF_HEALTH_MIN) play->dead = 1;
+    if (play->health <= FNF_HEALTH_MIN && !play->practice) play->dead = 1;
     play->score += FNF_SCORE_GHOST_MISS_PENALTY;
 }
 

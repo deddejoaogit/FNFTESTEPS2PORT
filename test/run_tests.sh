@@ -633,6 +633,20 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     fi
     tail -6 /tmp/fnf_pause.log
 
+    # PRACTICE MODE: a quinta entrada da pausa (`Enable Practice Mode`, com
+    # `filter: !isPracticeMode`), a vida podendo zerar sem Game Over
+    # (`PlayState.hx` L1255) e a musica seguindo ate' o resultado. A entrada
+    # ficou de fora por muito tempo com a desculpa de que "o modo inteiro nao
+    # existe"; o que existe no original e' exatamente isto.
+    echo
+    echo "== practice mode no harness (menu de 5, vida zerada sem morrer) =="
+    if ! sh tools/run_practice_harness.sh 5800 > /tmp/fnf_practice.log 2>&1; then
+        tail -20 /tmp/fnf_practice.log
+        echo "  FALHA: o practice mode nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_practice.log
+
     # FREEPLAY: o item do menu que antes so' dizia "COMING IN NEXT STAGE".
     # Confere lista completa, dificuldade, o chart da musica escolhida e a volta
     # para a Freeplay depois do resultado.

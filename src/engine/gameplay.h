@@ -174,10 +174,20 @@ typedef struct {
     /* Quantas notas contam para o rank: as notas "scoreable" do chart. Fica
        separado de total_notes porque o chamador pode querer mostrar o total do
        chart antes da primeira nota e ainda assim jogar. */
-    int dead;   /* 1 quando a vida chegou a HEALTH_MIN: Game Over */
+    int dead;   /* 1 quando a vida chegou a HEALTH_MIN: Game Over. Em
+                   Practice Mode NUNCA vira 1 -- `PlayState.hx` L1255 testa
+                   `health <= HEALTH_MIN && !isPracticeMode`, entao' a morte
+                   condicional e' do Practice e nao da vida. */
+    int practice; /* PlayState.isPracticeMode: morrer desligado. */
 } fnf_play_t;
 
 void fnf_play_reset(fnf_play_t *play, fnf_scoring_t system, int total_notes);
+
+/* Liga/desliga o Practice Mode. `isPracticeMode` e' campo do PlayState, e o
+ * original NAO o reinicia em `resetPlaying` (Restart Song e Change Difficulty
+ * continuam no Practice); por isso `fnf_play_reset` tambem preserva o valor --
+ * quem zera e' a criacao de um PlayState novo. */
+void fnf_play_set_practice(fnf_play_t *play, int ligado);
 
 /* Acerto. `ms` é o erro de tempo (songPosition - noteTime, como no original).
  * Devolve o julgamento aplicado. Não pontua se o julgamento for MISS -- um

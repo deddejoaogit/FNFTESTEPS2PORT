@@ -429,7 +429,53 @@ static void (*const ps2h_song_clock_hook)(unsigned int)=ps2h_song_clock;
 /* deathCounter do PlayState: o original incrementa a cada morte e mostra no
    menu de pausa como "N Blue Balls". */
 static int g_death_counter=0;
-#define PAUSE_ENTRADAS_PADRAO 4
+/* Practice Mode (PlayState.isPracticeMode). Campo do PlayState no original e
+   por isso NAO e' zerado por `resetPlaying`: Restart Song e Change Difficulty
+   continuam no Practice (PauseSubState.changeDifficulty so' marca
+   `needsReset`). Quem zera e' a criacao de um PlayState novo -- as cinco
+   entradas de musica (story, freeplay, proxima da semana e os dois inicios do
+   harness) fazem isso de proposito. */
+static int g_practice_mode=0;
+/* Uma vez por musica: a vida chegou a HEALTH_MIN. E' instrumento, nao regra --
+   e' o que prova no log que o Practice Mode passou pelo chao da vida (no
+   original nada disso aparece; o que muda e' `dead` continuar em zero). */
+static int g_vida_zero_visto=0;
+/* Entradas do menu da pausa, na ordem de
+   PauseSubState.PAUSE_MENU_ENTRIES_STANDARD (L60-73). "Enable Practice Mode"
+   carrega um `filter` (`!isPracticeMode`), entao ela DESAPARECE quando o modo
+   ja' esta' ligado e as de baixo sobem um degrau -- por isso a lista e'
+   MONTADA a cada quadro, e nao um indice fixo. */
+#define PAUSE_ACAO_RESUME        0
+#define PAUSE_ACAO_REINICIAR     1
+#define PAUSE_ACAO_DIFICULDADE   2
+#define PAUSE_ACAO_PRATICA       3
+#define PAUSE_ACAO_SAIR          4
+#define PAUSE_ENTRADAS_PADRAO    5   /* teto da lista (o Practice some) */
+static int pause_acoes(int *out)
+{
+ int n=0;
+ out[n++]=PAUSE_ACAO_RESUME;
+ out[n++]=PAUSE_ACAO_REINICIAR;
+ out[n++]=PAUSE_ACAO_DIFICULDADE;
+ if(!g_practice_mode)out[n++]=PAUSE_ACAO_PRATICA;
+ out[n++]=PAUSE_ACAO_SAIR;
+ return n;
+}
+static void pause_menu_telemetria(void)
+{
+ int a[PAUSE_ENTRADAS_PADRAO];
+ telemetry_event("pause_menu",pause_acoes(a),g_practice_mode);
+}
+static const char *pause_rotulo(int acao)
+{
+ switch(acao){
+  case PAUSE_ACAO_RESUME:      return "RESUME";
+  case PAUSE_ACAO_REINICIAR:   return "RESTART SONG";
+  case PAUSE_ACAO_DIFICULDADE: return "CHANGE DIFFICULTY";
+  case PAUSE_ACAO_PRATICA:     return "ENABLE PRACTICE MODE";
+  default:                     return "EXIT TO MENU";
+ }
+}
 
 /* Dois caminhos fazem exatamente a mesma coisa a partir de dois lugares (o
    Restart Song da pausa e o reinicio do game over), e por isso eles saem daqui
@@ -467,7 +513,7 @@ static int g_death_counter=0;
     g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left; \
     /* A vida comeca em HEALTH_STARTING (= HEALTH_MAX/2 = 1,0) e a interpolada \
        nasce igual a ela; o pulo dos icones comeca do zero. */ \
-    g_vida_lerp=1.0f;g_icone_ultimo_passo=-1;g_icone_desenhos=0; \
+    g_vida_lerp=1.0f;g_icone_ultimo_passo=-1;g_icone_desenhos=0;g_vida_zero_visto=0; \
     {int _l;for(_l=0;_l<ICONE_LADOS;_l++)hi_bop_reset(&g_icone_bop[_l]);} \
   }while(0)
 /* Volta a tocar do ponto em que a pausa pegou. */
@@ -3793,8 +3839,8 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
   if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
   if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
 #ifdef PS2H
-  if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;g_campaign_score=0;g_play_level=(unsigned)wk;g_play_song_index=0;target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
-  if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
+  if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;g_campaign_score=0;g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
+  if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
 #endif
   if(frame_no==0){capture_status("F0_PAD_READ_DONE",-1,(int)pressed);}g_viewport_360=(ui_state==0||ui_state==6||ui_state==7||ui_state==8||ui_state==9||ui_state==10||ui_state==11);g_ui_state_dbg=ui_state;unsigned local,global;u32 heard,queued_bytes,ring_bytes;qword_t*q;int qw,i;
   if(g_title_anim_thread_id>=0&&g_title_anim_status!=2)g_title_anim_thread_id=-1;
@@ -4065,6 +4111,8 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      g_playlist_i++;
      g_play_song_index=(unsigned)g_playlist_i;
      g_result_wait=0;g_result_drawn=0;
+     /* PlayState novo: o Practice Mode e' campo dele e nao sobrevive. */
+     g_practice_mode=0;fnf_play_set_practice(&g_play,0);
      g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
      target_state=8;transition_frame=1;transitions++;
      telemetry_event("story_next",g_playlist_i,(int)g_campaign_score);
@@ -4097,6 +4145,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(alvo<0.0f)alvo=0.0f;
    if(alvo>2.0f)alvo=2.0f;
    g_vida_lerp+=(alvo-g_vida_lerp)*0.15f;
+   /* A vida no chao: no original isso e' Game Over, MENOS no Practice Mode
+      (`PlayState.hx` L1255), onde o jogo segue. `g_play.dead` diz qual dos dois
+      caminhos o engine tomou -- e e' o que este evento publica. */
+   if(g_play.health<=FNF_HEALTH_MIN&&!g_vida_zero_visto){
+    g_vida_zero_visto=1;
+    telemetry_event("vida_zero",(int)g_play.dead,(int)frame_no);
+   }
    icone_atualiza(alvo);
    icone_passo(cena_passo());
    {int _l;for(_l=0;_l<ICONE_LADOS;_l++)hi_bop_tick(&g_icone_bop[_l],TUT_DT);}
@@ -4130,6 +4185,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   audio_started=0;audio_playing=0;audio_submitted=0;music_clock=0;
   music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;
   g_tutorial_audio_finished=0;g_tutorial_audio_status=-1;
+  g_vida_zero_visto=0;
   g_countdown_left=0;g_countdown_step=0;g_chart_clock=0;
   capture_status("TUT_FONT_BEGIN",(int)frame_no,0);
   fr=tutorial_vcr_restore();
@@ -4330,6 +4386,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
     story_diff=g_fp_diff;g_fp_play_song=g_fp[g_fp_sel];g_fp_active=1;g_story_mode=0;
+    g_practice_mode=0;fnf_play_set_practice(&g_play,0);
     g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
     {u32 h=2166136261u;const char*q=g_fp_play_song->id;while(*q){h^=(unsigned char)*q++;h*=16777619u;}
      telemetry_event("freeplay_play",(int)(h&0x7fffffffu),g_fp_diff);}
@@ -4352,18 +4409,19 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        pausa -- aqui so' se pausa com o jogo vivo). */
     pause_audio_sufixo();
     pause_audio_iniciar();
+    pause_menu_telemetria();
    }else if(g_paused){
     g_pause_frame++;
     if(g_pause_frame>=2){
      /* Entradas visiveis neste modo. */
-     int n_sel=g_pause_mode?0:PAUSE_ENTRADAS_PADRAO,song_diffs=0,diff_list[3],n_ent,d;
-     const char*diff_names[3]={"EASY","NORMAL","HARD"};
+     int n_sel=0,song_diffs=0,diff_list[3],n_ent,d,acoes[PAUSE_ENTRADAS_PADRAO],acao=-1;
      unsigned int mask=(g_play_song?g_play_song->difficulties:SR_DIFF_ALL);
      if(g_pause_mode){
       for(d=0;d<3;d++)if(mask&(1u<<d))diff_list[song_diffs++]=d;
-      n_sel=song_diffs+1;   /* as dificuldades e, no fim, o "Back" */
-     }
+      n_sel=song_diffs+1;   /* as dificuldades e, no fim o "Back" */
+     }else n_sel=pause_acoes(acoes);
      n_ent=n_sel;
+     if(!g_pause_mode&&g_pause_sel<n_ent)acao=acoes[g_pause_sel];
      if(pressed&PAD_UP){g_pause_sel=(g_pause_sel+n_ent-1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
      else if(pressed&PAD_DOWN){g_pause_sel=(g_pause_sel+1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
      if(pressed&PAD_START){g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
@@ -4371,18 +4429,27 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
      }else if((pressed&PAD_CROSS)&&n_ent>0){
       if(!g_pause_mode){
-       if(g_pause_sel==0){ /* Resume */
+       if(acao==PAUSE_ACAO_RESUME){ /* Resume */
         g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
         pause_audio_parar();
         PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
-       }else if(g_pause_sel==1){ /* Restart Song: mesmo reinicio do game over */
+       }else if(acao==PAUSE_ACAO_REINICIAR){ /* Restart Song: mesmo reinicio do game over */
         g_paused=0;
         pause_audio_parar();
         PLAY_REINICIAR_MUSICA();
         PLAY_REBOBINAR_AUDIO(audio_fd);
         telemetry_event("pause_restart",(int)frame_no,0);
-       }else if(g_pause_sel==2){ /* Change Difficulty */
+       }else if(acao==PAUSE_ACAO_DIFICULDADE){ /* Change Difficulty */
         g_pause_mode=1;g_pause_sel=0;telemetry_event("pause_difficulty",(int)mask,0);
+       }else if(acao==PAUSE_ACAO_PRATICA){
+        /* enablePracticeMode (PauseSubState L1129-1135): liga o modo e
+           REGENERA o menu (`regenerateMenu()`), o que reinicia a selecao no
+           primeiro item e some com esta propria entrada. A musica da pausa e
+           o relogio congelado nao mudam: o substate continua aberto. */
+        g_practice_mode=1;fnf_play_set_practice(&g_play,1);
+        g_pause_sel=0;
+        telemetry_event("pause_practice",(int)g_play.dead,(int)frame_no);
+        pause_menu_telemetria();
        }else{ /* Exit to Menu */
         g_paused=0;
         pause_audio_parar();
@@ -4664,6 +4731,7 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
     if(lvsel&&lvsel->song_count){
      g_story_mode=1;g_story_week=story_level;g_fp_active=0;g_fp_play_song=0;
      g_playlist_n=(int)lvsel->song_count;g_playlist_i=0;g_campaign_score=0;
+     g_practice_mode=0;fnf_play_set_practice(&g_play,0);
      g_play_level=(unsigned)story_level;g_play_song_index=0;
      g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
      target_state=8;transition_frame=1;transitions++;
@@ -5211,10 +5279,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      tamanho; aqui e' a fonte do port. */
   if(ui_state==8&&g_paused){
    char lb[64];int i,q0=g_frame_texture_quads;
-   static const char*padrao[PAUSE_ENTRADAS_PADRAO]={"RESUME","RESTART SONG","CHANGE DIFFICULTY","EXIT TO MENU"};
    static const char*dnames[3]={"EASY","NORMAL","HARD"};
    unsigned int mask=(g_play_song?g_play_song->difficulties:SR_DIFF_ALL);
-   int n_ent=PAUSE_ENTRADAS_PADRAO,list[3],nd=0;
+   int n_ent,list[3],nd=0,acoes[PAUSE_ENTRADAS_PADRAO];
    float t=(float)g_pause_frame/(0.8f*60.0f),a;
    if(t>1.0f)t=1.0f;
    /* FlxEase.quartOut: 1-(1-t)^4 */
@@ -5222,7 +5289,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    if(g_pause_mode){
     for(i=0;i<3;i++)if(mask&(1u<<i))list[nd++]=i;
     n_ent=nd+1;
-   }
+   }else n_ent=pause_acoes(acoes);
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,(unsigned char)(153.0f*a));
@@ -5230,7 +5297,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    for(i=0;i<n_ent;i++){
     const char*txt;
     unsigned char alpha=(i==g_pause_sel)?(unsigned char)128:77;
-    if(!g_pause_mode)txt=padrao[i];
+    if(!g_pause_mode)txt=pause_rotulo(acoes[i]);
     else if(i<nd)txt=dnames[list[i]];
     else txt="BACK";
     q=text_draw_alpha(q,txt,6.0f,15.0f+35.0f*(float)i,0.85f,0,alpha);
@@ -5243,6 +5310,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    q=text_draw_alpha(q,lb,634.0f,33.0f,0.7f,2,128);
    snprintf(lb,sizeof(lb),"%d BLUE BALLS",g_death_counter);
    q=text_draw_alpha(q,lb,634.0f,51.0f,0.7f,2,128);
+   /* metadataPractice (L512-516): 'PRACTICE MODE' embaixo do contador, so'
+      quando o modo esta' ligado. */
+   if(g_practice_mode)q=text_draw_alpha(q,"PRACTICE MODE",634.0f,69.0f,0.7f,2,128);
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
    if(!g_pause_drawn){g_pause_drawn=1;telemetry_event("pause_draw",g_frame_texture_quads-q0,(int)g_pause_mode);}
   }
