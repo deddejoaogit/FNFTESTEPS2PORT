@@ -355,6 +355,7 @@ static unsigned int g_go_sorteio=0;
 #define GO_ASSET_DIR "mass:/FNFPS2/assets/gameover/"
 #define GO_SUF_MAX 24
 static const char *g_go_mus_suf="",*g_go_bb_suf="";   /* do personagem do slot bf */
+static const char *g_pause_suf="";  /* PauseSubState.musicSuffix, mesmo personagem */
 static int g_go_audio_fd=-1;   /* fonte primaria: musica de game over / End     */
 static int g_go_ov_fd=-1;      /* fonte secundaria: o sfx que toca por cima     */
 /* A troca de fonte primaria (musica -> End) e' um PEDIDO: o fd antigo fica
@@ -2501,6 +2502,15 @@ static int tutorial_audio_mix_submit(int voices_enabled){
 static int audio_init(void){int result=-1;if(SifLoadModule("rom0:LIBSD",0,NULL)<0)return -1;if(SifExecModuleBuffer(audsrv_irx,size_audsrv_irx,0,NULL,&result)<0||result<0)return -2;if(audsrv_init()!=0)return -3;if(audio_set_stream(70)<0)return -4;return 0;}
 static int menu_audio_prime(void){int total=0,guard=1000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=32;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int j;if(audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK)!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,AUDIO_READ_CHUNK);if(j<=0)break;total+=j;g_title_audio_submitted+=(u32)(j/4);}telemetry_event("menu_prime",total,audsrv_queued());return total;}
 
+/* REGIAO DA BARRA DE VIDA DENTRO DO ATLAS DO HUD (tex2, 320x256).
+   As coordenadas sao as do `sprite_region` do desenho do HUD (0,112,301,10) e
+   as do arquivo `health_bar.rgba` que tools/empacotar_ui.py gera. */
+#define HEALTH_BAR_X 0
+#define HEALTH_BAR_Y 112
+#define HEALTH_BAR_W 301
+#define HEALTH_BAR_H 10
+#define HUD_TEX_W 320
+
 /* ===================== AUDIO DA TELA DE GAME OVER ======================== */
 /* Empacota ate' 4 caracteres num int, para a telemetria (que leva dois ints)
    poder publicar qual sufixo foi usado sem inventar um formato novo de log. */
@@ -2518,12 +2528,13 @@ static int go_pack_suf(const char *s)
 static void go_audio_sufixos(void)
 {
  int ci=g_cena_bf_ci,i;
- g_go_mus_suf="";g_go_bb_suf="";
+ g_go_mus_suf="";g_go_bb_suf="";g_pause_suf="";
  if(ci<0||ci>=CH_CHAR_COUNT)return;
  for(i=0;i<GO_SFX_CHARS_COUNT;i++){
   if(strcmp(go_sfx_chars[i].id,ch_chars[ci].id)==0){
    g_go_mus_suf=go_sfx_chars[i].musica;
    g_go_bb_suf=go_sfx_chars[i].blueball;
+   g_pause_suf=go_sfx_chars[i].pausa;
    break;
   }
  }
@@ -2691,6 +2702,109 @@ static int gameover_audio_bombear(void)
  }
  return enviado;
 }
+
+/* ========================= MUSICA DA PAUSA =============================== */
+/* PauseSubState.startPauseMusic (v0.8.6 L365-383):
+     pauseMusic = Paths.music('breakfast$musicSuffix/breakfast$musicSuffix');
+     if (pauseMusic == null) { trace('Could not play pause music'); return; }
+     pauseMusic.play(false, FlxG.random.int(0, Std.int(pauseMusic.length / 2)));
+     pauseMusic.fadeIn(MUSIC_FADE_IN_TIME, 0, MUSIC_FINAL_VOLUME);
+   com MUSIC_FADE_IN_TIME = 5 (s) e MUSIC_FINAL_VOLUME = 0.75 (L127/L132), e
+   musicSuffix vindo do personagem no slot do BF (coluna `pausa` de
+   src/gameover_dados.h: os pico* pedem `-pico`; o bf-pixel pede `-pixel`, que
+   nao existe na arte -- e' o caso do trace acima, sem som).
+   O port nao tinha som nenhum na pausa (`audsrv_stop_audio()` + ring parado).
+   Agora a pausa tem transporte proprio: o transporte do nivel fica congelado
+   onde esta' e o anel e' reiniciado com o arquivo da pausa, em loop. */
+#define PAUSE_ASSET_DIR "mass:/FNFPS2/assets/pause/"
+#define PAUSE_FADE_S   5.0f   /* MUSIC_FADE_IN_TIME  */
+#define PAUSE_VOLUME   0.75f  /* MUSIC_FINAL_VOLUME */
+static int g_pause_fd=-1,g_pause_on=0,g_pause_abertos=0;
+/* PauseSubState.musicSuffix: o original o' le' do personagem do slot `bf` que
+   esta' no PlayState. A tabela e' a mesma do game over (tools/gen_gameover_sfx.py,
+   coluna `pausa`); personagem fora da tabela nao tem som de pausa. */
+static void pause_audio_sufixo(void)
+{
+ int ci=g_cena_bf_ci,i;
+ g_pause_suf="";
+ if(ci<0||ci>=CH_CHAR_COUNT)return;
+ for(i=0;i<GO_SFX_CHARS_COUNT;i++)
+  if(strcmp(go_sfx_chars[i].id,ch_chars[ci].id)==0){g_pause_suf=go_sfx_chars[i].pausa;break;}
+}
+static u32 g_pause_amostras=0;      /* amostras ja' tocadas: base do fade-in */
+static int pause_audio_iniciar(void)
+{
+ char caminho[96];
+ int fd,tam;
+ g_pause_fd=-1;g_pause_on=0;g_pause_amostras=0;
+ if(!g_audio_ok)return -1;
+ snprintf(caminho,sizeof(caminho),PAUSE_ASSET_DIR "breakfast%s.pcm",
+          g_pause_suf?g_pause_suf:"");
+ fd=open(caminho,O_RDONLY);
+ if(fd<0){
+  /* `-pixel` nao existe na arte: o original loga e fica sem som. */
+  telemetry_event("pause_sem_musica",go_pack_suf(g_pause_suf),0);
+  return -1;
+ }
+ tam=(int)lseek(fd,0,SEEK_END);
+ /* `FlxG.random.int(0, length/2)` -- o original sorteia mesmo. Aqui o sorteio e'
+    um LCG semeado pelo numero de pausas ja' abertas (deterministico entre duas
+    rodadas do harness com a mesma entrada) e o offset cai em multiplo de 4
+    bytes, que e' uma amostra estereo. */
+ {unsigned int r=(unsigned int)(++g_pause_abertos)*2654435761u+12345u;int meio=tam/2,off=0;
+  r=r*1664525u+1013904223u;
+  if(meio>=4){unsigned int n=(unsigned)(meio/4);off=(int)((r>>8)%(n+1u))*4;}
+  lseek(fd,off,SEEK_SET);
+  telemetry_event("pause_musica_offset",off,tam);}
+ if(audio_ring_start_loop(fd,1)!=0){
+  close(fd);
+  telemetry_event("pause_musica_falhou",0,0);
+  return -1;
+ }
+ g_pause_fd=fd;g_pause_on=1;
+ /* campo 1 em BYTES (mesma unidade do `pause_musica_offset`, para o teste poder
+    conferir sozinho que o trecho sorteado caiu na primeira metade). */
+ telemetry_event("pause_musica",tam,go_pack_suf(g_pause_suf));
+ return 0;
+}
+/* Para a musica da pausa. O ring e' parado ANTES do close: e' ele que le esse
+   fd, e o audio_ring_stop espera a leitura pendente sair (mesma ordem do
+   gameover_audio_parar -- fechar antes trava a thread de leitura). */
+static void pause_audio_parar(void)
+{
+ if(!g_audio_ok)return;
+ audsrv_stop_audio();
+ audio_ring_stop();
+ if(g_pause_fd>=0){close(g_pause_fd);g_pause_fd=-1;}
+ if(g_pause_on)telemetry_event("pause_musica_fim",(int)g_pause_amostras,0);
+ g_pause_on=0;
+}
+/* Consumidor da pausa com o fade-in do original (`fadeIn(5, 0, 0.75)`):
+   ganho linear 0 -> 0,75 ao longo de 5 s de musica tocada. O ganho e' aplicado
+   por AMOSTRA, nao por bloco -- trocar o ganho de um bloco para o seguinte
+   produz degrau audivel. */
+static int pause_audio_bombear(void)
+{
+ int voltas=0,enviado=0;
+ while(audsrv_available()>=AUDIO_READ_CHUNK&&voltas++<64){
+  int n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK),j,k,frames;
+  if(n<=0)break;
+  frames=n/4;
+  {short*sp=(short*)g_audio_pcm;float base=(float)AUDIO_RATE*PAUSE_FADE_S;
+   for(k=0;k<frames;k++){
+    float t=(float)(g_pause_amostras+(u32)k);
+    float g=(t<base)?(PAUSE_VOLUME*t/base):PAUSE_VOLUME;
+    sp[k*2]=(short)((float)sp[k*2]*g);
+    sp[k*2+1]=(short)((float)sp[k*2+1]*g);
+   }
+   g_pause_amostras+=(u32)frames;}
+  j=audio_play_complete((char*)g_audio_pcm,n);
+  if(j<=0)break;
+  enviado+=j;
+ }
+ return enviado;
+}
+/* ======================= FIM DA MUSICA DA PAUSA =========================== */
 
 static qword_t *text_draw_alpha(qword_t*q,const char*s,float x,float y,float scale,int align,unsigned char alpha){int len=(int)strlen(s),i;float total=0,cursor;
  for(i=0;i<len;i++){unsigned char ch=(unsigned char)s[i];if(ch<32||ch>127)ch='?';total+=g_font_widths[ch-32]*0.5f*scale;}
@@ -3787,6 +3901,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    int enviado=gameover_audio_bombear();
    if(enviado>0)frame_mark("A.GAMEOVER",enviado);
   }
+  /* MUSICA DA PAUSA: transporte proprio, com o fade-in do original. Bombeia
+     enquanto a pausa esta' aberta -- inclusive nos quadros em que o menu
+     nao aceita entrada (o justOpened), porque o original tambem toca ali. */
+  if(ui_state==8&&g_paused&&g_audio_ok&&g_pause_on){
+   int enviado=pause_audio_bombear();
+   if(enviado>0)frame_mark("A.PAUSA",enviado);
+  }
   frame_mark("F.AUDIO",transport_state);
   {u32 reads=0;audio_ring_stats(&audio_read_bytes,&reads,&audio_loops,&audio_read_errors,&audio_underruns);(void)reads;}
   if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?(u32)audsrv_queued():0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
@@ -4021,6 +4142,28 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   capture_status("TUT_NOTE_ATLAS_DONE",(int)frame_no,g_tutorial_note_asset_status);
   telemetry_event("tutorial_note_atlas",g_tutorial_note_asset_status,224*112*4);
   if(g_tutorial_note_asset_status==0){FlushCache(0);setup_texture_dims(&tex2,320,256);upload_raw(&tex2,g_hud_pixels,320,256);}
+  /* A BARRA DE VIDA COM A ARTE DE VERDADE.
+     O atlas do HUD (que veio pronto do Drive) tem a regiao da barra em
+     (0,112) 301x10, e era um retangulo branco sem a moldura do original. A
+     arte oficial e' um arquivo a parte -- `shared/images/healthBar.png`,
+     601x19 em LA --, e `tools/empacotar_ui.py` reduz 2x (o HUD do port e' 640
+     x360; o original roda a 1280x720) e escreve `health_bar.rgba`. Aqui ele e'
+     copiado POR CIMA da regiao, ANTES do upload: nenhuma textura nova e
+     nenhum endereco de VRAM novo, que e' o que importa com 1.792 B livres no
+     pool. Sem o arquivo, o atlas fica como veio e o log diz
+     (`health_bar_arte` = 0). */
+  {int hb=read_exact_path("mass:/FNFPS2/assets/health_bar.rgba",g_up_bounce,
+                          HEALTH_BAR_W*HEALTH_BAR_H*4);
+   int yy;
+   telemetry_event("health_bar_arte",hb==0,HEALTH_BAR_W*HEALTH_BAR_H*4);
+   if(hb==0){
+    for(yy=0;yy<HEALTH_BAR_H;yy++)
+     memcpy(g_hud_pixels+(((u32)(HEALTH_BAR_Y+yy)*HUD_TEX_W+(u32)HEALTH_BAR_X)*4u),
+            g_up_bounce+(u32)yy*HEALTH_BAR_W*4u,(size_t)HEALTH_BAR_W*4u);
+    FlushCache(0);
+    setup_texture_dims(&tex2,320,256);
+    upload_raw(&tex2,g_hud_pixels,320,256);
+   }}
   memset(&g_chart_info,0,sizeof(g_chart_info));g_chart_cursor=g_chart_seen=0;g_chart_last_type=g_chart_last_value=g_chart_last_sample=0;
   /* O reset das notas NAO pode ficar aqui: ele tambem chama fnf_play_reset()
      com o total de notas pontuaveis, e aqui o chart ainda nao foi carregado --
@@ -4204,6 +4347,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     g_paused=1;g_pause_sel=0;g_pause_frame=0;g_pause_mode=0;g_pause_drawn=0;
     audsrv_stop_audio();audio_playing=0;audio_ring_stop();transport_state=3;
     telemetry_event("pause_open",(int)music_clock,(int)frame_no);
+    /* startPauseMusic(): `breakfast$musicSuffix` em loop, trecho sorteado,
+       fade-in de 5 s ate 0,75. O sufixo vem do BF em cena (o BM que morre nao
+       pausa -- aqui so' se pausa com o jogo vivo). */
+    pause_audio_sufixo();
+    pause_audio_iniciar();
    }else if(g_paused){
     g_pause_frame++;
     if(g_pause_frame>=2){
@@ -4219,14 +4367,17 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(pressed&PAD_UP){g_pause_sel=(g_pause_sel+n_ent-1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
      else if(pressed&PAD_DOWN){g_pause_sel=(g_pause_sel+1)%n_ent;telemetry_event("pause_sel",g_pause_sel,(int)g_pause_mode);}
      if(pressed&PAD_START){g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
+      pause_audio_parar();
       PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
      }else if((pressed&PAD_CROSS)&&n_ent>0){
       if(!g_pause_mode){
        if(g_pause_sel==0){ /* Resume */
         g_paused=0;telemetry_event("pause_close",(int)music_clock,0);
+        pause_audio_parar();
         PLAY_RETOMAR_AUDIO(audio_fd,music_clock);
        }else if(g_pause_sel==1){ /* Restart Song: mesmo reinicio do game over */
         g_paused=0;
+        pause_audio_parar();
         PLAY_REINICIAR_MUSICA();
         PLAY_REBOBINAR_AUDIO(audio_fd);
         telemetry_event("pause_restart",(int)frame_no,0);
@@ -4234,6 +4385,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
         g_pause_mode=1;g_pause_sel=0;telemetry_event("pause_difficulty",(int)mask,0);
        }else{ /* Exit to Menu */
         g_paused=0;
+        pause_audio_parar();
         audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;
         g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;
         telemetry_event("pause_exit",(int)frame_no,0);
@@ -4254,6 +4406,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
         if(diff_list[g_pause_sel]!=story_diff)g_campaign_score=0;
         story_diff=diff_list[g_pause_sel];
         g_paused=0;g_pause_mode=0;g_pause_sel=0;
+        pause_audio_parar();
         g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
         target_state=8;transition_frame=1;transitions++;
         telemetry_event("pause_change_difficulty",(int)story_diff,(int)frame_no);

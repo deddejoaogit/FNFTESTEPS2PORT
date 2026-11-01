@@ -8,7 +8,9 @@
 #   - a tela desenha (o estado existir nao prova nada);
 #   - Resume volta a tocar do MESMO ponto (nem antes, nem do zero);
 #   - Restart Song rebobina (a contagem regressiva recomeca);
-#   - Change Difficulty recarrega o chart na dificuldade escolhida.
+#   - Change Difficulty recarrega o chart na dificuldade escolhida;
+#   - a MUSICA DA PAUSA toca (`breakfast`, em loop, com o fade-in de 5 s do
+#     original) e para quando a pausa fecha, sem mexer no ponto do nivel.
 #
 # Duas passadas: a primeira testa Resume e deixa a musica terminar (o caminho
 # normal); a segunda testa troca de dificuldade e reinicio.
@@ -65,8 +67,28 @@ echo "  quadros na tela de resultado . $RESULT"
 echo "  acertos depois da pausa ..... $HITS"
 echo "  rank no resultado ............ ${RANK:-?}"
 
+# MUSICA DA PAUSA (PauseSubState.startPauseMusic): o arquivo tem de ser aberto
+# (`pause_musica`, campo 1 = bytes do arquivo, campo 2 = sufixo do
+# personagem empacotado em 4 bytes, -1 quando e' o `breakfast` sem sufixo) e
+# tem de ser PARADO ao retomar (`pause_musica_fim`, campo 1 = amostras tocadas).
+MUSICA=$(awk -F, '$1=="E" && $3=="pause_musica" {print $4; exit}' "$LOG")
+MUSICA_SUF=$(awk -F, '$1=="E" && $3=="pause_musica" {print $5; exit}' "$LOG")
+MUSICA_OFF=$(awk -F, '$1=="E" && $3=="pause_musica_offset" {print $4; exit}' "$LOG")
+MUSICA_FIM=$(awk -F, '$1=="E" && $3=="pause_musica_fim" {print $4; exit}' "$LOG")
+echo "  musica da pausa .............. ${MUSICA:-?} bytes (sufixo ${MUSICA_SUF:-?}), trecho em ${MUSICA_OFF:-?} byte(s)"
+echo "  musica da pausa tocada ....... ${MUSICA_FIM:-?} amostras"
+
 FALHA=0
 [ -n "$ABRIU" ]  || { echo "  FALHA: o START nao abriu a pausa"; FALHA=1; }
+[ -n "$MUSICA" ] || { echo "  FALHA: a pausa abriu MUDA (sem pause_musica)"; FALHA=1; }
+# `FlxG.random.int(0, length/2)`: o trecho sorteado tem de cair na primeira
+# metade do arquivo e em fronteira de amostra estereo (multiplo de 4 bytes).
+if [ -n "$MUSICA" ] && [ -n "$MUSICA_OFF" ]; then
+    [ "$MUSICA_OFF" -le $((MUSICA / 2)) ] || { echo "  FALHA: o trecho sorteado passou da metade do arquivo"; FALHA=1; }
+    [ $((MUSICA_OFF % 4)) -eq 0 ] || { echo "  FALHA: o trecho sorteado nao cai em amostra estereo"; FALHA=1; }
+fi
+# O fade-in de 5 s so' e' real se a pausa tiver tocado audio: exigir 1 s.
+[ "${MUSICA_FIM:-0}" -ge 48000 ] || { echo "  FALHA: a musica da pausa nao tocou (${MUSICA_FIM:-0} amostras)"; FALHA=1; }
 [ "${PDRAW:-0}" -gt 0 ] || { echo "  FALHA: a sobreposicao da pausa nao desenhou nada"; FALHA=1; }
 [ -n "$FECHOU" ] || { echo "  FALHA: a pausa nao fechou no segundo START"; FALHA=1; }
 # Congelado: durante a pausa o relogio tem de ter UM unico valor.

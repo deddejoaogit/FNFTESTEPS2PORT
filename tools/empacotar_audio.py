@@ -72,6 +72,17 @@ MUSICAS = [
     ("shared/music/gameplay/gameover/gameOverEnd-pico", "gameover_end-pico", False),
     ("shared/music/gameplay/gameover/gameOverEnd-pixel-pico", "gameover_end-pixel-pico", False),
 ]
+# MUSICA DA PAUSA (`PauseSubState.startPauseMusic`, v0.8.6 L365-383):
+# `Paths.music('breakfast$musicSuffix/breakfast$musicSuffix')`, em loop,
+# comecando num ponto aleatorio de 0 a metade do arquivo e fade-in de 5 s ate
+# volume 0.75. O sufixo vem do personagem (tools/gen_gameover_sfx.py, coluna
+# `pausa`): `-pico` para os pico*, vazio para o resto. `-pixel` NAO existe na
+# arte -- o original loga "Could not play pause music" e fica sem som, e o port
+# reproduz isso em vez de tocar a versao sem sufixo.
+PAUSA = [
+    ("shared/music/breakfast", "breakfast", True),
+    ("shared/music/breakfast-pico/breakfast-pico", "breakfast-pico", True),
+]
 SONS = [
     ("shared/sounds/gameplay/gameover/fnf_loss_sfx", "loss_sfx", False),
     ("shared/sounds/gameplay/gameover/fnf_loss_sfx-pixel", "loss_sfx-pixel", False),
@@ -125,7 +136,7 @@ def main():
     manifesto = []
     faltando = []
     total = 0
-    for grupo, itens in (("MUSICA", MUSICAS), ("SOM", SONS)):
+    for grupo, itens in (("MUSICA", MUSICAS), ("PAUSA", PAUSA), ("SOM", SONS)):
         for origem, nome, loop in itens:
             ogg = os.path.join(args.assets, origem + ".ogg")
             if not os.path.isfile(ogg):

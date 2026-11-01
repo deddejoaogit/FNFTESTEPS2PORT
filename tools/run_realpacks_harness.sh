@@ -46,6 +46,16 @@ if [ ! -d build/harness_assets/FNFPS2/assets ]; then
     echo "SKIP: build/harness_assets nao existe (rode tools/run_harness.sh uma vez)."
     exit 0
 fi
+# O tools/run_harness.sh RECRIA a raiz de assets a cada execucao e, com isso,
+# apaga os stems.pcm das 27 musicas que o tools/preparar_sweep.py gera. Sem eles
+# o jogo entra em cada musica, nao acha o audio e fica na contagem -- 78
+# combinacoes "nao animaram nenhum personagem". Como este script pode rodar
+# depois de qualquer harness, ele mesmo repoe o que falta.
+if [ ! -f build/harness_assets/FNFPS2/assets/songs/bopeebo/stems.pcm ]; then
+    echo "  (gerando os stems das 27 musicas: tools/preparar_sweep.py)"
+    python3 tools/preparar_sweep.py >/dev/null 2>&1 || {
+        echo "  FALHA: tools/preparar_sweep.py"; exit 1; }
+fi
 
 # ---- a raiz: tudo do harness, menos chars/ e stages/ -----------------------
 rm -rf "$ROOT"

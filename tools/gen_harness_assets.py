@@ -269,6 +269,27 @@ SFX_ALPHA_PIXELS = 160 * 120
 SFX_TOTAL = 281_088
 
 
+def make_health_bar(w=301, h=10):
+    """Moldura da barra: miolo opaco, primeira/ultima linha com alpha parcial e
+    uma emenda no meio (a arte oficial tem 601 px e uma emenda em x=300)."""
+    out = bytearray(w * h * 4)
+    for y in range(h):
+        for x in range(w):
+            o = (y * w + x) * 4
+            lum = 255
+            if y == 0 or y == h - 1:
+                a = 95
+            elif x == 0 or x == w - 1:
+                a = 127
+            else:
+                a = 255
+            if y == h - 2 and x > w // 2:
+                lum = 191
+            out[o + 0] = out[o + 1] = out[o + 2] = lum
+            out[o + 3] = a
+    return bytes(out)
+
+
 def build(root, charts_src=None):
     a = os.path.join(root, "FNFPS2", "assets")
     os.makedirs(os.path.join(a, "songs", "tutorial"), exist_ok=True)
@@ -321,6 +342,14 @@ def build(root, charts_src=None):
         # de exercitar tambem o caminho "sfx ausente", e um arquivo sintetico
         # com esse nome esconderia a divergencia.
         "gameover/fakeout_death.pcm": pcm(1 * 48000 * 4, 174),
+        # MUSICA DA PAUSA (mass:/FNFPS2/assets/pause/). O original toca
+        # `breakfast$musicSuffix` em loop, com fade-in de 5 s ate 0,75. Aqui sao
+        # 2 s: o harness nao precisa dos 60 s, precisa que o arquivo exista e que
+        # o loop e o fade sejam exercitados. `breakfast-pico` existe; o
+        # `breakfast-pixel` que o bf-pixel pede NAO existe na arte do original e
+        # nao e' gerado de proposito -- o jogo tem de cair no "sem som".
+        "pause/breakfast.pcm": pcm(2 * 48000 * 4, 352),
+        "pause/breakfast-pico.pcm": pcm(2 * 48000 * 4, 358),
 
         "font.rgba": rgba_pattern(384, 192, 1),
         "title_alphabet.rgba": rgba_pattern(384, 192, 2),
@@ -334,6 +363,12 @@ def build(root, charts_src=None):
         "title_gfDanceTitle.frames": rgba_pattern(256, 235, 9),
 
         "font.widths": bytes([(i % 24) + 4 for i in range(96)]),
+
+        # A BARRA DE VIDA REAL (301x10 RGBA): tools/empacotar_ui.py gera do
+        # `shared/images/healthBar.png`. Aqui e' sintetica, mas com a FORMA da
+        # moldura do original (borda com alpha parcial, miolo opaco), para o
+        # caminho "sobrepor a regiao do atlas" ser exercitado de verdade.
+        "health_bar.rgba": make_health_bar(),
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

@@ -1517,6 +1517,32 @@ um modo de jogo (sem morte, começando numa seção escolhida), não um item de
 menu. Uma entrada que não faz o que promete é pior que a ausência dela; ela
 entra quando o modo existir.
 
+**Fechado: a música da pausa.** `startPauseMusic()`
+(`PauseSubState.hx` L365-383) carrega `breakfast$musicSuffix` em **loop**,
+começa num ponto **sorteado** de 0 até metade do arquivo
+(`FlxG.random.int(0, length/2)`) e faz `fadeIn(5, 0, 0.75)`
+(`MUSIC_FADE_IN_TIME = 5`, `MUSIC_FINAL_VOLUME = 0.75`, L127/L132). O sufixo é
+o `musicSuffix` do personagem (coluna `pausa` de `src/gameover_dados.h`): os
+`pico*` pedem `-pico`, e o `bf-pixel` pede `-pixel` — que **não existe** na
+arte, o que no original cai no `trace('Could not play pause music')` e fica sem
+som (o port reproduz isso; não inventa a versão sem sufixo). O port não tinha
+som nenhum na pausa. Agora:
+
+| Item | Original | Port |
+|---|---|---|
+| trilha | `breakfast$musicSuffix/breakfast$musicSuffix` | `assets/pause/breakfast{sufixo}.pcm` |
+| loop | `FlxSound.load(..., true)` | `audio_ring_start_loop(fd, 1)` |
+| início | `random(0, length/2)` | LCG semeado pelo nº de pausas, passo de 4 B (amostra estéreo) |
+| fade | `fadeIn(5, 0, 0.75)` | ganho linear por amostra, 0 → 0,75 em 240.000 amostras |
+| ao retomar | o substate fecha e o som morre com ele | `pause_audio_parar()` antes do `PLAY_RETOMAR_AUDIO` |
+| sem arte | `trace` + silêncio | `pause_sem_musica` na telemetria |
+
+Medido (`tools/run_pause_harness.sh 5600`): `pause_musica` com **384.000
+bytes**, trecho sorteado em **146.184** (dentro da metade de 192.000, múltiplo
+de 4), **99.328 amostras** tocadas antes do Resume e `pause_musica_fim` no
+fechamento — com o relógio do nível ainda congelado em 194.400 e 29 de 29
+acertos depois de voltar.
+
 Medido (`tools/run_pause_harness.sh`): pausa aberta em 194.400 amostras,
 **um único valor de relógio em todos os quadros pausados** (congelou de
 verdade), 73 quads na sobreposição, Resume voltando em **194.400** (o mesmo
@@ -2828,9 +2854,16 @@ pacote de dados deste repositório, e os sufixos que escolhem a variante
 - `shared/music/gameplay/gameover/gameOver{,-pico,-pixel,-pixel-pico}.ogg` e os
   `gameOverEnd*`; `shared/sounds/gameplay/gameover/fnf_loss_sfx{,...}.ogg` e
   `fakeout_death.ogg`. `tools/empacotar_audio.py` decodifica, reamostra para
-  48 kHz e escreve PCM s16le estéreo — o formato que o `audsrv` toca. **13
-  arquivos, 45.721.916 B**, com manifesto (`AUDIO.txt`) e sha256 curto de cada
-  um. Vão para `mass:/FNFPS2/assets/gameover/`.
+  48 kHz e escreve PCM s16le estéreo — o formato que o `audsrv` toca. Vão para
+  `mass:/FNFPS2/assets/gameover/`: **13 arquivos, 45.721.916 B**, com manifesto
+  (`AUDIO.txt`) e sha256 curto de cada um.
+- `shared/music/breakfast.ogg` (44,1 kHz) e
+  `shared/music/breakfast-pico/breakfast-pico.ogg` (48 kHz) são a **música da
+  pausa**; o mesmo empacotador as converte e o pendrive as põe em
+  `mass:/FNFPS2/assets/pause/`. São **11.520.000 B** (o `-pico`, 60 s exatos) e 11.520.628 B (o sem sufixo, que
+vem de 44,1 kHz e ganha algumas amostras no reamostrador),
+  porque a trilha da pausa toca inteira em loop — cortá-la mudaria a duração do
+  loop e, com ela, o instante em que a música volta ao começo.
 - `preload/scripts/characters/*.hxc` definem `GameOverSubState.musicSuffix`,
   `blueBallSuffix` e `animationSuffix`. `tools/gen_gameover_sfx.py` lê as
   atribuições **literais** e gera `src/gameover_dados.h` (5 personagens):
@@ -2922,15 +2955,18 @@ faltou escrever. A lista existe para não deixar nada implícito.
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| `healthBar.png` de verdade | a barra do HUD é um `sprite_region` da `tex2` desde antes do atlas de UI existir; a arte oficial está em `shared/images/healthBar.png` e não foi empacotada | empacotar o PNG e trocar o desenho (a barra já usa o lerp 0,15 e os limiares 1,6/0,4 do original) |
 | Arte da tela de GAME OVER | o original cobre a tela com um fundo preto opaco e desenha o texto; a arte de fundo/texto dessa tela não foi empacotada | empacotar os PNGs da tela e desenhá-los no lugar do preto + texto |
-| Música da PAUSA (`breakfast`) | `PauseSubState.musicSuffix` já é dado (`src/gameover_dados.h`, coluna `pausa`), mas a música `breakfast` não foi empacotada | empacotar `breakfast{,-pico,-pixel}` e tocar no substate da pausa |
 | Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
 | Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
 | Practice Mode | modo de jogo inteiro no original (sem morte, começando numa seção) | decisão de escopo: o port hoje não oferece a entrada na pausa (oferecer uma entrada que não faz o que promete é pior) |
 
 E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
-reais rodam nas 81 combinações; o game over tem a animação de morte, a câmera, o
+reais rodam nas 81 combinações; a barra de vida desenha a **moldura do
+`healthBar.png`** de verdade (`health_bar.rgba`, 301×10, sobreposto à região
+(0,112) da `tex2` — nenhuma textura nova, o pool tem 1.792 B livres); a pausa
+toca a **música `breakfast`** do original em loop com o fade-in de 5 s até 0,75
+(`tools/run_pause_harness.sh` prova 384.000 bytes abertos, trecho sorteado em
+146.184 e 99.328 amostras tocadas antes do Resume); o game over tem a animação de morte, a câmera, o
 zoom **e o áudio** do original (música em loop, `fnf_loss_sfx`, `gameOverEnd` e
 o `fakeout_death`); os ícones de vida do HUD carregam com a arte real dos 15
 pacotes ICP1; os note kinds (canto com sufixo, animação nomeada,

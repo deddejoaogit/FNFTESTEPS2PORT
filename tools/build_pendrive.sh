@@ -59,6 +59,19 @@ else
     echo "   menu_cache.rle: $HAVE bytes, versao corrigida (bloco 4 story titulos)"
 fi
 
+echo "== copiando os pedacos de UI (assets/health_bar.rgba) =="
+# A barra de vida vem de shared/images/healthBar.png e e' sobreposta a' regiao
+# (0,112) do atlas do HUD. Sem este arquivo o jogo desenha a barra do atlas --
+# funciona, mas sem a moldura do original (e o log mostra `health_bar_arte`=0).
+UI_SRC=${UI_SRC:-build/packs/ui}
+if [ -f "$UI_SRC/health_bar.rgba" ]; then
+    cp "$UI_SRC/health_bar.rgba" "$OUT/FNFPS2/assets/health_bar.rgba"
+    echo "   health_bar.rgba: $(wc -c < "$OUT/FNFPS2/assets/health_bar.rgba") bytes"
+else
+    echo "   AVISO: $UI_SRC/health_bar.rgba nao existe -- rode tools/empacotar_ui.py" >&2
+    echo "          (a barra de vida fica com a arte do atlas)" >&2
+fi
+
 echo "== copiando o audio da tela de GAME OVER (assets/gameover/) =="
 # Os 13 PCMs (musica de game over nas 4 variantes de sufixo, o gameOverEnd de
 # cada uma, fnf_loss_sfx nas 4, fakeout_death) e o manifesto AUDIO.txt.
@@ -71,13 +84,20 @@ if [ ! -d "$GO_SRC" ]; then
     echo "FALTA $GO_SRC -- rode tools/empacotar_audio.py --assets <clone do funkin.assets>" >&2
     exit 1
 fi
-mkdir -p "$OUT/FNFPS2/assets/gameover"
+mkdir -p "$OUT/FNFPS2/assets/gameover" "$OUT/FNFPS2/assets/pause"
 NGO=0
+NPAUSA=0
 for f in "$GO_SRC"/*.pcm; do
     [ -f "$f" ] || continue
-    cp "$f" "$OUT/FNFPS2/assets/gameover/"
-    NGO=$((NGO+1))
+    case "$(basename "$f")" in
+        # MUSICA DA PAUSA (`breakfast`, `breakfast-pico`) -- vai para
+        # assets/pause/, que e' onde PauseSubState procura.
+        breakfast*) cp "$f" "$OUT/FNFPS2/assets/pause/"; NPAUSA=$((NPAUSA+1)) ;;
+        *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
+    esac
 done
+echo "   $NPAUSA PCM(s) de pausa em assets/pause/"
+[ "$NPAUSA" -ge 2 ] || { echo "FALTAM as musicas de pausa em $GO_SRC (breakfast.pcm/breakfast-pico.pcm)" >&2; exit 1; }
 [ "$NGO" -ge 13 ] || { echo "FALTAM arquivos de audio do game over em $GO_SRC ($NGO de 13)" >&2; exit 1; }
 [ -f "$GO_SRC/AUDIO.txt" ] && cp "$GO_SRC/AUDIO.txt" "$OUT/FNFPS2/assets/gameover/"
 echo "   $NGO PCMs + AUDIO.txt, $(du -sh "$OUT/FNFPS2/assets/gameover" | cut -f1)"
@@ -185,6 +205,7 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/chars/         um .chp4 por personagem (46)
        FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
        FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)
+       FNFPS2/assets/pause/          a musica da pausa (breakfast*.pcm)
    Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
    os fundos nao aparecem. Sem gameover/ a tela de game over fica sem som
    (musica, o sfx do blue balls e o gameOverEnd do confirmar). Os dois casos deixam evento no log
