@@ -1198,5 +1198,401 @@
    }
   ],
   "linha": "TallyCounter.hx L14-90 e ResultState.hx L418-490"
+ },
+ "clear_percent": {
+  "atlas": {
+   "left": {
+    "arquivo": "resultado/clear_left.rgba",
+    "w": 160,
+    "h": 72,
+    "vram_bytes": 46080,
+    "fator": 1.25,
+    "frames": [
+     {
+      "digito": 0,
+      "ax": 0,
+      "ay": 0,
+      "aw": 32,
+      "ah": 36,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 81,
+      "src_h": 89
+     },
+     {
+      "digito": 1,
+      "ax": 98,
+      "ay": 0,
+      "aw": 25,
+      "ah": 35,
+      "ox": 3,
+      "oy": 0,
+      "src_w": 62,
+      "src_h": 88
+     },
+     {
+      "digito": 2,
+      "ax": 124,
+      "ay": 0,
+      "aw": 30,
+      "ah": 35,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 75,
+      "src_h": 88
+     },
+     {
+      "digito": 3,
+      "ax": 0,
+      "ay": 37,
+      "aw": 31,
+      "ah": 35,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 78,
+      "src_h": 88
+     },
+     {
+      "digito": 4,
+      "ax": 95,
+      "ay": 37,
+      "aw": 32,
+      "ah": 34,
+      "ox": 0,
+      "oy": 1,
+      "src_w": 79,
+      "src_h": 86
+     },
+     {
+      "digito": 5,
+      "ax": 33,
+      "ay": 0,
+      "aw": 32,
+      "ah": 36,
+      "ox": 1,
+      "oy": 0,
+      "src_w": 79,
+      "src_h": 90
+     },
+     {
+      "digito": 6,
+      "ax": 32,
+      "ay": 37,
+      "aw": 30,
+      "ah": 35,
+      "ox": 1,
+      "oy": 1,
+      "src_w": 74,
+      "src_h": 88
+     },
+     {
+      "digito": 7,
+      "ax": 128,
+      "ay": 37,
+      "aw": 30,
+      "ah": 34,
+      "ox": 2,
+      "oy": 1,
+      "src_w": 75,
+      "src_h": 86
+     },
+     {
+      "digito": 8,
+      "ax": 66,
+      "ay": 0,
+      "aw": 31,
+      "ah": 36,
+      "ox": 1,
+      "oy": 0,
+      "src_w": 78,
+      "src_h": 90
+     },
+     {
+      "digito": 9,
+      "ax": 63,
+      "ay": 37,
+      "aw": 31,
+      "ah": 35,
+      "ox": 2,
+      "oy": 1,
+      "src_w": 78,
+      "src_h": 87
+     }
+    ]
+   },
+   "right": {
+    "arquivo": "resultado/clear_right.rgba",
+    "w": 160,
+    "h": 72,
+    "vram_bytes": 46080,
+    "fator": 1.25,
+    "frames": [
+     {
+      "digito": 0,
+      "ax": 64,
+      "ay": 0,
+      "aw": 35,
+      "ah": 35,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 87,
+      "src_h": 88
+     },
+     {
+      "digito": 1,
+      "ax": 100,
+      "ay": 0,
+      "aw": 25,
+      "ah": 35,
+      "ox": 4,
+      "oy": 0,
+      "src_w": 63,
+      "src_h": 88
+     },
+     {
+      "digito": 2,
+      "ax": 33,
+      "ay": 37,
+      "aw": 30,
+      "ah": 34,
+      "ox": 2,
+      "oy": 2,
+      "src_w": 75,
+      "src_h": 84
+     },
+     {
+      "digito": 3,
+      "ax": 64,
+      "ay": 37,
+      "aw": 31,
+      "ah": 34,
+      "ox": 2,
+      "oy": 1,
+      "src_w": 77,
+      "src_h": 84
+     },
+     {
+      "digito": 4,
+      "ax": 96,
+      "ay": 37,
+      "aw": 31,
+      "ah": 34,
+      "ox": 2,
+      "oy": 1,
+      "src_w": 77,
+      "src_h": 85
+     },
+     {
+      "digito": 5,
+      "ax": 126,
+      "ay": 0,
+      "aw": 32,
+      "ah": 35,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 80,
+      "src_h": 88
+     },
+     {
+      "digito": 6,
+      "ax": 0,
+      "ay": 0,
+      "aw": 30,
+      "ah": 36,
+      "ox": 1,
+      "oy": 0,
+      "src_w": 76,
+      "src_h": 89
+     },
+     {
+      "digito": 7,
+      "ax": 128,
+      "ay": 37,
+      "aw": 32,
+      "ah": 34,
+      "ox": 2,
+      "oy": 2,
+      "src_w": 79,
+      "src_h": 84
+     },
+     {
+      "digito": 8,
+      "ax": 31,
+      "ay": 0,
+      "aw": 32,
+      "ah": 36,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 80,
+      "src_h": 90
+     },
+     {
+      "digito": 9,
+      "ax": 0,
+      "ay": 37,
+      "aw": 32,
+      "ah": 35,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 80,
+      "src_h": 88
+     }
+    ]
+   },
+   "small": {
+    "arquivo": "resultado/clear_small.rgba",
+    "w": 160,
+    "h": 18,
+    "vram_bytes": 11520,
+    "fator": 1.25,
+    "frames": [
+     {
+      "digito": 0,
+      "ax": 0,
+      "ay": 0,
+      "aw": 14,
+      "ah": 18,
+      "ox": 1,
+      "oy": 0,
+      "src_w": 35,
+      "src_h": 44
+     },
+     {
+      "digito": 1,
+      "ax": 108,
+      "ay": 0,
+      "aw": 10,
+      "ah": 17,
+      "ox": 6,
+      "oy": 0,
+      "src_w": 25,
+      "src_h": 42
+     },
+     {
+      "digito": 2,
+      "ax": 15,
+      "ay": 0,
+      "aw": 15,
+      "ah": 18,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 38,
+      "src_h": 45
+     },
+     {
+      "digito": 3,
+      "ax": 31,
+      "ay": 0,
+      "aw": 15,
+      "ah": 18,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 38,
+      "src_h": 46
+     },
+     {
+      "digito": 4,
+      "ax": 119,
+      "ay": 0,
+      "aw": 14,
+      "ah": 17,
+      "ox": 1,
+      "oy": 0,
+      "src_w": 36,
+      "src_h": 43
+     },
+     {
+      "digito": 5,
+      "ax": 47,
+      "ay": 0,
+      "aw": 15,
+      "ah": 18,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 37,
+      "src_h": 44
+     },
+     {
+      "digito": 6,
+      "ax": 134,
+      "ay": 0,
+      "aw": 14,
+      "ah": 17,
+      "ox": 0,
+      "oy": 2,
+      "src_w": 34,
+      "src_h": 42
+     },
+     {
+      "digito": 7,
+      "ax": 63,
+      "ay": 0,
+      "aw": 14,
+      "ah": 18,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 35,
+      "src_h": 44
+     },
+     {
+      "digito": 8,
+      "ax": 78,
+      "ay": 0,
+      "aw": 14,
+      "ah": 18,
+      "ox": 0,
+      "oy": 0,
+      "src_w": 36,
+      "src_h": 45
+     },
+     {
+      "digito": 9,
+      "ax": 93,
+      "ay": 0,
+      "aw": 14,
+      "ah": 18,
+      "ox": 2,
+      "oy": 0,
+      "src_w": 35,
+      "src_h": 44
+     }
+    ]
+   }
+  },
+  "texto": {
+   "texto": {
+    "arquivo": "resultado/clear_texto.rgba",
+    "w": 100,
+    "h": 63,
+    "vram_bytes": 25200,
+    "fator": 1.25
+   },
+   "texto_small": {
+    "arquivo": "resultado/clear_texto_small.rgba",
+    "w": 11,
+    "h": 13,
+    "vram_bytes": 572,
+    "fator": 1.25
+   }
+  },
+  "geometria": {
+   "x": 415.0,
+   "y": 145.0,
+   "passo_grande": 36.0,
+   "passo_pequeno": 16.0,
+   "y_digitos_grande": 36.0,
+   "small_x": 470.0,
+   "small_y": 130.0,
+   "small_x_pos": -12.0,
+   "small_y_passo": -2.0,
+   "inicio_q": 37,
+   "tween_q": 58,
+   "flash_ms": 400,
+   "fade_espera_ms": 250,
+   "fade_atraso_ms": 500,
+   "fade_ms": 500,
+   "abaixo": 36,
+   "linha": "ClearPercentCounter.hx L22-140 e ResultState.hx L577-646"
+  }
  }
 }

@@ -364,3 +364,122 @@ float res_tally_ajuste_x(int i, int total_hit)
     if (total_hit < 1000) return 0.0f;
     return -(float)g_res_tallies.ajuste_1000;
 }
+
+/* ---- O PERCENTUAL DE CONCLUSAO -------------------------------------------
+ *
+ * O RELOGIO (`ResultState.hx` L577-646):
+ *
+ *   37/24 s           o contador grande nasce em (830, 290) com
+ *                     `curNumber = max(0, alvo - 36)`
+ *   58/24 s           `FlxTween.tween(..., {curNumber: alvo}, 58/24, quartOut)`
+ *   +0,40 s           `flash(true)` -> 0,4 s -> `flash(false)`
+ *   +0,25 s           `FlxTween.tween(..., {alpha: 0}, 0,5, {startDelay: 0,5})`
+ *   +1,00 s           `remove(clearPercentCounter)` -- nao desenha mais
+ *
+ * `Math.round` no desenho (`drawNumbers`), e o valor do tween acompanha
+ * `quartOut`: 1 - (1 - t)^3.
+ */
+
+/* 24 avos -> ms, arredondando para CIMA: o FlxTimer so' dispara quando o
+ * tempo passa (1542 ms para 37/24 s, e nao 1541). O placar usa a mesma regra. */
+static unsigned long res_cp_q_ms(unsigned long q)
+{
+    return (q * 1000ul + (unsigned long)g_res_score.fps - 1ul)
+           / (unsigned long)g_res_score.fps;
+}
+
+static unsigned long res_cp_inicio_ms(void)
+{
+    return res_cp_q_ms((unsigned long)g_res_cp_geo.inicio_q);
+}
+
+static unsigned long res_cp_tween_ms(void)
+{
+    return res_cp_q_ms((unsigned long)g_res_cp_geo.tween_q);
+}
+
+int res_cp_digitos(int alvo)
+{
+    int k = 1;
+    if (alvo < 0) alvo = 0;
+    while (alvo >= 10) { alvo /= 10; k++; }
+    return k;
+}
+
+int res_cp_deslocamento(int digitos)
+{
+    if (digitos == 1) return 1;
+    if (digitos == 3) return -1;
+    return 0;
+}
+
+int res_cp_variante(int digitos, int ind)
+{
+    /* `var variant = (seperatedScore.length == 3) ? (digitIndex >= 2)
+                                                   : (digitIndex >= 1);`
+       com `digitIndex = ind + 1`. */
+    if (digitos == 3) return (ind + 1 >= 2) ? 1 : 0;
+    return (ind + 1 >= 1) ? 1 : 0;
+}
+
+int res_cp_valor(int alvo, unsigned long ms)
+{
+    unsigned long ini = res_cp_inicio_ms(), tw = res_cp_tween_ms(), dt;
+    int inicio_valor, i;
+    float t, e;
+    if (alvo < 0) alvo = 0;
+    if (ms <= ini) {
+        /* Antes de o tween comecar o contador mostra o valor de partida. */
+        int v = alvo - (int)g_res_cp_geo.abaixo;
+        return (v > 0) ? v : 0;
+    }
+    dt = ms - ini;
+    if (dt >= tw) return alvo;
+    inicio_valor = alvo - (int)g_res_cp_geo.abaixo;
+    if (inicio_valor < 0) inicio_valor = 0;
+    t = (float)dt / (float)tw;
+    e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+    i = inicio_valor + (int)(((float)alvo - (float)inicio_valor) * e + 0.5f);
+    if (i > alvo) i = alvo;
+    return i;
+}
+
+/* Quando o fade do alpha termina: inicio + tween + flash + espera + atraso +
+ * a propria duracao do fade. */
+static unsigned long res_cp_fim_ms(void)
+{
+    return res_cp_inicio_ms() + res_cp_tween_ms()
+           + (unsigned long)g_res_cp_geo.flash_ms
+           + (unsigned long)g_res_cp_geo.fade_espera_ms
+           + (unsigned long)g_res_cp_geo.fade_atraso_ms
+           + (unsigned long)g_res_cp_geo.fade_ms;
+}
+
+int res_cp_visivel(unsigned long ms)
+{
+    return (ms >= res_cp_inicio_ms() && ms < res_cp_fim_ms()) ? 1 : 0;
+}
+
+int res_cp_alpha(unsigned long ms)
+{
+    unsigned long ini;
+    if (!res_cp_visivel(ms)) return 0;
+    ini = res_cp_inicio_ms() + res_cp_tween_ms()
+          + (unsigned long)g_res_cp_geo.flash_ms
+          + (unsigned long)g_res_cp_geo.fade_espera_ms
+          + (unsigned long)g_res_cp_geo.fade_atraso_ms;
+    if (ms <= ini) return 255;
+    if (!g_res_cp_geo.fade_ms) return 0;
+    {
+        unsigned long dt = ms - ini;
+        unsigned long d = (unsigned long)g_res_cp_geo.fade_ms;
+        if (dt >= d) return 0;
+        return (int)(255ul - (255ul * dt) / d);
+    }
+}
+
+int res_cp_flash(unsigned long ms)
+{
+    unsigned long ini = res_cp_inicio_ms() + res_cp_tween_ms();
+    return (ms >= ini && ms < ini + (unsigned long)g_res_cp_geo.flash_ms) ? 1 : 0;
+}

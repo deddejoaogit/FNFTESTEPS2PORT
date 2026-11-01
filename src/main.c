@@ -269,13 +269,18 @@ static long g_campaign_score=0;   /* soma dos placares das musicas ja' tocadas *
    musica com o placar da semana. */
 static int g_camp_sick=0,g_camp_good=0,g_camp_bad=0,g_camp_shit=0;
 static int g_camp_missed=0,g_camp_maxcombo=0,g_camp_hits=0;
+/* Total de notas da semana: o denominador do percentual de conclusao no Story
+   Mode (`Scoring.tallyCompletion` divide por `totalNotes`). */
+static int g_camp_total_notas=0;
 static void campanha_zerar(void){g_campaign_score=0;g_camp_sick=0;g_camp_good=0;
- g_camp_bad=0;g_camp_shit=0;g_camp_missed=0;g_camp_maxcombo=0;g_camp_hits=0;}
+ g_camp_bad=0;g_camp_shit=0;g_camp_missed=0;g_camp_maxcombo=0;g_camp_hits=0;
+ g_camp_total_notas=0;}
 static void campanha_somar(const void *play_v){
  const fnf_play_t *p=(const fnf_play_t*)play_v;
  g_campaign_score+=p->score;
  g_camp_sick+=p->sick;g_camp_good+=p->good;g_camp_bad+=p->bad;g_camp_shit+=p->shit;
  g_camp_missed+=p->missed;g_camp_hits+=p->sick+p->good+p->bad+p->shit;
+ g_camp_total_notas+=p->total_notes;
  if(p->max_combo>g_camp_maxcombo)g_camp_maxcombo=p->max_combo;}
 /* Passo do chart em amostras, da secao de BPM vigente. 0 = nenhum chart. */
 static u32 g_play_samples_per_step=0;
@@ -315,6 +320,14 @@ static int g_res_tally_ok=0;
 static unsigned int g_res_tally_addr=0;
 static unsigned char g_res_tally_logado[RES_TALLIES];
 static int g_res_tally_desenho=-1;
+/* O PERCENTUAL DE CONCLUSAO: tres atlas de digitos (Left, Right e o Small da
+   barra do topo) e as duas imagens de texto. 129.452 B no total, com os glifos
+   grandes guardados a 0,4 do original (desenhados a 1,25x). */
+static int g_res_cp_ok=0;
+static unsigned int g_res_cp_addr[RES_CP_ATLASES];
+static unsigned int g_res_cp_texto_addr=0,g_res_cp_texto_small_addr=0;
+static int g_res_cp_logado=0,g_res_cp_final=0;
+
 static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
 static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
 
@@ -2768,6 +2781,53 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
    telemetry_event("resultado_sem_vram",-3,(int)sp_livre(pool));
   }
   telemetry_event("resultado_tallies_arte",g_res_tally_ok,(int)bytes);}
+ /* O PERCENTUAL DE CONCLUSAO: tres atlas de digitos e as duas imagens de texto.
+    Cada um pede o seu pedaco de VRAM; se algum nao couber, o teste acusa (a
+    tela do original tem os cinco, e degradar a imagem e' o que resolve --
+    sumir com a peca, nao). */
+ g_res_cp_ok=0;g_res_cp_texto_addr=0;g_res_cp_texto_small_addr=0;
+ {int k,certo=1;unsigned int bytes_total=0;
+  for(k=0;k<(int)RES_CP_ATLASES;k++){
+   const res_cp_atlas_t *at=&g_res_cp_atlas[k];
+   unsigned int bytes=(unsigned int)(at->w*at->h*4u),addr=0;
+   char caminho[96];
+   g_res_cp_addr[k]=0;
+   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",at->arquivo);
+   if(bytes<=512u*256u*4u&&
+      read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+      sp_chave(pool,SP_CHAVE_TELA_BASE+0x25u+(unsigned)k,bytes,&addr)>=0){
+    texbuffer_t t=*tpl;
+    t.width=at->w;t.psm=GS_PSM_32;t.address=addr;
+    setup_texture_dims(&t,(int)at->w,(int)at->h);
+    FlushCache(0);
+    upload_raw(&t,g_up_bounce,(int)at->w,(int)at->h);
+    g_res_cp_addr[k]=addr;bytes_total+=bytes;
+   }else{certo=0;telemetry_event("resultado_sem_vram",-(4+k),(int)sp_livre(pool));}
+  }
+  /* As duas imagens de texto: "CLEAR" com o `%` e o `%` pequeno da barra. */
+  {const res_cp_img_t *imgs[2];unsigned int *dest[2];int q;
+   imgs[0]=&g_res_cp_texto;dest[0]=&g_res_cp_texto_addr;
+   imgs[1]=&g_res_cp_texto_small;dest[1]=&g_res_cp_texto_small_addr;
+   for(q=0;q<2;q++){
+    const res_cp_img_t *im=imgs[q];
+    unsigned int bytes=(unsigned int)(im->w*im->h*4u),addr=0;
+    char caminho[96];
+    *dest[q]=0;
+    snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",im->arquivo);
+    if(bytes<=512u*256u*4u&&
+       read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+       sp_chave(pool,SP_CHAVE_TELA_BASE+0x28u+(unsigned)q,bytes,&addr)>=0){
+     texbuffer_t t=*tpl;
+     t.width=im->w;t.psm=GS_PSM_32;t.address=addr;
+     setup_texture_dims(&t,(int)im->w,(int)im->h);
+     FlushCache(0);
+     upload_raw(&t,g_up_bounce,(int)im->w,(int)im->h);
+     *dest[q]=addr;bytes_total+=bytes;
+    }else{certo=0;telemetry_event("resultado_sem_vram",-(6+q),(int)sp_livre(pool));}
+   }
+  }
+  g_res_cp_ok=certo;
+  telemetry_event("resultado_clear_arte",g_res_cp_ok,(int)bytes_total);}
 }
 static void resultado_soltar(void)
 {
@@ -2778,6 +2838,9 @@ static void resultado_soltar(void)
  g_res_score_ok=0;g_res_score_addr=0;g_res_score_logado=0;g_res_score_final=0;
  g_res_tally_ok=0;g_res_tally_addr=0;g_res_tally_desenho=-1;
  {int k;for(k=0;k<(int)RES_TALLIES;k++)g_res_tally_logado[k]=0;}
+ g_res_cp_ok=0;g_res_cp_texto_addr=0;g_res_cp_texto_small_addr=0;
+ g_res_cp_logado=0;g_res_cp_final=0;
+ {int k;for(k=0;k<(int)RES_CP_ATLASES;k++)g_res_cp_addr[k]=0;}
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
 }
@@ -5914,6 +5977,62 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      if(desenhados!=g_res_tally_desenho){g_res_tally_desenho=desenhados;
       telemetry_event("resultado_tallies",desenhados,g_res_ms);}
     }
+    /* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 +
+       ResultState.hx L577-646). O texto "CLEAR" com o `%` fica em (0,0) do
+       grupo e os digitos abaixo dele, em `y = 36`; cada digito usa o glifo
+       `Left` ou `Right` conforme a posicao, e o primeiro anda 1 posicao para a
+       direita com um digito / para a esquerda com tres. O numero sobe do
+       `alvo - 36` ate' o alvo num tween quartOut de 58/24 s e depois some.
+       O ALVO e' o mesmo que a fonte usa: no Story Mode o percentual da SEMANA
+       (`talliesLevel`), fora dele o da musica. */
+    if(g_res_cp_ok&&res_cp_visivel((unsigned long)g_res_ms)){
+     const res_cp_geo_t *geo=&g_res_cp_geo;
+     int pct,valor,nd,ind,off,alpha=res_cp_alpha((unsigned long)g_res_ms);
+     if(g_story_mode){
+      float c=g_camp_total_notas>0
+              ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/
+                (float)g_camp_total_notas):0.0f;
+      if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
+      pct=(int)(c*100.0f);
+     }else pct=fnf_play_clear_percent(&g_play);
+     valor=res_cp_valor(pct,(unsigned long)g_res_ms);
+     nd=res_cp_digitos(valor);
+     off=res_cp_deslocamento(nd);
+     /* O texto "CLEAR" + "%". */
+     {texbuffer_t ct=stagetex;
+      ct.width=g_res_cp_texto.w;ct.psm=GS_PSM_32;ct.address=g_res_cp_texto_addr;
+      setup_texture_dims(&ct,(int)g_res_cp_texto.w,(int)g_res_cp_texto.h);
+      q=bind_texture_filter(q,&ct,1);
+      q=sprite_region_alpha(q,geo->x,geo->y,
+        (float)g_res_cp_texto.w*g_res_cp_texto.fator,
+        (float)g_res_cp_texto.h*g_res_cp_texto.fator,
+        0.0f,0.0f,(float)g_res_cp_texto.w,(float)g_res_cp_texto.h,
+        (unsigned char)alpha);}
+     for(ind=0;ind<nd;ind++){
+      int d,p10=1,m,vq;const res_cp_atlas_t *at;const res_cp_frame_t *fr;
+      texbuffer_t gt=stagetex;
+      for(m=nd-1;m>ind;m--)p10*=10;
+      d=(valor/p10)%10;
+      vq=res_cp_variante(nd,ind);
+      at=&g_res_cp_atlas[vq?RES_CP_RIGHT:RES_CP_LEFT];
+      fr=&at->frames[d];
+      gt.width=at->w;gt.psm=GS_PSM_32;gt.address=g_res_cp_addr[vq?RES_CP_RIGHT:RES_CP_LEFT];
+      setup_texture_dims(&gt,(int)at->w,(int)at->h);
+      q=bind_texture_filter(q,&gt,1);
+      q=sprite_region_alpha(q,
+        geo->x+((float)ind+(float)off)*geo->passo_grande+(float)fr->ox,
+        geo->y+geo->y_digitos_grande+(float)fr->oy,
+        (float)fr->aw*at->fator,(float)fr->ah*at->fator,
+        (float)fr->ax,(float)fr->ay,(float)fr->aw,(float)fr->ah,
+        (unsigned char)alpha);
+     }
+     /* Telemetria: o valor no primeiro quadro e o valor ASSENTADO (depois do
+        tween), que e' o numero que fica na tela antes do fade. */
+     if(!g_res_cp_logado){g_res_cp_logado=1;
+      telemetry_event("resultado_clear",pct,g_res_ms);}
+     if(!g_res_cp_final&&valor==pct){g_res_cp_final=1;
+      telemetry_event("resultado_clear_final",valor,g_res_ms);}
+    }
     q=bind_texture_filter(q,&fonttex,1);
    }
    if(!res_arte)q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
@@ -5943,8 +6062,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
     q=text_draw(q,lb,tx,ty+216,0.9f,1);
    }
-   snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
-   q=text_draw(q,lb,tx,ty+242,1.1f,1);
+   /* O percentual de conclusao, quando a arte dele carregou, e' o contador
+      desenhado acima (com o "CLEAR" e o `%` do original). */
+   if(!g_res_cp_ok){
+    snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
+    q=text_draw(q,lb,tx,ty+242,1.1f,1);
+   }
    q=text_draw(q,"CROSS  CONTINUE",tx,ty+272,0.8f,1);}   /* fecha o bloco do leiaute */
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
    if(!g_result_drawn){g_result_drawn=1;

@@ -154,4 +154,39 @@ int res_tally_valor(int alvo, int i, unsigned long ms);
  * para a esquerda quando o total de notas passadas de 1000 (L446-450). */
 float res_tally_ajuste_x(int i, int total_hit);
 
+/* ---- O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx) -------------------
+ *
+ * O contador GRANDE aparece no meio da tela em 37/24 s (junto do placar),
+ * comecando 36 abaixo do alvo (`clearPercentLerp`) e subindo ate' ele num
+ * `FlxTween` de 58/24 s com `FlxEase.quartOut`; depois pisca e some.
+ * O indice 0/1/2 escolhe o atlas: Left, Right e Small.
+ */
+
+#define RES_CP_LEFT  0
+#define RES_CP_RIGHT 1
+#define RES_CP_SMALL 2
+
+/* Quantos digitos o percentual ocupa (zero conta como um). */
+int res_cp_digitos(int alvo);
+
+/* Deslocamento em posicoes do PRIMEIRO digito: 1 com um digito, -1 com tres,
+ * 0 nos outros casos (ClearPercentCounter.hx L92-96). */
+int res_cp_deslocamento(int digitos);
+
+/* 1 = o digito `ind` usa o atlas `Right`; 0 = usa `Left` (L98-99). */
+int res_cp_variante(int digitos, int ind);
+
+/* O numero desenhado em `ms` (desde a abertura da tela): o tween de
+ * `abaixo` ate' o alvo, arredondado no fim do tween. */
+int res_cp_valor(int alvo, unsigned long ms);
+
+/* 1 enquanto o contador grande esta' na cena (do inicio ate' o fim do fade). */
+int res_cp_visivel(unsigned long ms);
+
+/* Alpha do contador grande (255..0): 255 ate' o fade comecar, depois cai. */
+int res_cp_alpha(unsigned long ms);
+
+/* 1 durante o `flash(true)` (o `PureColor` branco do original). */
+int res_cp_flash(unsigned long ms);
+
 #endif /* RESULTADO_H */

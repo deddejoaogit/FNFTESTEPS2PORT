@@ -211,6 +211,84 @@ def gerar():
              c["b"], c["campo"]))
     a("};")
     a("")
+    cp = d["clear_percent"]
+    g = cp["geometria"]
+    a("")
+    a("#define RES_CP_ATLASES 3u")
+    a("")
+    a("/* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 e")
+    a(" * ResultState.hx L577-646). Tres atlas de digitos -- `Left` e `Right` sao")
+    a(" * as duas inclinacoes do glifo grande, `Small` e' o do `%` da barra do")
+    a(" * topo -- mais o texto \"CLEAR\" (com o `%` embaixo) e o `%` pequeno.")
+    a(" * `fator` converte o tamanho guardado no tamanho DESENHADO (o original pela")
+    a(" * metade): os glifos grandes ficaram a 0,4 do original para caber na VRAM,")
+    a(" * e sao desenhados a 1,25x. */")
+    a("typedef struct {")
+    a("    unsigned char  digito;")
+    a("    unsigned short ax, ay, aw, ah;")
+    a("    short          ox, oy;")
+    a("} res_cp_frame_t;")
+    a("")
+    for ident in ("left", "right", "small"):
+        a("static const res_cp_frame_t g_res_cp_%s[10] = {" % ident)
+        for f in cp["atlas"][ident]["frames"]:
+            a("    { %du, %4du, %4du, %3du, %3du, %4d, %4d },   /* digito %d */"
+              % (f["digito"], f["ax"], f["ay"], f["aw"], f["ah"], f["ox"],
+                 f["oy"], f["digito"]))
+        a("};")
+        a("")
+    a("typedef struct {")
+    a("    unsigned short        w, h;")
+    a("    const char           *arquivo;")
+    a("    unsigned int          vram_bytes;")
+    a("    float                 fator;")
+    a("    const res_cp_frame_t *frames;")
+    a("} res_cp_atlas_t;")
+    a("")
+    a("static const res_cp_atlas_t g_res_cp_atlas[RES_CP_ATLASES] = {")
+    for i, ident in enumerate(("left", "right", "small")):
+        at = cp["atlas"][ident]
+        a('    { %3du, %3du, "%s", %6du, %.2ff, g_res_cp_%s },   /* %s */'
+          % (at["w"], at["h"], at["arquivo"], at["vram_bytes"], at["fator"],
+             ident, ident.upper()))
+    a("};")
+    a("")
+    a("typedef struct {")
+    a("    unsigned short w, h;")
+    a("    const char    *arquivo;")
+    a("    unsigned int   vram_bytes;")
+    a("    float          fator;")
+    a("} res_cp_img_t;")
+    a("")
+    for ident, rotulo in (("texto", "o \"CLEAR\" com o `%`"), ("texto_small", "o `%` pequeno")):
+        t = cp["texto"][ident]
+        a('static const res_cp_img_t g_res_cp_%s = { %3du, %3du, "%s", %5du, %.2ff };  /* %s */'
+          % (ident, t["w"], t["h"], t["arquivo"], t["vram_bytes"], t["fator"],
+             rotulo))
+    a("")
+    a("typedef struct {")
+    a("    float          x, y;             /* canto do grupo, em 640x360      */")
+    a("    float          passo_grande, passo_pequeno;")
+    a("    float          y_digitos_grande;")
+    a("    float          small_x, small_y, small_x_pos, small_y_passo;")
+    a("    unsigned short inicio_q, tween_q;")
+    a("    unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;")
+    a("    unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */")
+    a("} res_cp_geo_t;")
+    a("")
+    a("static const res_cp_geo_t g_res_cp_geo = {")
+    a("    %.1ff, %.1ff, %.1ff, %.1ff, %.1ff," % (g["x"], g["y"],
+                                                g["passo_grande"],
+                                                g["passo_pequeno"],
+                                                g["y_digitos_grande"]))
+    a("    %.1ff, %.1ff, %.1ff, %.1ff," % (g["small_x"], g["small_y"],
+                                          g["small_x_pos"], g["small_y_passo"]))
+    a("    %2du, %2du," % (g["inicio_q"], g["tween_q"]))
+    a("    %3du, %3du, %3du, %3du, %2du" % (g["flash_ms"], g["fade_espera_ms"],
+                                           g["fade_atraso_ms"], g["fade_ms"],
+                                           g["abaixo"]))
+    a("};")
+    a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

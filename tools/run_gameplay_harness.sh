@@ -120,6 +120,10 @@ RESPLACAR=$(awk -F, '$1=="E" && $3=="resultado_placar" {print $4; exit}' "$LOG")
 RESFINAL=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $4; exit}' "$LOG")
 RESFINALMS=$(awk -F, '$1=="E" && $3=="resultado_placar_final" {print $5; exit}' "$LOG")
 RESSCORE=$(awk -F, '$1=="E" && $3=="play_result_score" {print $4; exit}' "$LOG")
+RESCLEARARTE=$(awk -F, '$1=="E" && $3=="resultado_clear_arte" {print $4; exit}' "$LOG")
+RESCLEAR=$(awk -F, '$1=="E" && $3=="resultado_clear_final" {print $4; exit}' "$LOG")
+RESCLEARMS=$(awk -F, '$1=="E" && $3=="resultado_clear_final" {print $5; exit}' "$LOG")
+RESCLEARPCT=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
 RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
 # Os CONTADORES DE JULGAMENTO: cada um reporta o numero que desenhou quando
 # assenta. `campo` 0 = total acertado, 1 = maior combo, 2..5 = sick/good/bad/
@@ -167,6 +171,7 @@ echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (e
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
+echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -303,6 +308,17 @@ if [ -n "${RESTALLYVAL:-}" ]; then
     # `totalNotesHit` do original conta cada nota pontuavel acertada uma vez.
     [ "${RESTALLY_0:-x}" = "$E_HIT" ] || { echo "  FALHA: total acertado na tela ${RESTALLY_0:-?}, jogo $E_HIT"; FALHA=1; }
     [ "${RESTALLY_1:-x}" = "${RESMAXCOMBO:-y}" ] || { echo "  FALHA: maior combo na tela ${RESTALLY_1:-?}, jogo ${RESMAXCOMBO:-?}"; FALHA=1; }
+fi
+
+# O PERCENTUAL DE CONCLUSAO. A arte tem cinco pedacos (Left, Right, Small e os
+# dois textos); o numero que o contador desenha tem de ser o que o jogo
+# calculou (`play_result` campo 2), e ele so' aparece depois de 37/24 s.
+[ "${RESCLEARARTE:-0}" -eq 1 ] || { echo "  FALHA: a arte do percentual nao carregou"; FALHA=1; }
+if [ -z "${RESCLEAR:-}" ]; then
+    echo "  FALHA: o percentual de conclusao nunca foi desenhado"; FALHA=1
+else
+    [ "$RESCLEAR" = "${RESCLEARPCT:-x}" ] || { echo "  FALHA: o percentual na tela e' $RESCLEAR e o jogo calculou $RESCLEARPCT"; FALHA=1; }
+    [ "${RESCLEARMS:-0}" -ge 1542 ] || { echo "  FALHA: o percentual apareceu em ${RESCLEARMS} ms (antes do timer de 37/24 s)"; FALHA=1; }
 fi
 
 if [ "$FALHA" != 0 ]; then

@@ -3212,9 +3212,47 @@ BAD 0, SHIT 0, 3 erradas, iguais ao `play_result_tallies`/`play_result_score` da
 musica. A cor vai no vertice (o GS multiplica a textura) com `flixel / 2`,
 porque no GS `0x80` e' 1,0.
 
-O percentual de conclusao (`clearPercent`, com os tres atlas Left/Right/Small)
-e a arte do `results-bf`/`results-pico` ainda nao foram empacotados — sao a
-proxima peca, com o custo ja' medido na tabela abaixo.
+#### A tela de Resultado: o PERCENTUAL DE CONCLUSAO
+
+O `ClearPercentCounter` entrou com os cinco pedacos do original: os tres atlas de
+digitos (`Left` e `Right`, as duas inclinacoes do glifo grande, e o `Small` do
+`%` da barra) e os dois textos (`CLEAR` com o `%` embaixo, e o `%` pequeno).
+
+**A primeira degradacao de imagem que o orcamento exigiu**, e ela esta' medida:
+os cinco atlas na metade custariam **190.348 B**, e depois do placar (508.480 B)
+e dos contadores (16.896 B) nao havia isso no pool. Os glifos grandes foram
+entao guardados a **0,4** do original (desenhados a 1,25x, `fator` no plano):
+**129.452 B**, e nenhum evento mudou — so' a nitidez. Com isso a tela inteira
+fica em 1.178.844 B dos 1.261.568 B livres (`pool_cena,9`), e **nenhuma** das
+treze alocacoes falhou (`resultado_sem_vram` nao aparece no log).
+
+O contador do meio da tela:
+
+| quando | o que acontece |
+|---|---|
+| `37/24 s` | nasce em (415, 145) com `alvo - 36` (`clearPercentLerp`) |
+| `58/24 s` | sobe ate' o alvo: `FlxTween` quartOut, arredondado no desenho |
+| `+0,40 s` | `flash(true)` (o `PureColor` branco), 0,4 s |
+| `+0,25 s` | alpha 1 -> 0 em 0,5 s, com 0,5 s de atraso |
+| `+1,00 s` | `remove()`, o contador sai da cena |
+
+A posicao de cada digito e' a da fonte: `(ind + digitOffset) * 72` px
+(`digitOffset` = 1 com um digito, -1 com tres, 0 no resto), `y = 72` abaixo do
+texto, com o glifo `Left` so' no primeiro de tres digitos (`res_cp_variante`).
+No Story Mode o alvo e' o percentual da SEMANA, como os tallies.
+
+**Falta uma coisa medida nesta peca**: o `flash(true)` do contador e' um shader
+`PureColor` que troca a COR do sprite por branco e mantem o alpha. No GS isso e'
+`TFX = DECAL` (a cor vem do vertice, o alpha da textura) — o port desenha tudo
+em `MODULATE`, entao o flash ainda **nao** esta' desenhado: nao e' um evento que
+se possa fingir com tint, e trocar o TFX por desenho nao se prova no harness
+(ele conta quads; quem prova cor e' a tela do console). Fica registrado como
+pendencia com o caminho tecnico pronto (o `res_cp_flash` ja' diz a janela).
+
+O que ainda nao tem arte: a barra do topo (`blackTopBar` e' procedural no
+original, `BitmapUtil.createResultsBar`), a imagem da dificuldade (`diff_*`), o
+nome da musica (`tardlingSpritesheet`) e o `results-bf`/`results-pico` — com o
+custo ja' medido na tabela abaixo.
 
 #### A tela de Resultado: o que falta, medido
 

@@ -156,6 +156,26 @@ if _rt:
 else:
     ok = False
 
+# O PERCENTUAL DE CONCLUSAO: tres atlas de digitos e dois textos.
+_rc = g.resultado_clear()
+if _rc:
+    for _k, _a in _rc["atlas"].items():
+        _at = g.make_cp_atlas(_a["w"], _a["h"], _a["frames"])
+        _pintados = sum(1 for i in range(3, len(_at), 4) if _at[i])
+        _cel = sum(f["aw"] * f["ah"] for f in _a["frames"])
+        print(f"  RESULTADO   clear_{_k:6s} {_a['w']}x{_a['h']} "
+              f"arquivo={len(_at):>9,} glifos={len(_a['frames'])} "
+              f"pintados={_pintados} (celulas={_cel}) fator={_a['fator']}")
+        ok &= (len(_at) == _a["w"] * _a["h"] * 4 and len(_a["frames"]) == 10
+               and _pintados == _cel and _a["fator"] > 0)
+    for _k, _t in _rc["texto"].items():
+        _im = g.make_cp_img(_t["w"], _t["h"], 200)
+        print(f"  RESULTADO   clear_{_k:6s} {_t['w']}x{_t['h']} "
+              f"arquivo={len(_im):>9,}")
+        ok &= (len(_im) == _t["w"] * _t["h"] * 4)
+else:
+    ok = False
+
 bw, bh = g.resultado_folhas()[1:]
 bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")

@@ -252,6 +252,61 @@ int main(void)
     CHECK(res_tally_ajuste_x(1, 1500) < 0.0f);
     CHECK(res_tally_ajuste_x(2, 1500) == 0.0f);
 
+    printf("== resultado: o PERCENTUAL de conclusao (ClearPercentCounter) ==\n");
+    CHECK_EQ((int)RES_CP_ATLASES, 3);
+    {
+        int k;
+        for (k = 0; k < (int)RES_CP_ATLASES; k++) {
+            CHECK(g_res_cp_atlas[k].fator > 0.0f);
+            CHECK(g_res_cp_atlas[k].w > 0u && g_res_cp_atlas[k].h > 0u);
+        }
+        /* Geometria: new ClearPercentCounter(640 + 190, 360 - 70) em 1280x720. */
+        CHECK(g_res_cp_geo.x > 414.0f && g_res_cp_geo.x < 416.0f);
+        CHECK(g_res_cp_geo.y > 144.0f && g_res_cp_geo.y < 146.0f);
+        CHECK(g_res_cp_geo.passo_grande > 35.0f && g_res_cp_geo.passo_grande < 37.0f);
+        CHECK_EQ((int)g_res_cp_geo.inicio_q, 37);
+        CHECK_EQ((int)g_res_cp_geo.tween_q, 58);
+        CHECK(g_res_cp_texto.fator > 0.0f && g_res_cp_texto_small.fator > 0.0f);
+    }
+    CHECK_EQ(res_cp_digitos(0), 1);
+    CHECK_EQ(res_cp_digitos(7), 1);
+    CHECK_EQ(res_cp_digitos(81), 2);
+    CHECK_EQ(res_cp_digitos(100), 3);
+    /* `digitOffset`: um digito empurra para a direita, tres para a esquerda. */
+    CHECK_EQ(res_cp_deslocamento(1), 1);
+    CHECK_EQ(res_cp_deslocamento(2), 0);
+    CHECK_EQ(res_cp_deslocamento(3), -1);
+    /* `variant`: com tres digitos so' o PRIMEIRO usa `Left`. */
+    CHECK_EQ(res_cp_variante(3, 0), 0);
+    CHECK_EQ(res_cp_variante(3, 1), 1);
+    CHECK_EQ(res_cp_variante(2, 0), 1);
+    CHECK_EQ(res_cp_variante(1, 0), 1);
+    {
+        /* 37/24 s = 1542 ms; o tween de 58/24 s termina em 3.958 ms. */
+        CHECK_EQ(res_cp_valor(81, 0ul), 45);          /* 81 - 36 */
+        CHECK_EQ(res_cp_valor(81, 1542ul), 45);
+        CHECK(res_cp_valor(81, 2000ul) > 45);
+        CHECK(res_cp_valor(81, 2000ul) < 81);
+        CHECK(res_cp_valor(81, 3000ul) > res_cp_valor(81, 2000ul));
+        CHECK_EQ(res_cp_valor(81, 3959ul), 81);
+        CHECK_EQ(res_cp_valor(81, 999999ul), 81);
+        /* Alvo menor que 36 nao pode dar numero negativo. */
+        CHECK_EQ(res_cp_valor(20, 0ul), 0);
+        /* Visivel de 1542 ms ate' o fim do fade. */
+        CHECK_EQ(res_cp_visivel(1541ul), 0);
+        CHECK_EQ(res_cp_visivel(1542ul), 1);
+        CHECK_EQ(res_cp_visivel(5000ul), 1);
+        CHECK_EQ(res_cp_visivel(999999ul), 0);
+        /* O alpha so' cai depois do flash e da espera. */
+        CHECK_EQ(res_cp_alpha(1600ul), 255);
+        CHECK_EQ(res_cp_alpha(999999ul), 0);
+        /* O flash do `PureColor` comeca no fim do tween. */
+        CHECK_EQ(res_cp_flash(3958ul), 0);
+        CHECK_EQ(res_cp_flash(3959ul), 1);
+        CHECK_EQ(res_cp_flash(4358ul), 1);
+        CHECK_EQ(res_cp_flash(4359ul), 0);
+    }
+
     printf("== resultado: sem pacote, nada aparece (e o modulo diz isso) ==\n");
     res_init(&r);
     CHECK_EQ(res_carregar(&r, "/tmp/fnf_nao_existe/"), 0);

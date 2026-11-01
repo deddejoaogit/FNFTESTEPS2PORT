@@ -240,4 +240,100 @@ static const res_tally_t g_res_tally[RES_TALLIES] = {
     { 6u,  130.0f,  246.5f, 0xC6, 0x8A, 0xE6 },  /* missed */
 };
 
+
+#define RES_CP_ATLASES 3u
+
+/* O PERCENTUAL DE CONCLUSAO (ClearPercentCounter.hx L22-140 e
+ * ResultState.hx L577-646). Tres atlas de digitos -- `Left` e `Right` sao
+ * as duas inclinacoes do glifo grande, `Small` e' o do `%` da barra do
+ * topo -- mais o texto "CLEAR" (com o `%` embaixo) e o `%` pequeno.
+ * `fator` converte o tamanho guardado no tamanho DESENHADO (o original pela
+ * metade): os glifos grandes ficaram a 0,4 do original para caber na VRAM,
+ * e sao desenhados a 1,25x. */
+typedef struct {
+    unsigned char  digito;
+    unsigned short ax, ay, aw, ah;
+    short          ox, oy;
+} res_cp_frame_t;
+
+static const res_cp_frame_t g_res_cp_left[10] = {
+    { 0u,    0u,    0u,  32u,  36u,    0,    0 },   /* digito 0 */
+    { 1u,   98u,    0u,  25u,  35u,    3,    0 },   /* digito 1 */
+    { 2u,  124u,    0u,  30u,  35u,    0,    0 },   /* digito 2 */
+    { 3u,    0u,   37u,  31u,  35u,    2,    0 },   /* digito 3 */
+    { 4u,   95u,   37u,  32u,  34u,    0,    1 },   /* digito 4 */
+    { 5u,   33u,    0u,  32u,  36u,    1,    0 },   /* digito 5 */
+    { 6u,   32u,   37u,  30u,  35u,    1,    1 },   /* digito 6 */
+    { 7u,  128u,   37u,  30u,  34u,    2,    1 },   /* digito 7 */
+    { 8u,   66u,    0u,  31u,  36u,    1,    0 },   /* digito 8 */
+    { 9u,   63u,   37u,  31u,  35u,    2,    1 },   /* digito 9 */
+};
+
+static const res_cp_frame_t g_res_cp_right[10] = {
+    { 0u,   64u,    0u,  35u,  35u,    0,    0 },   /* digito 0 */
+    { 1u,  100u,    0u,  25u,  35u,    4,    0 },   /* digito 1 */
+    { 2u,   33u,   37u,  30u,  34u,    2,    2 },   /* digito 2 */
+    { 3u,   64u,   37u,  31u,  34u,    2,    1 },   /* digito 3 */
+    { 4u,   96u,   37u,  31u,  34u,    2,    1 },   /* digito 4 */
+    { 5u,  126u,    0u,  32u,  35u,    2,    0 },   /* digito 5 */
+    { 6u,    0u,    0u,  30u,  36u,    1,    0 },   /* digito 6 */
+    { 7u,  128u,   37u,  32u,  34u,    2,    2 },   /* digito 7 */
+    { 8u,   31u,    0u,  32u,  36u,    2,    0 },   /* digito 8 */
+    { 9u,    0u,   37u,  32u,  35u,    2,    0 },   /* digito 9 */
+};
+
+static const res_cp_frame_t g_res_cp_small[10] = {
+    { 0u,    0u,    0u,  14u,  18u,    1,    0 },   /* digito 0 */
+    { 1u,  108u,    0u,  10u,  17u,    6,    0 },   /* digito 1 */
+    { 2u,   15u,    0u,  15u,  18u,    0,    0 },   /* digito 2 */
+    { 3u,   31u,    0u,  15u,  18u,    0,    0 },   /* digito 3 */
+    { 4u,  119u,    0u,  14u,  17u,    1,    0 },   /* digito 4 */
+    { 5u,   47u,    0u,  15u,  18u,    0,    0 },   /* digito 5 */
+    { 6u,  134u,    0u,  14u,  17u,    0,    2 },   /* digito 6 */
+    { 7u,   63u,    0u,  14u,  18u,    2,    0 },   /* digito 7 */
+    { 8u,   78u,    0u,  14u,  18u,    0,    0 },   /* digito 8 */
+    { 9u,   93u,    0u,  14u,  18u,    2,    0 },   /* digito 9 */
+};
+
+typedef struct {
+    unsigned short        w, h;
+    const char           *arquivo;
+    unsigned int          vram_bytes;
+    float                 fator;
+    const res_cp_frame_t *frames;
+} res_cp_atlas_t;
+
+static const res_cp_atlas_t g_res_cp_atlas[RES_CP_ATLASES] = {
+    { 160u,  72u, "resultado/clear_left.rgba",  46080u, 1.25f, g_res_cp_left },   /* LEFT */
+    { 160u,  72u, "resultado/clear_right.rgba",  46080u, 1.25f, g_res_cp_right },   /* RIGHT */
+    { 160u,  18u, "resultado/clear_small.rgba",  11520u, 1.25f, g_res_cp_small },   /* SMALL */
+};
+
+typedef struct {
+    unsigned short w, h;
+    const char    *arquivo;
+    unsigned int   vram_bytes;
+    float          fator;
+} res_cp_img_t;
+
+static const res_cp_img_t g_res_cp_texto = { 100u,  63u, "resultado/clear_texto.rgba", 25200u, 1.25f };  /* o "CLEAR" com o `%` */
+static const res_cp_img_t g_res_cp_texto_small = {  11u,  13u, "resultado/clear_texto_small.rgba",   572u, 1.25f };  /* o `%` pequeno */
+
+typedef struct {
+    float          x, y;             /* canto do grupo, em 640x360      */
+    float          passo_grande, passo_pequeno;
+    float          y_digitos_grande;
+    float          small_x, small_y, small_x_pos, small_y_passo;
+    unsigned short inicio_q, tween_q;
+    unsigned int   flash_ms, fade_espera_ms, fade_atraso_ms, fade_ms;
+    unsigned char  abaixo;           /* `clearPercentLerp` = alvo - 36 */
+} res_cp_geo_t;
+
+static const res_cp_geo_t g_res_cp_geo = {
+    415.0f, 145.0f, 36.0f, 16.0f, 36.0f,
+    470.0f, 130.0f, -12.0f, -2.0f,
+    37u, 58u,
+    400u, 250u, 500u, 500u, 36u
+};
+
 #endif /* RESULTADO_DADOS_H */
