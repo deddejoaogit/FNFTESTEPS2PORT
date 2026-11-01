@@ -697,8 +697,9 @@ def main():
             # nada), mas o desenho ainda usa os offsets do PERSONAGEM: aplicar
             # os do JSON por animacao e' o passo seguinte, e fica registrado
             # aqui em vez de passar calado.
-            print("de outro atlas (%d): %s -- offsets por animacao ainda NAO "
-                  "aplicados" % (len(de_outro), ", ".join(de_outro)))
+            print("de outro atlas (%d): %s -- as animacoes entram; os "
+                  "offsets por animacao vem do assets-data/characters" %
+                  (len(de_outro), ", ".join(de_outro)))
 
         rendered, boxes, dono = [], [], []
         for plano in planos:

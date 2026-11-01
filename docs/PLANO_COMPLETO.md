@@ -2814,3 +2814,23 @@ do dado (`philly-nice`). Oito das 27 músicas nunca começavam, o harness
 "passava" sem entrar no gameplay e as três verificações por combinação davam
 zero. Agora o id vem do primeiro campo da struct, que é o que vira caminho de
 arquivo.
+
+## O que ainda falta, com o motivo medido (estado nesta build)
+
+Tudo o que está abaixo é **dado ausente ou espaço de VRAM**, não lógica que
+faltou escrever. A lista existe para não deixar nada implícito.
+
+| Falta | Por que | O que precisa |
+|---|---|---|
+| Música de game over e `fnf_loss_sfx` | os arquivos `gameplay/gameover/gameOver*` e `fnf_loss_sfx` **não existem no pacote de dados** do repositório (não há `assets-data/audio` de SFX) | trazer os dois .ogg e o caminho de decodificação; até lá o port registra `gameover_sem_audio` e não inventa arquivo |
+| Ícones de vida do HUD | 15 eventos `SetHealthIcon` (todos em `spaghetti`) chegam e viram `evento_sem_icone`; a arte dos ícones não está no pacote, e a pior combinação deixa **1.792 B** livres no pool de VRAM | arte dos ícones + liberar VRAM antes (por exemplo tirar `tex` da VRAM durante o gameplay: o menu já se re-uploada ao voltar) |
+| Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
+| Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
+| Practice Mode | modo de jogo inteiro no original (sem morte, começando numa seção) | decisão de escopo: o port hoje não oferece a entrada na pausa (oferecer uma entrada que não faz o que promete é pior) |
+
+E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
+reais rodam nas 81 combinações; o game over tem a animação de morte, a câmera e
+o zoom do original; os note kinds (canto com sufixo, animação nomeada,
+alternância, `moveToBack`/`moveToFront` e tremor de câmera) são aplicados; os
+offsets por animação (155 de 523) entram no desenho; e a ordem de desenho do
+palco é por `zIndex` com os props na mesma lista dos personagens.
