@@ -39,7 +39,7 @@ MAX_ANIMS = 64
 ERR_TAMANHO = "bytes_por_quadro nao bate com w*h*(psm/8)"
 
 
-def escrever(quadros, w, h, psm, anims, escala=1.0):
+def escrever(quadros, w, h, psm, anims, escala=1.0, blocos=None):
     """Monta o pacote.
 
     quadros  -- lista de bytes (um por quadro, todos do mesmo tamanho)
@@ -54,32 +54,37 @@ def escrever(quadros, w, h, psm, anims, escala=1.0):
         raise ValueError("psm tem de ser 16 ou 32")
     if not 0 < w <= 1024 or not 0 < h <= 1024:
         raise ValueError("canvas fora de 1..1024")
-    if not quadros:
+    if blocos is None and not quadros:
         raise ValueError("pacote sem quadro nenhum")
     if not 0 < len(anims) <= MAX_ANIMS:
         raise ValueError(f"numero de animacoes fora de 1..{MAX_ANIMS}")
     bpp = psm // 8
     frame_bytes = w * h * bpp
-    for i, q in enumerate(quadros):
-        if len(q) != frame_bytes:
-            raise ValueError(f"quadro {i} tem {len(q)} bytes, esperado {frame_bytes}")
+    if blocos is None:
+        for i, q in enumerate(quadros):
+            if len(q) != frame_bytes:
+                raise ValueError(f"quadro {i} tem {len(q)} bytes, esperado {frame_bytes}")
+    n_quadros = len(blocos) if blocos is not None else len(quadros)
 
-    tabela = CABECALHO + len(quadros) * 8
+    tabela = CABECALHO + n_quadros * 8
     anims_off = tabela
     corpo = anims_off + len(anims) * ENTRADA
 
     entradas = []
-    blocos = bytearray()
-    for q in quadros:
-        comp = comprimir(q)
-        entradas.append((corpo + len(blocos), len(comp)))
-        blocos += comp
+    corpo_blocos = bytearray()
+    if blocos is None:
+        # sem blocos prontos: comprime aqui (é o caminho de quem gera o pacote
+        # a partir de quadros crus).
+        blocos = [comprimir(q) for q in quadros]
+    for comp in blocos:
+        entradas.append((corpo + len(corpo_blocos), len(comp)))
+        corpo_blocos += comp
 
     out = bytearray()
     out += MAGIC
     if not (0.0 < escala <= 20.0):
         raise ValueError(f"escala {escala} fora de 0..20")
-    out += struct.pack("<IIIIIII", VERSAO, len(quadros), frame_bytes, w, h, len(anims), psm)
+    out += struct.pack("<IIIIIII", VERSAO, n_quadros, frame_bytes, w, h, len(anims), psm)
     out += struct.pack("<I", int(round(escala * 10000.0)) & 0xFFFFFFFF)
     for off, tam in entradas:
         out += struct.pack("<II", off, tam)
@@ -89,11 +94,11 @@ def escrever(quadros, w, h, psm, anims, escala=1.0):
             raise ValueError(f"nome de animacao longo demais: {a['nome']}")
         out += nome + b"\x00" * (NOME - len(nome))
         out += struct.pack("<IIII", a["primeiro"], a["quantos"], a["fps100"], a["looped"])
-    out += blocos
+    out += corpo_blocos
     return bytes(out)
 
 
-def montar_de_grupos(grupos, w, h, psm, escala, fps100=2400):
+def montar_de_grupos(grupos, w, h, psm, escala, fps100=2400, ja_comprimido=False):
     """Pacote a partir dos quadros JA' separados por animacao.
 
     grupos -- [(nome, [bytes de cada quadro], looped)] na ordem em que as
@@ -118,6 +123,12 @@ def montar_de_grupos(grupos, w, h, psm, escala, fps100=2400):
         quadros.extend(lista)
     if len(quadros) > 4096:
         raise ValueError(f"{len(quadros)} quadros passam do limite de 4096")
+    if ja_comprimido:
+        # `quadros` sao os BLOCOS LZ4 ja' prontos (o CFZ4 os comprimiu um passo
+        # antes): o CHP4 so' os copia para o arquivo.
+        nq = len(quadros)
+        return (escrever(None, w, h, psm, anims, escala=escala, blocos=quadros),
+                nq, anims)
     return escrever(quadros, w, h, psm, anims, escala=escala), len(quadros), anims
 
 

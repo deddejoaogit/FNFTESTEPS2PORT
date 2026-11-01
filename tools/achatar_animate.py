@@ -441,55 +441,88 @@ def main():
     if args.pack:
         import pacote_personagem as pp
         anims = atlas.animations()
-        rendered, boxes = [], []
-        conta = 0
-        for name, (start, length) in anims.items():
-            for k in range(length):
+
+        # O NOME QUE O JOGO PEDE NAO E' O NOME DO ATLAS.
+        # A timeline rotula as animacoes ("Idle", "Up", "Cheer", "Fear"); o jogo
+        # pede `danceLeft`, `singUP`, `drop70` -- os nomes do `character.json`.
+        # O que liga os dois e' o `prefix` de cada animacao do JSON (e' o `N` da
+        # timeline, ver Atlas.animations) e os `frameIndices`, que sao indices
+        # DENTRO daquela animacao: e' assim que `danceLeft`/`danceRight` partem
+        # o mesmo "Idle" em duas metades. Empacotar com os nomes do atlas (como
+        # esta versao fazia) gera um pacote que o jogo abre e nao acha nada.
+        planos, faltando = [], []
+        for an in (meta.get("animations") or []):
+            nome = an.get("name")
+            if not nome:
+                continue
+            pre = an.get("prefix") or nome
+            if pre not in anims:
+                faltando.append((nome, "prefixo %r fora da timeline" % pre))
+                continue
+            ini, tam = anims[pre]
+            idx = an.get("frameIndices")
+            if not idx:
+                idx = list(range(tam))
+            use = [i for i in idx if isinstance(i, int) and 0 <= i < tam]
+            if len(use) != len(idx):
+                faltando.append((nome, "%d indices fora de %r"
+                                 % (len(idx) - len(use), pre)))
+            if not use:
+                continue
+            planos.append({"nome": nome, "looped": an.get("looped", True),
+                           "idx": [ini + i for i in use]})
+        if not planos:
+            raise SystemExit("%s: nenhuma animacao do character.json existe no "
+                             "atlas (%r)" % (args.character, faltando))
+        if faltando:
+            print("faltando no atlas: %s"
+                  % ", ".join("%s (%s)" % f for f in faltando))
+
+        rendered, boxes, dono = [], [], []
+        for plano in planos:
+            for i in plano["idx"]:
                 try:
-                    img, box = atlas.render(start + k)
+                    img, box = atlas.render(i)
                 except ValueError as e:
-                    print("  %s %d: %s" % (name, k, e))
+                    print("  %s quadro %d: %s" % (plano["nome"], i, e))
                     continue
                 if img is None:
                     continue
-                rendered.append((name, k, img))
+                rendered.append((plano["nome"], len(dono), img))
                 boxes.append(box)
-        print("rendered %d frames from %d animations at native size"
-              % (len(rendered), len(anims)))
+                dono.append(plano["nome"])
+        print("rendered %d frames for %d animations at native size"
+              % (len(rendered), len(planos)))
         frames, w, h = pack_from_render(rendered, boxes, args.scale, args.bpp, None)
 
         print("out canvas: %dx%d at scale %.3f (%d B/frame at %d bpp)"
               % (w, h, args.scale, w * h * (args.bpp // 8), args.bpp))
         blocks = []
+        import lz4.block
         for fr in frames:
             raw = pp.to_ps2_bytes(fr, args.bpp)
-            import lz4.block
             blocks.append(lz4.block.compress(raw, store_size=False))
         os.makedirs(os.path.dirname(args.pack) or ".", exist_ok=True)
         parts = pp.write_packs(blocks, w * h * (args.bpp // 8), args.pack)
 
         # CHP4: o MESMO pacote, mais a tabela de animacoes que o jogo le' em
-        # `assets/chars/<id>.chp4`. Aqui a tabela sai de graca e sem adivinhar:
-        # `rendered` foi montado animacao por animacao, entao os quadros de cada
-        # uma sao um intervalo contiguo. O CFZ4 fica como esta' (o palco o
-        # consome); este e' o arquivo do personagem.
-        grupos, atual, n = [], None, 0
-        for nome, _k, _img in rendered:
-            if atual is not None and nome == atual:
-                n += 1
-                continue
-            if atual is not None:
-                grupos.append((atual, blocos[conta:conta + n], True))
-                conta += n
-            atual, n = nome, 1
-        if atual is not None:
-            grupos.append((atual, blocos[conta:conta + n], True))
+        # `assets/chars/<id>.chp4`. A tabela sai da ORDEM em que os quadros foram
+        # pintados (um grupo por animacao do JSON), sem adivinhar nada.
+        grupos = []
+        for plano in planos:
+            grupo = [b for b, d in zip(blocks, dono) if d == plano["nome"]]
+            if grupo:
+                grupos.append((plano["nome"], grupo, plano["looped"]))
         import chp4 as _chp4
         # A taxa: o atlas Animate declara o frameRate do spritemap; quando nao
         # declara, 24 e' o valor do original (CharacterData DEFAULT).
         fps = int(round(float(atlas.meta.get("FRT") or atlas.meta.get("frameRate") or 24)))
+        # Os grupos levam os LZ4 ja' prontos, na ordem em que os quadros foram
+        # comprimidos para o CFZ4: o CHP4 nao recomprime nada (mesmo resultado,
+        # metade do tempo -- cada personagem leva minutos).
         pacote, nq, tabela = _chp4.montar_de_grupos(grupos, w, h, args.bpp,
-                                                   args.scale, fps100=fps * 100)
+                                                   args.scale, fps100=fps * 100,
+                                                   ja_comprimido=True)
         cab = _chp4.ler(pacote)
         _chp4.conferir(cab)
         destino_chp4 = os.path.splitext(args.pack)[0] + ".chp4"
@@ -498,6 +531,7 @@ def main():
         print("chp4: %s  %d quadros, %d animacoes, canvas %dx%d, escala %.3f, "
               "%d B" % (os.path.basename(destino_chp4), nq, len(tabela), w, h,
                         args.scale, len(pacote)))
+        total = sum(t for _p, t, _f, _n in parts)
         total = sum(t for _p, t, _f, _n in parts)
         print("wrote %d part(s), %d B total, %d B/frame in VRAM"
               % (len(parts), total, w * h * (args.bpp // 8)))

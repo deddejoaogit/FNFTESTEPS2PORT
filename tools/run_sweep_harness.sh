@@ -326,9 +326,9 @@ echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combi
 if [ -s build/sweep/custo.txt ]; then
     echo "  custo: $CUSTO_N combinacoes medidas (tabela completa em build/sweep/custo.txt)"
     awk '{split($3,q,","); split($4,c,","); split($5,p,",");
-          if (q[1]+0 > 0) printf "%04d %s %s %d %d %d\n", c[2]+0, $1, $2, q[1], c[1], p[1]}' \
+          if (q[1]+0 > 0) printf "%d %s %s %d %d %d\n", c[2]+0, $1, $2, q[1], c[1], p[1]}' \
         build/sweep/custo.txt | sort -nr | head -5 | \
-      awk '{printf "         %-12s %s  %6d quadros  %6d uploads de personagem (%s/100 quadr)  %4d de palco\n",
+      awk '{printf "         %-12s %s  %6d quadros  %6d uploads de personagem (%d/100 quadr)  %4d de palco\n",
                    $2, $3, $4, $5, $1, $6}'
     CIM=$(awk '{split($4,c,","); if (c[2]!="") {n++; s+=c[2]}} END{printf "%.0f", (n? s/n : 0)}' build/sweep/custo.txt)
     echo "  custo: media de ${CIM}/100 uploads de personagem por quadro nas $CUSTO_N combinacoes"
