@@ -1,0 +1,42 @@
+/* GERADO POR tools/gen_resultado_dados.py -- NAO EDITE.
+ *
+ * Fonte: assets-data/resultado-plan.json, escrito por
+ * tools/empacotar_resultado.py depois de recortar as folhas de
+ * shared/images/resultScreen. Posicoes, tempos e fps vem de
+ * source/funkin/play/ResultState.hx (v0.8.6); as linhas estao no plano.
+ */
+#ifndef RESULTADO_DADOS_H
+#define RESULTADO_DADOS_H
+
+/* Escala: o original monta a tela em 1280x720, o port desenha em 640x360. */
+#define RES_ESCALA (0.5f)
+#define RES_FOLHAS 3u
+
+/* O fundo: FlxGradient de 90 graus entre estas duas cores. */
+#define RES_BG_W 16u
+#define RES_BG_H 360u
+#define RES_BG_TOPO_R 254u
+#define RES_BG_TOPO_G 204u
+#define RES_BG_TOPO_B 92u
+#define RES_BG_BASE_R 253u
+#define RES_BG_BASE_G 192u
+#define RES_BG_BASE_B 92u
+
+typedef struct {
+    unsigned short w, h;        /* canvas da folha em 640x360       */
+    unsigned short quadros;     /* quadros da animacao              */
+    unsigned short fps;
+    unsigned char  looped;
+    float          x, y;        /* canto superior esquerdo na tela  */
+    unsigned int   inicio_ms;   /* quando a folha aparece           */
+    const char    *tex;         /* caminho do pacote CFZ4           */
+    const char    *id;
+} res_folha_dado_t;
+
+static const res_folha_dado_t g_res_folha[RES_FOLHAS] = {
+    { 565u,  74u, 36u, 24u, 0u, -100.0f, -5.0f,  250u, "resultado/results.cfz4", "results" },
+    { 224u, 210u, 16u, 24u, 0u, -67.5f, 67.5f,  875u, "resultado/ratings.cfz4", "ratings" },
+    { 356u,  72u, 30u, 24u, 0u, -90.0f, 257.5f, 1500u, "resultado/score.cfz4", "score" },
+};
+
+#endif /* RESULTADO_DADOS_H */

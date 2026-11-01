@@ -337,6 +337,80 @@ def quadrant(y, x):
     return 0 if (x // 7 + y // 5) % 2 else 40
 
 
+def resultado_folhas():
+    """As folhas da tela de RESULTADO, do plano commitado.
+
+    (id, w, h, quadros, fps) de cada uma. Vem de assets-data/resultado-plan.json
+    para que o asset sintetico acompanhe o empacotador: se uma folha mudar de
+    tamanho, o jogo continua achando o pacote com o tamanho que ele espera.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if os.path.isfile(caminho):
+        d = json.load(open(caminho, encoding="utf-8"))
+        return [(f["id"], f["w"], f["h"], f["quadros"], f["fps"], f["tex"])
+                for f in d["folhas"]], d["bg_w"], d["bg_h"]
+    return ([("results", 565, 74, 36, 24, "resultado/results.cfz4"),
+             ("ratings", 224, 210, 16, 24, "resultado/ratings.cfz4"),
+             ("score", 356, 72, 30, 24, "resultado/score.cfz4")], 16, 360)
+
+
+def make_resultado_pack(w, h, quadros):
+    """CFZ4 sintetico com `quadros` quadros de w*h*4 bytes.
+
+    Cada quadro e' um padrao que depende do NUMERO do quadro -- e' o que deixa
+    o teste provar que o jogo mostra o quadro certo, e nao o primeiro. Os blocos
+    sao LZ4 de literais puros (o mesmo caminho que o empacotador usa quando o
+    dado e' incompressivel), entao o decodificador do jogo e' exercitado.
+    """
+    fb = w * h * 4
+    blocos = []
+    for q in range(quadros):
+        cru = bytes(((q * 53 + i * 11 + 7) & 0xFF) for i in range(fb))
+        blocos.append(lz4_literais(cru))
+    cab = b"CFZ4" + struct.pack("<III", 1, quadros, fb)
+    tabela = bytearray()
+    blob = bytearray()
+    off = 16 + quadros * 8
+    for b in blocos:
+        tabela += struct.pack("<II", off, len(b))
+        blob += b
+        off += len(b)
+    return cab + bytes(tabela) + bytes(blob)
+
+
+def lz4_literais(src):
+    """Bloco LZ4 so' de literais: token 0xF0 + extensoes + os bytes."""
+    n = len(src)
+    out = bytearray()
+    if n < 15:
+        out.append(n << 4)
+    else:
+        out.append(0xF0)
+        resta = n - 15
+        while resta >= 255:
+            out.append(255)
+            resta -= 255
+        out.append(resta)
+    return bytes(out) + src
+
+
+def make_resultado_bg(w, h):
+    """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
+    topo = (0xFE, 0xCC, 0x5C)
+    base = (0xFD, 0xC0, 0x5C)
+    out = bytearray(w * h * 4)
+    for y in range(h):
+        t = y / float(h - 1) if h > 1 else 0.0
+        r = int(round(topo[0] + (base[0] - topo[0]) * t))
+        g = int(round(topo[1] + (base[1] - topo[1]) * t))
+        b = int(round(topo[2] + (base[2] - topo[2]) * t))
+        for x in range(w):
+            o = (y * w + x) * 4
+            out[o], out[o + 1], out[o + 2], out[o + 3] = r, g, b, 255
+    return bytes(out)
+
+
 def build(root, charts_src=None):
     a = os.path.join(root, "FNFPS2", "assets")
     os.makedirs(os.path.join(a, "songs", "tutorial"), exist_ok=True)
@@ -421,6 +495,13 @@ def build(root, charts_src=None):
         # (na faixa livre abaixo da barra de vida), entao o tamanho tem de ser
         # exatamente o da regiao do plano -- nem um byte a mais.
         "splash.rgba": make_splash(*splash_regiao()),
+
+        # TELA DE RESULTADO: o gradiente do fundo e os CFZ4 das tres folhas.
+        # Sem eles o jogo desenha o painel com o texto (o caminho antigo), entao
+        # o harness precisa deles para exercitar a arte de verdade.
+        "resultado/bg.rgba": make_resultado_bg(*resultado_folhas()[1:]),
+        **{"resultado/%s.cfz4" % f[0]: make_resultado_pack(f[1], f[2], f[3])
+           for f in resultado_folhas()[0]},
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

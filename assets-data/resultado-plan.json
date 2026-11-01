@@ -1,0 +1,83 @@
+{
+ "bg_w": 16,
+ "bg_h": 360,
+ "bg_arquivo": "resultado/bg.rgba",
+ "bg_vram_bytes": 23040,
+ "nota": "Gerado por tools/empacotar_resultado.py a partir de shared/images/resultScreen do funkin.assets. Constantes e posicoes: ResultState.hx v0.8.6. O header src/engine/resultado_dados.h e' RENDERIZACAO deste arquivo.",
+ "escala": 0.5,
+ "bg_topo": [
+  254,
+  204,
+  92
+ ],
+ "bg_base": [
+  253,
+  192,
+  92
+ ],
+ "folhas": [
+  {
+   "id": "results",
+   "prefixo": "results instance 1",
+   "fonte": "resultScreen/results",
+   "x": -100.0,
+   "y": -5.0,
+   "src_w": 1130,
+   "src_h": 149,
+   "w": 565,
+   "h": 74,
+   "quadros": 36,
+   "fps": 24,
+   "looped": false,
+   "inicio_ms": 250,
+   "tex": "resultado/results.cfz4",
+   "partes": [
+    "results.cfz4"
+   ],
+   "vram_bytes": 167240,
+   "linha": "ResultState.hx L143 (posicao) e L359-367 (animacao/tempo)"
+  },
+  {
+   "id": "ratings",
+   "prefixo": "Categories",
+   "fonte": "resultScreen/ratingsPopin",
+   "x": -67.5,
+   "y": 67.5,
+   "src_w": 449,
+   "src_h": 419,
+   "w": 224,
+   "h": 210,
+   "quadros": 16,
+   "fps": 24,
+   "looped": false,
+   "inicio_ms": 875,
+   "tex": "resultado/ratings.cfz4",
+   "partes": [
+    "ratings.cfz4"
+   ],
+   "vram_bytes": 188160,
+   "linha": "ResultState.hx L145 (posicao) e L369-377 (animacao/tempo)"
+  },
+  {
+   "id": "score",
+   "prefixo": "tally score",
+   "fonte": "resultScreen/scorePopin",
+   "x": -90.0,
+   "y": 257.5,
+   "src_w": 712,
+   "src_h": 145,
+   "w": 356,
+   "h": 72,
+   "quadros": 30,
+   "fps": 24,
+   "looped": false,
+   "inicio_ms": 1500,
+   "tex": "resultado/score.cfz4",
+   "partes": [
+    "score.cfz4"
+   ],
+   "vram_bytes": 102528,
+   "linha": "ResultState.hx L147 (posicao) e L379-388 (animacao/tempo)"
+  }
+ ]
+}

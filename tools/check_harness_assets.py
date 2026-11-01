@@ -96,5 +96,28 @@ zero = sum(1 for i in range(3, len(sp), 4) if sp[i] == 0)
 print(f"  SPLASH      {sw}x{sh} arquivo={len(sp):>9,} opacos={op:>6} vazios={zero:>6}")
 ok &= (len(sp) == sw * sh * 4 and op > sw * sh // 4 and zero > 0)
 
+# TELA DE RESULTADO: um CFZ4 por folha, todos os quadros decodificando no
+# tamanho do plano, e o gradiente do fundo com o tamanho certo.
+for _id, _w, _h, _nq, _fps, _tex in g.resultado_folhas()[0]:
+    pk = g.make_resultado_pack(_w, _h, _nq)
+    magic = pk[:4]
+    ver, cnt, fbytes = struct.unpack("<III", pk[4:16])
+    bad = 0
+    for i in range(cnt):
+        off, size = struct.unpack("<II", pk[16 + i * 8:24 + i * 8])
+        if off > len(pk) or size > len(pk) - off:
+            bad += 1; continue
+        if dec_lz4(pk[off:off + size], fbytes) != 0:
+            bad += 1
+    print(f"  RESULTADO   {_id:9s} {_w}x{_h} arquivo={len(pk):>9,} quadros={cnt} "
+          f"blocos_ruins={bad}")
+    ok &= (magic == b"CFZ4" and ver == 1 and cnt == _nq
+           and fbytes == _w * _h * 4 and bad == 0)
+
+bw, bh = g.resultado_folhas()[1:]
+bgd = g.make_resultado_bg(bw, bh)
+print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")
+ok &= (len(bgd) == bw * bh * 4)
+
 print()
 print("TODOS EXATOS" if ok else "FALHOU")

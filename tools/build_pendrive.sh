@@ -84,6 +84,18 @@ else
     echo "          (o acerto SICK fica sem brilho)" >&2
 fi
 
+# ARTE DA TELA DE RESULTADO: o fundo em gradiente (16x360) e os CFZ4 das tres
+# folhas animadas. Fica fora da musica: o jogo os abre quando a tela entra e o
+# palco ja' foi solto (o pool tem ~1,2 MB livres ali).
+if [ -d "$UI_SRC/resultado" ]; then
+    mkdir -p "$OUT/FNFPS2/assets/resultado"
+    cp "$UI_SRC"/resultado/* "$OUT/FNFPS2/assets/resultado/"
+    echo "   resultado/: $(ls "$UI_SRC"/resultado | wc -l) arquivo(s), $(cat "$UI_SRC"/resultado/* | wc -c) bytes"
+else
+    echo "   AVISO: $UI_SRC/resultado nao existe -- rode tools/empacotar_resultado.py" >&2
+    echo "          (a tela de resultado fica no painel com o texto)" >&2
+fi
+
 echo "== copiando o audio da tela de GAME OVER (assets/gameover/) =="
 # Os 13 PCMs (musica de game over nas 4 variantes de sufixo, o gameOverEnd de
 # cada uma, fnf_loss_sfx nas 4, fakeout_death) e o manifesto AUDIO.txt.

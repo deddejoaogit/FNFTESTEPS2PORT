@@ -101,6 +101,14 @@ RESULT=$(awk -F, '$1=="S" && $3==9 {n++} END{print n+0}' "$LOG")
 RANK=$(awk -F, '$1=="E" && $3=="play_result" {print $4; exit}' "$LOG")
 PERC=$(awk -F, '$1=="E" && $3=="play_result" {print $5; exit}' "$LOG")
 DRAW=$(awk -F, '$1=="E" && $3=="result_draw" {print $4; exit}' "$LOG")
+# TELA DE RESULTADO: a arte (fundo + 3 folhas) e os TIMERS do ResultState.hx
+# (6/24 s, 21/24 s e 36/24 s = 250, 875 e 1500 ms depois de a tela abrir).
+RESARTE=$(awk -F, '$1=="E" && $3=="resultado_arte" {print $4; exit}' "$LOG")
+RESFUNDO=$(awk -F, '$1=="E" && $3=="resultado_fundo" {print $4; exit}' "$LOG")
+RESCENA=$(awk -F, '$1=="E" && $3=="resultado_cena" {print $4; exit}' "$LOG")
+RESF1=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==1 {print $5; exit}' "$LOG")
+RESF2=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==2 {print $5; exit}' "$LOG")
+RESF3=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==3 {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
 CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
@@ -124,6 +132,8 @@ echo "  batida / passos da contagem .. ${CDBEAT:-?} amostras / ${CDPASSOS:-?}"
 echo "  HUD: zoom maximo / pulsos .... ${HUDZOOM:-?} (milesimos) / ${HUDPULSOS:-?}"
 echo "  icones de vida ............... ${ICONES:-?} carregado(s), ${ICONEDES:-?} desenho(s), ${ICONEEST:-?} troca(s) de estado"
 echo "  note splash .................. arte=${SPLARTE:-?} criadas=$SPLNOVOS (SICK=$SPLSICK) pico na tela=$SPLMAX"
+echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} cena=${RESCENA:-?}"
+echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -177,6 +187,21 @@ fi
 [ "$SPLNOVOS" -eq "${SPLSICK:--1}" ] || { echo "  FALHA: $SPLNOVOS splash(es) para $SPLSICK SICK(s) -- tem de ser uma por SICK"; FALHA=1; }
 [ "${SPLMAX:-0}" -ge 1 ]  || { echo "  FALHA: nenhuma splash chegou a ser desenhada"; FALHA=1; }
 [ "${SPLMAX:-0}" -le 24 ] || { echo "  FALHA: $SPLMAX splashes na tela passa do pool (24)"; FALHA=1; }
+
+# TELA DE RESULTADO. A arte tem de ter carregado (3 folhas + o gradiente) e as
+# folhas tem de aparecer nos TIMERS do ResultState.hx -- nao antes, nao depois.
+# A tolerancia e' de 2 quadros (33 ms): o evento sai no quadro em que a folha
+# entra e o relogio da tela e' lido por quadro.
+[ "${RESARTE:-0}" -eq 3 ] || { echo "  FALHA: a arte da tela de resultado nao carregou ($RESARTE de 3 folhas)"; FALHA=1; }
+[ "${RESFUNDO:-0}" -eq 1 ] || { echo "  FALHA: o gradiente do fundo da tela de resultado nao carregou"; FALHA=1; }
+# cena = folhas | (fundo << 8) no campo 4 do evento.
+[ "${RESCENA:-0}" -eq 259 ] || { echo "  FALHA: a cena da tela de resultado saiu incompleta (cena=$RESCENA, esperado 259)"; FALHA=1; }
+for par in "1:250:${RESF1:-}" "2:875:${RESF2:-}" "3:1500:${RESF3:-}"; do
+    n=${par%%:*}; resto=${par#*:}; quer=${resto%%:*}; tem=${resto#*:}
+    if [ -z "$tem" ]; then echo "  FALHA: a folha $n nunca apareceu"; FALHA=1; continue; fi
+    d=$((tem - quer)); [ "$d" -lt 0 ] && d=$((-d))
+    [ "$d" -le 40 ] || { echo "  FALHA: a folha $n entrou em ${tem} ms, e o timer do original diz $quer"; FALHA=1; }
+done
 
 if [ "$FALHA" != 0 ]; then
     echo

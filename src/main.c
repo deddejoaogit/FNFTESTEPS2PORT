@@ -38,6 +38,7 @@
 #include "engine/notekind.h"
 #include "engine/health_icon.h"
 #include "engine/splash.h"
+#include "engine/resultado.h"
 #include "gameover_dados.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
@@ -266,6 +267,28 @@ static u32 g_play_samples_per_step=0;
    musica termina; aqui os numeros vem do mesmo nucleo que pontua durante o
    jogo (engine/gameplay.h), nao de contadores paralelos. */
 static int g_result_wait=0;
+/* ARTE DA TELA DE RESULTADO (ui_state 9). O estado/tempo vem de
+   engine/resultado.c; aqui ficam o pacote aberto, os enderecos de VRAM pedidos
+   ao pool (o palco ja' foi solto nessa tela) e o instante em que a tela abriu. */
+static res_t g_res;
+static int g_res_ok=0;              /* folhas abertas (0..RES_FOLHAS)          */
+static int g_res_bg_ok=0;           /* o gradiente do fundo foi carregado      */
+static unsigned int g_res_addr[RES_FOLHAS];
+static unsigned int g_res_frame[RES_FOLHAS];
+static unsigned int g_res_bg_addr=0;
+static unsigned char *g_res_pixels=0;   /* um quadro descomprimido (maior)      */
+static unsigned int g_res_pixels_bytes=0;
+static u64 g_res_t0=0;              /* GetTimerSystemTime no instante da abertura */
+static int g_res_ms=0;              /* ms desde a abertura                     */
+static int g_res_logado=0;
+static int g_res_desenhadas=-1;   /* folhas desenhadas no ultimo quadro (telemetria) */
+
+/* Carrega a ARTE da tela de resultado: abre os CFZ4 das tres folhas, pede ao
+   pool a VRAM de um quadro de cada e le' o gradiente do fundo. Chamado UMA vez
+   por entrada na tela (ui_state 9), quando o palco ja' foi solto -- medido no
+   log do harness: 1.269.760 B livres no pool nessa hora, contra 480.968 B que
+   a tela precisa (um quadro de cada folha + o gradiente).
+   Nada aqui e' obrigatorio: sem uma folha, a tela desenha o texto de sempre. */
 /* Quantos quads texturizados o bloco da tela de resultado emitiu na primeira
    vez que desenhou. E' a prova de que a tela nao ficou em branco: o harness le
    o valor e exige que seja maior que zero. Sem isso, "ui_state 9 apareceu no
@@ -2587,6 +2610,58 @@ static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
  }
  if(n!=g_splash_desenho){g_splash_desenho=n;telemetry_event("splash_ativos",n,g_splash.criados);}
  return q;}
+#define RES_ASSET_DIR "mass:/FNFPS2/assets/"
+static void resultado_soltar(void);
+static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
+{
+ int i,maior=0;
+ resultado_soltar();
+ g_res_ok=res_carregar(&g_res,RES_ASSET_DIR);
+ g_res_bg_ok=0;g_res_bg_addr=0;
+ for(i=0;i<(int)RES_FOLHAS;i++){
+  unsigned int bytes=(unsigned int)g_res_folha[i].w*g_res_folha[i].h*4u,addr=0;
+  g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;
+  if(bytes>=(unsigned int)maior)maior=(int)bytes;
+  if(i<(int)g_res_ok&&sp_chave(pool,SP_CHAVE_TELA_BASE+0x10u+(unsigned)i,bytes,&addr)>=0){
+   g_res_addr[i]=addr;
+  }else if(i<(int)g_res_ok){
+   telemetry_event("resultado_sem_vram",i,(int)sp_livre(pool));
+  }
+ }
+ telemetry_event("resultado_arte",g_res_ok,(int)RES_FOLHAS);
+ if(g_res_ok>0){
+  if(g_res_pixels_bytes<(unsigned int)maior){
+   free(g_res_pixels);
+   g_res_pixels=(unsigned char*)memalign(64,(size_t)maior);
+   g_res_pixels_bytes=g_res_pixels?((unsigned int)maior):0u;
+   if(!g_res_pixels)g_res_ok=0;
+  }
+  if(g_res_pixels)telemetry_event("resultado_pixels",(int)maior,0);
+ }
+ /* O GRADIENTE DO FUNDO: 16x360 RGBA = 23.040 B, uma textura estreita que o
+    desenho estica na horizontal (o gradiente do original so' varia em Y). */
+ if(read_exact_path("mass:/FNFPS2/assets/resultado/bg.rgba",g_up_bounce,
+                    RES_BG_W*RES_BG_H*4)==0){
+  unsigned int addr=0;
+  if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x20u,RES_BG_W*RES_BG_H*4u,&addr)>=0){
+   texbuffer_t t=*tpl;
+   t.width=RES_BG_W;t.psm=GS_PSM_32;t.address=addr;
+   setup_texture_dims(&t,RES_BG_W,RES_BG_H);
+   FlushCache(0);
+   upload_raw(&t,g_up_bounce,RES_BG_W,RES_BG_H);
+   g_res_bg_addr=addr;g_res_bg_ok=1;
+  }else telemetry_event("resultado_sem_vram",-1,(int)sp_livre(pool));
+ }
+ telemetry_event("resultado_fundo",g_res_bg_ok,RES_BG_W*RES_BG_H*4u);
+}
+static void resultado_soltar(void)
+{
+ int i;
+ res_liberar(&g_res);
+ g_res_ok=0;g_res_bg_ok=0;g_res_bg_addr=0;
+ for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
+ if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
+}
 static qword_t *title_alpha(qword_t*q,texbuffer_t*t,const char*s,float cx,float y,float scale){static const unsigned char gw[36]={38,32,38,37,30,30,38,31,30,38,31,29,39,31,35,32,36,33,34,31,31,38,41,38,38,36,24,16,26,24,24,29,27,28,24,24};float ds=scale*.7142857f,total=0,x;int i,n,idx;for(i=0;s[i];i++){if(s[i]==' ')total+=20*ds;else{idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx>=0&&idx<36)total+=(gw[idx]+3)*ds;}}x=cx-total*.5f;q=bind_texture(q,t);for(i=0;s[i];i++){if(s[i]==' '){x+=20*ds;continue;}idx=(s[i]>='A'&&s[i]<='Z')?s[i]-'A':26+s[i]-'0';if(idx<0||idx>=36)continue;n=gw[idx];q=sprite_region(q,x,y,n*ds,47*ds,(idx%9)*42,(idx/9)*48,n,47);x+=(n+3)*ds;}return q;}
 /* audsrv_stop_audio() mutes the stream but does not flush its internal ring.
  * Re-applying the format resets that ring (including when the rate is
@@ -4457,6 +4532,12 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
+   /* A ARTE DA TELA DE RESULTADO. O palco ja' foi solto logo acima, entao o
+      pool tem ~1,2 MB livres: e' aqui que as tres folhas e o gradiente do
+      fundo entram. `g_res_t0` marca o instante da abertura, porque os timers
+      do original (6/24, 21/24 e 36/24 s) contam a partir dela. */
+   resultado_carregar(&g_pool,&stagetex);
+   g_res_t0=GetTimerSystemTime();g_res_ms=0;g_res_logado=0;
    /* O ZOOM DO HUD, medido: o maior valor da musica e quantas vezes o HUD
       subiu. Sem isso, "o HUD pisca" nao teria numero nenhum no log do
       console -- e um zero aqui significa que a condicao de passo nunca casou. */
@@ -5486,31 +5567,99 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      julgaram as notas -- entao o que aparece aqui e' o que o jogo calculou, e
      nao um contador paralelo que pode divergir. O original (ResultState.hx)
      mostra rank, placar, os cinco tallies, maior combo e o percentual de
-     conclusao; e' o mesmo conjunto. Falta a arte, o som e as animacoes da
-     tela original -- estes ficam na Fase 3 do plano. */
+     conclusao; e' o mesmo conjunto. A ARTE (fundo, "RESULTS!", as categorias e
+     o "SCORE") vem de resultScreen e entra pela metade -- mas os NUMEROS
+     continuam sendo texto, porque a arte dos digitos
+     (`resultScreen/score-digital-numbers`) e do rank (`rankText`, `results-bf`)
+     nao foi empacotada ainda. O que sai e' o painel preto de reserva: ele
+     existia para o texto ter contraste e sumiria com a arte por baixo. */
   if(ui_state==9){
    char lb[64];int q0=g_frame_texture_quads;
+   int res_arte=0;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
-   q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
+   /* A ARTE DO ORIGINAL, quando ela carregou (ver resultado_carregar).
+      Ordem igual as `zIndex` do ResultState: fundo (10) < folhas (1200). As
+      tres folhas aparecem nos timers da fonte -- `res_quadro` devolve -1 antes
+      disso -- e param no ultimo quadro (`looped = false` no flixel para, nao
+      some), que e' o que monta a cena final da tela.
+      Cada quadro e' LIDO DO PENDRIVE na hora (pack_stream) e sobe para o
+      endereco que o pool deu: a RAM paga a tabela, a VRAM paga um quadro. */
+   if(g_res_ok>0||g_res_bg_ok){
+    int desenhadas=0;
+    res_arte=1;
+    /* ms desde a abertura da tela. `GetTimerSystemTime()` conta em ticks de
+       kBUSCLK (147.456.000 Hz) -- a MESMA base que o relogio da musica usa
+       logo acima (`scaled/(u64)kBUSCLK`). Dividir por kBUSCLK/256 daria 256x o
+       tempo: medido no harness, a tela pulava de 0 para 4.266 ms num quadro. */
+    {u64 agora=GetTimerSystemTime();
+     g_res_ms=(int)(((agora-(u64)g_res_t0)*1000ull)/(u64)kBUSCLK);}
+    if(g_res_bg_ok){
+     texbuffer_t bt=stagetex;
+     bt.width=RES_BG_W;bt.psm=GS_PSM_32;bt.address=g_res_bg_addr;
+     setup_texture_dims(&bt,RES_BG_W,RES_BG_H);
+     q=bind_texture_filter(q,&bt,0);
+     q=sprite_region(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0.0f,0.0f,
+                     (float)RES_BG_W,(float)RES_BG_H);
+    }
+    for(i=0;i<(int)RES_FOLHAS;i++){
+     int qd;texbuffer_t ft=stagetex;
+     if(i>=g_res_ok||!g_res_addr[i]||!g_res_pixels)continue;
+     qd=res_quadro(&g_res,i,(unsigned long)g_res_ms);
+     if(qd<0)continue;
+     ft.width=(unsigned int)g_res_folha[i].w;ft.psm=GS_PSM_32;ft.address=g_res_addr[i];
+     if((unsigned int)qd!=g_res_frame[i]){
+      if(res_pixels(&g_res,i,qd,g_res_pixels)==PST_OK){
+       setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+       FlushCache(0);
+       upload_raw(&ft,g_res_pixels,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+       g_res_frame[i]=(unsigned int)qd;
+      }else{qd=-1;}
+     }
+     if(qd<0)continue;
+     setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
+     q=bind_texture_filter(q,&ft,1);
+     q=sprite_region(q,g_res_folha[i].x,g_res_folha[i].y,
+                     (float)g_res_folha[i].w,(float)g_res_folha[i].h,
+                     0.0f,0.0f,(float)g_res_folha[i].w,(float)g_res_folha[i].h);
+     desenhadas++;
+    }
+    /* Quantas folhas estao na tela AGORA (e em que ms). A primeira chamada
+       desenha so' o fundo -- as folhas entram em 250/875/1500 ms --, entao sem
+       este evento "a tela desenhou 99 quads" nao diz se a ARTE chegou a
+       aparecer ou se ficou so' o fundo. */
+    if(desenhadas!=g_res_desenhadas){g_res_desenhadas=desenhadas;
+     telemetry_event("resultado_folhas",desenhadas,g_res_ms);}
+
+    q=bind_texture_filter(q,&fonttex,1);
+   }
+   if(!res_arte)q=rect_alpha(q,60.0f,60.0f,580.0f,292.0f,0,0,0,200);
    q=bind_texture_filter(q,&fonttex,1);
-   q=text_draw(q,"RESULTS",320,72,1.6f,1);
-   q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),320,104,1.4f,1);
+   /* Com a arte carregada, os numeros vao para a direita: as tres folhas
+      ocupam x = -100..165 (ratings/score) e o "RESULTS!" o topo. E' degradacao
+      de LEIAUTE (o dado e' o mesmo), nao de evento. */
+   {float tx=res_arte?470.0f:320.0f;float ty=res_arte?-24.0f:0.0f;
+   q=text_draw(q,"RESULTS",tx,ty+72,1.6f,1);
+   q=text_draw(q,fnf_rank_name(fnf_play_rank(&g_play)),tx,ty+104,1.4f,1);
    /* Placar: no Story Mode e' o da CAMPANHA (PlayState.hx L3885), nao o da
       musica isolada. Fora dele, o da musica. */
    snprintf(lb,sizeof(lb),"SCORE %ld",g_story_mode?g_campaign_score:(long)g_play.score);
-   q=text_draw(q,lb,320,140,1.1f,1);
+   q=text_draw(q,lb,tx,ty+140,1.1f,1);
    snprintf(lb,sizeof(lb),"SICK %d   GOOD %d   BAD %d",g_play.sick,g_play.good,g_play.bad);
-   q=text_draw(q,lb,320,168,0.9f,1);
+   q=text_draw(q,lb,tx,ty+168,0.9f,1);
    snprintf(lb,sizeof(lb),"SHIT %d   MISS %d",g_play.shit,g_play.missed);
-   q=text_draw(q,lb,320,190,0.9f,1);
+   q=text_draw(q,lb,tx,ty+190,0.9f,1);
    snprintf(lb,sizeof(lb),"MAX COMBO %d",g_play.max_combo);
-   q=text_draw(q,lb,320,216,0.9f,1);
+   q=text_draw(q,lb,tx,ty+216,0.9f,1);
    snprintf(lb,sizeof(lb),"CLEAR %d%%",fnf_play_clear_percent(&g_play));
-   q=text_draw(q,lb,320,242,1.1f,1);
-   q=text_draw(q,"CROSS  CONTINUE",320,272,0.8f,1);
+   q=text_draw(q,lb,tx,ty+242,1.1f,1);
+   q=text_draw(q,"CROSS  CONTINUE",tx,ty+272,0.8f,1);}   /* fecha o bloco do leiaute */
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
-   if(!g_result_drawn){g_result_drawn=1;telemetry_event("result_draw",g_frame_texture_quads-q0,0);}
+   if(!g_result_drawn){g_result_drawn=1;
+    telemetry_event("result_draw",g_frame_texture_quads-q0,0);
+    /* O que a arte fez: folhas abertas, fundo carregado e quantos quads
+       texturizados o bloco emitiu. O harness cobra o conjunto. */
+    telemetry_event("resultado_cena",g_res_ok|(g_res_bg_ok<<8),(int)g_frame_texture_quads-q0);}
   }
   if(ui_state==8&&!g_tutorial_scene_ready){char msg[40];snprintf(msg,sizeof(msg),"TUTORIAL ASSET ERROR %d",g_tutorial_scene_status);q=text_draw(q,msg,320,200,1.0f,1);q=text_draw(q,"CIRCLE  RETURN TO STORY",320,260,.70f,1);}
   if(ui_state==0 && components_mode){char v[32];q=text_draw(q,"UI COMPONENTS",320,30,2.0f,1);snprintf(v,sizeof(v),"TOGGLE: %s",toggle_value?"ON":"OFF");q=text_draw(q,v,155,94,1.2f,0);snprintf(v,sizeof(v),"SLIDER: %d",slider_value);q=text_draw(q,v,155,156,1.2f,0);snprintf(v,sizeof(v),"TAB: %d   L1/R1",tab_value+1);q=text_draw(q,v,155,218,1.2f,0);q=text_draw(q,"DISABLED OPTION",155,280,1.2f,0);q=text_draw(q,"SCROLL ITEM",155,342,1.2f,0);q=text_draw(q,"TRIANGLE/CIRCLE: BACK",320,410,1.0f,1);}

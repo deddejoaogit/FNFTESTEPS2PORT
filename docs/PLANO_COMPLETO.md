@@ -3076,6 +3076,29 @@ empacotador não pegou": o clone precisa de `git sparse-checkout add`.
 | Arte da tela de RESULTADO | `ResultState.hx` (v0.8.6) monta a tela com 9 folhas animadas; o port desenha os mesmos NÚMEROS num painel preto | ver a tabela medida abaixo |
 | Cápsulas da Freeplay | a pasta `freeplay` não está no clone esparso (não é arte ausente do jogo) | `git sparse-checkout add shared/images/freeplay` + empacotador |
 
+#### A tela de Resultado: a arte entrou
+
+`ResultState.hx` (v0.8.6) monta a cena com folhas Sparrow animadas. Tres delas
+estao empacotadas e desenhadas (ver abaixo); as demais seguem medidas na tabela.
+
+O que roda hoje (`tools/run_gameplay_harness.sh`, 5600 quadros):
+`resultado_arte` = 3 folhas abertas, `resultado_fundo` = 1, e as folhas entram
+nos **timers exatos da fonte** — 250 ms (6/24 s), 883 ms (21/24 s + 1 quadro) e
+1500 ms (36/24 s) —, com o ultimo quadro congelado na tela (`looped = false` no
+flixel para, nao some). O caminho e' o mesmo dos personagens: CFZ4 lido quadro a
+quadro por `engine/pack_stream.c`, um quadro por vez na VRAM, e a VRAM vem do
+pool — o palco ja' foi solto quando a tela abre (1.269.760 B livres medidos,
+contra os 480.968 B que a tela pede).
+
+O fundo e' o `FlxGradient` de 90 graus da fonte (0xFFFECC5C -> 0xFFFDC05C) numa
+textura de **16x360** esticada na horizontal: 23.040 B e um quad, em vez de 360
+retangulos de cor por quadro.
+
+Os NUMEROS da tela continuam sendo texto da fonte do port. A arte dos digitos
+(`resultScreen/score-digital-numbers`, 52 subtexturas de 95x125) e a do rank
+(`rankText`, `results-bf`, `results-pico`) ainda nao foram empacotadas — e' a
+proxima peca, com o custo ja' medido na tabela abaixo.
+
 #### A tela de Resultado: o que falta, medido
 
 `ResultState.hx` L119-160 e L359-386. Tudo é desenhado em 1280x720; o port
