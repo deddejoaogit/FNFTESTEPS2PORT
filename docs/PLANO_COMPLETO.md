@@ -2460,3 +2460,45 @@ de kind dele está em 8,9 s. Com 6 s sobram `blazin` (24 notas jogáveis) e `ugh
 Medido no passe v5 completo: **81/81 combinações, 42 aplicações de kind**, e o
 resumo do sweep passou a imprimir esse número (`note kinds aplicados pelo jogo:
 42 nota(s) em toda a passada`).
+
+## Os 21 palcos reempacotados da arte de verdade (o passo que faltava)
+
+O documento dizia "falta reempacotar, que precisa do clone de 2,5 GB da arte e
+por isso não roda aqui". O clone existe e agora foi usado: **os 21 palcos, 157
+props, foram empacotados da arte real**, não do plano.
+
+O que mudou de fato é a **escala de cada palco**, e ela caiu de ~0,31 para ~0,28
+nos palcos que batem no teto de VRAM. O motivo é medido, não gosto: o
+empacotador roda **os dois orçamentos** (VRAM e RAM) e fica com o menor deles.
+Com o orçamento de VRAM de 1.337.520 B (`4 MB − 2 framebuffers − fonte/HUD/notas
+− três quadros de personagem no tamanho nativo`), o `limoRide` que estava em
+**1.870.848 B** no plano antigo ficou em **1.336.816 B** — dentro.
+
+| | plano antigo | reempacotado |
+|---|---|---|
+| palcos com pacote | 1 (`mainStage`) | **21** |
+| props com pacote | 3 | **157** |
+| pior palco em VRAM | 1.870.848 B (**estouro** do teto de 1.337.520) | **1.336.816 B** (`limoRide`), 100 % do teto |
+| palcos que passam do teto | 15 de 21 | **0 de 21** |
+| bytes no pendrive | — | **10.423.199 B** em 21 palcos |
+| `mainStage/stageBack` | 802×438 | **712×389** (escala 0,313 → 0,278) |
+
+E o pior caso de RAM por palco (`check_stage_budget.py`, que soma o pacote
+inteiro e a tabela do leitor por quadro) continua dentro do limite de
+16.182.527 B: o maior é o `limoRideErect` com 16.138.576 B — 99,7 % do teto, que
+é o que se quer de um orçamento que está sendo usado.
+
+**O que isso custa em imagem:** os palcos ficam ~11 % menores que o plano antigo
+(que não cabia). A regra do trabalho é explícita — *a fidelidade da imagem é
+negociável, a do jogo não* — e o plano antigo comprava nitidez com VRAM que o
+console não tem.
+
+**O que NÃO está provado:** que os 21 palcos *pareçam* certos na tela. O harness
+sintetiza os props (prova o encanamento: pacote → pool → desenho → geometria),
+mas não tem rasterizador. O teste de aceitação é a captura do console.
+
+Os três headers saíram do mesmo plano, e o `--check` de cada um roda na suíte:
+`stage-props.json` (plano), `src/stage_dados.h` (157 props, 199 animações) e
+`src/engine/stage_vram_data.h` (tabela de VRAM). O teste de layout prende
+712×389 escrito à mão de propósito: se o empacotador mudar a escala, o número
+tem de ser reconferido em vez de o teste acompanhar sozinho.

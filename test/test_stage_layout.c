@@ -103,9 +103,16 @@ int main(void)
         CHECK_NEAR(it[0].y0, -241.3550f);
         CHECK_NEAR(it[0].w, 1408.0f);
         CHECK_NEAR(it[0].h, 770.0f);
-        /* A textura e' 802x438 (o pacote reduzido), nao 2560x1400. */
-        CHECK_EQ(it[0].tex_w, 802);
-        CHECK_EQ(it[0].tex_h, 438);
+        /* A textura e' a do PACOTE reduzido, nao 2560x1400. Os numeros saem
+           do plano (`assets-data/stage-props.json`, 712x389 para o
+           `mainStage/stageBack`), e o teste os escreve a mao de proposito: se
+           o empacotador mudar a escala, este numero tem de ser reconferido em
+           vez de o teste acompanhar sozinho. A escala caiu de 0,313 para 0,278
+           quando o empacotamento passou a rodar sobre a arte de verdade com os
+           DOIS orcamentos (VRAM e RAM): o `limoRide` estava em 1.870.848 B de
+           VRAM contra um teto de 1.337.520 B. */
+        CHECK_EQ(it[0].tex_w, 712);
+        CHECK_EQ(it[0].tex_h, 389);
         /* O fundo cobre a tela inteira, senao aparece borda preta. */
         CHECK(it[0].x0 <= 0.0f);
         CHECK(it[0].y0 <= 0.0f);
