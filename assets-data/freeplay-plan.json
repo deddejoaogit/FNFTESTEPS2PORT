@@ -1,0 +1,271 @@
+{
+ "capsula": {
+  "fonte": "freeplay/freeplayCapsule/capsule/freeplayCapsule",
+  "tex": "freeplay/capsula.cfz4",
+  "partes": [
+   "capsula.cfz4"
+  ],
+  "src_w": 612,
+  "src_h": 132,
+  "w": 306,
+  "h": 66,
+  "quadros": 16,
+  "sel_ini": 0,
+  "sel_n": 8,
+  "nao_ini": 8,
+  "nao_n": 8,
+  "fps": 24,
+  "real_scaled": 0.8,
+  "vram_bytes": 80784,
+  "linha": "SongMenuItem.hx L84-87 (capsula) e L619 (realScaled)"
+ },
+ "titulos": {
+  "tutorial": {
+   "id": "tutorial",
+   "titulo": "Tutorial",
+   "arquivo": "freeplay/tit_tutorial.rgba",
+   "w": 65,
+   "h": 17,
+   "vram_bytes": 4420
+  },
+  "bopeebo": {
+   "id": "bopeebo",
+   "titulo": "Bopeebo",
+   "arquivo": "freeplay/tit_bopeebo.rgba",
+   "w": 63,
+   "h": 17,
+   "vram_bytes": 4284
+  },
+  "fresh": {
+   "id": "fresh",
+   "titulo": "Fresh",
+   "arquivo": "freeplay/tit_fresh.rgba",
+   "w": 47,
+   "h": 17,
+   "vram_bytes": 3196
+  },
+  "dadbattle": {
+   "id": "dadbattle",
+   "titulo": "DadBattle",
+   "arquivo": "freeplay/tit_dadbattle.rgba",
+   "w": 76,
+   "h": 17,
+   "vram_bytes": 5168
+  },
+  "spookeez": {
+   "id": "spookeez",
+   "titulo": "Spookeez",
+   "arquivo": "freeplay/tit_spookeez.rgba",
+   "w": 71,
+   "h": 17,
+   "vram_bytes": 4828
+  },
+  "south": {
+   "id": "south",
+   "titulo": "South",
+   "arquivo": "freeplay/tit_south.rgba",
+   "w": 47,
+   "h": 17,
+   "vram_bytes": 3196
+  },
+  "monster": {
+   "id": "monster",
+   "titulo": "Monster",
+   "arquivo": "freeplay/tit_monster.rgba",
+   "w": 63,
+   "h": 17,
+   "vram_bytes": 4284
+  },
+  "pico": {
+   "id": "pico",
+   "titulo": "Pico",
+   "arquivo": "freeplay/tit_pico.rgba",
+   "w": 36,
+   "h": 17,
+   "vram_bytes": 2448
+  },
+  "philly-nice": {
+   "id": "philly-nice",
+   "titulo": "Philly Nice",
+   "arquivo": "freeplay/tit_philly-nice.rgba",
+   "w": 79,
+   "h": 17,
+   "vram_bytes": 5372
+  },
+  "blammed": {
+   "id": "blammed",
+   "titulo": "Blammed",
+   "arquivo": "freeplay/tit_blammed.rgba",
+   "w": 60,
+   "h": 17,
+   "vram_bytes": 4080
+  },
+  "satin-panties": {
+   "id": "satin-panties",
+   "titulo": "Satin Panties",
+   "arquivo": "freeplay/tit_satin-panties.rgba",
+   "w": 100,
+   "h": 17,
+   "vram_bytes": 6800
+  },
+  "high": {
+   "id": "high",
+   "titulo": "High",
+   "arquivo": "freeplay/tit_high.rgba",
+   "w": 36,
+   "h": 17,
+   "vram_bytes": 2448
+  },
+  "milf": {
+   "id": "milf",
+   "titulo": "M.I.L.F",
+   "arquivo": "freeplay/tit_milf.rgba",
+   "w": 48,
+   "h": 17,
+   "vram_bytes": 3264
+  },
+  "cocoa": {
+   "id": "cocoa",
+   "titulo": "Cocoa",
+   "arquivo": "freeplay/tit_cocoa.rgba",
+   "w": 47,
+   "h": 17,
+   "vram_bytes": 3196
+  },
+  "eggnog": {
+   "id": "eggnog",
+   "titulo": "Eggnog",
+   "arquivo": "freeplay/tit_eggnog.rgba",
+   "w": 55,
+   "h": 17,
+   "vram_bytes": 3740
+  },
+  "winter-horrorland": {
+   "id": "winter-horrorland",
+   "titulo": "Winter Horrorland",
+   "arquivo": "freeplay/tit_winter-horrorland.rgba",
+   "w": 132,
+   "h": 17,
+   "vram_bytes": 8976
+  },
+  "senpai": {
+   "id": "senpai",
+   "titulo": "Senpai",
+   "arquivo": "freeplay/tit_senpai.rgba",
+   "w": 52,
+   "h": 17,
+   "vram_bytes": 3536
+  },
+  "roses": {
+   "id": "roses",
+   "titulo": "Roses",
+   "arquivo": "freeplay/tit_roses.rgba",
+   "w": 47,
+   "h": 17,
+   "vram_bytes": 3196
+  },
+  "thorns": {
+   "id": "thorns",
+   "titulo": "Thorns",
+   "arquivo": "freeplay/tit_thorns.rgba",
+   "w": 55,
+   "h": 17,
+   "vram_bytes": 3740
+  },
+  "ugh": {
+   "id": "ugh",
+   "titulo": "Ugh",
+   "arquivo": "freeplay/tit_ugh.rgba",
+   "w": 32,
+   "h": 17,
+   "vram_bytes": 2176
+  },
+  "guns": {
+   "id": "guns",
+   "titulo": "Guns",
+   "arquivo": "freeplay/tit_guns.rgba",
+   "w": 39,
+   "h": 17,
+   "vram_bytes": 2652
+  },
+  "stress": {
+   "id": "stress",
+   "titulo": "Stress",
+   "arquivo": "freeplay/tit_stress.rgba",
+   "w": 55,
+   "h": 17,
+   "vram_bytes": 3740
+  },
+  "darnell": {
+   "id": "darnell",
+   "titulo": "Darnell",
+   "arquivo": "freeplay/tit_darnell.rgba",
+   "w": 57,
+   "h": 17,
+   "vram_bytes": 3876
+  },
+  "lit-up": {
+   "id": "lit-up",
+   "titulo": "Lit Up",
+   "arquivo": "freeplay/tit_lit-up.rgba",
+   "w": 48,
+   "h": 17,
+   "vram_bytes": 3264
+  },
+  "2hot": {
+   "id": "2hot",
+   "titulo": "2hot",
+   "arquivo": "freeplay/tit_2hot.rgba",
+   "w": 39,
+   "h": 17,
+   "vram_bytes": 2652
+  },
+  "blazin": {
+   "id": "blazin",
+   "titulo": "Blazin'",
+   "arquivo": "freeplay/tit_blazin.rgba",
+   "w": 52,
+   "h": 17,
+   "vram_bytes": 3536
+  },
+  "spaghetti": {
+   "id": "spaghetti",
+   "titulo": "SPAGHETTI (feat. j-hope of BTS) (Clean ver.)",
+   "arquivo": "freeplay/tit_spaghetti.rgba",
+   "w": 304,
+   "h": 17,
+   "vram_bytes": 20672
+  }
+ },
+ "escala": 0.5,
+ "x_base": 135.0,
+ "x_amp": 30.0,
+ "y_base": 60.0,
+ "y_passo": 57.8,
+ "desenho_w": 244.8,
+ "desenho_h": 52.8,
+ "texto_x": 63.648,
+ "texto_y": 18.0,
+ "texto_clip": 102.0,
+ "xframes": [
+  1.7,
+  1.8,
+  0.85,
+  0.85,
+  0.97,
+  0.97,
+  1.0
+ ],
+ "xpos_lerp": [
+  0.0,
+  0.0,
+  0.16,
+  0.16,
+  0.22,
+  0.22,
+  0.245
+ ],
+ "lerp_x": 0.256,
+ "lerp_y": 0.192,
+ "nota": "Gerado por tools/empacotar_freeplay.py a partir de preload/images/freeplay do funkin.assets. Constantes e posicoes: SongMenuItem.hx / CapsuleText.hx v0.8.6. O header src/engine/freeplay_dados.h e' RENDERIZACAO deste arquivo."
+}

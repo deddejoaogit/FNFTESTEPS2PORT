@@ -39,6 +39,7 @@
 #include "engine/health_icon.h"
 #include "engine/splash.h"
 #include "engine/resultado.h"
+#include "engine/freeplay.h"
 #include "gameover_dados.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
@@ -1597,6 +1598,219 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
         sp_fixar(&g_pool, SP_CHAVE_TELA_BASE + 1u);
     }
     telemetry_event("pool_cena", novo_ui, (int)sp_livre(&g_pool));
+}
+
+/* ============ FREEPLAY: AS CAPSULAS DE MUSICA ============
+   `SongMenuItem.hx` L84-87: cada musica e' um Sparrow de 16 quadros (8 da
+   animacao `selected`, 8 da `unselected`) a 24 fps, desenhado a
+   `realScaled = 0,8`; `intendedX/intendedY` (L762-770) poem a lista numa curva
+   de seno (x) e num passo vertical (y), e o sprite PERSEGUE o alvo com
+   `smoothLerpPrecision` (0,256 s em x, 0,192 s em y -- L735-736). A entrada e'
+   o `initJumpIn` (L624-647 e L670-700): uma casa de escala por 1/24 s, com
+   `xFrames[k]` em x e o INVERSO em y, saindo de `x = FlxG.width` (fora da
+   tela) e aparecendo com alpha 1 depois de `(7/24)*2,5` s.
+
+   A arte vem de `tools/empacotar_freeplay.py`: um CFZ4 com os 16 quadros da
+   capsula (306x66, 80.784 B por quadro) e um RGBA por titulo (no maximo
+   20.672 B). Na VRAM ficam DOIS quadros de capsula -- o da selecionada e o da
+   nao selecionada -- e ate' oito titulos, num cache que troca por leitura
+   quando a lista rola. */
+#define FP_DIR "mass:/FNFPS2/assets/"
+#define FP_CHAVE_CAP (SP_CHAVE_TELA_BASE + 0x40u)   /* +0 selecionada, +1 nao */
+#define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* 8 slots de titulo      */
+#define FP_TIT_SLOTS 8
+#define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
+
+static pst_pack_t g_fpc_pack;
+static int g_fpc_ok = 0, g_fpc_tentou = 0;
+static unsigned char *g_fpc_buf = 0;
+static unsigned int g_fpc_buf_bytes = 0;
+static unsigned int g_fpc_addr[2] = {0, 0};
+static int g_fpc_addr_ok[2] = {0, 0};
+static int g_fpc_frame[2] = {-1, -1};
+static int g_fpc_desenhos = 0;
+static unsigned char g_fpt_buf[24576];
+/* Um slot POR MUSICA: os 27 titulos somam 122.740 B de VRAM (o maior,
+   `spaghetti`, 20.672 B), e todos cabem no pool da tela -- entao eles sobem
+   TODOS na abertura e a lista rola SEM I/O. O cache de 8 slots anterior
+   re lia um arquivo por quadro quando a janela passava de oito musicas. */
+static struct { int song; unsigned int addr; int w, h, ok; } g_fpt[FREEPLAY_MAX];
+static unsigned int g_fpt_bytes = 0;
+static int g_fpt_falhas = 0;
+/* O estado de cada capsula: e' POR MUSICA (a posicao persegue o alvo com lerp,
+   e a animacao recomeca quando ela passa a ser a selecionada). */
+typedef struct { int sel; unsigned long t_anim; float x, y; int vivo;
+              int texto_ok; unsigned long t_texto; } fp_cap_st;
+static fp_cap_st g_fpcs[FREEPLAY_MAX];
+static u64 g_fp_t0 = 0;
+static int g_fp_ms = 0;
+static int g_fp_cap_logado = 0;
+/* O `texbuffer_t` ja' montado de cada um dos dois quadros de capsula (o
+   `freeplay_capsula_quadro` devolve o que subiu, para a tela nao remontar). */
+static texbuffer_t g_fptex_cap[2];
+static texbuffer_t g_fpc_tpl;   /* o texbuffer de onde os uploads copiam o resto */
+static texbuffer_t g_fptex_sel, g_fptex_nao;
+#define FP_LARGURA 640.0f   /* `FlxG.width` do original (1280) na metade */
+/* O desenho da capsula e' `capsule.width/height * realScaled(0,8) * metade`,
+   vezes a escala do salto de entrada. */
+static float fp_desenho_w(float s) { return FP_DESENHO_W * s; }
+static float fp_desenho_h(float s) { return FP_DESENHO_H * s; }
+
+static void freeplay_capsula_soltar(void)
+{
+    int i;
+    if (g_fpc_tentou) pst_fechar(&g_fpc_pack);
+    g_fpc_ok = 0; g_fpc_tentou = 0;
+    if (g_fpc_buf) { free(g_fpc_buf); g_fpc_buf = 0; g_fpc_buf_bytes = 0; }
+    for (i = 0; i < 2; i++) {
+        sp_soltar(&g_pool, FP_CHAVE_CAP + (unsigned)i);
+        g_fpc_addr_ok[i] = 0; g_fpc_addr[i] = 0; g_fpc_frame[i] = -1;
+    }
+    for (i = 0; i < FREEPLAY_MAX; i++) {
+        if (g_fpt[i].ok || g_fpt[i].addr) sp_soltar(&g_pool, FP_CHAVE_TIT + (unsigned)i);
+        g_fpt[i].ok = 0; g_fpt[i].song = -1; g_fpt[i].addr = 0;
+    }
+    g_fpt_bytes = 0; g_fpt_falhas = 0;
+    for (i = 0; i < FREEPLAY_MAX; i++) {
+        g_fpcs[i].vivo = 0; g_fpcs[i].sel = 0; g_fpcs[i].t_anim = 0;
+    }
+}
+
+static int freeplay_capsula_carregar(texbuffer_t *tpl)
+{
+    char caminho[128];
+    unsigned int bytes;
+    int i;
+    freeplay_capsula_soltar();
+    if (tpl) g_fpc_tpl = *tpl;
+    snprintf(caminho, sizeof(caminho), FP_DIR "%s", FP_CAP_TEX);
+    if (pst_abrir(caminho, &g_fpc_pack) != PST_OK) {
+        g_fpc_tentou = 0;
+        telemetry_event("freeplay_sem_capsula", 0, (int)sp_livre(&g_pool));
+        return 0;
+    }
+    g_fpc_tentou = 1;
+    bytes = g_fpc_pack.frame_bytes;
+    if (bytes > g_fpc_buf_bytes) {
+        free(g_fpc_buf);
+        g_fpc_buf = (unsigned char *)memalign(64, (size_t)bytes);
+        g_fpc_buf_bytes = g_fpc_buf ? bytes : 0u;
+    }
+    if (!g_fpc_buf) {
+        pst_fechar(&g_fpc_pack);
+        g_fpc_tentou = 0;
+        return 0;
+    }
+    for (i = 0; i < 2; i++) {
+        unsigned int addr = 0;
+        if (sp_chave(&g_pool, FP_CHAVE_CAP + (unsigned)i, bytes, &addr) >= 0) {
+            g_fpc_addr[i] = addr;
+            g_fpc_addr_ok[i] = 1;
+            g_fpc_frame[i] = -1;
+        }
+    }
+    g_fpc_ok = (g_fpc_addr_ok[0] && g_fpc_addr_ok[1]);
+    telemetry_event("freeplay_capsula", g_fpc_ok, (int)bytes);
+    /* OS TITULOS: todos de uma vez, porque somados eles sao menores que o
+       maior quadro de capsula (ver o comentario de `g_fpt`). */
+    for (i = 0; i < g_fp_n && i < FREEPLAY_MAX; i++) {
+        const sr_song_t *song = g_fp[i];
+        const fp_titulo_t *t;
+        char caminho[192];
+        unsigned int b, addr = 0;
+        if (!song) continue;
+        t = fp_titulo(song->id);
+        if (!t || !t->w || !t->h) { g_fpt_falhas++; continue; }
+        b = (unsigned)t->w * (unsigned)t->h * 4u;
+        if (b > sizeof(g_fpt_buf)) { g_fpt_falhas++; continue; }
+        snprintf(caminho, sizeof(caminho), FP_DIR "freeplay/%s", t->arquivo);
+        if (read_exact_path(caminho, g_fpt_buf, (int)b) != 0) {
+            telemetry_event("freeplay_titulo_falta", i, 0);
+            g_fpt_falhas++;
+            continue;
+        }
+        if (sp_chave(&g_pool, FP_CHAVE_TIT + (unsigned)i, b, &addr) < 0) {
+            telemetry_event("freeplay_titulo_sem_vram", i, (int)sp_livre(&g_pool));
+            g_fpt_falhas++;
+            continue;
+        }
+        {
+            texbuffer_t up = g_fpc_tpl;
+            up.width = (unsigned)t->w;
+            up.psm = GS_PSM_32;
+            up.address = addr;
+            setup_texture_dims(&up, (int)t->w, (int)t->h);
+            FlushCache(0);
+            upload_raw(&up, g_fpt_buf, (int)t->w, (int)t->h);
+        }
+        g_fpt[i].song = i;
+        g_fpt[i].addr = addr;
+        g_fpt[i].w = (int)t->w;
+        g_fpt[i].h = (int)t->h;
+        g_fpt[i].ok = 1;
+        g_fpt_bytes += b;
+    }
+    telemetry_event("freeplay_titulos", g_fpt_bytes, g_fpt_falhas);
+    return g_fpc_ok;
+}
+
+/* Leva o quadro `quadro` da animacao `sel` para a VRAM. Devolve 1 quando o
+   quadro esta' la' (o cache evita reenviar o mesmo quadro duas vezes). */
+static int freeplay_capsula_quadro(texbuffer_t *tpl, int sel, int quadro)
+{
+    texbuffer_t t;
+    unsigned int frame;
+    if (!g_fpc_ok || !g_fpc_buf || sel < 0 || sel > 1) return 0;
+    if (quadro < 0) return 0;
+    if (g_fpc_frame[sel] == quadro) return 1;
+    frame = (unsigned int)((sel ? FP_CAP_SEL_INI : FP_CAP_NAO_INI) + quadro);
+    if (pst_quadro(&g_fpc_pack, frame, g_fpc_buf) != PST_OK) return 0;
+    t = *tpl;
+    t.width = FP_CAP_W;
+    t.psm = GS_PSM_32;
+    t.address = g_fpc_addr[sel];
+    setup_texture_dims(&t, FP_CAP_W, FP_CAP_H);
+    FlushCache(0);
+    upload_raw(&t, g_fpc_buf, FP_CAP_W, FP_CAP_H);
+    g_fpc_frame[sel] = quadro;
+    g_fptex_cap[sel] = t;
+    if (sel) g_fptex_sel = t; else g_fptex_nao = t;
+    g_fpc_desenhos++;
+    return 1;
+}
+
+/* O titulo da musica `si` da lista, na VRAM -- so' CONSULTA: quem sobe a arte
+   e' `freeplay_titulos_carregar()`, uma vez por entrada na tela. */
+static const fp_titulo_t *freeplay_titulo(int si, texbuffer_t *out)
+{
+    const sr_song_t *song;
+    const fp_titulo_t *t;
+    if (si < 0 || si >= g_fp_n || si >= FREEPLAY_MAX) return 0;
+    if (!g_fpt[si].ok) return 0;
+    song = g_fp[si];
+    if (!song) return 0;
+    t = fp_titulo(song->id);
+    if (!t) return 0;
+    out->width = (unsigned)g_fpt[si].w;
+    out->psm = GS_PSM_32;
+    out->address = g_fpt[si].addr;
+    setup_texture_dims(out, g_fpt[si].w, g_fpt[si].h);
+    return t;
+}
+
+/* O "letreiro" do titulo longo (`CapsuleText.moveTextRight/Left`, L126-166):
+ * 0,6 s parado, 2 s indo para a direita com `sineInOut`, 0,3 s parado, 2 s
+ * voltando, 0,3 s parado -- e recomeca. Devolve o deslocamento em px da tela. */
+static float freeplay_letreiro(unsigned long desde_ms, float distancia)
+{
+    float t = (float)(desde_ms % 5200ul) / 1000.0f;
+    float u;
+    if (distancia <= 0.0f) return 0.0f;
+    if (t < 0.6f) return 0.0f;
+    if (t < 2.6f) { u = (t - 0.6f) / 2.0f; return distancia * (0.5f - 0.5f * cosf(3.14159265f * u)); }
+    if (t < 2.9f) return distancia;
+    if (t < 4.9f) { u = (t - 2.9f) / 2.0f; return distancia * (0.5f + 0.5f * cosf(3.14159265f * u)); }
+    return 0.0f;
 }
 
 /* ===== ICONES DE VIDA DO HUD (engine/health_icon.c) =====
@@ -5123,7 +5337,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11)freeplay_capsula_soltar();palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;resmus_parar();telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
@@ -5145,7 +5359,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       pendrive usa FCH5, entao um numero aqui significa que o chart carregado
       nao era o do build. */
    if(chart_events_state()->bop_sem_parametros)telemetry_event("bop_sem_parametros",
-      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;/* a arte das capsulas e a contagem do tempo da tela (os timers do "initJumpIn" contam daqui) */freeplay_capsula_carregar(&stagetex);g_fp_t0=GetTimerSystemTime();g_fp_ms=0;g_fp_cap_logado=0;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -6018,41 +6232,104 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      destaque. A janela de 9 linhas existe porque sao 27 musicas e nao cabe
      tudo na tela. */
   if(ui_state==11){
-   char lb[96];int i,q0=g_frame_texture_quads,ini;
+   char lb[96];int i,q0=g_frame_texture_quads,ini,ndes=0;
    static const char*dn[3]={"EASY","NORMAL","HARD"};
-   int janela=9;
+   int passo,qsel,qnao;
+   texbuffer_t tsel=g_fptex_sel, tnao=g_fptex_nao;
+   unsigned long ms;
+   {u64 agora=GetTimerSystemTime();g_fp_ms=(int)(((agora-g_fp_t0)*1000ull)/(u64)kBUSCLK);}
+   ms=(unsigned long)g_fp_ms;
    if(g_fp_sel<0)g_fp_sel=0;
    if(g_fp_sel>=g_fp_n)g_fp_sel=g_fp_n?g_fp_n-1:0;
-   ini=g_fp_sel-janela/2;
-   if(ini<0)ini=0;
-   if(ini>g_fp_n-janela&&g_fp_n>janela)ini=g_fp_n-janela;
-   if(ini<0)ini=0;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
-   q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),8,8,16,255);
-   q=bind_texture_filter(q,&fonttex,1);
-   q=text_draw(q,"FREEPLAY",320,26,1.3f,1);
-   for(i=0;i<janela&&ini+i<g_fp_n;i++){
-    const sr_song_t*song=g_fp[ini+i];
-    float y=54.0f+23.0f*(float)i;
-    unsigned char a=(ini+i==g_fp_sel)?(unsigned char)128:70;
-    if(ini+i==g_fp_sel)q=rect_alpha(q,120.0f,y-3.0f,520.0f,y+19.0f,255,255,255,26);
-    q=text_draw_alpha(q,song->display_name?song->display_name:song->id,132.0f,y,0.85f,0,a);
+   /* O FUNDO da Freeplay (`backingImage`, `freeplayBGweek1-bf`) ainda nao esta'
+      portado -- ver docs/PLANO_COMPLETO.md. O que esta' nesta build sao as
+      CAPSULAS, que sao o que identifica a tela. O retangulo e' em 640x360, como
+      todo o resto da tela (o `vy` leva para 448 linhas quando precisa). */
+   q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,360.0f,8,8,16,255);
+   /* OS DOIS QUADROS DE CAPSULA na VRAM. A animacao e' de 24 fps e e' loopada.
+      Todas as capsulas andam JUNTAS: cada `updateSelected` reinicia a animacao
+      de todas, entao a fase e' uma so' (e a VRAM guarda um quadro de cada). */
+   passo=fp_passo_salto(ms);
+   qsel=fp_quadro(1,ms);
+   qnao=fp_quadro(0,ms);
+   freeplay_capsula_quadro(&stagetex,0,qnao);
+   freeplay_capsula_quadro(&stagetex,1,qsel);
+   /* A JANELA da lista: so' as capsulas que cabem na tela entram no laco. */
+   ini=g_fp_sel-FP_JANELA/2;
+   if(ini<0)ini=0;
+   if(ini>g_fp_n-FP_JANELA&&g_fp_n>FP_JANELA)ini=g_fp_n-FP_JANELA;
+   if(ini<0)ini=0;
+   for(i=ini;i<ini+FP_JANELA&&i<g_fp_n;i++){
+    int sel=(i==g_fp_sel);
+    fp_cap_st *st=&g_fpcs[i];
+    float ax=fp_x(i-g_fp_sel),ay=fp_y_item(i+1,g_fp_sel),sx,sy,ox;
+    float alpha=(ms<(unsigned long)FP_ENTRADA_ESCONDE_MS)?0.5f:1.0f;
+    const fp_titulo_t *tit;
+    texbuffer_t tt;
+    /* `generateSongList`: nasce em `initPosition(FlxG.width, 0)` com
+       `y = intendedY(index) + 10` -- entra pela direita e sobe/desce. */
+    if(!st->vivo){st->vivo=1;st->x=FP_LARGURA;st->y=ay+10.0f;st->sel=sel;}
+    if(st->sel!=sel){
+     /* `updateSelected()` reinicia a animacao e chama `textAppear()`. */
+     st->sel=sel;st->t_texto=(unsigned long)g_fp_ms;st->texto_ok=1;
+    }
+    st->x=fp_suave_x(st->x,ax,1.0f/60.0f);
+    st->y=fp_suave_y(st->y,ay,1.0f/60.0f);
+    /* O salto de entrada: `scale.x = xFrames[passo]`, `scale.y = 1/xFrames[passo]`
+       (L687-688) -- e o passo e' de 1/24 s, 7 vezes. */
+    sx=fp_escala_x(passo);sy=fp_escala_y(passo);
+    if(!st->texto_ok&&ms>=(unsigned long)FP_ENTRADA_ESCONDE_MS){
+     /* `setVisibleGrp(true)` no timer de 729 ms: o texto aparece e faz o
+        `textAppear()` (1,7;0,2 -> 0,4;1,4 -> 1;1). */
+     st->texto_ok=1;st->t_texto=(unsigned long)g_fp_ms;
+    }
+    if(g_fpc_ok){
+     float dx=fp_desenho_w(sx),dy=fp_desenho_h(sy);
+     texbuffer_t ct=(sel?tsel:tnao);
+     /* L795: `capsule.offset.x = isSelected ? 0 : -5` (metade: -2,5). */
+     ox=sel?0.0f:-2.5f;
+     q=bind_texture_filter(q,&ct,1);
+     q=sprite_region_alpha(q,st->x+ox,st->y,dx,dy,0.0f,0.0f,
+                           (float)FP_CAP_W,(float)FP_CAP_H,
+                           (unsigned char)(alpha*255.0f+0.5f));
+     ndes++;
+    }
+    if(!st->texto_ok)continue;
+    tit=freeplay_titulo(i,&tt);
+    if(tit){
+     float tw=(float)tit->w,th=(float)tit->h,u=0.0f,tsx,tsy;
+     unsigned char ta=(unsigned char)((sel?1.0f:0.6f)*alpha*255.0f+0.5f);
+     fp_texto_escala((unsigned long)g_fp_ms-st->t_texto,&tsx,&tsy);
+     if(tw>FP_TEXTO_CLIP){
+      float larga=tw-FP_TEXTO_CLIP;
+      u=sel?freeplay_letreiro((unsigned long)g_fp_ms-st->t_texto,larga):0.0f;
+      if(u<0.0f)u=0.0f;
+      if(u>larga)u=larga;
+      tw=FP_TEXTO_CLIP;
+     }
+     q=bind_texture_filter(q,&tt,1);
+     q=sprite_region_alpha(q,st->x+FP_TEXTO_X,st->y+FP_TEXTO_Y,tw*tsx,th*tsy,
+                           u,0.0f,tw,th,ta);
+    }
    }
+   /* A faixa de baixo. O `FreeplayScore`/as estrelas de dificuldade do original
+      ainda nao estao portados; o que esta' aqui e' a informacao que a tela ja'
+      mostrava (dificuldade, musica e posicao na lista) e os controles. */
    {const sr_song_t*song=g_fp_n?g_fp[g_fp_sel]:0;
     if(song){
-     q=rect_alpha(q,0.0f,266.0f,(float)SCREEN_W,360.0f,16,16,28,255);
-     snprintf(lb,sizeof(lb),"%s",song->display_name?song->display_name:song->id);
-     q=text_draw(q,lb,320,278,1.0f,1);
-     snprintf(lb,sizeof(lb),"ARTIST %s   BPM %d",(song->artist&&song->artist[0])?song->artist:"?",(int)(song->bpm+0.5f));
-     q=text_draw(q,lb,320,298,0.7f,1);
-     snprintf(lb,sizeof(lb),"%s   %d / %d",dn[g_fp_diff<0?0:(g_fp_diff>2?2:g_fp_diff)],g_fp_sel+1,g_fp_n);
-     q=text_draw(q,lb,320,314,0.8f,1);
-     q=text_draw(q,"CROSS  PLAY      CIRCLE  BACK",320,332,0.65f,1);
+     int bl=(g_fp_diff<0?0:(g_fp_diff>2?2:g_fp_diff));
+     q=rect_alpha(q,0.0f,300.0f,100.0f,344.0f,16,16,28,225);
+     snprintf(lb,sizeof(lb),"%s  %d/%d",dn[bl],g_fp_sel+1,g_fp_n);
+     q=text_draw(q,lb,56.0f,314.0f,0.62f,1);
     }}
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
    if(!g_fp_drawn){g_fp_drawn=1;telemetry_event("freeplay_draw",g_frame_texture_quads-q0,g_fp_n);}
+   if(!g_fp_cap_logado&&ndes>0){g_fp_cap_logado=1;
+    telemetry_event("freeplay_capsulas",ndes,(int)(g_fpcs[g_fp_sel].x*10.0f));}
   }
+
   /* SOBREPOSICAO DA PAUSA (ui_state continua 8).
      Fundo preto com alpha subindo de 0 a 0,6 em 0,8 s por FlxEase.quartOut
      (PauseSubState.transitionIn + bgColor 0x99000000 = 60 % de preto) e o menu

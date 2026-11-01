@@ -1692,9 +1692,12 @@ Agora, se o reset falha, o transporte para e recomeça do zero
 (`audio_ring_stop` + `audio_ring_start`), que é o que o Resume da pausa já
 fazia, e o resultado vai para o log (`rebobinar`).
 
-**Fase 3 fechada**, com uma ressalva de arte: a Freeplay desenha a lista e não
-as capsules, e o menu de pausa não tem o ícone/círculo nem o `AtlasFont` do
-original. A informação e o comportamento estão lá; a arte entra com o pacote.
+**Fase 3 fechada**. A ressalva de arte que existia aqui ("a Freeplay desenha a
+lista e não as capsules") **saiu nesta build**: a lista agora são as cápsulas do
+original, com o título renderizado por música — ver *A lista da Freeplay: as
+cápsulas do original*. O menu de pausa continua sem ícone/círculo e sem o
+`AtlasFont` do original, mas está medido que o `PauseSubState.hx` de v0.8.6 não
+usa imagem nenhuma (ver a tabela de pendências).
 
 ## Regra de trabalho desta rodada
 
@@ -3080,7 +3083,6 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Cápsulas da Freeplay | a tela de Freeplay do port ainda desenha uma **lista de texto** num painel; a do original e' o carrossel de capsulas (Sparrow, 2 animacoes x 8 quadros de 585x131, escaladas 0,8 -> 468x104,8 em 1280x720) | empacotador da capsula + titulo por musica (`CapsuleText`), estrelas de dificuldade e o fundo da Freeplay |
 | `soundSystem` da tela de Resultado | 65 quadros, canvas 875x963: 841.508 B por quadro a 0,5 | so' entra rebaixando o atlas do placar (ver abaixo) |
 | Animacao do personagem por rank | `players/{bf,pico}.json` -> `results[rank]`: animacoes Animate/Sparrow com `delay`, `loopFrame`, `scale`, `sound` | leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
 | `highscoreNew` | 524.928 B a 0,5, 75x a sobra do orcamento | degradacao severa ou liberar outra peca |
@@ -3508,6 +3510,72 @@ pacotes ICP1; os note kinds (canto com sufixo, animação nomeada,
 alternância, `moveToBack`/`moveToFront` e tremor de câmera) são aplicados; os
 offsets por animação (155 de 523) entram no desenho; e a ordem de desenho do
 palco é por `zIndex` com os props na mesma lista dos personagens.
+
+## A lista da Freeplay: as capsulas do original (medido)
+
+A tela de Freeplay desenhava uma **lista de texto** num painel. Agora ela desenha
+o carrossel de cápsulas do original, com a arte de verdade, e o título de cada
+música é o `FlxText` renderizado do `5by7` (não há bitmap de letra para compor no
+console).
+
+**A geometria é do `SongMenuItem.hx`/`FreeplayState.hx`, linha por linha:**
+
+    intendedX(i) = 270 + 60*sin(i)                                (L761-765)
+    intendedY(i) = i*((capsule.height*0.8) + 10) + 120             (L766-770)
+    y = intendedY(index - sel); if (rel < 0) y -= 50;
+    else if (rel > 4) y -= -10; if (index < sel) y -= 100;        (L2941-2949)
+    x persegue o alvo com smoothLerpPrecision: 0,256 s e 0,192 s   (L735-736)
+    entrada: 7 passos de 1/24 s com xFrames[] em x e 1/xFrames em y (L683-700)
+    alpha 0,5 desde a criação e 1 no timer de (7/24)*2,5 = 729 ms  (L988, L639)
+    textAppear: (1,7;0,2) -> (0,4;1,4) -> (1;1) em 3/24 s          (L518-532)
+    texto não selecionado: alpha 0,6 e `capsule.offset.x = -5`     (L796-799)
+
+O `index` de `changeSelection` é **1-based** e o `curSelected` é 0-based, então o
+item selecionado tem `rel = 1` e fica em `intendedY(1)`, não em `intendedY(0)` —
+foi um erro de leitura meu (o teste `test/test_freeplay.c` cobra o valor certo).
+
+**O `CUTOUT_WIDTH` é zero nesta plataforma, e isso é decisão, não esquecimento.**
+`FreeplayState.CUTOUT_WIDTH = FullScreenScaleMode.gameCutoutSize.x / 1.5`
+(L121), e `gameCutoutSize` só é preenchido quando existe **recorte de tela de
+aparelho** (`FullScreenScaleMode.updateDeviceCutout`, L299-313, e
+`adjustGameSize`, L420+: os dois exigem `enabled`, que só liga em Android com
+cutout). Num aparelho sem cutout — o caso do PS2 — `gameCutoutSize` fica `(0,0)`
+e o deslocamento `CUTOUT_WIDTH * SONGS_POS_MULTI` das cápsulas é **0**. Por isso
+`FP_X_BASE = 135` e não `135 + 320`.
+
+**A arte, com o número de cada peça:**
+
+| peça | origem | tamanho na tela (640x360) | VRAM |
+|---|---|---|---|
+| cápsula, 16 quadros (8 `selected`, 8 `unselected`) | `freeplayCapsule/capsule/freeplayCapsule` 2048x1024 (quadro 612x132) | 306x66, desenhada a 244,8x52,8 | 80.784 B por quadro, **2 quadros residentes** = 161.568 B |
+| título, um RGBA por música | `CapsuleText` = `FlxText` `fonts/5by7.ttf`, 40*0,8*0,5 = **12,8 px** | 1:1, recorte de 102 px (`clipWidth` 255 * 0,4) | **27 títulos = 122.740 B** (o maior, `spaghetti`, 20.672) |
+
+Os 27 títulos juntos custam **menos que os dois quadros de cápsula**, então eles
+sobem **todos** na abertura da tela: o cache de 8 slots da primeira versão relia
+**um arquivo por quadro** quando a janela de 9 cápsulas não cabia no cache (o
+harness mostrou a leitura acontecendo quadro a quadro). Sem cache, sem I/O e sem
+trava ao rolar.
+
+**Medido no harness** (`tools/run_freeplay_harness.sh 3000`):
+
+    freeplay_capsula,1,80784        a cápsula abriu, 80.784 B por quadro
+    freeplay_titulos,122740,0       os 27 títulos na VRAM, zero falhas
+    freeplay_capsulas,9,5091        9 cápsulas desenhadas (a janela)
+    freeplay_draw,16,27             16 quads no quadro da tela
+
+**O que ainda falta nesta tela, medido** (não é lógica, é arte/dado):
+
+- o **fundo** da Freeplay (`backingImage`, `freeplayBGweek1-{bf,pico}.png`,
+  821x516 no clone) e o **DJ** (`createFreeplayDJ`, `CUTOUT_WIDTH*0,44 + 640`);
+- o **cinza 0,8** das cápsulas não selecionadas (`Grayscale(1)` com
+  `setAmount(0.8)`, L197/L792): decide-se no empacotador (pixels), não no GS;
+- o título **sem o brilho** quando não selecionado (`songText.blurredText` só é
+  visível na selecionada, L798) — exige uma segunda variante de cada título;
+- os enfeites da cápsula: `weekText`, `ranking`/`blurredRanking`, `sparkle`
+  (PERFECT_GOLD), `newText` (o selo `NEW`), `favIcon`/`favIconBlurred` (o
+  coração), `pixelIcon` e as **estrelas de dificuldade**
+  (`updateDifficultyRating`);
+- a cápsula **Random** (`initRandom`), que o original põe no topo da lista.
 
 ## Fase 5 com os pacotes de verdade: o custo por quadro, medido
 

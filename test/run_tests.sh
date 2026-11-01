@@ -411,6 +411,14 @@ $CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco
 /tmp/fnf_test_pack_stream || exit 1
 echo
 
+# A tela de FREEPLAY: a geometria das capsulas (intendedX/Y), os desvios das
+# pontas de `changeSelection`, o lerp de posicao, a entrada em 7 passos de 1/24 s
+# e o `textAppear`. Tudo funcao pura de src/engine/freeplay.c.
+echo "== freeplay: a geometria e o tempo das capsulas"
+$CC $FLAGS test/test_freeplay.c src/engine/freeplay.c -o /tmp/fnf_test_freeplay -lm
+/tmp/fnf_test_freeplay || exit 1
+echo
+
 # A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
 # (res_flash_alpha / res_flash_alpha_tally / res_flash_cor / res_rank_pisca /
 # res_rank_scroll_*), o PLACAR

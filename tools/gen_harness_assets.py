@@ -379,6 +379,21 @@ def make_resultado_pack(w, h, quadros):
     return cab + bytes(tabela) + bytes(blob)
 
 
+def freeplay_plan():
+    """O plano da tela de FREEPLAY (capsula + os 27 titulos), se commitado.
+
+    Vem de assets-data/freeplay-plan.json para o asset sintetico acompanhar o
+    empacotador: a capsula e' um CFZ4 de 16 quadros e cada titulo um RGBA com o
+    w*h que o `src/engine/freeplay_dados.h` manda -- se o empacotador mudar um
+    tamanho, o harness continua achando o pacote com o tamanho que o jogo espera.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "freeplay-plan.json")
+    if not os.path.isfile(caminho):
+        return None
+    return json.load(open(caminho, encoding="utf-8"))
+
+
 def lz4_literais(src):
     """Bloco LZ4 so' de literais: token 0xF0 + extensoes + os bytes."""
     n = len(src)
@@ -614,6 +629,17 @@ def make_resultado_bg(w, h):
     return bytes(out)
 
 
+def _freeplay_files():
+    plano = freeplay_plan()
+    if plano is None:
+        return {}
+    cap = plano["capsula"]
+    out = {cap["tex"]: make_resultado_pack(cap["w"], cap["h"], cap["quadros"])}
+    for i, (sid, t) in enumerate(sorted(plano["titulos"].items())):
+        out[t["arquivo"]] = rgba_pattern(t["w"], t["h"], i + 1)
+    return out
+
+
 def build(root, charts_src=None):
     a = os.path.join(root, "FNFPS2", "assets")
     os.makedirs(os.path.join(a, "songs", "tutorial"), exist_ok=True)
@@ -694,6 +720,12 @@ def build(root, charts_src=None):
         "result/res_shit.pcm": pcm(2 * 48000 * 4, 318),
         "result/res_shit_intro.pcm": pcm(1 * 48000 * 4, 320),
         "result/res_shit_pico.pcm": pcm(2 * 48000 * 4, 322),
+        # ARTE DA FREEPLAY (mass:/FNFPS2/assets/freeplay/): a capsula (CFZ4 de
+        # 16 quadros, 8 da animacao `selected` e 8 da `unselected`) e um RGBA
+        # por musica com o titulo JA' renderizado (`CapsuleText` = FlxText com a
+        # fonte 5by7; nao ha' bitmap de letra para compor no console).
+        **_freeplay_files(),
+
         "result/scroll_menu.pcm": pcm(48000 * 4 // 8, 342),
         "result/confirm_menu.pcm": pcm(48000 * 4 // 8, 344),
         "result/tickle_fight.pcm": pcm(48000 * 4 // 8, 346),
