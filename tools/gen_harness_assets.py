@@ -566,6 +566,38 @@ def make_dif_img(w, h, semente):
     return bytes(out)
 
 
+def resultado_nomes():
+    """Os bitmaps do NOME DA MUSICA, do plano: [(arquivo, w, h, id)]."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return []
+    d = json.load(open(caminho, encoding="utf-8"))
+    nm = d.get("nome") or {}
+    return [(n["arquivo"], n["w"], n["h"], n["id"])
+            for n in (nm.get("nomes") or {}).values()]
+
+
+def make_nome_img(w, h, semente):
+    """Bitmap sintetico do titulo: "letras" (barras) com alpha parcial.
+
+    O titulo de verdade e' texto colorido sobre transparente; aqui sao barras
+    verticais que mudam de cor por musica, para o teste provar que o arquivo
+    certo foi aberto e que o alpha chega ao GS pelo quadrilatero girado.
+    """
+    out = bytearray(w * h * 4)
+    passo = max(3, w // 12)
+    for y in range(h):
+        for x in range(w):
+            o = (y * w + x) * 4
+            dentro = (x % passo) < (passo - 1) and 2 <= y < h - 2
+            out[o + 0] = 60 + (semente * 37) % 180
+            out[o + 1] = 120 + (semente * 23) % 120
+            out[o + 2] = 200 - (semente * 17) % 140
+            out[o + 3] = 255 if dentro else 0
+    return bytes(out)
+
+
 def make_resultado_bg(w, h):
     """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
     topo = (0xFE, 0xCC, 0x5C)
@@ -697,6 +729,10 @@ def build(root, charts_src=None):
         **{"resultado/%s" % os.path.basename(a):
            make_dif_img(w, h, i + 1)
            for i, (a, w, h, _n) in enumerate(resultado_topo())},
+        # O NOME DA MUSICA: um bitmap por titulo (o texto do `FlxBitmapText`).
+        **{"resultado/%s" % os.path.basename(a):
+           make_nome_img(w, h, i + 1)
+           for i, (a, w, h, _id) in enumerate(resultado_nomes())},
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

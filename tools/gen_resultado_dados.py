@@ -293,6 +293,64 @@ def gerar():
                                            g["abaixo"]))
     a("};")
     a("")
+    nm = d.get("nome")
+    if nm:
+        a("")
+        a("/* O NOME DA MUSICA (`FlxBitmapText` sobre `resultScreen/tardlingSpritesheet`,")
+        a(" * ResultState.hx L119-122). A fonte e' monoespaçada: celula de %dx%d,"
+          " avanco de %d px (49 - 15 de `letterSpacing`), angulo de %.1f graus."
+          " O texto de cada musica vem PRONTO do empacotador"
+          " (`tools/empacotar_nome.py`): e' um `BitmapData` por titulo, como o"
+          " `updateTextBitmap` do original monta. A escala de cada um e' a maior"
+          " que cabe em %d B de VRAM; ela vai no dado. */"
+          % (nm["celula"][0], nm["celula"][1],
+             nm["celula"][0] + nm["espaco_letra"], nm["angulo"],
+             nm["limite_vram"]))
+        a("#define RES_NOMES %du" % len(nm["nomes"]))
+        a("")
+        a("typedef struct {")
+        a("    const char    *id;        /* o id da musica (SR song id)        */")
+        a("    const char    *arquivo;")
+        a("    unsigned short w, h;      /* o bitmap do titulo, em 640x360     */")
+        a("    unsigned int   vram_bytes;")
+        a("    float          escala;    /* de quanto ele foi reduzido         */")
+        a("    float          y_alvo;    /* alvo do tween de entrada em y      */")
+        a("    float          larg_full; /* `songName.width`: 34n+15 pela metade */")
+        a("} res_nome_arte_t;")
+        a("")
+        a("static const res_nome_arte_t g_res_nome[RES_NOMES] = {")
+        for sid, n in nm["nomes"].items():
+            a('    { "%s", "%s", %3du, %2du, %6du, %.2ff,%.1ff,%.1ff },'
+              % (sid, n["arquivo"], n["w"], n["h"], n["vram_bytes"],
+                 n["escala"], n["y_alvo"], n["larg_full_half"]))
+        a("};")
+        a("")
+        a(("/* O movimento do nome (`timerThenSongName` e o `update` do ResultState):"
+           " entrada em y com `expoOut` depois de %d ms, `speedOfTween` voltando de"
+           " 0 num tween de %d ms com `quadIn` que comeca em %d ms (1o ciclo) ou"
+           " %d ms (ciclos seguintes), movimento solto %d ms depois de o contador"
+           " pequeno entrar, e o ciclo recomecando quando `x + largura < %.0f`. */")
+          % (nm["entrada_atraso_ms"], nm["velocidade_ms"],
+             nm["ciclo_espera_primeiro_ms"], nm["ciclo_espera_ms"],
+             nm["movimento_atraso_ms"], nm["ciclo_fim_x"]))
+        a("typedef struct {")
+        a("    float        angulo, vel_x, vel_y;")
+        a("    float        x_do_pequeno, clip_x, ciclo_fim_x;")
+        a("    unsigned int entrada_atraso_ms, entrada_ms, velocidade_ms;")
+        a("    unsigned int ciclo_espera_ms, ciclo_espera_primeiro_ms;")
+        a("    unsigned int movimento_atraso_ms;")
+        a("} res_nome_geo_t;")
+        a("")
+        a("static const res_nome_geo_t g_res_nome_geo = {")
+        a("    %.2ff, %.2ff, %.2ff," % (nm["angulo"], nm["vel_x"], nm["vel_y"]))
+        a("    %.1ff, %.1ff, %.1ff," % (nm["x_do_pequeno"], nm["clip_x"],
+                                       nm["ciclo_fim_x"]))
+        a("    %3du, %3du, %3du, %3du, %3du, %3du" % (
+            nm["entrada_atraso_ms"], nm["entrada_ms"], nm["velocidade_ms"],
+            nm["ciclo_espera_ms"], nm["ciclo_espera_primeiro_ms"],
+            nm["movimento_atraso_ms"]))
+        a("};")
+        a("")
     tb = d["topbar"]
     b = tb["barra"]
     dg = tb["dificuldade"]

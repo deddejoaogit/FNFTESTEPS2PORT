@@ -3250,9 +3250,9 @@ se possa fingir com tint, e trocar o TFX por desenho nao se prova no harness
 pendencia com o caminho tecnico pronto (o `res_cp_flash` ja' diz a janela).
 
 A **barra do topo** e a **imagem da dificuldade** sairam desta lista na build
-seguinte — ver a secao abaixo. Continuam sem arte: o nome da musica
-(`tardlingSpritesheet`), o `highscoreNew` e o `results-bf`/`results-pico`, com o
-custo ja' medido na tabela abaixo.
+seguinte, e o **nome da musica** na seguinte — ver as secoes abaixo. Continuam
+sem arte o `highscoreNew` e o `results-bf`/`results-pico`, com o custo ja'
+medido na tabela abaixo.
 
 #### A barra do topo e a imagem da dificuldade (medido)
 
@@ -3306,13 +3306,65 @@ livres ao entrar na tela):
 | rank (o par maior, PERFECT) | 76.736 |
 | contadores de julgamento | 16.896 |
 | imagem da dificuldade (normal) | 13.224 |
-| **total** | **1.225.756** |
-| **sobra** | **35.812** |
+| nome da musica (o titulo mais largo, `winter-horrorland`) | 28.836 |
+| **total** | **1.254.592** |
+| **sobra** | **6.976** |
 
-A sobra de ~35 KB e' o numero que decide o que vem depois: `highscoreNew` a 0,5
-sao 524.928 B, ou seja **quinze vezes** a sobra. Ele nao entra sem degradacao
-severa (0,25 daria 131.232 B, ainda 3,6x a sobra) nem sem tirar outra peca da
-tela — decisao registrada, nao tomada por chute.
+A sobra de ~7 KB e' o numero que decide o que vem depois: `highscoreNew` a 0,5
+sao 524.928 B, ou seja **setenta e cinco vezes** a sobra. Ele nao entra sem
+degradacao severa (0,25 daria 131.232 B, ainda 19x a sobra) nem sem tirar outra
+peca da tela — decisao registrada, nao tomada por chute.
+
+#### O nome da musica (medido)
+
+`ResultState.hx` L119-122 (`songName = new FunkinSprite()`), L736-765
+(`timerThenSongName`) e L792-836 (`update`/`draw`). No original o titulo e' um
+`FlxBitmapText` com a fonte `resultScreen/tardlingSpritesheet` e o bitmap que o
+texto monta vai por cima da barra preta, girado de **-4,4°**.
+
+**Nao ha' texto a compor no console: o titulo vai pronto.** O
+`FlxBitmapText` gera um `BitmapData` unico por musica, entao o empacotador
+(`tools/empacotar_nome.py`) recorta as celulas de **49x61** da folha, aplica o
+`letterSpacing = -15` (avanco **34 px** em vez de 49) e salva **um** RGBA por
+musica, ja' com o giro fora (o giro e' do desenho, um quadrilatero de quatro
+cantos quaisquer — `sprite_quad_uv`). Largura do bitmap: `34n + 15`.
+
+| titulo | escala | bitmap | VRAM |
+|---|---|---|---|
+| `satin-panties` (7 letras, 0,5) | 0,50 | 228x30 | 27.360 B |
+| `winter-horrorland` | 0,45 | 267x27 | 28.836 B |
+| `spaghetti` | 0,28 | 423x17 | 28.764 B |
+
+A escala e' **por titulo** (`tools/empacotar_nome.py` desce a tabela
+0,5 -> 0,45 -> ... -> 0,16 ate' o bitmap caber em 33.000 B, o mesmo teto do
+pacote), nunca um numero escolhido a mao: o texto tem que caber na VRAM sem
+sair da tela (423 px numa tela de 640).
+
+O loop e' o do original, com as tres fases medidas:
+
+- **entrada**: nasce em `x = clearPercentSmall.x + 47`, `y = -altura`, espera
+  **900 ms** e sobe com `expoOut` de **500 ms** ate'
+  `y = (122 - 25 - fucked) * 0,5`, onde `fucked = -(larg * 0,5) * sin(-4,4°) - 10`
+  — o `songName.y` do original e' corrigido pela largura girada, e e' por isso
+  que cada titulo tem o seu `y_alvo` na tabela de dados;
+- **movimento**: so' comeca depois de `showSmallClearPercent()` (**+2,5 s**),
+  com `vel_x = -59,82` e `vel_y = 4,60` (px/s na metade, `Math.cos/sin(rad) *
+  660` no original); a velocidade usa a **integral analitica** do `quadIn`
+  (`u<=0: 0; u<T: u³/(3T²); senao T/3 + (u - T)`), nao uma aproximacao — e'
+  `speedOfTween = t/0,7` entrando em `songName.x += Math.cos(rad) * 660 * t`
+  a cada quadro;
+- **recirculacao**: quando `x + largura < 50` o texto volta para a entrada
+  (espera de **1000 ms** no primeiro ciclo, **3000 ms** nos seguintes), igual ao
+  `timerThenSongName(1.0, false)` que o original chama de novo.
+
+O texto so' aparece quando a barra assenta (`onComplete` do tween da barra:
+`songName.visible = true`) e e' recortado em `clipRect = max(0, 520 - x)`
+(**260 px** na metade) para nao passar por cima do placar.
+
+Medido no harness (`tools/run_gameplay_harness.sh 5600`):
+`resultado_nome_arte,1,17280` (o bitmap do Tutorial), `resultado_nome,4685,-300`
+(entra em 468,5 / -30,0) e `resultado_nome_move,4634,6550` (aos 6550 ms o texto
+ja' andou 5 px para a esquerda, ou seja o scroll comecou).
 
 #### A tela de Resultado: o que falta, medido
 

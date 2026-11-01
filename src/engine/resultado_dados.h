@@ -340,6 +340,66 @@ static const res_cp_geo_t g_res_cp_geo = {
 };
 
 
+/* O NOME DA MUSICA (`FlxBitmapText` sobre `resultScreen/tardlingSpritesheet`,
+ * ResultState.hx L119-122). A fonte e' monoespaçada: celula de 49x61, avanco de 34 px (49 - 15 de `letterSpacing`), angulo de -4.4 graus. O texto de cada musica vem PRONTO do empacotador (`tools/empacotar_nome.py`): e' um `BitmapData` por titulo, como o `updateTextBitmap` do original monta. A escala de cada um e' a maior que cabe em 33000 B de VRAM; ela vai no dado. */
+#define RES_NOMES 27u
+
+typedef struct {
+    const char    *id;        /* o id da musica (SR song id)        */
+    const char    *arquivo;
+    unsigned short w, h;      /* o bitmap do titulo, em 640x360     */
+    unsigned int   vram_bytes;
+    float          escala;    /* de quanto ele foi reduzido         */
+    float          y_alvo;    /* alvo do tween de entrada em y      */
+    float          larg_full; /* `songName.width`: 34n+15 pela metade */
+} res_nome_arte_t;
+
+static const res_nome_arte_t g_res_nome[RES_NOMES] = {
+    { "tutorial", "resultado/nome_tutorial.rgba", 144u, 30u,  17280u, 0.50f,48.0f,143.5f },
+    { "bopeebo", "resultado/nome_bopeebo.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "fresh", "resultado/nome_fresh.rgba",  92u, 30u,  11040u, 0.50f,50.0f,92.5f },
+    { "dadbattle", "resultado/nome_dadbattle.rgba", 160u, 30u,  19200u, 0.50f,47.3f,160.5f },
+    { "spookeez", "resultado/nome_spookeez.rgba", 144u, 30u,  17280u, 0.50f,48.0f,143.5f },
+    { "south", "resultado/nome_south.rgba",  92u, 30u,  11040u, 0.50f,50.0f,92.5f },
+    { "monster", "resultado/nome_monster.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "pico", "resultado/nome_pico.rgba",  76u, 30u,   9120u, 0.50f,50.6f,75.5f },
+    { "philly-nice", "resultado/nome_philly-nice.rgba", 194u, 30u,  23280u, 0.50f,46.0f,194.5f },
+    { "blammed", "resultado/nome_blammed.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "satin-panties", "resultado/nome_satin-panties.rgba", 228u, 30u,  27360u, 0.50f,44.7f,228.5f },
+    { "high", "resultado/nome_high.rgba",  76u, 30u,   9120u, 0.50f,50.6f,75.5f },
+    { "milf", "resultado/nome_milf.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "cocoa", "resultado/nome_cocoa.rgba",  92u, 30u,  11040u, 0.50f,50.0f,92.5f },
+    { "eggnog", "resultado/nome_eggnog.rgba", 110u, 30u,  13200u, 0.50f,49.3f,109.5f },
+    { "winter-horrorland", "resultado/nome_winter-horrorland.rgba", 267u, 27u,  28836u, 0.45f,42.1f,296.5f },
+    { "senpai", "resultado/nome_senpai.rgba", 110u, 30u,  13200u, 0.50f,49.3f,109.5f },
+    { "roses", "resultado/nome_roses.rgba",  92u, 30u,  11040u, 0.50f,50.0f,92.5f },
+    { "thorns", "resultado/nome_thorns.rgba", 110u, 30u,  13200u, 0.50f,49.3f,109.5f },
+    { "ugh", "resultado/nome_ugh.rgba",  58u, 30u,   6960u, 0.50f,51.3f,58.5f },
+    { "guns", "resultado/nome_guns.rgba",  76u, 30u,   9120u, 0.50f,50.6f,75.5f },
+    { "stress", "resultado/nome_stress.rgba", 110u, 30u,  13200u, 0.50f,49.3f,109.5f },
+    { "darnell", "resultado/nome_darnell.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "lit-up", "resultado/nome_lit-up.rgba", 110u, 30u,  13200u, 0.50f,49.3f,109.5f },
+    { "2hot", "resultado/nome_2hot.rgba",  76u, 30u,   9120u, 0.50f,50.6f,75.5f },
+    { "blazin", "resultado/nome_blazin.rgba", 126u, 30u,  15120u, 0.50f,48.6f,126.5f },
+    { "spaghetti", "resultado/nome_spaghetti.rgba", 423u, 17u,  28764u, 0.28f,24.5f,755.5f },
+};
+
+/* O movimento do nome (`timerThenSongName` e o `update` do ResultState): entrada em y com `expoOut` depois de 900 ms, `speedOfTween` voltando de 0 num tween de 700 ms com `quadIn` que comeca em 1000 ms (1o ciclo) ou 3000 ms (ciclos seguintes), movimento solto 2500 ms depois de o contador pequeno entrar, e o ciclo recomecando quando `x + largura < 50`. */
+typedef struct {
+    float        angulo, vel_x, vel_y;
+    float        x_do_pequeno, clip_x, ciclo_fim_x;
+    unsigned int entrada_atraso_ms, entrada_ms, velocidade_ms;
+    unsigned int ciclo_espera_ms, ciclo_espera_primeiro_ms;
+    unsigned int movimento_atraso_ms;
+} res_nome_geo_t;
+
+static const res_nome_geo_t g_res_nome_geo = {
+    -4.40f, -59.82f, 4.60f,
+    47.0f, 260.0f, 50.0f,
+    900u, 500u, 700u, 3000u, 1000u, 2500u
+};
+
+
 #define RES_DIFS 5u
 
 /* A BARRA PRETA DO TOPO. Nao ha' PNG: o original a monta em codigo

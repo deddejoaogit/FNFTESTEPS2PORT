@@ -193,6 +193,20 @@ for _i, (_a, _w, _h, _n) in enumerate(_rtopo):
 # jogada foi aberto, e nao um qualquer.
 ok &= (len(_hashes) == 5)
 
+# O NOME DA MUSICA: um bitmap por titulo, com o tamanho EXATO do plano, e todos
+# diferentes entre si (o teste prova que o arquivo da musica jogada abriu).
+_rn = g.resultado_nomes()
+ok &= (len(_rn) == 27)
+_hashes_nome = set()
+for _i, (_a, _w, _h, _id) in enumerate(_rn):
+    _im = g.make_nome_img(_w, _h, _i + 1)
+    _op = sum(1 for _k in range(3, len(_im), 4) if _im[_k] > 64)
+    _hashes_nome.add(bytes(_im[:2048]))
+    print(f"  RESULTADO   {_a:30s} {_w}x{_h} arquivo={len(_im):>7,} "
+          f"opacos={_op:>5} ({_id})")
+    ok &= (len(_im) == _w * _h * 4 and 0 < _op < _w * _h)
+ok &= (len(_hashes_nome) == 27)
+
 bw, bh = g.resultado_folhas()[1:]
 bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")

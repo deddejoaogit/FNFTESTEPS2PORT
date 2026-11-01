@@ -307,6 +307,60 @@ int main(void)
         CHECK_EQ(res_cp_flash(4359ul), 0);
     }
 
+    printf("== resultado: o NOME DA MUSICA (FlxBitmapText) ==\n");
+    {
+        const res_nome_arte_t *nm = res_nome_do_id("bopeebo");
+        res_nome_t e;
+        CHECK(nm != NULL);
+        CHECK(res_nome_do_id("nao-existe") == NULL);
+        CHECK(res_nome_do_id(NULL) == NULL);
+        if (nm) {
+            /* Bopeebo: 7 letras -> 34*7+15 = 253 na fonte, 126,5 na metade. */
+            CHECK(nm->w > 100u && nm->w < 160u);
+            CHECK(nm->vram_bytes == (unsigned)nm->w * nm->h * 4u);
+            CHECK(nm->larg_full > 126.0f && nm->larg_full < 127.0f);
+            CHECK(nm->escala > 0.0f && nm->escala <= 0.5f);
+        }
+        /* `timerThenSongName(1.0, false)`: entra em y com 0,9 s de atraso. */
+        res_nome_iniciar(&e, 0ul, 468.5f, 48.6f, 126.5f, 30.0f);
+        CHECK_EQ(e.ativo, 1);
+        CHECK_EQ(e.ciclo, 0);
+        res_nome_passo(&e, 0ul);
+        CHECK(e.x > 468.0f && e.x < 469.0f);
+        CHECK(e.y > -31.0f && e.y < -29.0f);
+        res_nome_passo(&e, 900ul);
+        CHECK(e.y < -20.0f);
+        res_nome_passo(&e, 1000ul);
+        CHECK(e.y > -20.0f);              /* o tween ja' subiu */
+        res_nome_passo(&e, 1400ul);
+        CHECK(e.y > 47.0f && e.y < 49.0f);   /* assentado no alvo */
+        /* SEM `res_nome_soltar` o nome fica parado: e' o que o original faz
+           ate' `showSmallClearPercent()` (+2,5 s). */
+        res_nome_passo(&e, 5000ul);
+        CHECK(e.x > 468.0f && e.x < 469.0f);
+        /* Solto, anda para a esquerda (vel_x negativo) e desce (vel_y > 0). */
+        {float y0;
+         res_nome_soltar(&e, 6458ul);
+         y0 = e.y;
+         res_nome_passo(&e, 7458ul);
+         CHECK(e.x < 410.0f && e.x > 405.0f);
+         CHECK(e.y > y0);
+        }
+        /* O corte da esquerda: `clipRect = max(0, 520 - x)` (260 na metade). */
+        CHECK(res_nome_clip_local(&e) == 0.0f);   /* x < 260 ainda nao? nao: x=408 */
+        /* O ciclo recomeca quando `x + largura < 100` (50 na metade). */
+        {int ciclos = e.ciclo, guard = 0;
+         unsigned long ms = 7458ul;
+         while (e.ciclo == ciclos && guard++ < 4000) {
+             ms += 16ul;
+             res_nome_passo(&e, ms);
+         }
+         CHECK(e.ciclo == ciclos + 1);
+         CHECK(e.x > 468.0f && e.x < 469.0f);   /* voltou para a entrada */
+         CHECK(e.y < -29.0f);
+        }
+    }
+
     printf("== resultado: o CONTADOR PEQUENO do topo ==\n");
     /* `getBFDelay()`: 95/24 s = 3.958 ms (EXCELLENT e' o unico com 97/24). */
     CHECK_EQ((int)g_res_rank[2].bf_ms, 3958);

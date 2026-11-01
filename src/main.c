@@ -337,6 +337,15 @@ static unsigned int g_res_dif_addr=0;
 static int g_res_dif_ind=-1;             /* indice em g_res_dif (0 = easy) */
 static float g_res_dif_h=0.0f;
 static int g_res_barra_logado=0;
+/* O NOME DA MUSICA: um bitmap por titulo (`FlxBitmapText` pre-renderizado) e o
+   estado do loop de `timerThenSongName()` (entrada, espera e recirculacao). */
+static int g_res_nome_ok=0;
+static unsigned int g_res_nome_addr=0;
+static res_nome_t g_res_nome_estado;
+static int g_res_nome_visto=0;      /* ja' reportou o primeiro desenho */
+static int g_res_nome_ciclos=0;
+static int g_res_nome_pronto=0;   /* `res_nome_iniciar` ja' rodou */
+static int g_res_nome_moveu=0;    /* ja' reportou o primeiro passo do scroll */
 
 static int g_res_score_logado=0;   /* ja' reportou o instante em que apareceu */
 static int g_res_score_final=0;    /* ja' reportou o numero assentado        */
@@ -1086,6 +1095,39 @@ static u32 g_frame_texture_quads;
 
 #define QUAD_NREG 10
 #define QUAD_REGLIST (((u64)GIF_REG_PRIM)<<0|((u64)GIF_REG_RGBAQ)<<4|((u64)GIF_REG_UV)<<8|((u64)GIF_REG_XYZ2)<<12|((u64)GIF_REG_UV)<<16|((u64)GIF_REG_XYZ2)<<20|((u64)GIF_REG_UV)<<24|((u64)GIF_REG_XYZ2)<<28|((u64)GIF_REG_UV)<<32|((u64)GIF_REG_XYZ2)<<36)
+/* QUADRILATERO TEXTURIZADO LIVRE (quatro vertices quaisquer e um UV por
+   vertice). `sprite_region` so' faz retangulo alinhado aos eixos; o nome da
+   musica do ResultState e' um sprite girado de -4,4 graus, entao os quatro
+   cantos nao formam retangulo na tela. O pacote e' o QUAD_REGLIST de 10
+   registros (PRIM, RGBAQ e quatro pares UV+XYZ2), o mesmo formato que o
+   draw_rect_textured do ps2sdk emite para o retangulo texturizado.
+   `px`/`py` em sentido horario a partir do canto superior esquerdo. */
+static qword_t *sprite_quad_uv(qword_t*q,const float *px,const float *py,
+                               float u0,float v0,float u1,float v1,
+                               unsigned char a){
+ color_t cor;int i;
+ cor.rgbaq=0;cor.r=0x80;cor.g=0x80;cor.b=0x80;cor.a=a;cor.q=1.0f;
+ q->dw[0]=GIF_SET_TAG(5,0,0,0,GIF_FLG_REGLIST,2);
+ q->dw[1]=QUAD_REGLIST;
+ q++;
+ q->dw[0]=GIF_SET_PRIM(GS_PRIM_TRIANGLE_FAN,0,1,0,1,0,0,0,0);
+ q->dw[1]=cor.rgbaq;
+ q++;
+ /* (u0,v0) (u1,v0) (u1,v1) (u0,v1), em dois qwords de dois vertices. */
+ {float uu[4],vv[4];
+  uu[0]=u0;uu[1]=u1;uu[2]=u1;uu[3]=u0;
+  vv[0]=v0;vv[1]=v0;vv[2]=v1;vv[3]=v1;
+  for(i=0;i<4;i+=2){
+   q->dw[0]=(u64)((ftoi4(uu[i])&0xFFFF))|((u64)(ftoi4(vv[i])&0xFFFF)<<16);
+   q->dw[1]=GIF_SET_XYZ(ftoi4(px[i]+2047.5625f),ftoi4(vy(py[i])+2047.5625f),0);
+   q++;
+   q->dw[0]=(u64)((ftoi4(uu[i+1])&0xFFFF))|((u64)(ftoi4(vv[i+1])&0xFFFF)<<16);
+   q->dw[1]=GIF_SET_XYZ(ftoi4(px[i+1]+2047.5625f),ftoi4(vy(py[i+1])+2047.5625f),0);
+   q++;
+  }}
+ g_frame_texture_quads++;
+ return q;
+}
 static void reset_iop(void){SifInitRpc(0);while(!SifIopReset("rom0:UDNL rom0:EELOADCNF",0));while(!SifIopSync());SifInitRpc(0);SifLoadFileInit();}
 static int pad_ready(void){for(;;){int s=padGetState(0,0);if(s==PAD_STATE_STABLE||s==PAD_STATE_FINDCTP1)return 0;if(s==PAD_STATE_DISCONN||s==PAD_STATE_ERROR)return -1;DelayThread(10000);}}
 static int init_pad(void){if(SifLoadModule("rom0:SIO2MAN",0,NULL)<0)return -1;if(SifLoadModule("rom0:PADMAN",0,NULL)<0)return -2;if(!padInit(0)||!padPortOpen(0,0,g_pad_buffer)||pad_ready()<0)return -3;padSetMainMode(0,0,PAD_MMODE_DUALSHOCK,PAD_MMODE_LOCK);return pad_ready();}
@@ -2900,6 +2942,30 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
    }
    telemetry_event("resultado_dif_arte",g_res_dif_ok,bytes);
   }else telemetry_event("resultado_dif_arte",-1,dificuldade);}
+ /* O NOME DA MUSICA (`resultScreen/tardlingSpritesheet` + `FlxBitmapText`).
+    Um bitmap por titulo, do tamanho exato do texto: e' o que o
+    `updateTextBitmap` do original monta em tempo de execucao e aqui vem
+    pronto do empacotador. A escala de cada titulo esta' no dado. */
+ g_res_nome_ok=0;g_res_nome_addr=0;g_res_nome_pronto=0;
+ {const res_nome_arte_t *nm=g_play_song?res_nome_do_id(g_play_song->id):0;
+  if(nm){
+   unsigned int bytes=nm->vram_bytes,addr=0;
+   char caminho[96];
+   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",nm->arquivo);
+   if(bytes<=512u*256u*4u&&
+      read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
+      sp_chave(pool,SP_CHAVE_TELA_BASE+0x31u,bytes,&addr)>=0){
+    texbuffer_t t=*tpl;
+    t.width=nm->w;t.psm=GS_PSM_32;t.address=addr;
+    setup_texture_dims(&t,(int)nm->w,(int)nm->h);
+    FlushCache(0);
+    upload_raw(&t,g_up_bounce,(int)nm->w,(int)nm->h);
+    g_res_nome_addr=addr;g_res_nome_ok=1;
+   }else{
+    telemetry_event("resultado_sem_vram",-10,(int)sp_livre(pool));
+   }
+   telemetry_event("resultado_nome_arte",g_res_nome_ok,(int)bytes);
+  }else telemetry_event("resultado_nome_arte",-1,0);}
 }
 static void resultado_soltar(void)
 {
@@ -2914,6 +2980,8 @@ static void resultado_soltar(void)
  g_res_cp_logado=0;g_res_cp_final=0;g_res_cp_small_logado=0;
  g_res_dif_ok=0;g_res_dif_addr=0;g_res_dif_ind=-1;g_res_dif_h=0.0f;
  g_res_barra_logado=0;
+ g_res_nome_ok=0;g_res_nome_addr=0;g_res_nome_pronto=0;g_res_nome_visto=0;
+ g_res_nome_ciclos=0;g_res_nome_moveu=0;
  {int k;for(k=0;k<(int)RES_CP_ATLASES;k++)g_res_cp_addr[k]=0;}
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
@@ -6021,6 +6089,69 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       q=bind_texture_filter(q,&dt,1);
       q=sprite_region(q,g_res_dif_geo.x,dy,(float)df->w,(float)df->h,
                       0.0f,0.0f,(float)df->w,(float)df->h);
+     }
+    }
+    /* O NOME DA MUSICA (ResultState.hx L119-122 e L736-836). O bitmap do
+       titulo vem pronto do empacotador e e' desenhado como UM quadrilatero
+       girado de -4,4 graus em torno do centro do texto -- e' o que o
+       `FlxSprite` do original faz com o `BitmapData` que o `FlxBitmapText`
+       monta. Ele so' APARECE quando a barra assenta (`onComplete` do tween da
+       barra: `songName.visible = true`), mas o ciclo comecou junto com a tela.
+       O recorte da esquerda (`clipRect = max(0, 520 - x)`, L800) corta o texto
+       quando ele passa por cima do placar. */
+    if(g_res_nome_ok&&g_res_dif_ind>=0){
+     const res_nome_arte_t *nm=res_nome_do_id(g_play_song?g_play_song->id:0);
+     if(nm&&nm->id){
+      float sx=res_cp_small_x((float)g_res_dif[g_res_dif_ind].w)+
+               g_res_nome_geo.x_do_pequeno;
+      if(!g_res_nome_pronto){
+       res_nome_iniciar(&g_res_nome_estado,0ul,sx,
+                        nm->y_alvo+g_res_barra.correcao_y,
+                        nm->larg_full, (float)nm->h);
+       g_res_nome_pronto=1;
+      }
+      /* `showSmallClearPercent()`: 2,5 s depois de entrar, o movimento solta. */
+      {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+       if(rr&&(unsigned long)g_res_ms>=(unsigned long)rr->bf_ms+
+                                        (unsigned long)g_res_nome_geo.movimento_atraso_ms)
+        res_nome_soltar(&g_res_nome_estado,(unsigned long)g_res_ms);}
+      if(g_res_nome_ciclos!=g_res_nome_estado.ciclo){
+       g_res_nome_ciclos=g_res_nome_estado.ciclo;
+       telemetry_event("resultado_nome_ciclo",g_res_nome_ciclos,g_res_ms);
+      }
+      res_nome_passo(&g_res_nome_estado,(unsigned long)g_res_ms);
+      if(res_barra_assentada((unsigned long)g_res_ms)){
+       const res_nome_t *e=&g_res_nome_estado;
+       float clip=res_nome_clip_local(e);
+       float w=(float)nm->w,h=(float)nm->h,cx=w*0.5f,cy=h*0.5f;
+       float rad=g_res_nome_geo.angulo*(3.14159265f/180.0f);
+       float ca=cosf(rad),sa=sinf(rad);
+       float lx[4],ly[4],px[4],py[4];
+       int c;
+       if(clip<w-1.0f){
+        texbuffer_t nt=stagetex;
+        nt.width=nm->w;nt.psm=GS_PSM_32;nt.address=g_res_nome_addr;
+        setup_texture_dims(&nt,(int)nm->w,(int)nm->h);
+        lx[0]=clip;ly[0]=0.0f;
+        lx[1]=w;   ly[1]=0.0f;
+        lx[2]=w;   ly[2]=h;
+        lx[3]=clip;ly[3]=h;
+        for(c=0;c<4;c++){
+         float dx=lx[c]-cx,dy=ly[c]-cy;
+         px[c]=e->x+cx+(dx*ca-dy*sa);
+         py[c]=e->y+cy+(dx*sa+dy*ca);
+        }
+        q=bind_texture_filter(q,&nt,1);
+        q=sprite_quad_uv(q,px,py,clip,0.0f,w,h,0x80);
+        if(!g_res_nome_visto){g_res_nome_visto=1;
+         telemetry_event("resultado_nome",(int)(e->x*10.0f),(int)(e->y*10.0f));}
+        /* O `update()` do original so' anda depois de `showSmallClearPercent()`
+           (+2,5 s): este evento marca o primeiro quadro em que o nome SAiu do
+           x de entrada, e e' a prova de que o scroll comecou. */
+        if(!g_res_nome_moveu&&e->x<e->x0-5.0f){g_res_nome_moveu=1;
+         telemetry_event("resultado_nome_move",(int)(e->x*10.0f),g_res_ms);}
+       }
+      }
      }
     }
     /* O CONTADOR PEQUENO DO TOPO (`ClearPercentCounter` com `small = true`).

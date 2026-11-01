@@ -566,3 +566,118 @@ int res_dif_indice(int dificuldade)
     if (dificuldade < 0 || dificuldade > 2) return -1;
     return dificuldade;
 }
+
+/* ---- O NOME DA MUSICA (ResultState.hx L736-836) --------------------------
+
+   O `update()` do original faz, enquanto `movingSongStuff`:
+
+       songName.x += speedOfTween.x * 60 * elapsed;
+       songName.y += speedOfTween.y * 60 * elapsed;
+
+   e `speedOfTween` nao nasce pronto: `timerThenSongName()` guarda o valor
+   atual, zera e tweena de volta em 0,7 s com `FlxEase.quadIn`, e um
+   `FlxTimer` de `timerLength` (1,0 s no create, 3,0 s nos ciclos seguintes)
+   liga/desliga o movimento. Ou seja: a velocidade SOBE com o quadrado do
+   tempo, e o deslocamento e' a integral disso -- nao uma reta.
+
+   Integral de `quadIn` no tempo (u em segundos desde o inicio do tween,
+   T = duracao em segundos, `full` = velocidade final):
+       u <= 0      : 0
+       0 < u < T   : full * u^3 / (3 T^2)
+       u >= T      : full * (T/3 + (u - T))
+   Esta funcao devolve o FATOR (sem o `full`), e as duas posicoes usam o mesmo
+   fator -- x para a esquerda, y para baixo. */
+
+static float res_nome_fator(float u, float T)
+{
+    if (u <= 0.0f) return 0.0f;
+    if (u < T) return (u * u * u) / (3.0f * T * T);
+    return T / 3.0f + (u - T);
+}
+
+static unsigned long res_nome_ms_ramp(const res_nome_t *n)
+{
+    return n->ramp;
+}
+
+static float res_nome_y_entrada(const res_nome_t *n, unsigned long ms)
+{
+    const unsigned long ini = n->t0 + (unsigned long)g_res_nome_geo.entrada_atraso_ms;
+    const unsigned long fim = ini + (unsigned long)g_res_nome_geo.entrada_ms;
+    float t, e;
+    if (ms <= ini) return -n->alt;
+    if (ms >= fim) return n->y_alvo;
+    t = (float)(ms - ini) / (float)(fim - ini);
+    e = (t >= 1.0f) ? 1.0f : 1.0f - powf(2.0f, -10.0f * t);   /* FlxEase.expoOut */
+    return -n->alt + (n->y_alvo + n->alt) * e;
+}
+
+const res_nome_arte_t *res_nome_do_id(const char *id)
+{
+    unsigned int i;
+    if (!id) return 0;
+    for (i = 0; i < (unsigned int)RES_NOMES; i++)
+        if (strcmp(g_res_nome[i].id, id) == 0) return &g_res_nome[i];
+    return 0;
+}
+
+void res_nome_iniciar(res_nome_t *n, unsigned long ms, float x0, float y_alvo,
+                      float larg, float alt)
+{
+    if (!n) return;
+    memset(n, 0, sizeof(*n));
+    n->ativo = 1;
+    n->ciclo = 0;
+    n->t0 = ms;
+    n->ramp = ms + (unsigned long)g_res_nome_geo.ciclo_espera_primeiro_ms;
+    n->x0 = x0;
+    n->y_alvo = y_alvo;
+    n->larg = larg;
+    n->alt = alt;
+    n->x = x0;
+    n->y = -alt;
+}
+
+void res_nome_soltar(res_nome_t *n, unsigned long ms)
+{
+    if (!n || !n->ativo) return;
+    if (!n->move) n->move = ms;
+}
+
+static void res_nome_reiniciar(res_nome_t *n, unsigned long ms)
+{
+    /* `timerThenSongName()` sem argumentos: espera 3,0 s e `autoScroll` = true,
+       ou seja, o movimento volta junto com o tween da velocidade. */
+    n->ciclo++;
+    n->t0 = ms;
+    n->ramp = ms + (unsigned long)g_res_nome_geo.ciclo_espera_ms;
+    n->move = n->ramp;
+    n->x = n->x0;
+    n->y = -n->alt;
+}
+
+void res_nome_passo(res_nome_t *n, unsigned long ms)
+{
+    const float T = (float)g_res_nome_geo.velocidade_ms / 1000.0f;
+    float desloc;
+    if (!n || !n->ativo) return;
+    /* A partir do 2o ciclo o movimento volta sozinho, junto com a velocidade. */
+    if (!n->move && n->ciclo > 0 && ms >= n->ramp) n->move = n->ramp;
+    desloc = 0.0f;
+    if (n->move && ms > n->move) {
+        float u = (float)(ms - res_nome_ms_ramp(n)) / 1000.0f;
+        float um = (float)((long)n->move - (long)res_nome_ms_ramp(n)) / 1000.0f;
+        desloc = res_nome_fator(u, T) - res_nome_fator(um, T);
+    }
+    n->x = n->x0 + g_res_nome_geo.vel_x * desloc;
+    n->y = res_nome_y_entrada(n, ms) + g_res_nome_geo.vel_y * desloc;
+    if (n->x + n->larg < g_res_nome_geo.ciclo_fim_x) res_nome_reiniciar(n, ms);
+}
+
+float res_nome_clip_local(const res_nome_t *n)
+{
+    float c;
+    if (!n) return 0.0f;
+    c = g_res_nome_geo.clip_x - n->x;
+    return c > 0.0f ? c : 0.0f;
+}

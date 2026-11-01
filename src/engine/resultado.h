@@ -210,6 +210,53 @@ int res_cp_small_flash(int rank, unsigned long ms);
  * 640x360: `(difficulty.x + difficulty.width) + 60`, tudo pela metade. */
 float res_cp_small_x(float dif_w);
 
+/* ---- O NOME DA MUSICA (FlxBitmapText + tardlingSpritesheet) --------------
+
+ * `ResultState.hx` L119-122 monta o texto com a fonte monoespaçada de 49x61 e
+ * `letterSpacing = -15`; L342-360 o poe em `y = -height` (visivel so' quando a
+ * barra assenta); L736-765 (`timerThenSongName`) faz a entrada e o resto;
+ * L792-836 (`draw`/`update`) recorta e move.
+ *
+ * O movimento e' um LOOP, nao uma entrada so': `update()` soma `speedOfTween *
+ * 60 * elapsed` em x e y dos TRES sprites do topo (nome, dificuldade e
+ * percentual pequeno) enquanto `movingSongStuff` estiver ligado, e quando
+ * `x + largura < 100` chama `timerThenSongName()` outra vez -- que reseta as
+ * posicoes, espera 3,0 s e volta a andar. Este modulo guarda esse estado; o
+ * main.c so' le a posicao e desenha um quadrilatero girado.
+ */
+
+typedef struct {
+    int           ativo;    /* o nome ja' pode aparecer (barra assentada)   */
+    int           ciclo;    /* 0 = o primeiro `timerThenSongName()`          */
+    unsigned long t0;       /* inicio do ciclo (ms)                          */
+    unsigned long move;     /* quando `movingSongStuff` ligou (0 = ainda nao) */
+    unsigned long ramp;     /* quando a velocidade comeca a subir de 0       */
+    float         x0;       /* x de entrada (clearPercentSmall.x + 94)       */
+    float         y_alvo;   /* alvo do tween de entrada em y                 */
+    float         larg, alt;/* tamanho do bitmap do titulo                   */
+    float         x, y;     /* saida: canto do sprite, em 640x360            */
+} res_nome_t;
+
+/* Comeca o primeiro ciclo em `ms` (`timerThenSongName(1.0, false)` do create). */
+void res_nome_iniciar(res_nome_t *n, unsigned long ms, float x0, float y_alvo,
+                      float larg, float alt);
+
+/* `showSmallClearPercent()`: 2,5 s depois de o contador pequeno entrar, o
+ * movimento e' solto (`movingSongStuff = true`). Sem esta chamada o nome entra
+ * e fica parado -- que e' exatamente o que o original faz ate' esse instante. */
+void res_nome_soltar(res_nome_t *n, unsigned long ms);
+
+/* Avanca para o instante `ms`: posicao, e o recomeco do ciclo quando
+ * `x + largura < 100`. Chamar uma vez por quadro, ANTES de desenhar. */
+void res_nome_passo(res_nome_t *n, unsigned long ms);
+
+/* Corte da esquerda (`clipRect = FlxRect(max(0, 520 - x), ...)`), em pixels
+ * LOCAIS do bitmap do titulo. 0 = nada cortado. */
+float res_nome_clip_local(const res_nome_t *n);
+
+/* A linha da tabela de titulos da musica `id` (zero se nao houver). */
+const res_nome_arte_t *res_nome_do_id(const char *id);
+
 /* ---- A BARRA PRETA DO TOPO E A IMAGEM DA DIFICULDADE ---------------------
  *
  * `ResultState.create()` L342-360: a barra nasce em `y = -height` e desliza
