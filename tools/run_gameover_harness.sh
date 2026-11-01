@@ -127,6 +127,17 @@ FALHA=0
 [ "$CINCOS" -ge 2 ] || { echo "  FALHA: a contagem regressiva nao recomecou"; FALHA=1; }
 # Uma morte sem nota perdida nao faz sentido: a vida so' cai por miss/ghost.
 [ "${MISSES:-0}" -ge 13 ] || { echo "  FALHA: morte com menos de 13 misses (a vida nao caiu como devia)"; FALHA=1; }
+# O BECO SEM SAIDA DE 1 EM 4096. Se o sorteio cair no `fakeoutDeath`, o
+# original NAO marca `blueballed` e a tela nao sai nem com CROSS nem com CIRCLE
+# (GameOverSubState.hx L250-262 + L271-278). O port reproduz isso; o teste avisa
+# em vez de acusar "o CROSS nao reiniciou" sem explicar.
+if awk -F, '$3=="gameover_fakeout_sem_saida" {f=1} END{exit !f}' "$LOG"; then
+    echo "  AVISO: esta rodada caiu no fakeoutDeath (1/4096) -- o original tambem"
+    echo "         nao sai dessa tela por CROSS nem por CIRCLE. Rode de novo."
+    echo "GAME OVER: INCONCLUSIVO (sorteio do fakeout)"
+    exit 2
+fi
+
 # A ANIMACAO e a CAMERA do substate.
 [ -n "$FOCO_X" ] || { echo "  FALHA: o jogo nao publicou o foco da camera (gameover_foco)"; FALHA=1; }
 [ -n "$PRIMEIRA" ] || { echo "  FALHA: o BF nao entrou no firstDeath (gameover_primeira_morte)"; FALHA=1; }

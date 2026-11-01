@@ -2730,6 +2730,7 @@ inventado.
 | zoom -> `stage.camZoom * death.cameraZoom`, `smoothLerpPrecision(..., 0,5)` | L100, L265 | `GO_ZOOM_K = 0,85756425` (= `0,01^(1/59,94/0,5)`) |
 | CROSS -> `deathConfirm` e `FlxG.camera.fade(BLACK, 1)`; reset no fim | L271-278, L330-430 | `deathConfirm` + 60 quadros de fade, reinício no fim |
 | CIRCLE -> `goBack()`, `deathCounter = 0` | L544-570 | sai para Freeplay/Story e zera "BLUE BALLS" |
+| as DUAS saídas exigem `blueballed`, marcado por `playBlueBalledSFX()` | L271-278, L546, L600-623 | estado `g_go_blueballed`, armado junto com o `firstDeath`; o caminho do `fakeoutDeath` **não** arma, e aí a tela não sai (1 em 4096, como no original) — o harness avisa em vez de acusar defeito |
 
 **O foco da câmera** é uma conta do original com três parcelas que se cancelam
 em parte (L196-222):

@@ -299,6 +299,13 @@ static int g_gameover_frames=0,g_gameover_drawn=0;
 #define GO_FADE_QUADROS 60
 static float g_go_cam_x=0.0f,g_go_cam_y=0.0f,g_go_zoom=1.0f,g_go_ms=0.0f;
 static int g_go_iniciado=0,g_go_anim=-1,g_go_terminando=0,g_go_fade=0,g_go_audio_visto=0;
+/* `blueballed` (GameOverSubState.hx L64): e' `playBlueBalledSFX()` quem marca,
+   e as DUAS saidas da tela exigem ele -- ACCEPT_P (L271-278) e o goBack do
+   BACK_P (L546). Por isso ele entra como estado: no caminho do `fakeoutDeath`
+   (L250-253) o som NAO toca, `blueballed` fica falso e o substate nao sai nem
+   com CROSS nem com CIRCLE. E' um beco sem saida de 1 em 4096, e o port
+   reproduz isso em vez de "consertar" -- a telemetria avisa qual caminho foi. */
+static int g_go_blueballed=0;
 static unsigned int g_go_sorteio=0;
 /* PAUSA (ui_state continua 8: no original a pausa e' um SUBSTATE, o PlayState
    continua atras, congelado). g_pause_mode 0 = menu padrao, 1 = troca de
@@ -3650,7 +3657,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     /* A camera COMECA onde o gameplay a deixou (o substate nasce sobre o
        PlayState e a camera do jogo continua sendo a mesma) e o zoom tambem. */
     g_go_cam_x=g_tut_cam_x;g_go_cam_y=g_tut_cam_y;g_go_zoom=g_tut_zoom;
-    g_go_anim=-1;g_go_terminando=0;g_go_fade=0;
+    g_go_anim=-1;g_go_terminando=0;g_go_fade=0;g_go_blueballed=0;
     /* O avatar do jogador: e' ele que morre (GameOverSubState usa o BF do
        PlayState, que nos pacotes e' o personagem do slot `bf`). */
     if(g_cena_modo&&slb&&ci>=0&&g_cena.p[CH_PAPEL_BF].ativo){
@@ -3661,7 +3668,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      g_go_sorteio=(unsigned int)frame_no*2654435761u+1u;
      g_go_sorteio=g_go_sorteio*1664525u+1013904223u;
      if(tem_fake&&(g_go_sorteio>>20)%4096u==0u){
-      if(cc_toca(&g_cena,CH_PAPEL_BF,"fakeoutDeath",0)){g_go_anim=0;telemetry_event("gameover_fakeout",1,(int)frame_no);}
+      if(cc_toca(&g_cena,CH_PAPEL_BF,"fakeoutDeath",0)){
+       g_go_anim=0;
+       /* `blueballed` NAO e' marcado aqui -- e' o que o original faz. */
+       telemetry_event("gameover_fakeout",1,(int)frame_no);
+      }
      }
      if(g_go_anim<0){
       if(cc_toca(&g_cena,CH_PAPEL_BF,"firstDeath",0)){
@@ -3669,10 +3680,18 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        /* `isDead = true`: o personagem NAO volta a dancar quando a morte
           acaba (GameOverSubState.hx L172-177). Sem isso o BF morto dancava. */
        cc_especial_fixo(&g_cena,CH_PAPEL_BF,1);
+       /* playBlueBalledSFX(): marca `blueballed`. O som nao existe no pacote,
+          mas o ESTADO sim -- e' ele que libera o CROSS/CIRCLE. */
+       g_go_blueballed=1;
        telemetry_event("gameover_primeira_morte",ci,(int)frame_no);
       }else telemetry_event("gameover_sem_anim_morte",ci,0);
      }
-    }else telemetry_event("gameover_sem_cena",g_cena_modo,ci);
+    }else{
+     /* Sem cena (personagem sem pacote) o original tambem chama
+        playBlueBalledSFX(). */
+     g_go_blueballed=1;
+     telemetry_event("gameover_sem_cena",g_cena_modo,ci);
+    }
     /* `playBlueBalledSFX()` marca `blueballed = true` (L600-623) e e' o que
        libera o CROSS; aqui nao ha' o som, entao o que resta e' o estado. */
     telemetry_event("gameover_enter_camera",(int)g_go_cam_x,(int)g_go_cam_y);
@@ -3742,7 +3761,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      telemetry_event("gameover_zoom_final",(int)(g_go_zoom*1000.0f),
         (int)(g_play_zoom*((ci>=0&&ci<CH_CHAR_COUNT)?ch_chars[ci].dzoom:1.0f)*1000.0f));}
     }
-   }else if(pressed&PAD_CROSS&&!g_go_terminando&&g_gameover_frames>=2){
+   }else if(pressed&PAD_CROSS&&!g_go_terminando&&g_gameover_frames>=2&&g_go_blueballed){
     /* confirmDeath() (L330-372): `isEnding = true`, toca
        `deathConfirm`+suffix, comeca a musica de saida (sem arquivo aqui) e
        dispara o fade de 1 s. O reinicio acontece no FIM do fade -- antes o
@@ -3752,7 +3771,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     if(g_cena.p[CH_PAPEL_BF].ativo&&cc_toca(&g_cena,CH_PAPEL_BF,"deathConfirm",0))
      telemetry_event("gameover_confirmar",1,(int)frame_no);
     else telemetry_event("gameover_confirmar",0,(int)frame_no);
-   }else if(pressed&PAD_CIRCLE&&!g_go_terminando&&g_gameover_frames>=2){
+   }else if(pressed&PAD_CIRCLE&&!g_go_terminando&&g_gameover_frames>=2&&g_go_blueballed){
     /* goBack() (L544-570): so' depois de `blueballed` (o primeiro quadro) e
        nunca durante a saida. O deathCounter volta a zero, e e' isso que zera
        "BLUE BALLS" no HUD do original (PlayState.deathCounter = 0). */
