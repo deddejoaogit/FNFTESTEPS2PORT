@@ -282,6 +282,11 @@ static u64 g_res_t0=0;              /* GetTimerSystemTime no instante da abertur
 static int g_res_ms=0;              /* ms desde a abertura                     */
 static int g_res_logado=0;
 static int g_res_desenhadas=-1;   /* folhas desenhadas no ultimo quadro (telemetria) */
+/* ARTE DO RANK: as duas imagens (vertical e horizontal) do rank conquistado.
+   So' um par e' carregado por partida -- o maior custa 76.736 B de VRAM. */
+static int g_res_rank_ok=0;
+static unsigned int g_res_rank_vert_addr=0,g_res_rank_hor_addr=0;
+static int g_res_rank_logado=0;
 
 /* Carrega a ARTE da tela de resultado: abre os CFZ4 das tres folhas, pede ao
    pool a VRAM de um quadro de cada e le' o gradiente do fundo. Chamado UMA vez
@@ -2653,12 +2658,43 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl)
   }else telemetry_event("resultado_sem_vram",-1,(int)sp_livre(pool));
  }
  telemetry_event("resultado_fundo",g_res_bg_ok,RES_BG_W*RES_BG_H*4u);
+ /* A ARTE DO RANK. Duas imagens estaticas do rank CONQUISTADO (o par escolhido
+    por `fnf_play_rank`), lidas para `g_up_bounce` e subidas para o pool. Nao se
+    carrega os cinco ranks: cada partida mostra um. */
+ g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;
+ {const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+  int okv=0,okh=0;
+  if(rr){
+   char caminho[96];unsigned int addr=0;
+   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/resultado/%s",rr->vert.arquivo);
+   if(read_exact_path(caminho,g_up_bounce,(int)(rr->vert.w*rr->vert.h*4u))==0){
+    texbuffer_t t=*tpl;t.width=rr->vert.w;t.psm=GS_PSM_32;t.address=0;
+    if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x21u,rr->vert.w*rr->vert.h*4u,&addr)>=0){
+     t.address=addr;setup_texture_dims(&t,rr->vert.w,rr->vert.h);
+     FlushCache(0);upload_raw(&t,g_up_bounce,rr->vert.w,rr->vert.h);
+     g_res_rank_vert_addr=addr;okv=1;
+    }
+   }
+   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/resultado/%s",rr->hor.arquivo);
+   if(read_exact_path(caminho,g_up_bounce,(int)(rr->hor.w*rr->hor.h*4u))==0){
+    texbuffer_t t=*tpl;t.width=rr->hor.w;t.psm=GS_PSM_32;t.address=0;
+    if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x22u,rr->hor.w*rr->hor.h*4u,&addr)>=0){
+     t.address=addr;setup_texture_dims(&t,rr->hor.w,rr->hor.h);
+     FlushCache(0);upload_raw(&t,g_up_bounce,rr->hor.w,rr->hor.h);
+     g_res_rank_hor_addr=addr;okh=1;
+    }
+   }
+   g_res_rank_ok=okv&&okh;
+   telemetry_event("resultado_rank_arte",g_res_rank_ok,
+                   (int)((rr->vert.w*rr->vert.h*4u)+(rr->hor.w*rr->hor.h*4u)));
+  }}
 }
 static void resultado_soltar(void)
 {
  int i;
  res_liberar(&g_res);
  g_res_ok=0;g_res_bg_ok=0;g_res_bg_addr=0;
+ g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
  for(i=0;i<(int)RES_FOLHAS;i++){g_res_addr[i]=0;g_res_frame[i]=0xffffffffu;}
  if(g_res_pixels){free(g_res_pixels);g_res_pixels=0;g_res_pixels_bytes=0;}
 }
@@ -5601,6 +5637,63 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      q=bind_texture_filter(q,&bt,0);
      q=sprite_region(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0.0f,0.0f,
                      (float)RES_BG_W,(float)RES_BG_H);
+    }
+    /* A ARTE DO RANK (ResultState.displayRankText, L667-700). Entra
+       `getFlashDelay()`/24 s depois de a tela abrir (5,375 s no PERFECT, 4,542
+       no GREAT, 7,75 no SHIT -- Scoring.hx L568-586), com um flash branco da
+       tela inteira de 14/24 s e um piscar de 0,25 s. As duas imagens do rank
+       rolam: a vertical para cima (-80 px/s em 1280x720), as 12 horizontais
+       para os lados alternados (+-7 px/s). */
+    if(g_res_rank_ok){
+     const res_rank_t *rr=res_rank((int)fnf_play_rank(&g_play));
+     unsigned long rms=(unsigned long)g_res_ms;
+     if(rr&&rms>=(unsigned long)rr->flash_ms){
+      int fa=res_flash_alpha(rr,rms);
+      /* bgFlash: zIndex 20, ou seja por cima do fundo e por baixo de tudo. */
+      if(fa>0)q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,
+                           255,241,166,(unsigned char)fa);
+      /* rankTextBack (zIndex 100): as 12 linhas horizontais. Cada uma e' um
+         FlxBackdrop -- a imagem repetida com espaco --, entao desenha-se ate'
+         cobrir a largura, com a fase vinda da velocidade. */
+      if(g_res_rank_hor_addr){
+       texbuffer_t ht=stagetex;int li;
+       ht.width=rr->hor.w;ht.psm=GS_PSM_32;ht.address=g_res_rank_hor_addr;
+       setup_texture_dims(&ht,rr->hor.w,rr->hor.h);
+       q=bind_texture_filter(q,&ht,1);
+       for(li=0;li<(int)rr->hor_n;li++){
+        float y=rr->hor_y0+rr->hor_dy*(float)li;
+        float fase,passo=(float)rr->hor.w+rr->hor_espaco,x;
+        if(y>=(float)SCREEN_H||y+(float)rr->hor.h<=0.0f)continue;
+        fase=res_rank_scroll_x(rr,li,rms);
+        /* fmod manual: a fase pode ser negativa (linhas pares). */
+        while(fase>0.0f)fase-=passo;
+        while(fase<=-passo)fase+=passo;
+        for(x=rr->hor_x+fase;x<(float)SCREEN_W;x+=passo){
+         if(x+passo<0.0f)continue;
+         q=sprite_region(q,x,y,(float)rr->hor.w,(float)rr->hor.h,
+                         0.0f,0.0f,(float)rr->hor.w,(float)rr->hor.h);
+        }
+       }
+      }
+      /* rankTextVert (zIndex 990): a faixa vertical em x=618, rolando para
+         cima, com o piscar de entrada. */
+      if(g_res_rank_vert_addr&&res_rank_pisca(rr,rms)){
+       texbuffer_t vt=stagetex;float oy,y;
+       vt.width=rr->vert.w;vt.psm=GS_PSM_32;vt.address=g_res_rank_vert_addr;
+       setup_texture_dims(&vt,rr->vert.w,rr->vert.h);
+       q=bind_texture_filter(q,&vt,1);
+       oy=res_rank_scroll_y(rr,rms);
+       while(oy>0.0f)oy-=(float)rr->vert.h;
+       while(oy<=-(float)rr->vert.h)oy+=(float)rr->vert.h;
+       for(y=rr->vert_y+oy;y<(float)SCREEN_H;y+=(float)rr->vert.h){
+        if(y+(float)rr->vert.h<=0.0f)continue;
+        q=sprite_region(q,rr->vert_x,y,(float)rr->vert.w,(float)rr->vert.h,
+                        0.0f,0.0f,(float)rr->vert.w,(float)rr->vert.h);
+       }
+      }
+      if(!g_res_rank_logado&&res_rank_pisca(rr,rms)){g_res_rank_logado=1;
+       telemetry_event("resultado_rank",(int)fnf_play_rank(&g_play),(int)rms);}
+     }
     }
     for(i=0;i<(int)RES_FOLHAS;i++){
      int qd;texbuffer_t ft=stagetex;

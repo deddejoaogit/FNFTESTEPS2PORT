@@ -114,6 +114,17 @@ for _id, _w, _h, _nq, _fps, _tex in g.resultado_folhas()[0]:
     ok &= (magic == b"CFZ4" and ver == 1 and cnt == _nq
            and fbytes == _w * _h * 4 and bad == 0)
 
+# As imagens do rank: uma por rank e eixo, com alfa de verdade (o desenho e'
+# justamente a faixa opaca rolando).
+nrank = 0
+for _a, _w, _h in g.resultado_ranks():
+    im = g.make_rank_img(_w, _h, _a.endswith("_vert.rgba"))
+    op = sum(1 for i in range(3, len(im), 4) if im[i] > 64)
+    print(f"  RESULTADO   {_a:22s} {_w}x{_h} arquivo={len(im):>9,} opacos={op:>6}")
+    ok &= (len(im) == _w * _h * 4 and op > 0)
+    nrank += 1
+ok &= (nrank >= 10)
+
 bw, bh = g.resultado_folhas()[1:]
 bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")

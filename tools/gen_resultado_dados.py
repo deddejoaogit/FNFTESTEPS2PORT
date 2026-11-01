@@ -71,6 +71,44 @@ def gerar():
              f["x"], f["y"], f["inicio_ms"], f["tex"], f["id"]))
     a("};")
     a("")
+    a("#define RES_RANKS %du" % len(d["ranks"]))
+    a("")
+    a("/* A ARTE DO RANK (ResultState.hx L667-700, Scoring.hx L627-666).")
+    a(" * `flash_ms` e' o `getFlashDelay()` de cada rank, contado da abertura da")
+    a(" * tela; `*_x`/`*_y`/`*_vel` ja' estao em 640x360 (metade do original). */")
+    a("typedef struct {")
+    a("    unsigned short w, h;")
+    a("    const char    *arquivo;")
+    a("} res_img_t;")
+    a("")
+    a("typedef struct {")
+    a("    const char    *sufixo;      /* LOSS, GOOD, GREAT, EXCELLENT, PERFECT */")
+    a("    unsigned int   flash_ms;")
+    a("    res_img_t      vert, hor;")
+    a("    float          vert_x, vert_y, vert_vel;")
+    a("    unsigned int   vert_espera_ms;")
+    a("    float          hor_x, hor_y0, hor_dy, hor_vel, hor_espaco;")
+    a("    unsigned char  hor_n;")
+    a("    unsigned int   flicker_ms, flicker_total_ms, flash_dura_ms;")
+    a("} res_rank_t;")
+    a("")
+    a("static const res_rank_t g_res_rank[RES_RANKS] = {")
+    for r in d["ranks"]:
+        a('    { "%s", %4du,', end=None) if False else None
+        a('    { "%s", %4du,                                          /* rank %d */'
+          % (r["sufixo"], r["flash_ms"], r["rank"]))
+        a('      { %3du, %3du, "%s" }, { %3du, %3du, "%s" },'
+          % (r["vert"]["w"], r["vert"]["h"], r["vert"]["arquivo"],
+             r["hor"]["w"], r["hor"]["h"], r["hor"]["arquivo"]))
+        a('      %.1ff, %.1ff, %.1ff, %4du,'
+          % (r["vert_x"], r["vert_y"], r["vert_vel"], r["vert_espera_ms"]))
+        a('      %.1ff, %.1ff, %.2ff, %.2ff, %.1ff, %du,'
+          % (r["hor_x"], r["hor_y0"], r["hor_dy"], r["hor_vel"],
+             r["hor_espaco"], r["hor_n"]))
+        a('      %2du, %2du, %2du },'
+          % (r["flicker_ms"], r["flicker_total_ms"], r["flash_dura_ms"]))
+    a("};")
+    a("")
     a("#endif /* RESULTADO_DADOS_H */")
     return "\n".join(out) + "\n"
 

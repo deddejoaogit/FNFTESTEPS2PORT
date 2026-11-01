@@ -59,4 +59,40 @@ int res_quadro(res_t *r, int i, unsigned long ms);
  * Devolve 0 ou PST_ERR_*. */
 int res_pixels(res_t *r, int i, int q, unsigned char *dst);
 
+/* ---- A ARTE DO RANK (ResultState.hx L667-700 + Scoring.hx L627-666) --------
+ *
+ * Duas imagens do rank conquistado: uma VERTICAL (FlxBackdrop em x=1236,
+ * y=100, rolando para cima) e uma HORIZONTAL (12 FlxBackdoor em
+ * y = 60 + 67,5*i, metade para cada lado). O rank entra com um flash branco
+ * da tela e um piscar de 0,25 s.
+ *
+ * Tudo aqui e' funcao PURA do tempo: sem arquivo, sem GS. O main.c so' le os
+ * dois .rgba e desenha o que estas funcoes mandam.
+ */
+
+/* Indice do rank na tabela (0 = SHIT ... 5 = PERFECT_GOLD). Rank invalido cai
+ * em SHIT, como `Scoring.calculateRank(...) ?? SHIT` (ResultState.hx L117). */
+int res_rank_indice(int rank);
+
+/* Tabela do rank `rank` (nunca nula). */
+const res_rank_t *res_rank(int rank);
+
+/* Alpha do FLASH da tela (0..255): 255 no instante do flash, caindo linear ate
+ * 0 em `flash_dura_ms` (FlxTween.tween(bgFlash, {alpha: 0}, 14/24)). */
+int res_flash_alpha(const res_rank_t *r, unsigned long ms);
+
+/* O piscar de entrada: FlxFlicker.flicker(rankTextVert, 2/24*3, 2/24, true).
+ * 1 = desenha, 0 = apagado (durante `flicker_total_ms`, alternando a cada
+ * `flicker_ms`). Fora da janela do piscar, sempre 1. */
+int res_rank_pisca(const res_rank_t *r, unsigned long ms);
+
+/* Deslocamento (px, negativo para cima) do texto vertical. Zero ate'
+ * `flash_ms + vert_espera_ms`; depois cresce com `vert_vel`. */
+float res_rank_scroll_y(const res_rank_t *r, unsigned long ms);
+
+/* Deslocamento (px, positivo para a direita) da linha `i` do texto
+ * horizontal. As pares vao para a esquerda, as impares para a direita
+ * (`(i % 2 == 0) ? -7.0 : 7.0`, L694-698). */
+float res_rank_scroll_x(const res_rank_t *r, int linha, unsigned long ms);
+
 #endif /* RESULTADO_H */

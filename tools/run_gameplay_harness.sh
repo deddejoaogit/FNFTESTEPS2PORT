@@ -109,6 +109,12 @@ RESCENA=$(awk -F, '$1=="E" && $3=="resultado_cena" {print $4; exit}' "$LOG")
 RESF1=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==1 {print $5; exit}' "$LOG")
 RESF2=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==2 {print $5; exit}' "$LOG")
 RESF3=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==3 {print $5; exit}' "$LOG")
+# ARTE DO RANK: o par (vertical + horizontal) do rank conquistado e o instante
+# em que ele entra (`Scoring.hx` getFlashDelay dividido por 24).
+RESRANKARTE=$(awk -F, '$1=="E" && $3=="resultado_rank_arte" {print $4; exit}' "$LOG")
+RESRANKVISTO=$(awk -F, '$1=="E" && $3=="resultado_rank_arte" {print $5; exit}' "$LOG")
+RESRANKIDX=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $4; exit}' "$LOG")
+RESRANKMS=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
 CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
@@ -134,6 +140,7 @@ echo "  icones de vida ............... ${ICONES:-?} carregado(s), ${ICONEDES:-?}
 echo "  note splash .................. arte=${SPLARTE:-?} criadas=$SPLNOVOS (SICK=$SPLSICK) pico na tela=$SPLMAX"
 echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} cena=${RESCENA:-?}"
 echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
+echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 
 FALHA=0
 [ "$CLOCK" -gt 100000 ] || { echo "  FALHA: o relogio da musica nao andou (o transporte parou)"; FALHA=1; }
@@ -202,6 +209,29 @@ for par in "1:250:${RESF1:-}" "2:875:${RESF2:-}" "3:1500:${RESF3:-}"; do
     d=$((tem - quer)); [ "$d" -lt 0 ] && d=$((-d))
     [ "$d" -le 40 ] || { echo "  FALHA: a folha $n entrou em ${tem} ms, e o timer do original diz $quer"; FALHA=1; }
 done
+
+# ARTE DO RANK. Tres exigencias:
+#   * o par carregou (sem ele o rank fica so' no texto);
+#   * o rank desenhado e' o MESMO que o jogo calculou (`play_result`);
+#   * o rank entra no `getFlashDelay` da fonte -- 129/24 s no PERFECT, 122 no
+#     EXCELLENT, 109 no GREAT, 107 no GOOD e 186 no SHIT (Scoring.hx L568-586).
+[ "${RESRANKARTE:-0}" -eq 1 ] || { echo "  FALHA: a arte do rank nao carregou"; FALHA=1; }
+[ "${RESRANKVISTO:-0}" -gt 20000 ] || { echo "  FALHA: a arte do rank carregou vazia (${RESRANKVISTO:-0} B)"; FALHA=1; }
+if [ -z "${RESRANKIDX:-}" ]; then
+    echo "  FALHA: o rank nunca chegou a ser desenhado na tela de resultado"; FALHA=1
+else
+    [ "$RESRANKIDX" = "$RANK" ] || { echo "  FALHA: a arte mostrada e' do rank $RESRANKIDX e o jogo calculou $RANK"; FALHA=1; }
+    case "$RANK" in
+        0) ESP_RANK_MS=7750 ;;   # 186/24
+        1) ESP_RANK_MS=4458 ;;   # 107/24
+        2) ESP_RANK_MS=4542 ;;   # 109/24
+        3) ESP_RANK_MS=5083 ;;   # 122/24
+        *) ESP_RANK_MS=5375 ;;   # 129/24 (PERFECT e PERFECT_GOLD)
+    esac
+    D=$((RESRANKMS - ESP_RANK_MS)); [ "$D" -lt 0 ] && D=$((-D))
+    echo "  rank na tela ................ $RESRANKIDX aos ${RESRANKMS} ms (getFlashDelay = $ESP_RANK_MS ms)"
+    [ "$D" -le 40 ] || { echo "  FALHA: o rank entrou em ${RESRANKMS} ms, e o getFlashDelay do rank $RANK diz $ESP_RANK_MS"; FALHA=1; }
+fi
 
 if [ "$FALHA" != 0 ]; then
     echo

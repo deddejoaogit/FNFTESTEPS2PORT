@@ -395,6 +395,46 @@ def lz4_literais(src):
     return bytes(out) + src
 
 
+def resultado_ranks():
+    """[(arquivo, w, h)] das imagens do rank, do plano commitado."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return []
+    d = json.load(open(caminho, encoding="utf-8"))
+    out = []
+    vistos = set()
+    for r in d.get("ranks", []):
+        for tipo in ("vert", "hor"):
+            img = r[tipo]
+            if img["arquivo"] in vistos:
+                continue
+            vistos.add(img["arquivo"])
+            out.append((img["arquivo"], img["w"], img["h"]))
+    return out
+
+
+def make_rank_img(w, h, vertical):
+    """Imagem sintetica do rank: barras de "letra" ao longo do eixo do texto.
+
+    O rank vertical rola em Y e o horizontal em X, entao a arte e' feita de
+    faixas perpendiculares -- um bloco uniforme nao provaria que o desenho
+    segue o eixo certo.
+    """
+    out = bytearray(w * h * 4)
+    passo = max(4, (h if vertical else w) // 6)
+    for y in range(h):
+        for x in range(w):
+            o = (y * w + x) * 4
+            t = y if vertical else x
+            dentro = (t % passo) < passo // 2
+            out[o + 0] = 255 if dentro else 20
+            out[o + 1] = 240 if dentro else 20
+            out[o + 2] = 200 if dentro else 30
+            out[o + 3] = 255 if dentro else 0
+    return bytes(out)
+
+
 def make_resultado_bg(w, h):
     """O gradiente do fundo, entre as duas cores do ResultState (90 graus)."""
     topo = (0xFE, 0xCC, 0x5C)
@@ -502,6 +542,8 @@ def build(root, charts_src=None):
         "resultado/bg.rgba": make_resultado_bg(*resultado_folhas()[1:]),
         **{"resultado/%s.cfz4" % f[0]: make_resultado_pack(f[1], f[2], f[3])
            for f in resultado_folhas()[0]},
+        **{"resultado/%s" % a: make_rank_img(w, h, a.endswith("_vert.rgba"))
+           for a, w, h in resultado_ranks()},
 
         # Tutorial: pacotes CFZ4/LZ4, 43 quadros de BF e 87 de GF.
         "bf_frames.lz4f": make_cfz4(43, 258 * 254 * 4, seed=1),

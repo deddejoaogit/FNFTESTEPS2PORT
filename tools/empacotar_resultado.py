@@ -87,6 +87,28 @@ FOLHAS = [
     },
 ]
 
+# A ARTE DO RANK. `ResultState.displayRankText()` (L667-700) usa DUAS imagens do
+# rank conquistado (Scoring.hx L627-666):
+#
+#   rankText<RNK>    vertical   FlxBackdrop vertical em x = 1280-44, y = 100,
+#                               com velocity.y = -80 depois de 30/24 s, e um
+#                               FlxFlicker de 0,25 s (2 quadros ligado, 2
+#                               desligado) na entrada;
+#   rankScroll<RNK>  horizontal 12 FlxBackdrop em x = 640-320, y = 60+67,5*i,
+#                               metade com velocity.x = -7 e metade +7.
+#
+# Nomes dos arquivos por rank, como em Scoring.getVerTextAsset/getHorTextAsset:
+# PERFECT e PERFECT_GOLD usam os mesmos de PERFECT.
+RANKS = [
+    # (indice no fnf_rank_t do port, sufixo do arquivo, atraso do flash em 1/24 s)
+    (0, "LOSS", 186),       # SHIT
+    (1, "GOOD", 107),
+    (2, "GREAT", 109),
+    (3, "EXCELLENT", 122),
+    (4, "PERFECT", 129),    # PERFECT, e PERFECT_GOLD o reusa
+    (5, "PERFECT", 129),    # PERFECT_GOLD
+]
+
 # O gradiente de fundo: FlxGradient com angulo 90 (vertical) e estas duas cores.
 BG_TOPO = (0xFE, 0xCC, 0x5C)
 BG_BASE = (0xFD, 0xC0, 0x5C)
@@ -253,6 +275,59 @@ def main():
             print("  " + p)
         return 1
 
+    # ---- A ARTE DO RANK: um par (vertical, horizontal) por rank ----
+    # As imagens sao ESTATICAS (Paths.image, nao Sparrow), entao vao como RGBA
+    # cru em vez de CFZ4: sem tabela, sem bloco, um arquivo por peca. A metade da
+    # resolucao, como todo o resto da tela.
+    ranks_out = []
+    vistos = {}
+    for idx, suf, flash in RANKS:
+        if suf in vistos:
+            # PERFECT_GOLD reusa o par de PERFECT (Scoring.hx L629-653).
+            ranks_out.append(dict(vistos[suf], rank=idx))
+            continue
+        par = {}
+        for tipo, pre in (("vert", "rankText"), ("hor", "rankScroll")):
+            src = os.path.join(base, "resultScreen", "rankText", pre + suf + ".png")
+            if not os.path.isfile(src):
+                problemas.append("rank %s: falta %s" % (suf, src))
+                continue
+            im = Image.open(src).convert("RGBA")
+            w = max(1, int(round(im.width * HALF)))
+            h = max(1, int(round(im.height * HALF)))
+            if w > MAX_TEX or h > MAX_TEX:
+                problemas.append("rank %s/%s: %dx%d passa do limite %d"
+                                 % (suf, tipo, w, h, MAX_TEX))
+                continue
+            im = im.resize((w, h), Image.LANCZOS)
+            nome = "rank_%s_%s.rgba" % (suf.lower(), tipo)
+            with open(os.path.join(args.out, nome), "wb") as f:
+                f.write(im.tobytes())
+            par[tipo] = {"arquivo": nome, "w": w, "h": h,
+                         "vram_bytes": w * h * 4}
+        if "vert" not in par or "hor" not in par:
+            continue
+        d = {
+            "rank": idx, "sufixo": suf,
+            "flash_ms": round(1000.0 * flash / 24.0),
+            "vert": par["vert"], "hor": par["hor"],
+            "vert_x": round((1280.0 - 44.0) * HALF, 3), "vert_y": round(100.0 * HALF, 3),
+            "vert_vel": round(-80.0 * HALF, 3),
+            "vert_espera_ms": round(1000.0 * 30.0 / 24.0),
+            "hor_x": round((1280.0 / 2.0 - 320.0) * HALF, 3),
+            "hor_y0": round((50.0 + 10.0) * HALF, 3),
+            "hor_dy": round((135.0 / 2.0) * HALF, 3),
+            "hor_n": 12,
+            "hor_vel": round(7.0 * HALF, 3),
+            "hor_espaco": round(10.0 * HALF, 1),
+            "flicker_ms": round(1000.0 * 2.0 / 24.0),
+            "flicker_total_ms": round(1000.0 * 6.0 / 24.0),
+            "flash_dura_ms": round(1000.0 * 14.0 / 24.0),
+            "linha": "ResultState.hx L667-700 + Scoring.hx L627-666",
+        }
+        vistos[suf] = d
+        ranks_out.append(d)
+
     # O FUNDO: FlxGradient 90 graus de BG_TOPO a BG_BASE em 1280x720. No port ele
     # e' UMA textura estreita esticada na horizontal -- o gradiente so' varia em
     # Y, entao 16 colunas bastam e o custo de desenho e' um quad em vez de 360.
@@ -271,6 +346,7 @@ def main():
         f.write(bytes(bg))
 
     plano = {
+        "ranks": ranks_out,
         "bg_w": bgw, "bg_h": bgh, "bg_arquivo": "resultado/bg.rgba",
         "bg_vram_bytes": bgw * bgh * 4,
         "nota": "Gerado por tools/empacotar_resultado.py a partir de "
@@ -286,6 +362,11 @@ def main():
         f.write("\n")
 
     total = sum(x["vram_bytes"] for x in folhas_out) + plano["bg_vram_bytes"]
+    # O rank NAO entra nesse total: so' um par e' carregado por partida, e ele
+    # e' medido a parte (`rank_vram_maior`).
+    rank_max = max([r["vert"]["vram_bytes"] + r["hor"]["vram_bytes"]
+                    for r in ranks_out] or [0])
+    plano["rank_vram_maior"] = rank_max
     print("tela de resultado: %d folhas + fundo %dx%d, %d B de VRAM no total"
           % (len(folhas_out), bgw, bgh, total))
     for f in folhas_out:
@@ -293,6 +374,8 @@ def main():
               "%d B  %d pacote(s)"
               % (f["id"], f["quadros"], f["w"], f["h"], f["x"], f["y"],
                  f["inicio_ms"], f["vram_bytes"], len(f["partes"])))
+    print("rank: %d pares, o maior custa %d B de VRAM (um par por partida)"
+          % (len(ranks_out), rank_max))
     print("plano escrito em assets-data/resultado-plan.json")
     return 0
 

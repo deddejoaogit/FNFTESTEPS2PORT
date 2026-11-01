@@ -3094,10 +3094,43 @@ O fundo e' o `FlxGradient` de 90 graus da fonte (0xFFFECC5C -> 0xFFFDC05C) numa
 textura de **16x360** esticada na horizontal: 23.040 B e um quad, em vez de 360
 retangulos de cor por quadro.
 
+#### A tela de Resultado: o RANK entrou (arte do original)
+
+O rank nao e' mais texto do port: os seis pares que o `ResultState.hx` usa
+(`displayRankText`, L660-700) estao empacotados e desenhados — `LOSS`, `GOOD`,
+`GREAT`, `EXCELLENT`, `PERFECT` e `PERFECT_GOLD` (que reusa a arte do
+PERFECT, como no original). Cada rank e' um par de imagens: a **vertical** do
+`rankText` a esquerda e a **horizontal** por cima, ambas em `Paths.image`
+(estaticas, um quadro so') e por isso guardadas em RGBA cru, na metade:
+
+| rank | vertical (0,5) | horizontal (0,5) |
+|---|---|---|
+| LOSS | 20x121 | 245x26 |
+| GOOD | 20x152 | 244x26 |
+| GREAT | 20x216 | 297x26 |
+| EXCELLENT | 20x278 | 524x26 |
+| PERFECT / PERFECT_GOLD | 20x216 | 408x26 |
+
+O pior par custa **76.736 B** de VRAM — e so' um par fica residente por
+partida (o rank so' e' conhecido no fim), entao o custo real e' esse, contra
+os 1.269.760 B livres da tela. Medido no harness: `resultado_rank_arte,1,43048`
+(o par do GREAT que a musica do teste alcanca).
+
+A ENTRADA dele e' a da fonte, ao milesimo: `Scoring.hx` L568-586 da' o
+`getFlashDelay()` por rank — 4.542 ms no GREAT, 4.458 no GOOD, 5.083 no
+EXCELLENT, 5.375 no PERFECT e 7.750 no SHIT. O harness confere o relogio:
+`resultado_rank,2,4550` — 8 ms de diferenca, que e' a amostragem de quadro
+(o valor e' medido no primeiro quadro depois do timer, nao dentro dele).
+O flash da tela (14/24 s de alpha 1 -> 0 em `(255,241,166)`), o piscar do
+vertical (250 ms alternando a cada 83 ms) e as 12 linhas horizontais em
+`y = 60 + 67,5*i` com `vel.x = -/+3,5` e espaco de 5 px tambem sao os da
+fonte, com as formulas isoladas em `engine/resultado.c` (funcoes puras, com a
+linha do original no comentario) e testadas em `test/test_resultado.c`.
+
 Os NUMEROS da tela continuam sendo texto da fonte do port. A arte dos digitos
-(`resultScreen/score-digital-numbers`, 52 subtexturas de 95x125) e a do rank
-(`rankText`, `results-bf`, `results-pico`) ainda nao foram empacotadas — e' a
-proxima peca, com o custo ja' medido na tabela abaixo.
+(`resultScreen/score-digital-numbers`, 52 subtexturas de 95x125) e a do
+`results-bf`/`results-pico` ainda nao foram empacotadas — e' a proxima peca,
+com o custo ja' medido na tabela abaixo.
 
 #### A tela de Resultado: o que falta, medido
 

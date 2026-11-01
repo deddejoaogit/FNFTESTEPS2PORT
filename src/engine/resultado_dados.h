@@ -39,4 +39,58 @@ static const res_folha_dado_t g_res_folha[RES_FOLHAS] = {
     { 356u,  72u, 30u, 24u, 0u, -90.0f, 257.5f, 1500u, "resultado/score.cfz4", "score" },
 };
 
+#define RES_RANKS 6u
+
+/* A ARTE DO RANK (ResultState.hx L667-700, Scoring.hx L627-666).
+ * `flash_ms` e' o `getFlashDelay()` de cada rank, contado da abertura da
+ * tela; `*_x`/`*_y`/`*_vel` ja' estao em 640x360 (metade do original). */
+typedef struct {
+    unsigned short w, h;
+    const char    *arquivo;
+} res_img_t;
+
+typedef struct {
+    const char    *sufixo;      /* LOSS, GOOD, GREAT, EXCELLENT, PERFECT */
+    unsigned int   flash_ms;
+    res_img_t      vert, hor;
+    float          vert_x, vert_y, vert_vel;
+    unsigned int   vert_espera_ms;
+    float          hor_x, hor_y0, hor_dy, hor_vel, hor_espaco;
+    unsigned char  hor_n;
+    unsigned int   flicker_ms, flicker_total_ms, flash_dura_ms;
+} res_rank_t;
+
+static const res_rank_t g_res_rank[RES_RANKS] = {
+    { "LOSS", 7750u,                                          /* rank 0 */
+      {  20u, 121u, "rank_loss_vert.rgba" }, { 245u,  26u, "rank_loss_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+    { "GOOD", 4458u,                                          /* rank 1 */
+      {  20u, 121u, "rank_good_vert.rgba" }, { 244u,  26u, "rank_good_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+    { "GREAT", 4542u,                                          /* rank 2 */
+      {  20u, 152u, "rank_great_vert.rgba" }, { 297u,  26u, "rank_great_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+    { "EXCELLENT", 5083u,                                          /* rank 3 */
+      {  20u, 278u, "rank_excellent_vert.rgba" }, { 524u,  26u, "rank_excellent_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+    { "PERFECT", 5375u,                                          /* rank 4 */
+      {  20u, 216u, "rank_perfect_vert.rgba" }, { 408u,  26u, "rank_perfect_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+    { "PERFECT", 5375u,                                          /* rank 5 */
+      {  20u, 216u, "rank_perfect_vert.rgba" }, { 408u,  26u, "rank_perfect_hor.rgba" },
+      618.0f, 50.0f, -40.0f, 1250u,
+      160.0f, 30.0f, 33.75f, 3.50f, 5.0f, 12u,
+      83u, 250u, 583u },
+};
+
 #endif /* RESULTADO_DADOS_H */

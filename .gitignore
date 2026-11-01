@@ -27,3 +27,6 @@ FNF_COLHEITA.txt
 
 # Telemetria do harness/console: saida de execucao, nunca fonte.
 FNF_COLHEITA.txt
+
+# Rascunho de mensagem de commit (nunca vai para o repo).
+.commitmsg
