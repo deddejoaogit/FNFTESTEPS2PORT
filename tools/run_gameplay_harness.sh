@@ -81,7 +81,9 @@ MISSES=$(awk -F, '$1=="E" && $3=="play_death" {n++} END{print n+0}' "$LOG")
 # retangulos do atlas do tutorial: a arte existia no repositorio oficial e nunca
 # tinha sido empacotada.
 ICONES=$(awk -F, '$1=="E" && $3=="icone_carregado" {n++} END{print n+0}' "$LOG")
-ICONEDES=$(awk -F, '$1=="E" && $3=="icone_desenho" {print $4; exit}' "$LOG")
+# ULTIMO valor: o jogo publica `icone_desenho` tambem durante a musica (a cada
+# 300 quadros), e o que interessa aqui e' o total do fim da rodada.
+ICONEDES=$(awk -F, '$1=="E" && $3=="icone_desenho" {v=$4} END{print v}' "$LOG")
 ICONEEST=$(awk -F, '$1=="E" && $3=="icone_estado" {n++} END{print n+0}' "$LOG")
 HUDZOOM=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $4; exit}' "$LOG")
 HUDPULSOS=$(awk -F, '$1=="E" && $3=="hud_zoom" {print $5; exit}' "$LOG")

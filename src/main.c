@@ -37,6 +37,7 @@
 #include "engine/char_layout.h"
 #include "engine/notekind.h"
 #include "engine/health_icon.h"
+#include "gameover_dados.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
 #include <stdio.h>
@@ -302,18 +303,22 @@ static int g_gameover_frames=0,g_gameover_drawn=0;
    - GO_ZOOM_K: MathUtil.smoothLerpPrecision(base, target, elapsed,
      CAMERA_ZOOM_DURATION = 0.5) (L100, L265) = target + (base-target) *
      pow(0.01, elapsed/0.5); com elapsed = 1/59.94 s o fator e' 0.85756425.
-   - GO_FADE_QUADROS: depois do CROSS o original joga `deathConfirm`, espera
-     FADE_TIMER = (comprimento da musica de game over)/7000 -- que sem a musica
-     da' 0 -- e comeca FlxG.camera.fade(BLACK, 1) (L349-372, L425-430); o
-     reinicio acontece no fim do fade, 1 s depois. A MUSICA DE GAME OVER NAO
-     ESTA' NO PACOTE DE DADOS (nem `gameplay/gameover/gameOver`, nem
-     `fnf_loss_sfx`): o port nao inventa o arquivo, conta os 60 quadros do fade
-     e registra `gameover_sem_audio` uma vez. */
+   - GO_FADE_SAIDA_QUADROS / GO_FADE_ENTRADA_QUADROS: depois do CROSS o
+     original toca `deathConfirm`, espera FADE_TIMER =
+     (comprimento da musica de game over)/7000, faz FlxG.camera.fade(BLACK, 2)
+     e, no fim, resetPlaying() -> fade(BLACK, 1, true) + needsReset
+     (GameOverSubState.hx L369-438). 2 s para preto e 1 s de volta.
+     A musica e o sfx DESSA tela nao estavam no pacote de dados; hoje estao
+     (tools/empacotar_audio.py) e o audio de verdade toca -- ver o bloco
+     AUDIO DA TELA DE GAME OVER mais abaixo. */
 #define GO_CAM_LERP 0.020019798f
 #define GO_ZOOM_K 0.857564250f
-#define GO_FADE_QUADROS 60
+/* 2 s para preto (FlxG.camera.fade(BLACK, 2) / RetroCameraFade com duracao 2) e
+   1 s de volta (resetPlaying -> fade(BLACK, 1, true)), a 59,94 quadros/s. */
+#define GO_FADE_SAIDA_QUADROS 120
+#define GO_FADE_ENTRADA_QUADROS 60
 static float g_go_cam_x=0.0f,g_go_cam_y=0.0f,g_go_zoom=1.0f,g_go_ms=0.0f;
-static int g_go_iniciado=0,g_go_anim=-1,g_go_terminando=0,g_go_fade=0,g_go_audio_visto=0;
+static int g_go_iniciado=0,g_go_anim=-1,g_go_terminando=0,g_go_fade=0;
 /* `blueballed` (GameOverSubState.hx L64): e' `playBlueBalledSFX()` quem marca,
    e as DUAS saidas da tela exigem ele -- ACCEPT_P (L271-278) e o goBack do
    BACK_P (L546). Por isso ele entra como estado: no caminho do `fakeoutDeath`
@@ -322,6 +327,56 @@ static int g_go_iniciado=0,g_go_anim=-1,g_go_terminando=0,g_go_fade=0,g_go_audio
    reproduz isso em vez de "consertar" -- a telemetria avisa qual caminho foi. */
 static int g_go_blueballed=0;
 static unsigned int g_go_sorteio=0;
+/* ---------------------------------------------------------------------------
+ * AUDIO DA TELA DE GAME OVER
+ *
+ * O original toca tres coisas nessa tela, e todas as tres estavam ausentes:
+ *   1) `fnf_loss_sfx` + `blueBallSuffix` no primeiro `update`
+ *      (playBlueBalledSFX(), GameOverSubState.hx L600-611);
+ *   2) `gameOver` + `musicSuffix` quando o `firstDeath` termina, em loop
+ *      (startDeathMusic(1.0,false) -> resolveMusicPath);
+ *   3) `gameOverEnd` + `musicSuffix` no confirmDeath, sem loop
+ *      (startDeathMusic(1.0,true)), e o comprimento DELE e' o FADE_TIMER.
+ * E o `fakeoutDeath` do bf.hxc toca `fakeout_death` quando comeca.
+ *
+ * Nada disso estava no pacote de dados do repositorio -- nem o .ogg, nem os
+ * sufixos (que moram nos scripts de personagem). As duas coisas agora sao
+ * DADO, nao chute: o audio vem de `shared/...` do funkin.assets por
+ * tools/empacotar_audio.py (PCM 48 kHz, que e' o que o audsrv aceita) e os
+ * sufixos vem de preload/scripts/characters (um .hxc por personagem) por
+ * tools/gen_gameover_sfx.py (src/gameover_dados.h).
+ *
+ * COMO TOCA: a tela tem DOIS sons ao mesmo tempo (musica + sfx) e o port tem um
+ * anel e um audsrv. A soma e' feita na thread do anel (`audio_ring` overlay),
+ * porque o usbhdfsd nao e' reentrante. O comeco do game over nao tem musica:
+ * o anel roda em SILENCIO somando o sfx, e quando o `firstDeath` termina a
+ * fonte primaria entra por baixo (audio_ring_trocar_fonte), como no original.
+ * ------------------------------------------------------------------------- */
+#define GO_ASSET_DIR "mass:/FNFPS2/assets/gameover/"
+#define GO_SUF_MAX 24
+static const char *g_go_mus_suf="",*g_go_bb_suf="";   /* do personagem do slot bf */
+static int g_go_audio_fd=-1;   /* fonte primaria: musica de game over / End     */
+static int g_go_ov_fd=-1;      /* fonte secundaria: o sfx que toca por cima     */
+/* A troca de fonte primaria (musica -> End) e' um PEDIDO: o fd antigo fica
+   aberto ate' o fim da tela, porque a thread pode ainda estar lendo dele. */
+static int g_go_mus_antigo=-1;
+static int g_go_audio_estado=0;/* 0 = parado, 1 = silencio+sfx, 2 = musica, 3 = End */
+static u32 g_go_submetido=0;   /* amostras mandadas ao audsrv nessa tela        */
+static int g_go_mus_amostras=0;/* comprimento do arquivo de musica aberto       */
+static int g_go_end_amostras=0;/* comprimento do gameOverEnd -> FADE_TIMER      */
+static float g_go_espera_ms=0.0f;  /* FADE_TIMER do original em ms               */
+static int g_go_saida=0;       /* 0 = deathLoop, 1 = esperando, 2 = fade, 3 = feito */
+static float g_go_espera_ms_alvo=0.0f; /* FADE_TIMER do confirmDeath (ms)       */
+/* Espelho de `audio_ok` (que e' local de main()): as funcoes abaixo sao
+   estaticas e nao tem acesso ao local, e o audio do game over so' pode comecar
+   se o audsrv subiu. */
+static int g_audio_ok=0;
+/* `g_go_fade` (quadros do fade para preto) ja' existe no bloco acima. */
+/* FADE-IN DE 1 s DO `resetPlaying` (GameOverSubState.hx L393): no original ele
+   e' criado no fim do fade de 2 s, com o PlayState JA' reiniciado, e clareia a
+   tela de preto. Vive fora do estado 10 de proposito: quem desenha e' o estado
+   seguinte (o gameplay), e sem esta variavel o port reiniciava com corte seco. */
+static int g_fade_in=0;
 /* PAUSA (ui_state continua 8: no original a pausa e' um SUBSTATE, o PlayState
    continua atras, congelado). g_pause_mode 0 = menu padrao, 1 = troca de
    dificuldade. As entradas do menu padrao sao as do original
@@ -2445,6 +2500,198 @@ static int tutorial_audio_mix_submit(int voices_enabled){
 }
 static int audio_init(void){int result=-1;if(SifLoadModule("rom0:LIBSD",0,NULL)<0)return -1;if(SifExecModuleBuffer(audsrv_irx,size_audsrv_irx,0,NULL,&result)<0||result<0)return -2;if(audsrv_init()!=0)return -3;if(audio_set_stream(70)<0)return -4;return 0;}
 static int menu_audio_prime(void){int total=0,guard=1000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=32;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int j;if(audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK)!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,AUDIO_READ_CHUNK);if(j<=0)break;total+=j;g_title_audio_submitted+=(u32)(j/4);}telemetry_event("menu_prime",total,audsrv_queued());return total;}
+
+/* ===================== AUDIO DA TELA DE GAME OVER ======================== */
+/* Empacota ate' 4 caracteres num int, para a telemetria (que leva dois ints)
+   poder publicar qual sufixo foi usado sem inventar um formato novo de log. */
+static int go_pack_suf(const char *s)
+{
+ int v=0,i;
+ if(!s)return -1;
+ for(i=0;i<4&&s[i];i++)v=(v<<8)|(unsigned char)s[i];
+ return i?v:-1;
+}
+/* Sufixos do personagem que esta' morrendo. A tabela vem dos scripts
+   (`src/gameover_dados.h`, gerado por tools/gen_gameover_sfx.py): personagem
+   que nao declara nada no `onCreate` fica com "", que e' o padrao do
+   GameOverSubState.reset(). */
+static void go_audio_sufixos(void)
+{
+ int ci=g_cena_bf_ci,i;
+ g_go_mus_suf="";g_go_bb_suf="";
+ if(ci<0||ci>=CH_CHAR_COUNT)return;
+ for(i=0;i<GO_SFX_CHARS_COUNT;i++){
+  if(strcmp(go_sfx_chars[i].id,ch_chars[ci].id)==0){
+   g_go_mus_suf=go_sfx_chars[i].musica;
+   g_go_bb_suf=go_sfx_chars[i].blueball;
+   break;
+  }
+ }
+ telemetry_event("gameover_sufixo",go_pack_suf(g_go_mus_suf),go_pack_suf(g_go_bb_suf));
+}
+/* resolveMusicPath (GameOverSubState.hx L471-487).
+   `Paths.music(base+suffix)`; enquanto nao existir e o sufixo nao estiver
+   vazio, `suffix = suffix.split('-').slice(0,-1).join('-')` -- tira o ULTIMO
+   segmento. E' assim que `-pico-explode` cai em `-pico` e depois em "".
+   `prefixo` aqui ja' inclui o "End" quando e' o caso (o original monta
+   basePath + 'End' antes de procurar).
+   Devolve o fd aberto, ou -1 se nem o sufixo vazio existe. `usado` recebe o
+   sufixo que de fato resolveu -- vai para o log. */
+static int go_abrir_resolvendo(const char *prefixo,const char *sufixo,char *usado,int nusado)
+{
+ char caminho[96],suf[GO_SUF_MAX];
+ int fd;
+ if(!sufixo)sufixo="";
+ snprintf(suf,GO_SUF_MAX,"%s",sufixo);
+ for(;;){
+  char *p;
+  snprintf(caminho,sizeof(caminho),GO_ASSET_DIR "%s%s.pcm",prefixo,suf);
+  fd=open(caminho,O_RDONLY);
+  if(fd>=0){if(usado&&nusado>0)snprintf(usado,(size_t)nusado,"%s",suf);return fd;}
+  if(suf[0]=='\0')break;
+  p=strrchr(suf,'-');
+  if(!p)break;
+  *p='\0';
+ }
+ if(usado&&nusado>0)usado[0]='\0';
+ return -1;
+}
+/* playBlueBalledSFX (L600-611): `Assets.exists(Paths.sound(base+suffix))` e, se
+   nao existir, `FlxG.log.error`. O sufixo NAO e' reduzido aqui -- quem reduz e'
+   o resolveMusicPath da musica. O `pico-blazin` pede `-pico-gutpunch`, que nao
+   existe na arte: o original loga erro e nao toca nada, e o port faz o mesmo em
+   vez de "consertar" e tocar o som generico, que seria divergencia. */
+static int go_abrir_sfx(const char *prefixo,const char *sufixo)
+{
+ char caminho[96];
+ int fd;
+ snprintf(caminho,sizeof(caminho),GO_ASSET_DIR "%s%s.pcm",prefixo,sufixo?sufixo:"");
+ fd=open(caminho,O_RDONLY);
+ if(fd<0)telemetry_event("gameover_sfx_ausente",go_pack_suf(sufixo),0);
+ return fd;
+}
+/* Primeiro quadro do game over: o original (ainda) nao tem musica aqui. Ele
+   chama playBlueBalledSFX() no update do substate e so' comeca a musica quando
+   o `firstDeath` termina. O anel entra em modo SILENCIO + overlay. */
+static void gameover_audio_iniciar(void)
+{
+ int rc;
+ g_go_submetido=0;g_go_mus_amostras=0;g_go_end_amostras=0;
+ g_go_espera_ms=0.0f;g_go_saida=0;g_go_fade=0;g_go_audio_estado=0;
+ g_go_audio_fd=-1;g_go_ov_fd=-1;g_go_mus_antigo=-1;
+ go_audio_sufixos();
+ if(!g_audio_ok)return;
+ g_go_ov_fd=go_abrir_sfx("loss_sfx",g_go_bb_suf);
+ rc=audio_ring_start_overlay(g_go_ov_fd);
+ if(rc!=0){
+  telemetry_event("gameover_audio_falhou",rc,g_go_ov_fd);
+  if(g_go_ov_fd>=0){close(g_go_ov_fd);g_go_ov_fd=-1;}
+  return;
+ }
+ g_go_audio_estado=1;
+ telemetry_event("gameover_audio_inicio",g_go_ov_fd>=0,(int)g_go_mus_suf[0]);
+}
+/* Troca o overlay por outro sfx (o `fakeout_death`). O fd antigo e' fechado
+   depois de a thread confirmar o pedido: ate' la' ela podia estar lendo dele. */
+static void gameover_audio_troca_sfx(const char *prefixo,const char *sufixo)
+{
+ int fd;
+ if(!g_audio_ok||g_go_audio_estado<=0)return;
+ fd=go_abrir_sfx(prefixo,sufixo);
+ if(audio_ring_trocar_overlay(fd)!=0){
+  if(fd>=0)close(fd);
+  telemetry_event("gameover_sfx_falhou",0,0);
+  return;
+ }
+ /* O fd antigo NAO e' fechado aqui: quem le o overlay e' a thread do anel, e
+    ela fecha o que deixou de usar quando aplica o pedido (audio_ring.c). */
+ g_go_ov_fd=fd;
+ telemetry_event("gameover_sfx",go_pack_suf(sufixo),fd>=0);
+}
+/* Fim do `firstDeath`: startDeathMusic(1.0, false) -- musica em LOOP por baixo
+   do sfx que ainda esta' tocando (o anel troca so' a fonte primaria). */
+static void gameover_audio_musica(void)
+{
+ char usado[GO_SUF_MAX];
+ int fd,tam;
+ if(!g_audio_ok||g_go_audio_estado!=1)return;
+ fd=go_abrir_resolvendo("gameover",g_go_mus_suf,usado,(int)sizeof(usado));
+ if(fd<0){telemetry_event("gameover_sem_musica",go_pack_suf(g_go_mus_suf),0);return;}
+ tam=(int)lseek(fd,0,SEEK_END);lseek(fd,0,SEEK_SET);
+ if(audio_ring_trocar_fonte(fd,1)!=0){close(fd);telemetry_event("gameover_musica_falhou",0,0);return;}
+ g_go_audio_fd=fd;g_go_mus_amostras=tam/4;g_go_audio_estado=2;
+ telemetry_event("gameover_musica",g_go_mus_amostras,go_pack_suf(usado));
+}
+/* confirmDeath (L330-372): startDeathMusic(1.0, true) com isEnding = true, ou
+   seja `gameOverEnd` SEM loop, e:
+       FADE_TIMER = (gameOverMusic?.length ?? 0) / 7000;
+   O `length` e' do arquivo que acabou de tocar. Sem `gameOverEnd` o original
+   loga warn e RETORNA sem parar a musica -- entao o FADE_TIMER continua sendo o
+   comprimento da musica de game over que segue tocando. */
+static void gameover_audio_fim(void)
+{
+ char usado[GO_SUF_MAX];
+ int fd,tam;
+ if(!g_audio_ok)return;
+ fd=go_abrir_resolvendo("gameover_end",g_go_mus_suf,usado,(int)sizeof(usado));
+ if(fd<0){
+  tam=g_go_mus_amostras;
+  telemetry_event("gameover_sem_end",go_pack_suf(g_go_mus_suf),tam);
+ }else{
+  tam=(int)lseek(fd,0,SEEK_END);lseek(fd,0,SEEK_SET);
+  if(audio_ring_trocar_fonte(fd,0)==0){
+   if(g_go_mus_antigo>=0)close(g_go_mus_antigo);
+   g_go_mus_antigo=g_go_audio_fd;   /* fecha no fim da tela */
+   g_go_audio_fd=fd;g_go_audio_estado=3;
+   telemetry_event("gameover_end",tam/4,go_pack_suf(usado));
+  }else{
+   close(fd);tam=g_go_mus_amostras;
+   telemetry_event("gameover_end_falhou",0,0);
+  }
+ }
+ g_go_end_amostras=tam;
+ /* FADE_TIMER = length/7000, com `length` em MILISSEGUNDOS:
+       amostras = bytes/4 ;  ms = amostras/48 ;  FADE_TIMER(ms) = ms/7
+    ou seja bytes/4/48/7 = bytes/1344 (= amostras/336). `tam` esta' em BYTES.
+    (Antes desta conta o divisor era aplicado em bytes e o fade esperava 4x.)
+    O ALVO vai para `g_go_espera_ms_alvo`; `g_go_espera_ms` e' o cronometro que
+    o update soma e TEM de comecar em zero no CROSS. */
+ g_go_espera_ms_alvo=(float)(tam/4)/336.0f;
+ telemetry_event("gameover_fade_espera",(int)g_go_espera_ms_alvo,tam);
+}
+/* Para todo o audio do game over. O ring e' parado ANTES dos close: e' ele que
+   esta' lendo esses fds (o audio_ring_stop espera a leitura pendente sair). */
+static void gameover_audio_parar(void)
+{
+ if(!g_audio_ok)return;
+ audsrv_stop_audio();
+ audio_ring_stop();
+ /* O overlay e' fechado pelo audio_ring_stop (a thread e' quem o le). */
+ g_go_ov_fd=-1;
+ if(g_go_audio_fd>=0){close(g_go_audio_fd);g_go_audio_fd=-1;}
+ if(g_go_mus_antigo>=0){close(g_go_mus_antigo);g_go_mus_antigo=-1;}
+ if(g_go_audio_estado>0)telemetry_event("gameover_audio_fim",(int)g_go_submetido,g_go_audio_estado);
+ g_go_audio_estado=0;
+}
+/* Consumidor: manda ao audsrv o que o anel tiver. Sem pre-buffer de 64 KB como
+   o menu: aqui o que importa e' o som comecar perto do evento (o sfx entra no
+   primeiro quadro do substate e a musica no fim do firstDeath), e um anel cheio
+   antes de enviar seria 1,3 s de atraso. */
+static int gameover_audio_bombear(void)
+{
+ int voltas=0,enviado=0;
+ while(audsrv_available()>=AUDIO_READ_CHUNK&&voltas++<64){
+  int n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);
+  int j;
+  if(n<=0)break;
+  j=audio_play_complete((char*)g_audio_pcm,n);
+  if(j<=0)break;
+  g_go_submetido+=(u32)(j/4);
+  enviado+=j;
+ }
+ return enviado;
+}
+
 static qword_t *text_draw_alpha(qword_t*q,const char*s,float x,float y,float scale,int align,unsigned char alpha){int len=(int)strlen(s),i;float total=0,cursor;
  for(i=0;i<len;i++){unsigned char ch=(unsigned char)s[i];if(ch<32||ch>127)ch='?';total+=g_font_widths[ch-32]*0.5f*scale;}
  if(align==1)x-=total*0.5f;else if(align==2)x-=total;cursor=x;
@@ -3322,7 +3569,7 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
    sai do proprio telemetry_init. */
 if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
-{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
+{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
  dma_channel_initialize(DMA_CHANNEL_GIF,NULL,0);dma_channel_fast_waits(DMA_CHANNEL_GIF);graph_vram_clear();
  fb[0].width=SCREEN_W;fb[0].height=SCREEN_H;fb[0].psm=FB_PSM;fb[0].mask=0;fb[0].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);fb[1]=fb[0];fb[1].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
@@ -3532,6 +3779,14 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     }
    }
   }
+  /* AUDIO DO GAME OVER: um transporte proprio (o do nivel esta' parado nesta
+     tela desde a morte). O anel pode estar em SILENCIO+sfx ou tocando a
+     musica do game over; quem decide e' o audio_ring. Sem pre-buffer grande:
+     o sfx tem de comecar no primeiro quadro do substate. */
+  if(ui_state==10&&transition_frame==0&&g_audio_ok&&g_go_audio_estado>0){
+   int enviado=gameover_audio_bombear();
+   if(enviado>0)frame_mark("A.GAMEOVER",enviado);
+  }
   frame_mark("F.AUDIO",transport_state);
   {u32 reads=0;audio_ring_stats(&audio_read_bytes,&reads,&audio_loops,&audio_read_errors,&audio_underruns);(void)reads;}
   if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?(u32)audsrv_queued():0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
@@ -3633,6 +3888,16 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      fim da musica). Sem ele, "N uploads" nao diz nada -- 40 uploads em 3 s e'
      caro, em 3 min nao. */
   if(ui_state==8&&audio_started&&!g_paused){g_custo_frames++;if(!(g_custo_frames%CUSTO_CADA))custo_amostra();}
+  /* Os icones de vida, medidos DURANTE a musica e nao so' no fim dela.
+     Antes o unico `icone_desenho` saia na entrada do resultado; uma musica que
+     nao termina dentro dos quadros do harness (as 27 do sweep nao terminam
+     iguais) ficava sem prova nenhuma de que o icone foi desenhado -- e o sweep
+     reprovava por "quase nao desenhados" quando o problema era a falta do
+     evento, nao do desenho. A cada 300 quadros de gameplay (5 s) o numero
+     corrente vai para o log; o valor do fim continua sendo o total. */
+  if(ui_state==8&&audio_started&&!g_paused&&g_custo_frames>0&&!(g_custo_frames%300))
+   telemetry_event("icone_desenho",(int)g_icone_desenhos,
+      (g_icone_ativo[ICONE_JOGADOR]?1:0)|(g_icone_ativo[ICONE_OPONENTE]?2:0));
   if(ui_state==8&&audio_started&&!g_paused)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* MORTE -> GAME OVER.
      PlayState.hx:1255: `if (health <= Constants.HEALTH_MIN && !isPracticeMode
@@ -3652,6 +3917,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    ui_state=10;target_state=-1;transition_frame=0;transform_mode=0;
    g_gameover_frames=0;g_gameover_drawn=0;
    last=-1;last2=-1;
+   /* O ring da musica do nivel para aqui: o game over tem transporte proprio.
+      `audio_set_stream` reaplica o formato para LIMPAR o que ainda esta' na
+      fila do audsrv -- senao o resto da musica do nivel tocava por cima do
+      comeco do sfx. (audsrv_stop_audio so' silencia; nao esvazia a fila.) */
+   if(audio_ok&&audio_set_stream(audio_volume)!=0)
+    telemetry_event("gameover_stream",-2,(int)frame_no);
+   gameover_audio_iniciar();
    telemetry_event("state",10,(int)frame_no);
    telemetry_event("gameover_enter",(int)frame_no,(int)g_chart_clock);
   }
@@ -3998,6 +4270,9 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      existe para o toque, e o ACCEPT_P/BACK_P nao o consultam (L271-278). Por
      isso aqui as duas teclas valem a partir do segundo quadro do substate --
      o primeiro e' o que arma `blueballed`. */
+  /* O FADE-IN DE 1 s do resetPlaying (GameOverSubState.hx L393) roda no
+     PlayState JA' reiniciado, por isso ele e' contado fora do estado 10. */
+  if(g_fade_in>0)g_fade_in--;
   if(transition_frame==0&&ui_state==10){
    g_gameover_frames++;
    g_go_ms+=TUT_DT*1000.0f;
@@ -4025,7 +4300,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      g_go_sorteio=g_go_sorteio*1664525u+1013904223u;
      if(tem_fake&&(g_go_sorteio>>20)%4096u==0u){
       if(cc_toca(&g_cena,CH_PAPEL_BF,"fakeoutDeath",0)){
-       g_go_anim=0;
+       /* O `fakeoutDeath` do bf.hxc (playAnimation) chama doFakeoutDeath():
+          toca `gameplay/gameover/fakeout_death`, marca `mustNotExit` e, no fim
+          da animacao, ENTRA NO `firstDeath` e chama playBlueBalledSFX().
+          Antes o port tocava o fakeout e ia direto para o deathLoop: faltava
+          a segunda metade -- o BF nunca morria de verdade nesse caminho. */
+       g_go_anim=2;g_go_ms=0.0f;
+       gameover_audio_troca_sfx("fakeout_death","");
        /* `blueballed` NAO e' marcado aqui -- e' o que o original faz. */
        telemetry_event("gameover_fakeout",1,(int)frame_no);
       }
@@ -4059,15 +4340,28 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      else telemetry_event("gameover_foco",-1,-1);}
    }
    {
+    /* O `fakeoutDeath` ACABOU: `doFakeoutDeath` marca mustNotExit = false,
+       toca `firstDeath` e chama playBlueBalledSFX() -- so' agora `blueballed`
+       existe, e e' por isso que o CROSS/CIRCLE nao funcionam durante o
+       fakeout (beco sem saida de 1 em 4096 no original, reproduzido). */
+    if(g_go_anim==2&&!g_go_terminando&&g_cena.p[CH_PAPEL_BF].ativo&&
+       cc_especial_terminou(&g_cena,CH_PAPEL_BF,(long)g_go_ms)){
+     if(cc_toca(&g_cena,CH_PAPEL_BF,"firstDeath",(long)g_go_ms)){
+      g_go_anim=0;g_go_ms=0.0f;
+      cc_especial_fixo(&g_cena,CH_PAPEL_BF,1);
+      g_go_blueballed=1;
+      gameover_audio_troca_sfx("loss_sfx",g_go_bb_suf);
+      telemetry_event("gameover_fakeout_fim",1,(int)frame_no);
+     }
+    }
     /* A ANIMACAO SEGUE O RELOGIO DO SUBSTATE: acabou o `firstDeath`, entra o
-       `deathLoop` (L305-318) e a musica comecaria junto -- sem o arquivo, so'
-       o evento. */
+       `deathLoop` (L305-318) e a musica junto (startDeathMusic(1.0,false)). */
     if(g_go_anim==0&&!g_go_terminando&&g_cena.p[CH_PAPEL_BF].ativo&&
        cc_especial_terminou(&g_cena,CH_PAPEL_BF,(long)g_go_ms)){
      if(cc_toca(&g_cena,CH_PAPEL_BF,"deathLoop",(long)g_go_ms)){
       g_go_anim=1;g_go_ms=0.0f;
       telemetry_event("gameover_loop_morte",0,(int)frame_no);
-      if(!g_go_audio_visto){g_go_audio_visto=1;telemetry_event("gameover_sem_audio",0,0);}
+      gameover_audio_musica();
      }
     }
     /* A CAMERA: perseguicao do ponto do BF e zoom para
@@ -4087,16 +4381,42 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      }
     }
    }
-   if(g_go_fade>0){
-    g_go_fade--;
-    if(g_go_fade==0){
+   /* A SAIDA DA TELA (confirmDeath, GameOverSubState.hx L369-438).
+      A ordem do original, e ela nao e' "1 s de fade":
+        1) startDeathMusic(1.0, true) -> `gameOverEnd` (sem loop);
+        2) espera FADE_TIMER = gameOverMusic.length / 7000
+           (com o End real de 7,21 s isso da' 1,03 s);
+        3) FlxG.camera.fade(BLACK, 2, false, ...) -- DOIS segundos indo para
+           preto;
+        4) no fim do fade: resetPlaying() -> fade(BLACK, 1, true) [fade IN de
+           1 s], needsReset = true e close().
+      Antes o port reiniciava 60 quadros depois do CROSS (1 s, o fade de 2 s
+      nao existia e o FADE_TIMER tambem nao) -- dois eventos a menos e um
+      reinicio cedo demais. */
+   if(g_go_terminando){
+    g_go_espera_ms+=TUT_DT*1000.0f;
+    if(g_go_saida==1&&g_go_espera_ms>=g_go_espera_ms_alvo){
+     g_go_saida=2;g_go_fade=0;
+     telemetry_event("gameover_fade_out",(int)g_go_espera_ms,(int)g_go_espera_ms_alvo);
+    }
+    if(g_go_saida==2)g_go_fade++;
+   }
+   if(g_go_saida==2&&g_go_fade>=GO_FADE_SAIDA_QUADROS){
+    {
     /* Reinicio NO LUGAR: o original fecha o substate e marca needsReset, e o
        PlayState se reinicia. Aqui a cena ja' esta' carregada, entao o que
        precisa voltar ao comeco e' o transporte, o relogio, o cursor do chart,
        os tallies, a camera e a contagem regressiva (PLAY_REINICIAR_MUSICA,
        a mesma macro que o Restart Song da pausa usa). */
     PLAY_REINICIAR_MUSICA();
-    PLAY_REBOBINAR_AUDIO(audio_fd);
+    /* O ring do game over esta' lendo os arquivos dele: parar ANTES de fechar
+       e de reabrir o do nivel. O `PLAY_REBOBINAR_AUDIO` seria uma espera de
+       500 ms a' toa, porque a thread do anel ja' foi encerrada aqui. */
+    gameover_audio_parar();
+    if(audio_set_stream(audio_volume)!=0)telemetry_event("gameover_stream",-1,(int)frame_no);
+    if(audio_fd>=0){lseek(audio_fd,0,SEEK_SET);
+     if(audio_ring_start(audio_fd)==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;}
+     else telemetry_event("gameover_rebobinar",-1,(int)frame_no);}
     /* `boyfriend.isDead = false` e `resetCameraZoom()` (L406-413): o
        personagem volta a dancar e a camera volta ao zoom do palco. */
     if(g_cena.p[CH_PAPEL_BF].ativo){
@@ -4106,7 +4426,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(ai>=0&&g_cena_bf_ci>=0)cc_toca(&g_cena,CH_PAPEL_BF,
         ch_anims[ch_chars[g_cena_bf_ci].anim_first+ai].name,0);
     }
-    g_go_iniciado=0;g_go_anim=-1;g_go_terminando=0;g_go_ms=0.0f;
+    g_go_iniciado=0;g_go_anim=-1;g_go_terminando=0;g_go_ms=0.0f;g_go_saida=3;
+    /* `FlxG.camera.fade(BLACK, 1, true)` criado pelo resetPlaying: a tela
+       volta do preto em 1 s, ja' no PlayState reiniciado. */
+    g_fade_in=GO_FADE_ENTRADA_QUADROS;
     ui_state=8;target_state=-1;transition_frame=0;transform_mode=0;last=-1;last2=-1;
     telemetry_event("state",8,(int)frame_no);
     telemetry_event("gameover_restart",(int)frame_no,(int)g_play.health);
@@ -4118,12 +4441,12 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
         (int)(g_play_zoom*((ci>=0&&ci<CH_CHAR_COUNT)?ch_chars[ci].dzoom:1.0f)*1000.0f));}
     }
    }else if(pressed&PAD_CROSS&&!g_go_terminando&&g_gameover_frames>=2&&g_go_blueballed){
-    /* confirmDeath() (L330-372): `isEnding = true`, toca
-       `deathConfirm`+suffix, comeca a musica de saida (sem arquivo aqui) e
-       dispara o fade de 1 s. O reinicio acontece no FIM do fade -- antes o
-       port reiniciava no mesmo quadro, o que e' um evento a menos do que o
-       original mostra. */
-    g_go_terminando=1;g_go_fade=GO_FADE_QUADROS;g_go_ms=0.0f;
+    /* confirmDeath() (L330-372): `isEnding = true`, toca `deathConfirm` +
+       `animationSuffix`, troca a musica por `gameOverEnd` (sem loop), calcula
+       o FADE_TIMER a partir do comprimento dela e so' depois comeca o fade. */
+    g_go_terminando=1;g_go_fade=0;g_go_saida=1;g_go_ms=0.0f;
+    g_go_espera_ms=0.0f;g_go_espera_ms_alvo=0.0f;
+    gameover_audio_fim();
     if(g_cena.p[CH_PAPEL_BF].ativo&&cc_toca(&g_cena,CH_PAPEL_BF,"deathConfirm",0))
      telemetry_event("gameover_confirmar",1,(int)frame_no);
     else telemetry_event("gameover_confirmar",0,(int)frame_no);
@@ -4132,6 +4455,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        nunca durante a saida. O deathCounter volta a zero, e e' isso que zera
        "BLUE BALLS" no HUD do original (PlayState.deathCounter = 0). */
     g_death_counter=0;
+    gameover_audio_parar();
     g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;
     g_story_mode=0;   /* semana abandonada: nao e' mais campanha */
     telemetry_event("gameover_exit",(int)frame_no,0);
@@ -4794,11 +5118,13 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     const bs_slot_t *slb=ch_slot(stg,"bf");
     if(slb)q=cena_desenha(q,CH_PAPEL_BF,slb,0,(long)g_go_ms,g_go_cam_x,g_go_cam_y,0.5f*g_go_zoom);
    }
-   /* O FADE DA SAIDA (FlxG.camera.fade(BLACK, 1)): 1 s ate' preto, e o reinicio
-      acontece no fim dele. Antes o reinicio era instantaneo e o fade nao
-      existia. */
-   if(g_go_terminando&&g_go_fade>0){
-    int a=255-255*g_go_fade/GO_FADE_QUADROS;
+   /* O FADE DA SAIDA: 2 s indo para preto (FlxG.camera.fade(BLACK, 2) ou o
+      RetroCameraFade de 2 s no `-pixel`), linear como o FlxFlash do original.
+      O reinicio acontece no FIM dele, e a volta do preto (1 s) e' desenhada
+      pelo estado seguinte, em `g_fade_in`. */
+   if(g_go_saida==2&&g_go_fade>0){
+    int a=255*g_go_fade/GO_FADE_SAIDA_QUADROS;
+    if(a>255)a=255;
     if(a>0)q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,(unsigned char)a);
    }
    q=bind_texture_filter(q,&fonttex,1);
@@ -4849,7 +5175,28 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
   if(transition_frame>0){int tm=menu_back_transition?42:15,te=menu_back_transition?102:30,p=transition_frame<=tm?transition_frame:(te-transition_frame);unsigned char a=(unsigned char)(transition_frame<=tm?((p*0x80)/tm):((p*0x80)/(te-tm)));q=rect_alpha(q,0,0,SCREEN_W,SCREEN_H,0,0,0,a);}
   if(g_calib){q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
               q=desenhar_calibracao(q);}
-  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>TUTORIAL_AUDIO_SAMPLES)saved_sample=TUTORIAL_AUDIO_SAMPLES;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos)bp=(u64)(u32)endpos;lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);after_vsync=GetTimerSystemTime();if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  /* FADE-IN DE 1 s DO RESET (o `g_fade_in`): cobre a tela inteira, em qualquer
+     estado, porque e' o FlxFlash da camera do original -- ele nao pertence a
+     nenhum sprite. */
+  if(g_fade_in>0){
+   int a=255*g_fade_in/GO_FADE_ENTRADA_QUADROS;
+   if(a>255)a=255;
+   if(a>0){
+    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
+    q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0,0,0,(unsigned char)a);
+   }
+  }
+  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>TUTORIAL_AUDIO_SAMPLES)saved_sample=TUTORIAL_AUDIO_SAMPLES;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos)bp=(u64)(u32)endpos;lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else if(capture_ui==10&&g_go_audio_estado>0){
+   /* GAME OVER: o anel esta' lendo os arquivos DELE. A captura grava ~1,1 MB no
+      mesmo pendrive, e o usbhdfsd nao e' reentrante -- a pausa cooperativa e'
+      o que existe para isso (audio_ring_pause espera a leitura pendente sair).
+      Nao para o transporte: a tela continua com o mesmo som antes e depois. */
+   capture_status("RAW_GO_PAUSE",(int)frame_no,0);
+   audio_ring_pause(1);
+   cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);
+   audio_ring_pause(0);
+   telemetry_event("capture_gameover",cr,0);
+  }else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);after_vsync=GetTimerSystemTime();if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que

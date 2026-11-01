@@ -297,6 +297,31 @@ def build(root, charts_src=None):
         "audio_stems.pcm": pcm(3225600 * 8, 196),
         "freakyMenu_48000.pcm": pcm(1 << 18, 330),
 
+        # AUDIO DA TELA DE GAME OVER (mass:/FNFPS2/assets/gameover/).
+        # Os nomes sao os que o jogo procura (go_abrir_resolvendo/go_abrir_sfx)
+        # e as DURACOES sao curtas de proposito: o harness nao precisa de 38 s
+        # de musica para provar que o transporte do game over anda. O que ele
+        # cobra e' a CONTA (FADE_TIMER = amostras/336 ms, 2 s de fade para
+        # preto, 1 s de volta) e nao uma duracao fixa -- por isso 1 s de
+        # gameOverEnd da' ~3 ms de espera e o reinicio fica a 120 quadros.
+        # Música: 2 s em loop. Overlay/sfx: 1 s.
+        "gameover/gameover.pcm": pcm(2 * 48000 * 4, 262),
+        "gameover/gameover-pixel.pcm": pcm(2 * 48000 * 4, 262),
+        "gameover/gameover-pico.pcm": pcm(2 * 48000 * 4, 262),
+        "gameover/gameover-pixel-pico.pcm": pcm(2 * 48000 * 4, 262),
+        "gameover/gameover_end.pcm": pcm(1 * 48000 * 4, 294),
+        "gameover/gameover_end-pixel.pcm": pcm(1 * 48000 * 4, 294),
+        "gameover/gameover_end-pico.pcm": pcm(1 * 48000 * 4, 294),
+        "gameover/gameover_end-pixel-pico.pcm": pcm(1 * 48000 * 4, 294),
+        "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
+        "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
+        "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),
+        # `-pico-gutpunch` NAO existe na arte do original (o pico-blazin pede e
+        # o Jogo loga erro). Ele NAO e' gerado aqui de proposito: o harness tem
+        # de exercitar tambem o caminho "sfx ausente", e um arquivo sintetico
+        # com esse nome esconderia a divergencia.
+        "gameover/fakeout_death.pcm": pcm(1 * 48000 * 4, 174),
+
         "font.rgba": rgba_pattern(384, 192, 1),
         "title_alphabet.rgba": rgba_pattern(384, 192, 2),
         "title_prompt_l.rgba": rgba_pattern(512, 192, 3),

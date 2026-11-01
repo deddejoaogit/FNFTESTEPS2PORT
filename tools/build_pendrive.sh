@@ -59,6 +59,29 @@ else
     echo "   menu_cache.rle: $HAVE bytes, versao corrigida (bloco 4 story titulos)"
 fi
 
+echo "== copiando o audio da tela de GAME OVER (assets/gameover/) =="
+# Os 13 PCMs (musica de game over nas 4 variantes de sufixo, o gameOverEnd de
+# cada uma, fnf_loss_sfx nas 4, fakeout_death) e o manifesto AUDIO.txt.
+# Sem esta pasta o jogo abre e a tela de game over fica MUDA -- e ate' agora ela
+# ficava muda de qualquer jeito, porque o audio nao existia em lugar nenhum do
+# repositorio. Vem de tools/empacotar_audio.py (PCM 48 kHz do .ogg do
+# funkin.assets), nao do Drive: e' dado derivado da arte oficial.
+GO_SRC=${GO_SRC:-build/packs/audio}
+if [ ! -d "$GO_SRC" ]; then
+    echo "FALTA $GO_SRC -- rode tools/empacotar_audio.py --assets <clone do funkin.assets>" >&2
+    exit 1
+fi
+mkdir -p "$OUT/FNFPS2/assets/gameover"
+NGO=0
+for f in "$GO_SRC"/*.pcm; do
+    [ -f "$f" ] || continue
+    cp "$f" "$OUT/FNFPS2/assets/gameover/"
+    NGO=$((NGO+1))
+done
+[ "$NGO" -ge 13 ] || { echo "FALTAM arquivos de audio do game over em $GO_SRC ($NGO de 13)" >&2; exit 1; }
+[ -f "$GO_SRC/AUDIO.txt" ] && cp "$GO_SRC/AUDIO.txt" "$OUT/FNFPS2/assets/gameover/"
+echo "   $NGO PCMs + AUDIO.txt, $(du -sh "$OUT/FNFPS2/assets/gameover" | cut -f1)"
+
 echo "== copiando os charts =="
 # O jogo tenta QUATRO caminhos, em ordem (sr_chart_layout_count()):
 #   0: songs/<id>/<d>.chart      -- a arvore do jogo original
@@ -161,8 +184,10 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/               os 16 arquivos soltos + songs/ + charts/
        FNFPS2/assets/chars/         um .chp4 por personagem (46)
        FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
+       FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)
    Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
-   os fundos nao aparecem. Os dois casos deixam evento no log
+   os fundos nao aparecem. Sem gameover/ a tela de game over fica sem som
+   (musica, o sfx do blue balls e o gameOverEnd do confirmar). Os dois casos deixam evento no log
    (char_sem_pacote / prop_sem_pacote) em vez de tela vazia sem explicacao.
 
 2. Rode FNF_PS2.ELF pelo seu lancador (uLE, OPL, ESR, etc).

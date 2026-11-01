@@ -30,3 +30,14 @@ int amix_bytes_saida(int amostras)
     if (amostras <= 0) return 0;
     return amostras * AMIX_CANAIS_SAIDA * (int)sizeof(short);
 }
+
+int amix_somar_estereo(short *dst, const short *src, int amostras)
+{
+    int i;
+    if (!dst || !src || amostras <= 0) return 0;
+    /* 2 shorts por amostra (L,R). Somar em `int` antes de saturar: a soma de
+       dois shorts cabe em int com folga e a parede continua sendo 16 bits. */
+    for (i = 0; i < amostras * AMIX_CANAIS_SAIDA; i++)
+        dst[i] = sat16((int)dst[i] + (int)src[i]);
+    return amostras;
+}

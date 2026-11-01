@@ -20,8 +20,14 @@
 #   - `gameover_loop_morte`: quando o `firstDeath` acabou, entrou o `deathLoop`
 #     e o personagem NAO voltou a dancar (cc_especial_fixo);
 #   - `gameover_confirmar` = 1: o CROSS achou o `deathConfirm`;
-#   - o reinicio acontece 60 quadros (= 1 s, o `FlxG.camera.fade(BLACK, 1)` do
-#     confirmDeath) DEPOIS do CROSS, e nao no mesmo quadro;
+#   - o reinicio acontece FADE_TIMER + 120 quadros DEPOIS do CROSS: o
+#     confirmDeath espera `gameOverEnd.length / 7000` e entao faz
+#     FlxG.camera.fade(BLACK, 2) -- 2 s indo para preto (GameOverSubState.hx
+#     L369-438). O teste le' o FADE_TIMER que o proprio jogo publicou
+#     (`gameover_fade_espera`) em vez de fixar um numero, porque ele depende do
+#     comprimento do arquivo;
+#   - O AUDIO DA TELA EXISTE: `fnf_loss_sfx`, a musica `gameOver` em loop e o
+#     `gameOverEnd` do confirmDeath (os tres eram dado ausente);
 #   - a camera terminou no ponto que o setCameraTarget manda e o zoom no
 #     `stage.camZoom * death.cameraZoom`.
 # O CROSS e' aceito no quadro seguinte a morte: no original o `canInput` de 1 s
@@ -94,6 +100,15 @@ FOCO_X=$(awk -F, '$1=="E" && $3=="gameover_foco" {print $4; exit}' "$LOG")
 FOCO_Y=$(awk -F, '$1=="E" && $3=="gameover_foco" {print $5; exit}' "$LOG")
 
 DEATH=$(awk -F, '$1=="E" && $3=="play_death" {print $5; exit}' "$LOG")
+# AUDIO: sfx do blueball, musica em loop e o End do confirmDeath.
+GASFX=$(awk -F, '$1=="E" && $3=="gameover_audio_inicio" {print $4; exit}' "$LOG")
+GMUS=$(awk -F, '$1=="E" && $3=="gameover_musica" {print $4; exit}' "$LOG")
+GEND=$(awk -F, '$1=="E" && $3=="gameover_end" {print $4; exit}' "$LOG")
+GFADE=$(awk -F, '$1=="E" && $3=="gameover_fade_espera" {print $4; exit}' "$LOG")
+GSUB=$(awk -F, '$1=="E" && $3=="gameover_audio_fim" {print $4; exit}' "$LOG")
+GSEMUS=$(awk -F, '$3=="gameover_sem_musica" {n++} END{print n+0}' "$LOG")
+GSAUS=$(awk -F, '$3=="gameover_sfx_ausente" {n++} END{print n+0}' "$LOG")
+GOLDSEM=$(awk -F, '$3=="gameover_sem_audio" {n++} END{print n+0}' "$LOG")
 GENTER=$(awk -F, '$1=="E" && $3=="gameover_enter" {print $4; exit}' "$LOG")
 GDRAW=$(awk -F, '$1=="E" && $3=="gameover_draw" {print $4; exit}' "$LOG")
 GOUT=$(awk -F, '$1=="E" && $3=="gameover_restart" {print $4; exit}' "$LOG")
@@ -114,6 +129,11 @@ echo "  deathConfirm achada ......... ${CONFIRMA:-?}"
 echo "  camera final ................ ${CAMX:-?},${CAMY:-?} (foco ${FOCO_X:-?},${FOCO_Y:-?})"
 echo "  zoom final / alvo ........... ${ZOOM:-?} / ${ZOOMALVO:-?} (milesimos)"
 echo "  reinicio em ................. ${GOUT:-?}"
+echo "  sfx do blueball aberto ...... ${GASFX:-?}"
+echo "  musica de game over (amostras) ${GMUS:-?}"
+echo "  gameOverEnd (amostras) ...... ${GEND:-?}"
+echo "  FADE_TIMER (ms) ............. ${GFADE:-?}"
+echo "  amostras tocadas na tela .... ${GSUB:-?}"
 echo "  vezes que a musica comecou .. $AUDIOS"
 echo "  contagens terminadas ........ $CINCOS"
 
@@ -145,12 +165,17 @@ fi
 if [ -n "$LOOP" ] && [ -n "$GENTER" ] && [ "$LOOP" -le "$GENTER" ]; then
     echo "  FALHA: deathLoop ($LOOP) antes da tela abrir ($GENTER)"; FALHA=1; fi
 case "${CONFIRMA:-}" in 1) ;; *) echo "  FALHA: o CROSS nao achou o deathConfirm"; FALHA=1;; esac
-# 1 s de fade entre o CROSS e o reinicio (60 quadros, tolerancia de 2).
+# SAIDA: FADE_TIMER (do comprimento do gameOverEnd) + 2 s de fade para preto.
+# O FADE_TIMER vem do proprio jogo, entao o teste nao fixa o numero: ele cobra a
+# CONTA. 60 quadros = 1 s; 120 = 2 s. Tolerancia de 3 quadros (arredondamento do
+# `>=` do relogio e o quadro do CROSS).
 if [ -n "$GOUT" ]; then
     DIF=$((GOUT - RETRY))
-    echo "  fade do confirmDeath ........ $DIF quadros (esperado 60)"
-    if [ "$DIF" -lt 58 ] || [ "$DIF" -gt 62 ]; then
-        echo "  FALHA: o reinicio nao esperou o fade de 1 s ($DIF quadros)"; FALHA=1; fi
+    if [ -n "${GFADE:-}" ]; then EQ=$(( (GFADE * 60 + 999) / 1000 )); else EQ=0; fi
+    ESP=$((EQ + 120))
+    echo "  fade do confirmDeath ........ $DIF quadros (esperado $ESP = ${GFADE:-?}ms + 120)"
+    if [ "$DIF" -lt $((ESP - 3)) ] || [ "$DIF" -gt $((ESP + 3)) ]; then
+        echo "  FALHA: o reinicio nao esperou FADE_TIMER + fade de 2 s ($DIF quadros)"; FALHA=1; fi
 fi
 # A camera converge para o foco (60 quadros de fade quase fecham a conta:
 # 1 - 0,98^180 = 0,973 do caminho; 40 px de tolerancia cobre o resto).
@@ -162,6 +187,17 @@ if [ -n "$CAMX" ] && [ -n "$CAMY" ] && [ -n "$FOCO_X" ] && [ "${FOCO_X:--1}" -ge
 fi
 [ "${ZOOM:-0}" -eq "${ZOOMALVO:-1}" ] || { echo "  FALHA: o zoom nao chegou em stage.camZoom * death.cameraZoom"; FALHA=1; }
 
+# AUDIO DA TELA. O `gameover_sem_audio` era o evento que declarava "esta tela nao
+# tem som" -- ele nao pode mais existir, e os tres sons tem de ter aberto.
+[ "${GASFX:-0}" -eq 1 ] || { echo "  FALHA: o fnf_loss_sfx nao abriu (gameover_audio_inicio != 1)"; FALHA=1; }
+[ "${GSEMUS:-0}" -eq 0 ] || { echo "  FALHA: a musica de game over nao foi encontrada"; FALHA=1; }
+[ "${GSAUS:-0}" -eq 0 ] || { echo "  FALHA: o sfx do blueball foi declarado ausente"; FALHA=1; }
+[ "${GOLDSEM:-0}" -eq 0 ] || { echo "  FALHA: ainda existe gameover_sem_audio no log"; FALHA=1; }
+[ "${GMUS:-0}" -gt 0 ] || { echo "  FALHA: a musica de game over nao abriu (gameover_musica)"; FALHA=1; }
+[ "${GEND:-0}" -gt 0 ] || { echo "  FALHA: o gameOverEnd do confirmDeath nao abriu"; FALHA=1; }
+[ -n "${GFADE:-}" ] || { echo "  FALHA: o FADE_TIMER nao foi publicado"; FALHA=1; }
+[ "${GSUB:-0}" -gt 48000 ] || { echo "  FALHA: quase nada foi enviado ao audsrv na tela de game over (${GSUB:-0} amostras)"; FALHA=1; }
+
 if [ "$FALHA" != 0 ]; then
     echo
     echo "GAME OVER: FALHOU"
@@ -169,4 +205,4 @@ if [ "$FALHA" != 0 ]; then
 fi
 
 echo
-echo "GAME OVER: PASSOU (morte com firstDeath/deathLoop, camera e zoom do original, fade de 1 s, reinicio tocando de novo)"
+echo "GAME OVER: PASSOU (morte com firstDeath/deathLoop, camera e zoom do original, audio de verdade, FADE_TIMER + 2 s de fade, reinicio tocando de novo)"

@@ -1,4 +1,5 @@
 #include "audio_ring.h"
+#include "engine/audio_mix.h"
 #include <kernel.h>
 #include <delaythread.h>
 #include <unistd.h>
@@ -13,6 +14,16 @@ static unsigned char thread_stack[16384] __attribute__((aligned(128)));
 static volatile unsigned int rp,wp,level,running,reset_requested,switch_requested,source_eof,loop_source;
 static volatile int pending_fd=-1;
 static volatile int producer_exited=1;
+/* FONTE SECUNDARIA (overlay). Ver audio_ring.h: e' o sfx que toca por cima da
+   musica do game over. `overlay_pedido` e' o canal de pedido para a thread:
+   -2 = nada pendente, -1 = parar, >= 0 = trocar para este fd (do comeco). */
+#define RING_SEM_PEDIDO (-2)
+static volatile int overlay_fd=-1,overlay_eof=1,overlay_pedido=RING_SEM_PEDIDO;
+static unsigned char overlay_block[READ_SIZE] __attribute__((aligned(128)));
+/* 1 = nao ha' fonte primaria: o produtor escreve SILENCIO e soma o overlay.
+   E' o comeco do game over, antes de o original comecar a musica. */
+static volatile int sem_fonte=0;
+static volatile int fonte_pedido=RING_SEM_PEDIDO,fonte_pedido_loop=0;
 /* Serializacao do acesso ao USB. O usbhdfsd nao e reentrante, e a
    captura de tela grava 1,1 MB no pendrive pela thread principal
    enquanto esta thread le a musica do mesmo dispositivo. As duas ao
@@ -26,9 +37,111 @@ static volatile unsigned int produced,reads_count,loops_count,errors_count,under
 static int source_fd=-1,mutex=-1,thread_id=-1;
 extern void *_gp;
 static void lock_ring(void){WaitSema(mutex);} static void unlock_ring(void){SignalSema(mutex);}
-static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first;if(pause_req){DelayThread(2000);continue;}if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){lseek(source_fd,0,SEEK_SET);lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}if(source_eof){if(loop_source){lseek(source_fd,0,SEEK_SET);source_eof=0;loops_count++;continue;}DelayThread(2000);continue;}in_read=1;got=read(source_fd,io_block,READ_SIZE);in_read=0;if(got==0){source_eof=1;continue;}if(got<0){errors_count++;DelayThread(10000);continue;}lock_ring();first=got;if(first>RING_SIZE-(int)wp)first=RING_SIZE-(int)wp;memcpy(ring+wp,io_block,first);if(first<got)memcpy(ring,io_block+first,got-first);wp=(wp+got)%RING_SIZE;level+=got;produced+=got;reads_count++;unlock_ring();}producer_exited=1;ExitThread();}
-int audio_ring_start_loop(int fd,int loop){ee_sema_t s;ee_thread_t t;int start_rc;if(thread_id>=0)audio_ring_stop();source_fd=fd;pending_fd=-1;switch_requested=reset_requested=0;loop_source=loop?1u:0u;rp=wp=level=source_eof=0;produced=reads_count=loops_count=errors_count=underruns_count=0;memset(&s,0,sizeof(s));s.init_count=1;s.max_count=1;s.option=0;mutex=CreateSema(&s);if(mutex<0){source_fd=-1;return -1;}memset(&t,0,sizeof(t));t.func=producer;t.stack=thread_stack;t.stack_size=sizeof(thread_stack);t.gp_reg=&_gp;t.initial_priority=40;thread_id=CreateThread(&t);if(thread_id<0){DeleteSema(mutex);mutex=-1;source_fd=-1;return -2;}running=1;producer_exited=0;start_rc=StartThread(thread_id,0);if(start_rc<0){running=0;producer_exited=1;DeleteThread(thread_id);thread_id=-1;DeleteSema(mutex);mutex=-1;source_fd=-1;return -3;}return 0;}
+/* Aplica os pedidos de fonte (primaria e overlay) no topo do bloco. Os dois
+   pedidos sao consumidos aqui, e nao no chamador, porque e' esta thread que
+   mexe no fd: o `close()` do lado do main.c so' acontece depois de
+   `audio_ring_stop()`/`audio_ring_parar_overlay()` esperarem o consumo. */
+static void aplica_pedidos(void){
+ if(fonte_pedido!=RING_SEM_PEDIDO){
+  int f=fonte_pedido;
+  loop_source=fonte_pedido_loop?1u:0u;
+  source_fd=f;
+  sem_fonte=(f<0)?1:0;
+  source_eof=0;
+  if(f>=0)lseek(f,0,SEEK_SET);
+  fonte_pedido=RING_SEM_PEDIDO;
+ }
+ if(overlay_pedido!=RING_SEM_PEDIDO){
+  int o=overlay_pedido;
+  overlay_fd=o;
+  if(o>=0){lseek(o,0,SEEK_SET);overlay_eof=0;}else overlay_eof=1;
+  overlay_pedido=RING_SEM_PEDIDO;
+ }
+}
+/* Soma o overlay (se houver) sobre o bloco recem-lido. A leitura e' feita aqui,
+   nesta thread, e SEMPRE depois da primaria: e' o que mantem o pendrive com um
+   acesso por vez. `og` pode ser menor que `got` no fim do overlay -- o resto do
+   bloco fica so' com a primaria, que e' o certo. */
+static void soma_overlay(int got){
+ int og;
+ if(overlay_fd<0||overlay_eof||got<=0)return;
+ in_read=1;og=read(overlay_fd,overlay_block,got);in_read=0;
+ if(og<=0){overlay_eof=1;return;}
+ if(og<got)overlay_eof=1;
+ /* 4 bytes por amostra estereo (L,R de 16 bits): o PCM do pendrive. */
+ amix_somar_estereo((short*)io_block,(const short*)overlay_block,og/4);
+}
+static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first;if(pause_req){DelayThread(2000);continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,0,SEEK_SET);lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
+ if(sem_fonte){
+  /* SEM FONTE: so' silencio + overlay. Se o overlay ja' acabou (ou nem existe)
+     nao ha' nada para produzir -- dormir aqui e' o que evita queimar CPU nos
+     segundos em que a tela de game over espera a animacao de morte terminar. */
+  if(overlay_fd<0||overlay_eof){DelayThread(5000);continue;}
+  memset(io_block,0,READ_SIZE);got=READ_SIZE;
+ }else{
+  if(source_eof){if(loop_source){lseek(source_fd,0,SEEK_SET);source_eof=0;loops_count++;continue;}DelayThread(2000);continue;}
+  in_read=1;got=read(source_fd,io_block,READ_SIZE);in_read=0;if(got==0){source_eof=1;continue;}if(got<0){errors_count++;DelayThread(10000);continue;}
+ }
+ soma_overlay(got);
+ lock_ring();first=got;if(first>RING_SIZE-(int)wp)first=RING_SIZE-(int)wp;memcpy(ring+wp,io_block,first);if(first<got)memcpy(ring,io_block+first,got-first);wp=(wp+got)%RING_SIZE;level+=got;produced+=got;reads_count++;unlock_ring();}producer_exited=1;ExitThread();}
+/* Inicializa o estado das fontes. `fd` < 0 = sem primaria (silencio +
+   overlay), que e' o modo do comeco do game over. */
+static void fontes_reset(int fd,int loop,int overlay){
+ source_fd=fd;
+ sem_fonte=(fd<0)?1:0;
+ fonte_pedido=RING_SEM_PEDIDO;
+ fonte_pedido_loop=0;
+ overlay_fd=overlay;
+ overlay_eof=(overlay<0)?1:0;
+ if(overlay>=0)lseek(overlay,0,SEEK_SET);
+ overlay_pedido=RING_SEM_PEDIDO;
+ loop_source=loop?1u:0u;
+}
+int audio_ring_start_loop(int fd,int loop){ee_sema_t s;ee_thread_t t;int start_rc;if(thread_id>=0)audio_ring_stop();fontes_reset(fd,loop,-1);pending_fd=-1;switch_requested=reset_requested=0;rp=wp=level=source_eof=0;produced=reads_count=loops_count=errors_count=underruns_count=0;memset(&s,0,sizeof(s));s.init_count=1;s.max_count=1;s.option=0;mutex=CreateSema(&s);if(mutex<0){source_fd=-1;return -1;}memset(&t,0,sizeof(t));t.func=producer;t.stack=thread_stack;t.stack_size=sizeof(thread_stack);t.gp_reg=&_gp;t.initial_priority=40;thread_id=CreateThread(&t);if(thread_id<0){DeleteSema(mutex);mutex=-1;source_fd=-1;return -2;}running=1;producer_exited=0;start_rc=StartThread(thread_id,0);if(start_rc<0){running=0;producer_exited=1;DeleteThread(thread_id);thread_id=-1;DeleteSema(mutex);mutex=-1;source_fd=-1;return -3;}return 0;}
 int audio_ring_start(int fd){return audio_ring_start_loop(fd,0);}
+/* O overlay de partida entra no ESTADO INICIAL da thread (fontes_reset), e nao
+   por pedido: nao ha' espera nenhuma, entao nao ha' o que falhar. */
+int audio_ring_start_overlay(int overlay_fd){
+ ee_sema_t s;ee_thread_t t;int start_rc;
+ if(thread_id>=0)audio_ring_stop();
+ fontes_reset(-1,0,overlay_fd);
+ pending_fd=-1;switch_requested=reset_requested=0;rp=wp=level=source_eof=0;
+ produced=reads_count=loops_count=errors_count=underruns_count=switches_count=0;
+ memset(&s,0,sizeof(s));s.init_count=1;s.max_count=1;s.option=0;
+ mutex=CreateSema(&s);
+ if(mutex<0){source_fd=-1;return -1;}
+ memset(&t,0,sizeof(t));t.func=producer;t.stack=thread_stack;t.stack_size=sizeof(thread_stack);
+ t.gp_reg=&_gp;t.initial_priority=40;
+ thread_id=CreateThread(&t);
+ if(thread_id<0){DeleteSema(mutex);mutex=-1;source_fd=-1;return -2;}
+ running=1;producer_exited=0;start_rc=StartThread(thread_id,0);
+ if(start_rc<0){running=0;producer_exited=1;DeleteThread(thread_id);thread_id=-1;
+  DeleteSema(mutex);mutex=-1;source_fd=-1;return -3;}
+ return 0;
+}
+/* PEDIDO, NAO ESPERA.
+   As tres funcoes abaixo publicam o pedido e voltam. A thread do anel aplica no
+   topo do bloco seguinte (milissegundos), e o fd antigo do OVERLAY e' fechado
+   por ela -- ver audio_ring_stop. Esperar o consumo daqui ja' quebrou no
+   harness: `DelayThread` nao bloqueia de verdade no PC, entao a espera virava
+   500 voltas instantaneas e o pedido "falhava" enquanto no console funcionava.
+   O retorno so' diz se existe uma thread para receber o pedido. */
+int audio_ring_trocar_fonte(int fd,int loop){
+ if(thread_id<0)return audio_ring_start_loop(fd,loop);
+ fonte_pedido_loop=loop?1:0;
+ fonte_pedido=fd;
+ return 0;
+}
+int audio_ring_trocar_overlay(int fd){
+ if(thread_id<0)return -12;
+ overlay_pedido=fd;
+ return 0;
+}
+void audio_ring_parar_overlay(void){
+ if(thread_id<0){if(overlay_fd>=0){close(overlay_fd);overlay_fd=-1;}overlay_eof=1;return;}
+ overlay_pedido=-1;
+}
+int audio_ring_sem_fonte(void){return sem_fonte?1:0;}
 int audio_ring_take(void *dst,int bytes){int first;if(bytes<=0)return 0;lock_ring();if((int)level<bytes){underruns_count++;unlock_ring();return 0;}first=bytes;if(first>RING_SIZE-(int)rp)first=RING_SIZE-(int)rp;memcpy(dst,ring+rp,first);if(first<bytes)memcpy((unsigned char*)dst+first,ring,bytes-first);rp=(rp+bytes)%RING_SIZE;level-=bytes;unlock_ring();return bytes;}
 int audio_ring_take_available(void *dst,int bytes){int first,n;if(bytes<=0)return 0;lock_ring();n=(int)level;if(n>bytes)n=bytes;if(n<=0){unlock_ring();return 0;}first=n;if(first>RING_SIZE-(int)rp)first=RING_SIZE-(int)rp;memcpy(dst,ring+rp,first);if(first<n)memcpy((unsigned char*)dst+first,ring,n-first);rp=(rp+n)%RING_SIZE;level-=n;unlock_ring();return n;}
 int audio_ring_eof(void){return source_eof?1:0;}
@@ -51,7 +164,20 @@ void audio_ring_debug(int*fd,unsigned int*loop,unsigned int*sw,unsigned int*rpen
    aquelas escritas na 0.2.64 a corrida apareceu. Agora a espera e
    explicita: ate 600 ms pelo encerramento normal, e TerminateThread so
    como ultimo recurso. */
-void audio_ring_stop(void){int n=0;running=0;if(thread_id>=0){
+/* QUEM FECHA O FD DO OVERLAY E' A THREAD (ou este stop), NUNCA O CHAMADOR.
+   O overlay e' um fd que so' a thread le; fechar do lado de fora enquanto ela
+   le e' leitura de fd fechado. Por isso o `trocar_overlay`/`parar_overlay` sao
+   PEDIDOS e este stop fecha o que sobrou -- depois de a thread ter saido (se
+   ela teve de ser terminada a' forca, o fd NAO e' fechado: um fd vazado e'
+   melhor que um close em cima de um read). */
+void audio_ring_stop(void){int n=0,saiu=0;running=0;
+ if(thread_id>=0){
   while(!producer_exited&&n++<600)DelayThread(1000);
+  saiu=producer_exited;
   if(!producer_exited)TerminateThread(thread_id);
-  DeleteThread(thread_id);thread_id=-1;producer_exited=1;}if(mutex>=0){DeleteSema(mutex);mutex=-1;}source_fd=-1;pending_fd=-1;switch_requested=reset_requested=0;rp=wp=level=source_eof=0;}
+  DeleteThread(thread_id);thread_id=-1;producer_exited=1;
+ }else saiu=1;
+ if(mutex>=0){DeleteSema(mutex);mutex=-1;}
+ if(overlay_fd>=0){if(saiu)close(overlay_fd);overlay_fd=-1;}
+ overlay_eof=1;overlay_pedido=RING_SEM_PEDIDO;
+ source_fd=-1;pending_fd=-1;switch_requested=reset_requested=0;rp=wp=level=source_eof=0;sem_fonte=0;fonte_pedido=RING_SEM_PEDIDO;fonte_pedido_loop=0;}

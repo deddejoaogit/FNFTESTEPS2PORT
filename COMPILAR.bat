@@ -245,6 +245,12 @@ for %%A in (font.rgba font.widths freakyMenu_48000.pcm audio_stems.pcm title_alp
         echo        aviso  falta assets\%%A
         set "FALTA_ASSET=1"
     )
+for %%A in (gameover\gameover.pcm gameover\gameover_end.pcm gameover\loss_sfx.pcm gameover\fakeout_death.pcm) do (
+    if not exist "%~1\assets\%%A" (
+        echo        aviso  falta assets\%%A
+        set "FALTA_ASSET=1"
+    )
+)
 )
 if defined FALTA_ASSET (
     echo.

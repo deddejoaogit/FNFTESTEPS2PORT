@@ -127,14 +127,32 @@ for sid in $LISTA; do
     for diff in 0 1 2; do
         TOTAL=$((TOTAL + 1))
         rm -f "$LOG"
+        # ROTEIRO DE AUTOPLAY A PARTIR DO PROPRIO CHART.
+        # Sem isto o sweep nao aperta nada: as notas viram MISS, a vida cai e o
+        # jogador MORRE (aconteceu com `blazin`, que tem nota cedo) -- o sweep
+        # passou a medir a tela de game over em vez da musica. As pressoes saem
+        # do chart (tools/harness_presses.py), em AMOSTRAS, exatamente como no
+        # tools/run_gameplay_harness.sh. `--pular 0`: aqui se quer a musica
+        # inteira tocando, nao o caminho de MISS.
+        case "$diff" in 0) DN=easy;; 1) DN=normal;; *) DN=hard;; esac
+        CHART="$ROOT/FNFPS2/assets/songs/$sid/$DN.chart"
+        TECLAS=""
+        if [ -f "$CHART" ]; then
+            TECLAS=$(python3 tools/harness_presses.py "$CHART" --pular 0 2>/dev/null) || TECLAS=""
+        fi
         out=$(FNF_START_SONG="$sid" FNF_START_DIFF="$diff" PS2H_FRAMES="$FRAMES" \
-              PS2H_ROOT="$ROOT" PS2H_WATCHDOG=300 timeout 300 "$BIN" 2>&1)
+              PS2H_ROOT="$ROOT" PS2H_WATCHDOG=300 PS2H_INPUT_AMOSTRAS="$TECLAS" \
+              timeout 300 "$BIN" 2>&1)
         rc=$?
         motivo=""
         [ $rc -eq 0 ] || motivo="codigo de saida $rc"
         echo "$out" | grep -q "RESULTADO: PASSOU" || motivo="harness nao passou${motivo:+ ($motivo)}"
 
-        campo() { awk -F, -v n="$1" -v c="$2" '$1=="E" && $3==n {print $c; exit}' "$LOG" 2>/dev/null; }
+        # ULTIMO valor, nao o primeiro: `icone_desenho` passa a ser publicado
+        # tambem DURANTE a musica (a cada 300 quadros), e o que interessa e' o
+        # total no fim da rodada. Para os outros eventos (um por musica) e'
+        # indiferente.
+        campo() { awk -F, -v n="$1" -v c="$2" '$1=="E" && $3==n {v=$c} END{print v}' "$LOG" 2>/dev/null; }
         hstart=$(campo harness_start 4)
         # O ZOOM DO HUD (camHUD.zoom): sobe a cada compasso e decai todo quadro.
         # Songs SEM SetCameraBop usam o rate padrao (4 batidas) e tem de mostrar

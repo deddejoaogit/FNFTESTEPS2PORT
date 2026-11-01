@@ -756,13 +756,28 @@ void FlushCache(int op) { (void)op; }
  * a depender de quantas voltas a thread deu -- ou seja, deixaria de ser 60 fps
  * e passaria a ser ruido, justo num harness que precisa ser determinístico.
  * A marca e' por thread (__thread): quem chamou graph_wait_vsync e' a thread
- * do jogo; todo o resto trata DelayThread como antes, um no-op.
+ * do jogo; so' ela move o relogio.
+ *
+ * MAS NAO-RENDER NAO E' "NADA". Era no-op puro, e isso quebrou o audio do game
+ * over: `audio_ring_start_overlay` publica um pedido para a thread do anel e
+ * espera (DelayThread em laco) ela consumir. Com o delay nulo a espera virava
+ * 500 voltas instantaneas, a thread produtora nunca era escalonada, o pedido
+ * nunca era aplicado e a funcao devolvia erro -- no console, onde DelayThread
+ * bloqueia de verdade, o mesmo codigo funciona. Agora a thread que nao desenha
+ * CEDE a CPU (sched_yield), sem mover o relogio: o tempo continua sendo 60 fps
+ * deterministicos e a thread tem chance de rodar.
  */
+#include <sched.h>
 void DelayThread(int us)
 {
     if (us <= 0) return;
-    if (!h_caller_is_render_thread) return;
-    h_advance_us((u64)us);
+    /* Cede a CPU nos DOIS casos. Na thread que desenha isto nao pode ser no-op:
+       o jogo espera a thread do anel de audio consumir um pedido com
+       `DelayThread` em laco, e sem ceder a produtora nao e' escalonada -- a
+       espera de 500 ms passava instantaneamente e o pedido "falhava" no
+       harness enquanto funciona no console. */
+    sched_yield();
+    if (h_caller_is_render_thread) h_advance_us((u64)us);
 }
 
 /*
@@ -804,6 +819,20 @@ static const char *ps2h_map_path(const char *p, char *buf, size_t n)
     return p;
 }
 
+/* AUSENCIAS DECLARADAS NA ARTE ORIGINAL.
+   Dois caminhos o jogo procura DE PROPOSITO e a arte oficial tambem nao tem:
+   o `blueBallSuffix` do pico-blazin (`-pico-gutpunch`) e o do
+   pico-holding-nene (`-pico-and-nene`). O original faz
+   `Assets.exists(Paths.sound(base+suffix))` e, quando nao acha, so' escreve um
+   erro no log (GameOverSubState.hx L600-611) -- o port reproduz a mesma coisa e
+   registra `gameover_sfx_ausente`. Sem esta lista o harness acusa "1 arquivo
+   nao abriu" e reprova a raiz de assets por um arquivo que NUNCA existiu. */
+static int h_ausencia_declarada(const char *p)
+{
+    return strstr(p, "/gameover/loss_sfx-pico-gutpunch.pcm") != NULL
+        || strstr(p, "/gameover/loss_sfx-pico-and-nene.pcm") != NULL;
+}
+
 static int ps2h_openat(const char *p, int flags, mode_t mode)
 {
     char buf[1024];
@@ -820,7 +849,7 @@ int open(const char *path, int flags, ...)
     mode = (mode_t)va_arg(ap, int);
     va_end(ap);
     { int fd = ps2h_openat(path, flags, mode);
-      if (fd < 0) { h_io_fail_opens++; h_note_fail(path); }
+      if (fd < 0) { if (!h_ausencia_declarada(path)) { h_io_fail_opens++; h_note_fail(path); } }
       return fd; }
 }
 
@@ -830,7 +859,7 @@ int open64(const char *path, int flags, ...)
     h_io_opens++;
     va_start(ap, flags); mode = (mode_t)va_arg(ap, int); va_end(ap);
     { int fd = ps2h_openat(path, flags, mode);
-      if (fd < 0) { h_io_fail_opens++; h_note_fail(path); }
+      if (fd < 0) { if (!h_ausencia_declarada(path)) { h_io_fail_opens++; h_note_fail(path); } }
       return fd; }
 }
 

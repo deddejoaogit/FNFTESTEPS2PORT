@@ -32,4 +32,21 @@ int amix_somar(const short *entrada, short *saida, int amostras, int vozes);
 /* Bytes de saida para `amostras` amostras: AMIX_CANAIS_SAIDA * 2 por amostra. */
 int amix_bytes_saida(int amostras);
 
+/*
+ * Soma um bloco ESTEREO intercalado (L,R) de 16 bits sobre outro, no lugar.
+ *
+ * Existe por causa da tela de game over: ali tocam DOIS sons ao mesmo tempo --
+ * a musica do game over e o `fnf_loss_sfx` (ou o `fakeout_death`) por cima. O
+ * mixer do flixel soma as duas fontes na saida, e o port tem de fazer o mesmo.
+ * No console o `audio_ring` faz essa soma na thread produtora, que e' a UNICA
+ * que toca o pendrive (o usbhdfsd nao e' reentrante: duas leituras simultaneas
+ * corrompem o driver -- foi medido antes com a captura de tela).
+ *
+ * `dst` e `src` sao os dois PCM crus do pendrive: 48000 Hz, estereo, s16 LE.
+ * A saturacao tem de ser a mesma de `amix_somar` (e' a mesma parede de 16 bits).
+ * Devolve o numero de AMOSTRAS (pares L,R) somadas, 0 com ponteiro nulo ou
+ * contagem <= 0.
+ */
+int amix_somar_estereo(short *dst, const short *src, int amostras);
+
 #endif /* FNF_AUDIO_MIX_H */

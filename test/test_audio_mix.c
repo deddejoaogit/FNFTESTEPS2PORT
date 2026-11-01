@@ -108,6 +108,34 @@ int main(void)
         CHECK_EQ(out[0], 7);
     }
 
+    /* OVERLAY: o segundo som da tela de game over (a musica + o fnf_loss_sfx).
+       E' a mesma conta de saturacao, em cima de um bloco estereo REGULAR -- nao
+       dos 4 canais do stems. Somar o overlay no canal errado (L com R) daria um
+       som "quase certo", que e' o pior caso para se olhar de fora. */
+    printf("== mixer: overlay estereo (musica de game over + sfx) ==\n");
+    {
+        short dst[6] = { 100, -100, 32760, -32760, 0, 0 };
+        const short src[6] = { 50, 50, 50, -50, 1000, -2000 };
+        CHECK_EQ(amix_somar_estereo(dst, src, 3), 3);
+        CHECK_EQ(dst[0], 150);       /* L: 100 + 50   */
+        CHECK_EQ(dst[1], -50);       /* R: -100 + 50  */
+        CHECK_EQ(dst[2], 32767);     /* satura em cima */
+        CHECK_EQ(dst[3], -32768);    /* satura embaixo */
+        CHECK_EQ(dst[4], 1000);
+        CHECK_EQ(dst[5], -2000);
+        /* Nada a somar nao pode apagar o que ja' estava. */
+        CHECK_EQ(amix_somar_estereo(NULL, src, 1), 0);
+        CHECK_EQ(amix_somar_estereo(dst, NULL, 1), 0);
+        CHECK_EQ(amix_somar_estereo(dst, src, 0), 0);
+        CHECK_EQ(dst[0], 150);
+        /* Um bloco parcial (o resto da leitura no fim do arquivo) soma so' o
+           que veio: a thread do anel chama assim quando o overlay acaba. */
+        dst[0] = 10; dst[1] = 20;
+        CHECK_EQ(amix_somar_estereo(dst, src, 1), 1);
+        CHECK_EQ(dst[0], 60);
+        CHECK_EQ(dst[1], 70);
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  mixer: soma por canal, saturacao, vozes desligadas, metade dos bytes e in place conferidos\n");
     return 0;

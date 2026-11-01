@@ -2724,11 +2724,11 @@ inventado.
 |---|---|---|
 | fundo preto opaco cobrindo `width*2 x height*2` | L139-145 | já tinha |
 | BF sai do palco e entra no substate **na mesma posição**, `isDead = true` | L155-179 | `cc_especial_fixo` (novo): o BF **não volta a dançar** quando a morte acaba |
-| `fakeoutDeath` com 1 em 4096, senão `firstDeath` | L250-259 | sorteio determinístico (LCG semeado pelo quadro), telemetria `gameover_fakeout` |
-| acabou o `firstDeath` -> `deathLoop` + música | L305-318 | `cc_especial_terminou` decide a troca; a música **não está no pacote** (`gameplay/gameover/gameOver*`), e o port registra `gameover_sem_audio` em vez de inventar arquivo |
+| `fakeoutDeath` com 1 em 4096, senão `firstDeath` | L250-259 | sorteio determinístico (LCG semeado pelo quadro), telemetria `gameover_fakeout`; o fim do fakeout entra no `firstDeath` e chama `playBlueBalledSFX()` (bf.hxc `doFakeoutDeath`), como o original |
+| acabou o `firstDeath` -> `deathLoop` + música em loop | L305-318 | `cc_especial_terminou` decide a troca e `startDeathMusic(1.0,false)` toca `gameOver` + sufixo do personagem (ver a seção do áudio) |
 | câmera segue `cameraFollowPoint`, `DEFAULT_CAMERA_FOLLOW_RATE/2` | L220 | `GO_CAM_LERP = 0,020019798` (= `1 - 0,98^1,001` do `FlxCamera.updateFollow`) |
 | zoom -> `stage.camZoom * death.cameraZoom`, `smoothLerpPrecision(..., 0,5)` | L100, L265 | `GO_ZOOM_K = 0,85756425` (= `0,01^(1/59,94/0,5)`) |
-| CROSS -> `deathConfirm` e `FlxG.camera.fade(BLACK, 1)`; reset no fim | L271-278, L330-430 | `deathConfirm` + 60 quadros de fade, reinício no fim |
+| CROSS -> `deathConfirm`, `gameOverEnd`, espera `FADE_TIMER`, `fade(BLACK, 2)`, `needsReset` + `fade(BLACK, 1, true)` | L271-278, L330-438 | `deathConfirm` + `FADE_TIMER = comprimento do End / 7000` + 120 quadros de fade para preto + reinício + 60 quadros de fade-in (`g_fade_in`) |
 | CIRCLE -> `goBack()`, `deathCounter = 0` | L544-570 | sai para Freeplay/Story e zera "BLUE BALLS" |
 | as DUAS saídas exigem `blueballed`, marcado por `playBlueBalledSFX()` | L271-278, L546, L600-623 | estado `g_go_blueballed`, armado junto com o `firstDeath`; o caminho do `fakeoutDeath` **não** arma, e aí a tela não sai (1 em 4096, como no original) — o harness avisa em vez de acusar defeito |
 
@@ -2752,14 +2752,13 @@ números estão presos em `test/test_char_layout.c`.
 **Medido no harness** (`tools/run_gameover_harness.sh`, três passadas):
 `gameover_primeira_morte` = personagem 5 (o `bf`), `deathLoop` no quadro 3566
 (o `firstDeath` do BF tem 2 quadros a 24 fps), `gameover_confirmar` = 1, câmera
-final (1022 ; 1003) contra o foco publicado pelo jogo (1033 ; 1009) — o que resta
+final (1030 ; 1007) contra o foco publicado pelo jogo (1033 ; 1009) — o que resta
 é a exponencial do lerp —, zoom final **1100** = alvo **1100** (milesimos),
-reinício **60 quadros** depois do CROSS e CIRCLE saindo sem reiniciar.
+reinício **128 quadros** depois do CROSS (FADE_TIMER de 142 ms do End sintético +
+120 quadros de fade) e CIRCLE saindo sem reiniciar.
 
 **O que continua não provado:** como isso *aparece*. O harness não tem tela; ele
-prova o estado, os quadros pedidos e os números. E a música de game over e o
-`fnf_loss_sfx` **não existem no pacote de dados**: os dois sons da tela ficam
-declarados como dado ausente, não inventados.
+prova o estado, os quadros pedidos e os números.
 
 ## O jogo inteiro com os pacotes DE VERDADE: 81/81
 
@@ -2816,6 +2815,106 @@ do dado (`philly-nice`). Oito das 27 músicas nunca começavam, o harness
 zero. Agora o id vem do primeiro campo da struct, que é o que vira caminho de
 arquivo.
 
+## O áudio da tela de GAME OVER: os três sons eram dado ausente
+
+A tela de game over estava completa em animação e câmera, e **muda**. Não por
+esquecimento: nem `gameplay/gameover/gameOver*`, nem `fnf_loss_sfx*` existiam no
+pacote de dados deste repositório, e os sufixos que escolhem a variante
+(`-pico`, `-pixel`, `-pixel-pico`, `-pico-gutpunch`) também não — eles moram nos
+**scripts de personagem**, não no `CharacterData`.
+
+**Onde os dois dados estavam.** No repositório oficial de arte:
+
+- `shared/music/gameplay/gameover/gameOver{,-pico,-pixel,-pixel-pico}.ogg` e os
+  `gameOverEnd*`; `shared/sounds/gameplay/gameover/fnf_loss_sfx{,...}.ogg` e
+  `fakeout_death.ogg`. `tools/empacotar_audio.py` decodifica, reamostra para
+  48 kHz e escreve PCM s16le estéreo — o formato que o `audsrv` toca. **13
+  arquivos, 45.721.916 B**, com manifesto (`AUDIO.txt`) e sha256 curto de cada
+  um. Vão para `mass:/FNFPS2/assets/gameover/`.
+- `preload/scripts/characters/*.hxc` definem `GameOverSubState.musicSuffix`,
+  `blueBallSuffix` e `animationSuffix`. `tools/gen_gameover_sfx.py` lê as
+  atribuições **literais** e gera `src/gameover_dados.h` (5 personagens):
+
+| personagem | música | blue balls | pausa |
+|---|---|---|---|
+| `bf-pixel` | `-pixel` | `-pixel` | `-pixel` |
+| `pico-blazin` | `-pico` | `-pico-gutpunch` | `-pico` |
+| `pico-holding-nene` | `-pico` | `-pico-and-nene` | `-pico` |
+| `pico-pixel` | `-pixel-pico` | `-pixel-pico` | `-pixel` |
+| `pico-playable` | `-pico` | `-pico` | `-pico` |
+
+Os outros 41 personagens não atribuem nada, e o padrão do original é vazio
+(`GameOverSubState.reset()`, chamado por `PlayState.reset()`). **Nenhuma linha
+do port chuta um sufixo.**
+
+**Duas ausências que ficam declaradas, não "consertadas":**
+
+1. `-pico-gutpunch` e `-pico-and-nene` são procurados em `fnf_loss_sfx` e **não
+   existem nem na arte oficial**. O original faz `Assets.exists` e loga erro;
+   o port abre o arquivo, falha, registra `gameover_sfx_ausente` e segue sem o
+   som. O harness conhece esses dois caminhos (`h_ausencia_declarada`) para não
+   acusar a raiz de assets por um arquivo que nunca existiu.
+2. `songs/2hot.hxc` troca os sufixos para `-pico-explode` **em tempo de
+   execução**, quando a lata explode e o jogador morre (`takeCanDamage`). Isso é
+   lógica de script de música, não configuração de personagem: não há linha em
+   lugar nenhum do dado dizendo "2hot usa -pico-explode". O resolvedor do port
+   sabe reduzir o sufixo (é o mesmo `resolveMusicPath`), mas nada o define hoje.
+
+**Como dois sons tocam ao mesmo tempo.** A música do game over e o sfx do blue
+balls são dois `FlxSound` no original; o port tem **um** anel de áudio e **um**
+`audsrv`. A soma é feita na thread do anel (`audio_ring`, fonte secundária
+"overlay"), e não num segundo anel, porque o `usbhdfsd` não é reentrante: duas
+leituras simultâneas do pendrive corrompem o driver — foi medido antes, com a
+captura de tela. A ordem do original é reproduzida:
+
+1. morte -> o anel entra em **silêncio + `fnf_loss_sfx`** (a música ainda não
+   existe nesse instante no original);
+2. fim do `firstDeath` -> `audio_ring_trocar_fonte`: a música entra **por baixo**
+   do sfx que ainda está tocando, em loop;
+3. CROSS -> `gameOverEnd` sem loop; o comprimento dele é o `FADE_TIMER`.
+
+`playBlueBalledSFX()` marca `blueballed` **e** toca o som; o `fakeoutDeath`
+toca `fakeout_death` e só chama o sfx quando termina, então durante o fakeout
+(beco sem saída de 1 em 4096) a tela continua sem saída **e** com o som certo.
+
+**A conta do fade, corrigida.** O port esperava 60 quadros fixos depois do
+CROSS. O original (`GameOverSubState.hx` L381-438, idêntico na v0.8.6):
+
+```
+FADE_TIMER = gameOverMusic.length / 7000            (End real: 7,21 s -> 1,03 s)
+fade(BLACK, 2, false, ...)                          (2 s indo para preto)
+   -> resetPlaying(): fade(BLACK, 1, true) + needsReset + close()
+```
+
+Ou seja: **FADE_TIMER + 2 s** até o reinício, e **1 s** de volta do preto já no
+PlayState reiniciado (`g_fade_in`). O `FADE_TIMER` é derivado do arquivo que
+tocou (`amostras / 336` ms), não de uma constante.
+
+**Medido no harness** (`tools/run_gameover_harness.sh`, End sintético de 1 s):
+`gameover_audio_inicio` = 1 (o sfx abriu), `gameover_musica` = 96.000 amostras
+(2 s, em loop), `gameover_end` = 48.000 amostras, `gameover_fade_espera` = 142 ms,
+**128 quadros** entre o CROSS e o reinício (esperado 129 = 142 ms + 120),
+**199.680 amostras** entregues ao audsrv nessa tela e `gameover_audio_fim` sem
+erro. O evento `gameover_sem_audio` — que declarava "esta tela não tem som" —
+**não existe mais no log**, e o teste reprova se voltar.
+
+**O que isso mudou no harness** (e que não era bug do jogo):
+
+- o shim tratava `DelayThread` como **no-op** na thread de render. Como as
+  funções do anel passaram a publicar pedidos e esperar a thread consumir, a
+  espera de 500 ms virava 500 voltas instantâneas, a produtora nunca era
+  escalonada e o pedido "falhava" no PC — enquanto no console funcionava. Agora
+  `DelayThread` **cede a CPU** (`sched_yield`) nos dois casos e só a thread de
+  render move o relógio virtual;
+- o sweep rodava **sem apertar nada**: as notas viravam MISS, a vida caía e o
+  jogador morria (visível no `blazin`, que tem nota cedo). Ele passou a usar o
+  roteiro de autoplay do próprio chart (`tools/harness_presses.py`), o mesmo do
+  `run_gameplay_harness.sh`;
+- `icone_desenho` só era publicado na entrada do resultado, então uma música que
+  não terminasse dentro dos quadros do harness ficava sem prova de que o ícone
+  foi desenhado (e o sweep reprovava por isso). Agora ele sai também a cada 300
+  quadros de gameplay, e os harnesses leem o **último** valor.
+
 ## O que ainda falta, com o motivo medido (estado nesta build)
 
 Tudo o que está abaixo é **dado ausente ou espaço de VRAM**, não lógica que
@@ -2823,15 +2922,18 @@ faltou escrever. A lista existe para não deixar nada implícito.
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Música de game over e `fnf_loss_sfx` | os arquivos `gameplay/gameover/gameOver*` e `fnf_loss_sfx` **não existem no pacote de dados** do repositório (não há `assets-data/audio` de SFX) | trazer os dois .ogg e o caminho de decodificação; até lá o port registra `gameover_sem_audio` e não inventa arquivo |
-| Ícones de vida do HUD | 15 eventos `SetHealthIcon` (todos em `spaghetti`) chegam e viram `evento_sem_icone`; a arte dos ícones não está no pacote, e a pior combinação deixa **1.792 B** livres no pool de VRAM | arte dos ícones + liberar VRAM antes (por exemplo tirar `tex` da VRAM durante o gameplay: o menu já se re-uploada ao voltar) |
+| `healthBar.png` de verdade | a barra do HUD é um `sprite_region` da `tex2` desde antes do atlas de UI existir; a arte oficial está em `shared/images/healthBar.png` e não foi empacotada | empacotar o PNG e trocar o desenho (a barra já usa o lerp 0,15 e os limiares 1,6/0,4 do original) |
+| Arte da tela de GAME OVER | o original cobre a tela com um fundo preto opaco e desenha o texto; a arte de fundo/texto dessa tela não foi empacotada | empacotar os PNGs da tela e desenhá-los no lugar do preto + texto |
+| Música da PAUSA (`breakfast`) | `PauseSubState.musicSuffix` já é dado (`src/gameover_dados.h`, coluna `pausa`), mas a música `breakfast` não foi empacotada | empacotar `breakfast{,-pico,-pixel}` e tocar no substate da pausa |
 | Note splashes | o original cria um splash a cada nota SICK; a arte é um atlas próprio e não está no pacote | arte + 1 textura no pool (mesmo problema de espaço) |
 | Arte das telas (cápsulas da Freeplay, `AtlasFont` do Resultado, ícone da pausa) | os PNGs dessas telas não estão no clone de arte esparso usado pelo empacotador | `git sparse-checkout add` das pastas de UI e um empacotador de atlas de UI |
 | Practice Mode | modo de jogo inteiro no original (sem morte, começando numa seção) | decisão de escopo: o port hoje não oferece a entrada na pausa (oferecer uma entrada que não faz o que promete é pior) |
 
 E o que **não** falta mais, medido nesta build: os 46 personagens e os 21 palcos
-reais rodam nas 81 combinações; o game over tem a animação de morte, a câmera e
-o zoom do original; os note kinds (canto com sufixo, animação nomeada,
+reais rodam nas 81 combinações; o game over tem a animação de morte, a câmera, o
+zoom **e o áudio** do original (música em loop, `fnf_loss_sfx`, `gameOverEnd` e
+o `fakeout_death`); os ícones de vida do HUD carregam com a arte real dos 15
+pacotes ICP1; os note kinds (canto com sufixo, animação nomeada,
 alternância, `moveToBack`/`moveToFront` e tremor de câmera) são aplicados; os
 offsets por animação (155 de 523) entram no desenho; e a ordem de desenho do
 palco é por `zIndex` com os props na mesma lista dos personagens.
