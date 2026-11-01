@@ -48,9 +48,14 @@ int main(void)
 
     printf("== pool: os 21 palcos cabem no orcamento do pool ==\n");
     /* O pior caso e' o que importa: pool vazio, todos os props do palco dentro.
-       SP_POOL_BYTES = 4.194.304 - 1.146.880 (dois framebuffers) - 991.232
-       (fonttex + gftex16 + tex + tex2). */
-    CHECK_EQ(SP_POOL_BYTES, 2056192u);
+       SP_POOL_BYTES = 4.194.304 - 1.146.880 (dois framebuffers) - 663.552
+       (tex2 + fonttex + gftex16). A `tex` do menu NAO esta' nessa subtracao:
+       ela e' chave do pool e fica liberada durante a musica. Os personagens e
+       os dois icones tambem saem do pool -- essa conta, que depende do pacote
+       de cada personagem, e' tools/orcamento_vram.py (roda sobre os pacotes de
+       verdade e reprova a musica que nao couber); aqui se prova a parte que o
+       C pode provar sem os pacotes: cada palco cabe sozinho. */
+    CHECK_EQ(SP_POOL_BYTES, 2383872u);
     CHECK(BS_STAGE_VRAM_MAX <= SP_POOL_BYTES);
     {
         unsigned int pior = 0;
@@ -58,7 +63,7 @@ int main(void)
         for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
             unsigned int livre;
             const bs_stage_props_t *st = &bs_stage_props[i];
-            sp_init(&pool, 534528u, SP_POOL_BYTES);
+            sp_init(&pool, 452608u, SP_POOL_BYTES);
             for (k = 0; k < st->count; k++) {
                 unsigned int addr = 0;
                 int r = sp_prop(&pool, st->first + k, &addr);
@@ -70,9 +75,9 @@ int main(void)
                 /* 'addr' vem em PALAVRAS de 32 bits (formato do graph_vram_allocate)
                    e o tamanho do prop em BYTES: comparar os dois sem converter
                    daria um teste que passa com o pool pela metade. */
-                CHECK(addr >= 534528u);
+                CHECK(addr >= 452608u);
                 CHECK((unsigned long long)addr * 4u + sp_prop_bytes(st->first + k)
-                      <= (unsigned long long)534528u * 4u + SP_POOL_BYTES);
+                      <= (unsigned long long)452608u * 4u + SP_POOL_BYTES);
             }
             CHECK_EQ(pool.falhas, 0u);
             livre = sp_livre(&pool);
@@ -86,7 +91,7 @@ int main(void)
     }
 
     printf("== pool: residente nao custa nada, e o despejo funciona ==\n");
-    sp_init(&pool, 534528u, SP_POOL_BYTES);
+    sp_init(&pool, 452608u, SP_POOL_BYTES);
     {
         unsigned int a1 = 0, a2 = 0;
         int r1 = sp_prop(&pool, 0, &a1);
@@ -102,7 +107,7 @@ int main(void)
     {
         unsigned int addr = 0xDEADBEEFu;
         /* Pool de 1 MB: o tankmanBattlefield (1.700.352 B) nao cabe inteiro. */
-        sp_init(&pool, 534528u, 1024u * 1024u);
+        sp_init(&pool, 452608u, 1024u * 1024u);
         for (k = 0; k < bs_stage_props[BS_STAGE_PROPS_COUNT - 1].count; k++) {
             const bs_stage_props_t *st = &bs_stage_props[BS_STAGE_PROPS_COUNT - 1];
             if (sp_prop(&pool, st->first + k, &addr) < 0) { addr = 0; break; }
@@ -140,7 +145,7 @@ int main(void)
     {
         /* Duas musicas seguidas: limpar e' o que o jogo faz ao trocar de palco.
            Depois de limpar, o total livre volta ao orcamento inteiro. */
-        sp_init(&pool, 534528u, SP_POOL_BYTES);
+        sp_init(&pool, 452608u, SP_POOL_BYTES);
         for (i = 0; i < 2; i++) {
             int si = (i == 0) ? 0 : BS_STAGE_PROPS_COUNT - 1;
             unsigned int addr;

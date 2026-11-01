@@ -19,17 +19,19 @@
  *
  * C puro: sem GS, sem arquivo. Roda no PC, com a demanda real dos 21 palcos.
  *
- * ORCAMENTO DO POOL (medido, ver docs/PLANO_COMPLETO.md, Fase 6)
- *   VRAM total ............................. 4.194.304 B
- *   dois framebuffers 640x448 PSMCT16 ...... 1.146.880 B
- *   texturas fixas do gameplay:
- *     fonttex (HUD) + gftex16 (GF) + tex (BF) + tex2 (notas) .. 991.232 B
+ * ORCAMENTO DO POOL (medido, ver docs/PLANO_COMPLETO.md, Fase 4 e 6)
+ *   VRAM total .............................. 4.194.304 B
+ *   dois framebuffers 640x448 PSMCT16 ....... 1.146.880 B
+ *   material que fica FORA do pool:
+ *     tex2 (notas/receptores) 327.680 + fonttex (HUD) 294.912
+ *     + gftex16 (GF do tutorial) 40.960 ......... 663.552 B
  *   -------------------------------------------------------------
- *   sobra para o pool ...................... 2.056.192 B
- *   pior palco do plano atual .............. 1.700.352 B
- * Porem, atencao: hoje o main.c ainda aloca gftex (262.144 B) e stagetex
- * (524.288 B) FORA do pool, e so' 1.269.760 B sobram. O pool so' passa a valer
- * o orcamento inteiro quando essas duas entrarem nele -- e' o passo seguinte.
+ *   POOL .................................... 2.383.872 B
+ *   pior palco do plano atual ............... 1.700.352 B
+ * Dentro do pool moram, alem dos props: a `tex` do menu (320x256 PSMCT32 =
+ * 327.680 B, FIXA no titulo/menu/story e LIBERADA durante a musica), a gftex e a
+ * stagetex do menu, os tres personagens da musica (cada um com o tamanho do seu
+ * pacote CHP4) e os dois icones de vida do HUD.
  */
 #ifndef FNF_STAGE_POOL_H
 #define FNF_STAGE_POOL_H
@@ -41,8 +43,9 @@
 extern "C" {
 #endif
 
-/* Orcamento do pool: 4.194.304 - 1.146.880 (framebuffers) - 991.232 (fixas). */
-#define SP_POOL_BYTES 2056192u
+/* Orcamento do pool: 4.194.304 - 1.146.880 (framebuffers) - 663.552 (tex2 +
+   fonte + gftex16). A `tex` do menu NAO entra na conta: ela e' chave do pool. */
+#define SP_POOL_BYTES 2383872u
 
 /* Chave do prop no cache. 0 e' "chave invalida" no vc_*, entao o prop i usa
    i+1. Improvável de colidir: as chaves de tela que entrarem no mesmo cache

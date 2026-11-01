@@ -10,9 +10,11 @@ static const vl_slot_t g_slots[VL_SLOTS] = {
        profundidade de cor da tela (dithering ligado por quadro). */
     { "fb0",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
     { "fb1",      640, 448, VL_PSM_16, VL_ALINHAMENTO_PAGINA },
-    /* Texturas que o GAMEPLAY usa: BF, notas/receptores, fonte do HUD e a GF.
-       Elas nunca saem, entao ficam antes do pool (que e' o resto da VRAM). */
-    { "tex",      320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
+    /* Texturas que o GAMEPLAY usa: notas/receptores, fonte do HUD e a GF do
+       tutorial. Elas nunca saem, entao ficam antes do pool (que e' o resto da
+       VRAM). A `tex` do menu NAO esta' aqui: ela e' uma chave do pool, liberada
+       durante a musica (ver vram_layout.h). Antes ela ocupava 327.680 B fixos
+       para o BF, que hoje mora numa chave propria com o tamanho do pacote. */
     { "tex2",     320, 256, VL_PSM_32, VL_ALINHAMENTO_BLOCO  },
     /* fonttex era 384x256 (98.304 palavras) e o atlas da fonte e' 384x192
        (FONT_W x FONT_H em main.c). As 64 linhas a mais nunca eram enviadas nem

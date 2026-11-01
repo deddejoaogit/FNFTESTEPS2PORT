@@ -1245,25 +1245,44 @@ static texbuffer_t *palco_prop_textura(int r, int q)
 }
 
 /* Troca de tela: quem manda na VRAM e' o estado.
-   Durante a musica o palco precisa de tudo (o pior palco pede 1.697.934 B e o
-   pool tem 2.056.192 B com gftex+stagetex fixas); no menu, no titulo e no story
-   quem precisa sao elas. Entao:
-     entrando no jogo -> solta as duas (o palco pode despeja-las);
-     saindo do jogo   -> limpa os props e volta a fixa-las, com endereco novo
-                         se elas tiverem sido despejadas.
+   Durante a musica o palco precisa de tudo (o pior palco pede 1.513.472 B dos
+   2.383.872 B do pool, e o resto e' dos tres personagens e dos icones); no
+   menu, no titulo e no story quem precisa sao gftex, stagetex e a `tex`. Entao:
+     entrando no jogo -> solta as tres (o palco pode despeja-las);
+     saindo do jogo   -> limpa os props, solta os tres personagens e volta a
+                         fixar as tres texturas de tela, com endereco novo se
+                         elas tiverem sido despejadas.
    Sem esse caminho de volta, uma textura de menu ficaria apontando para VRAM
    que agora e' de um prop -- e o sintoma seria arte trocada na tela, sem log
    nenhum dizendo por que. */
-static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, int novo_ui)
+static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *tex,
+                           int novo_ui)
 {
     unsigned int a = 0;
-    if (novo_ui == 8) {
+    if (novo_ui == 8 || novo_ui == 10) {
+        /* Na musica (e no Game Over, que desenha por cima dela e usa os mesmos
+           personagens): gftex, stagetex e a `tex` do menu nao servem para nada (o
+           palco vem dos pacotes e o HUD tem textura propria) -- elas viram
+           espaco para os props, para os tres personagens e para os icones. */
         sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 0u);
         sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 1u);
+        sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 3u);
         telemetry_event("pool_cena", 8, (int)sp_livre(&g_pool));
         return;
     }
+    /* Saindo da musica: os tres personagens deixam de ser fixos ANTES do
+       sp_limpar, senao eles ficariam presos na VRAM da proxima cena. */
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 2u);
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 4u);
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 5u);
     sp_limpar(&g_pool);       /* dois cliques: solta o que nao for fixo */
+    /* A `tex` do menu volta a ser fixa, no endereco que o pool der. O conteudo
+       dela e' reenviado por quem desenha a tela (o titulo, o menu e o story
+       todos reenviam o que precisam ao entrar). */
+    if (sp_chave(&g_pool, SP_CHAVE_TELA_BASE + 3u, 320u * 256u * 4u, &a) >= 0) {
+        tex->address = a;
+        sp_fixar(&g_pool, SP_CHAVE_TELA_BASE + 3u);
+    }
     if (sp_chave(&g_pool, SP_CHAVE_TELA_BASE + 0u, 256u * 256u * 4u, &a) >= 0) {
         gf->address = a;
         sp_fixar(&g_pool, SP_CHAVE_TELA_BASE + 0u);
@@ -1629,15 +1648,31 @@ static int cena_carregar(const sr_song_t *song)
       enviesada, dois pixels por linha. O pacote de 258 continua certo -- o
       que muda e' o passo da textura e, com ele, a VRAM reservada. */
    bytes=cp_tex_bytes(pk->w,pk->h,pk->psm);
-   if(r==CH_PAPEL_BF&&g_slot_bf){tpl=g_slot_bf;capacidade=320u*256u*4u;}
-   else if(r==CH_PAPEL_GF&&g_slot_gf){tpl=g_slot_gf;capacidade=256u*256u*4u;}
-   else{tpl=&g_gftex16;capacidade=bytes;}
-   if(r==CH_PAPEL_DAD&&!(g_slot_bf&&g_slot_gf)){tpl=&g_gftex16;}
-   if(r==CH_PAPEL_DAD){
-    unsigned int a=sp_chave(&g_pool,SP_CHAVE_TELA_BASE+2u,bytes,&addr);
-    if(a!=0)addr=0;
+   /* OS TRES PAPEIS SAEM DO POOL, cada um na sua chave e com o tamanho do SEU
+      pacote. Antes o BF morava no slot fixo `tex` (320x256 PSMCT32 = 327.680 B)
+      e a GF no slot `gftex` -- que o `palco_ui_entrou` LIBERA ao entrar na
+      musica, ou seja a GF escrevia numa area que o palco podia reusar: dois
+      desenhos no mesmo endereco de VRAM, invisivel no harness (que nao
+      rasteriza) e visivel no console. Agora:
+        +2 oponente   +4 BF   +5 GF
+      e as tres chaves ficam FIXAS durante a musica (sp_fixar abaixo), porque a
+      textura do personagem e' escrita uma vez por quadro e nao pode ser
+      despejada no meio: quem pede props de palco e' o desenho, no mesmo quadro.
+      Ao sair da musica o palco_ui_entrou solta as tres. */
+   {unsigned int chave=0;
+    if(r==CH_PAPEL_DAD)chave=SP_CHAVE_TELA_BASE+2u;
+    else if(r==CH_PAPEL_BF)chave=SP_CHAVE_TELA_BASE+4u;
+    else if(r==CH_PAPEL_GF)chave=SP_CHAVE_TELA_BASE+5u;
+    tpl=g_slot_bf?g_slot_bf:&g_gftex16;
     capacidade=bytes;
-   }else addr=(unsigned int)tpl->address;
+    if(!chave){
+     /* Um quarto papel nao tem slot: isso e' dado novo, e o log tem de dizer. */
+     telemetry_event("char_sem_slot",r,(int)bytes);
+     g_cena.p[r].ativo=0;
+     continue;
+    }
+    if(sp_chave(&g_pool,chave,bytes,&addr)<0)addr=0u;
+    else sp_fixar(&g_pool,chave);}
    if(addr==0||bytes>capacidade){
     telemetry_event("char_sem_vram",(int)bytes,(int)capacidade);
     g_cena.p[r].ativo=0;
@@ -2870,7 +2905,8 @@ static void estado_dump(const estado_t *e)
     {
         unsigned int real[VL_SLOTS];
         real[VL_FB0] = e->fb0; real[VL_FB1] = e->fb1;
-        real[VL_TEX] = e->tex->address;   real[VL_TEX2] = e->tex2->address;
+        /* A `tex` nao esta' mais na tabela do mapa: ela e' chave do pool. */
+        real[VL_TEX2] = e->tex2->address;
         real[VL_FONTTEX] = e->fonttex->address;
         real[VL_GFTEX16] = g_gftex16.address;
         for (i = 0; i < (int)vl_slot_count(); i++) {
@@ -3041,7 +3077,13 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
  dma_channel_initialize(DMA_CHANNEL_GIF,NULL,0);dma_channel_fast_waits(DMA_CHANNEL_GIF);graph_vram_clear();
  fb[0].width=SCREEN_W;fb[0].height=SCREEN_H;fb[0].psm=FB_PSM;fb[0].mask=0;fb[0].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);fb[1]=fb[0];fb[1].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
- tex.width=320;tex.psm=GS_PSM_32;tex.address=graph_vram_allocate(320,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
+ /* A `tex` (320x256 PSMCT32) NAO e' mais alocada aqui: ela e' a chave
+    SP_CHAVE_TELA_BASE+3 do pool, pedida logo abaixo, DEPOIS do sp_init. Ela
+    serve ao MENU (logo do titulo, titulos do Story, itens do menu) e fica FIXA
+    fora da musica; ao entrar na musica ela e' liberada e devolve 327.680 B para
+    os props, os tres personagens e os icones do HUD. Antes ela era fixa e o BF
+    morava dentro dela -- 124.740 B parados na cena em que falta VRAM. */
+ tex.width=320;tex.psm=GS_PSM_32;
  tex2=tex;tex2.address=graph_vram_allocate(320,256,GS_PSM_32,GRAPH_ALIGN_BLOCK);
  /* A fonte nunca foi maior que FONT_W x FONT_H (384x192): as 64 linhas a mais
     da alocacao antiga (384x256) eram 98.304 bytes parados na VRAM. O mapa
@@ -3075,6 +3117,10 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
     que passa a pedir os props ao mesmo pool, e ai' as duas viram despejaveis. */
  sp_init(&g_pool, vl_pool_base(), vl_pool_size_bytes());
  {unsigned int a=0;
+  /* A `tex` do menu entra no pool como chave FIXA (ver vram_layout.h). */
+  if(sp_chave(&g_pool,SP_CHAVE_TELA_BASE+3u,320u*256u*4u,&a)<0)a=0u;
+  tex.address=a;
+  sp_fixar(&g_pool,SP_CHAVE_TELA_BASE+3u);
   gftex.width=256;gftex.psm=GS_PSM_32;
   if(sp_chave(&g_pool,SP_CHAVE_TELA_BASE+0u,256u*256u*4u,&a)<0)a=0u;
   gftex.address=a;
@@ -3089,7 +3135,6 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
  {int bad=0;
   if((unsigned)fb[0].address!=vl_address(VL_FB0))bad++;
   if((unsigned)fb[1].address!=vl_address(VL_FB1))bad++;
-  if((unsigned)tex.address!=vl_address(VL_TEX))bad++;
   if((unsigned)tex2.address!=vl_address(VL_TEX2))bad++;
   if((unsigned)fonttex.address!=vl_address(VL_FONTTEX))bad++;
   if((unsigned)g_gftex16.address!=vl_address(VL_GFTEX16))bad++;
@@ -3106,7 +3151,7 @@ if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
          so', no boot: nada disso entra no laco de quadro. */
       char vb[1024]; int off=0; unsigned int si; u32 real_end[VL_SLOTS];
       real_end[VL_FB0]=(u32)fb[0].address; real_end[VL_FB1]=(u32)fb[1].address;
-      real_end[VL_TEX]=(u32)tex.address; real_end[VL_TEX2]=(u32)tex2.address;
+      real_end[VL_TEX2]=(u32)tex2.address;
       real_end[VL_FONTTEX]=(u32)fonttex.address; real_end[VL_GFTEX16]=(u32)g_gftex16.address;
       for(si=0;si<vl_slot_count();si++){
         const vl_slot_t*sl=&vl_slots()[si];
@@ -3564,7 +3609,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));

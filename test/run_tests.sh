@@ -177,6 +177,15 @@ $CC $FLAGS test/test_char_anim.c src/engine/char_anim.c src/engine/char_layout.c
 /tmp/fnf_test_char_anim
 echo
 
+# Icone de vida do HUD: o leitor do pacote ICP1 (que e' arte de verdade, vinda
+# de preload/images/icons) e a conta de estado, posicao e pulo do original
+# (HealthIcon.hx L124-L168, L284, L337).
+echo "== icone de vida do HUD (health_icon) =="
+$CC $FLAGS test/test_health_icon.c src/engine/health_icon.c \
+    -o /tmp/fnf_test_health_icon
+/tmp/fnf_test_health_icon
+echo
+
 # Pacote de personagem (CHP4): o leitor recusa com erro nomeado todo arquivo que
 # nao fecha, e um quadro descomprimido sai byte a byte igual ao empacotado.
 echo "== tremor de camera (shake) =="

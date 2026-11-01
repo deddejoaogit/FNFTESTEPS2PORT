@@ -107,10 +107,27 @@ int vc_pedir(vc_t *c, unsigned int chave, unsigned int bytes, unsigned int *said
 
     i = achar(c, chave);
     if (i >= 0) {
-        c->b[i].selo = c->relogio++;
-        if (saida) *saida = c->b[i].endereco;
-        c->acertos++;
-        return 1;
+        /* A CHAVE E' A MESMA, MAS O TAMANHO NAO. Acontece de verdade: a
+           textura do BF (e a do oponente) e' pedida com o tamanho do pacote
+           daquela musica, e o provedor do pacote muda de canvas de musica
+           para musica -- `bf-car` tem canvas 366x276 (202.032 B) e
+           `bf-christmas` 384x434 (333.312 B). Devolver "ja' esta' residente"
+           com o bloco pequeno faz o upload escrever por cima do bloco
+           seguinte; e' o tipo de defeito que nao aparece no harness (que nao
+           rasteriza) e aparece no console como um pedaco de sprite dentro do
+           palco. Por isso: bloco pequeno demais e' liberado e o pedido segue
+           como falta, para a conta ser refeita no tamanho certo. */
+        if (c->b[i].bytes >= b) {
+            c->b[i].selo = c->relogio++;
+            if (saida) *saida = c->b[i].endereco;
+            c->acertos++;
+            return 1;
+        }
+        c->b[i].usado = 0;
+        c->b[i].chave = 0;
+        c->b[i].selo = 0;
+        fundir(c);
+        c->faltas++;
     }
 
     i = primeiro_que_cabe(c, b);

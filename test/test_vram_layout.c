@@ -38,29 +38,29 @@ int main(void)
        e isso tem de aparecer aqui, nao no console. */
     CHECK_EQ(vl_address(VL_FB0), 0u);
     CHECK_EQ(vl_address(VL_FB1), 143360u);
-    CHECK_EQ(vl_address(VL_TEX), 286720u);
-    CHECK_EQ(vl_address(VL_TEX2), 368640u);
-    CHECK_EQ(vl_address(VL_FONTTEX), 450560u);
-    CHECK_EQ(vl_address(VL_GFTEX16), 524288u);
+    CHECK_EQ(vl_address(VL_TEX2), 286720u);
+    CHECK_EQ(vl_address(VL_FONTTEX), 368640u);
+    CHECK_EQ(vl_address(VL_GFTEX16), 442368u);
 
     printf("== vram: cabe em 4 MiB ==\n");
     CHECK(vl_fits());
     CHECK(vl_used_words() <= VL_TOTAL_WORDS);
-    /* Medido: os slots FIXOS ocupam 534.528 palavras (2.138.112 bytes) e o
-       resto -- 514.048 palavras = 2.056.192 bytes -- e' o POOL de texturas.
+    /* Medido: os slots FIXOS ocupam 452.608 palavras (1.810.432 bytes) e o
+       resto -- 595.968 palavras = 2.383.872 bytes -- e' o POOL de texturas.
        Antes dos dois passos da Fase 4 (fonte 384x192 e framebuffer de 16 bits)
        eram 4.071.424 bytes usados e 122.880 livres; com gftex e stagetex ainda
-       fixas eram 2.924.544 usados. Agora elas moram dentro do pool. */
-    CHECK_EQ(vl_used_words(), 534528u);
-    CHECK_EQ(vl_free_words(), 514048u);
-    CHECK_EQ(vl_free_words() * 4u, 2056192u);
+       fixas eram 2.924.544 usados. Agora as duas moram dentro do pool, e a
+       `tex` tambem -- e' o que devolve os 327.680 B para a cena da musica. */
+    CHECK_EQ(vl_used_words(), 452608u);
+    CHECK_EQ(vl_free_words(), 595968u);
+    CHECK_EQ(vl_free_words() * 4u, 2383872u);
 
     printf("== vram: o pool de texturas comeca no fim dos slots fixos ==\n");
     /* O pool e' TODO o resto da VRAM, e o numero tem de ser o mesmo que o
-       stage_pool usa (SP_POOL_BYTES = 2.056.192). Se um slot fixo crescer, o
-       pool encolhe aqui e o teste do pool passa a relatar um palco sem lugar. */
-    CHECK_EQ(vl_pool_base(), 534528u);
-    CHECK_EQ(vl_pool_size_bytes(), 2056192u);
+       stage_pool usa (SP_POOL_BYTES). Se um slot fixo crescer, o pool encolhe
+       aqui e o teste do pool passa a relatar um palco sem lugar. */
+    CHECK_EQ(vl_pool_base(), 452608u);
+    CHECK_EQ(vl_pool_size_bytes(), 2383872u);
     CHECK_EQ(vl_pool_base(), vl_used_words());
     CHECK_EQ(vl_pool_size_bytes(), vl_free_words() * 4u);
 

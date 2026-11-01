@@ -77,6 +77,25 @@ static void test_vram_lru(void)
     check(vc_pedir(&c, 5, 16384, &a) == 1, "key 5 is resident");
 }
 
+/* O BF pede a textura com o tamanho do pacote da MUSICA, e o pacote muda de
+   canvas de musica para musica (`bf-car` 366x276, `bf-christmas` 384x434).
+   Uma chave residente MENOR que o pedido nao pode responder "ja' esta'
+   residente": o upload passaria do bloco e escreveria em cima do vizinho. */
+static void test_vram_mesma_chave_maior(void)
+{
+    vc_t c;
+    unsigned int a = 0;
+    printf("vram: mesma chave pedida maior\n");
+    vc_init(&c, 0, 65536);
+    check(vc_pedir(&c, 7, 16384, &a) == 0, "primeiro pedido aloca");
+    check(vc_pedir(&c, 8, 16384, &a) == 0, "vizinho alocado");
+    check(vc_pedir(&c, 7, 16384, &a) == 1, "mesmo tamanho: acerto");
+    check(vc_pedir(&c, 7, 32768, &a) == 0, "tamanho maior: falta (realoca)");
+    check(vc_livre(&c) == 65536 - 32768 - 16384, "o bloco velho voltou para o pool");
+    check(vc_pedir(&c, 7, 32768, &a) == 1, "e agora acerta no tamanho novo");
+    check(vc_pedir(&c, 8, 16384, &a) == 1, "o vizinho sobreviveu");
+}
+
 static void test_vram_fixed(void)
 {
     vc_t c;
@@ -254,6 +273,7 @@ static void test_io_error(void)
 int main(void)
 {
     test_vram_basic();
+    test_vram_mesma_chave_maior();
     test_vram_lru();
     test_vram_fixed();
     test_vram_too_big();

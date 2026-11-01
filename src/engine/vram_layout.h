@@ -46,15 +46,21 @@ typedef struct {
  * fixas e no comeco; o resto da VRAM e' o POOL (engine/stage_pool.c), que
  * acomoda gftex, stagetex e as texturas dos props de palco com despejo por
  * menos-usado-recentemente. Antes gftex e stagetex eram fixas e ficavam fora do
- * pool: sobravam 1.269.760 B e 15 dos 21 palcos nao cabiam. Dentro do pool, o
- * orcamento e' 2.056.192 B e todos os 21 cabem (test/test_stage_pool.c). */
+ * pool: sobravam 1.269.760 B e 15 dos 21 palcos nao cabiam.
+ *
+ * A `tex` SAIU daqui (e' a chave SP_CHAVE_TELA_BASE+3 do pool). Ela existe para
+ * o MENU: o logo do titulo (320x240), os titulos do Story e os icones do menu
+ * usam esse slot. No gameplay ela nao serve para nada -- os personagens vem dos
+ * pacotes -- e ficava 327.680 B parados justamente na cena em que falta VRAM.
+ * Como chave do pool ela e' FIXA no menu/titulo/story e e' LIBERADA ao entrar
+ * na musica (palco_ui_entrou), devolvendo os 327.680 B para os props, para os
+ * personagens e para os icones de vida do HUD. */
 enum {
     VL_FB0 = 0,
     VL_FB1,
-    VL_TEX,
     VL_TEX2,
     VL_FONTTEX,    /* HUD: texto do jogo inteiro */
-    VL_GFTEX16,    /* a GF no gameplay */
+    VL_GFTEX16,    /* a GF no tutorial (os pacotes usam o pool) */
     VL_SLOTS
 };
 
