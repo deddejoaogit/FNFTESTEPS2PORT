@@ -3071,10 +3071,19 @@ A mesma verificação vale para as *cápsulas da Freeplay*: `shared/images/` do
 clone esparso tem 27 entradas e **nenhuma** pasta `freeplay`. Não é "arte que o
 empacotador não pegou": o clone precisa de `git sparse-checkout add`.
 
+A pasta da Freeplay **nao** falta no clone: ela esta' em `preload/images/freeplay`
+(53 entradas), e o clone esparso ja' a tem desde `preload/images`. A linha
+antiga desta tabela mandava procurar em `shared/images/freeplay`, que nao existe
+no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
+`git ls-tree -r HEAD | grep -i freeplay` -> 46 arquivos, entre eles
+`freeplay/freeplayCapsule/capsule/freeplayCapsule{,_pico}.{png,xml}`.
+
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Arte da tela de RESULTADO | `ResultState.hx` (v0.8.6) monta a tela com 9 folhas animadas; o port desenha os mesmos NÚMEROS num painel preto | ver a tabela medida abaixo |
-| Cápsulas da Freeplay | a pasta `freeplay` não está no clone esparso (não é arte ausente do jogo) | `git sparse-checkout add shared/images/freeplay` + empacotador |
+| Cápsulas da Freeplay | a tela de Freeplay do port ainda desenha uma **lista de texto** num painel; a do original e' o carrossel de capsulas (Sparrow, 2 animacoes x 8 quadros de 585x131, escaladas 0,8 -> 468x104,8 em 1280x720) | empacotador da capsula + titulo por musica (`CapsuleText`), estrelas de dificuldade e o fundo da Freeplay |
+| `soundSystem` da tela de Resultado | 65 quadros, canvas 875x963: 841.508 B por quadro a 0,5 | so' entra rebaixando o atlas do placar (ver abaixo) |
+| Animacao do personagem por rank | `players/{bf,pico}.json` -> `results[rank]`: animacoes Animate/Sparrow com `delay`, `loopFrame`, `scale`, `sound` | leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
+| `highscoreNew` | 524.928 B a 0,5, 75x a sobra do orcamento | degradacao severa ou liberar outra peca |
 
 #### A tela de Resultado: a arte entrou
 
