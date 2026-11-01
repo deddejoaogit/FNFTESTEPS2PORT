@@ -2281,3 +2281,48 @@ própria.
 200 acertos seguidos; a passada chega a ~96). A regra é a mesma função que tocou
 o `combo50`, e `cc_combo` é testado no 200 em `test/test_char_cena.c`, mas no
 console o `combo200` só aparecerá numa passada longa de uma música densa.
+
+## Fase 5: o custo por quadro, medido (linha de base)
+
+**O que faltava.** A Fase 5 diz "medir antes e depois de cada mudança". Não havia
+*denominador*: o harness conta uploads, mas "1.149 uploads numa música" não compara
+com nada. Agora o jogo emite, **por música**, três números acumulados:
+
+| evento | campos |
+|---|---|
+| `custo_char` | uploads de quadro de personagem, e o mesmo × 100 / quadros de música |
+| `custo_palco` | uploads de quadro de prop do palco, e × 100 / quadros |
+| `custo_quadros` | quadros desenhados **com música tocando**, e ms de música |
+
+A amostra sai a cada 240 quadros de música **e** no fim (ou na saída da cena), com
+os números acumulados: a última amostra é o total. A amostra periódica existe
+porque só 43 das 81 combinações chegavam ao fim do áudio dentro da passada — as
+outras 38 ficavam **sem medida nenhuma**, e um teste que mede metade não mede.
+
+**Medido nas 81 combinações** (`build/sweep/custo.txt`, resumo no fim do sweep):
+
+| | valor |
+|---|---|
+| combinações medidas | **78 / 81** |
+| uploads de personagem por quadro (média) | **1,19** |
+| mínimo | **0,79** (`tutorial`: 2 personagens em cena: não tem namorada) |
+| máximo | **1,23** (`eggnog`) |
+| uploads de prop do palco | 18.571 no total (≈ 238 por música de 20 s) |
+| quadros de música somados | 44.323 |
+
+**O que este número significa.** Três personagens a 24 fps são 72 quadros/s; a 60
+quadros/s de tela isso dá **1,2 upload por quadro**. O medido é 1,19 — ou seja o
+caminho já está no piso: um quadro só sobe quando o **índice do quadro mudou**
+(`cc_quadro` devolve -1 quando não mudou), e não há reenvio de quadro repetido. O
+`tutorial`, com dois personagens, mede 0,79 ≈ 2/3 de 1,19, como esperado.
+
+**O que sobra como alavanca** (e por que não foi feito): reduzir **bytes** por
+upload, não o número deles — o pacote guarda o canvas inteiro do personagem
+(≈ 320×256×2 B = 160 KB por quadro nos maiores), e a arte ocupa uma fração dele.
+Isso exige recortar o quadro no **empacotador** (formato de pacote novo), ou seja é
+mudança de dado, não de jogo: o port já desenha o quadro recortado, mas sobe o
+canvas todo. Fica registrado como a próxima alavanca medida possível, com o
+número de partida acima.
+
+**O que NÃO está provado:** o custo em tempo de CPU/GS no console. O harness mede
+*quantas* vezes cada caminho roda, não *quanto* ele custa em ciclos.

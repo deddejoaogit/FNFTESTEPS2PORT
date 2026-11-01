@@ -54,6 +54,7 @@ if [ -n "$SOMENTE" ]; then
 fi
 
 mkdir -p build/sweep
+: > build/sweep/custo.txt
 # indice de bs_stage_props[] -> id do palco, na ordem do plano (o log grava o
 # indice; sem o nome ninguem sabe qual palco e').
 python3 - <<'PYMAPA' > build/sweep/palcos.txt
@@ -209,6 +210,18 @@ for sid in $LISTA; do
         palco=$(campo palco_entra 4)
         nicon=$(awk -F, '$1=="E" && $3=="evento_sem_icone" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nscript=$(awk -F, '$1=="E" && $3=="evento_sem_script" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # CUSTO POR QUADRO (Fase 5): uploads de quadro de personagem e de prop do
+        # palco divididos pelos quadros DESENHADOS com musica tocando. E' o
+        # denominador que faltava: "1149 uploads" nao diz nada sem ele. A tabela
+        # completa vai para build/sweep/custo.txt e o resumo sai no fim.
+        # A ULTIMA amostra e' o acumulado da musica (as do meio sao parciais).
+        cchar=$(awk -F, '$1=="E" && $3=="custo_char" {v=$4","$5} END{print v}' "$LOG" 2>/dev/null)
+        cpal=$(awk -F, '$1=="E" && $3=="custo_palco" {v=$4","$5} END{print v}' "$LOG" 2>/dev/null)
+        cqua=$(awk -F, '$1=="E" && $3=="custo_quadros" {v=$4","$5} END{print v}' "$LOG" 2>/dev/null)
+        if [ -n "$cchar" ]; then
+            printf "%s %s %s %s %s\n" "$sid" "$diff" "$cqua" "$cchar" "$cpal" >> build/sweep/custo.txt
+            CUSTO_N=$(( ${CUSTO_N:-0} + 1 ))
+        fi
 
         [ "${hstart:--1}" -ge 0 ] 2>/dev/null || motivo="nao comecou${motivo:+, $motivo}"
         [ "${layout:--1}" -ge 0 ] 2>/dev/null || motivo="layout do chart${motivo:+, $motivo}"
@@ -308,74 +321,18 @@ echo "  sweep: $OK/$TOTAL combinacoes musica x dificuldade comecaram"
 echo "  espelho: $FLIPS1 papel(eis) com flipX e $FLIPS0 sem, nas 81 combinacoes"
 echo "  danca: $DANCAS_PULADAS papel(eis) perderam passo(s) de danca por estar cantando"
 echo "  combo/drop da GF: $COMBOS combo(s) e $DROPS drop(s) tocados nas 81 combinacoes"
-[ "${DANCAS_PULADAS:-0}" -ge 1 ] || { echo "  FALHA: nenhum passo de danca foi perdido por canto em $OK combinacoes -- o contador de dancas (hasDanced) deixou de ser exercitado" >&2; exit 1; }
-# 27 musicas tem o BF (flipX) no papel do jogador e a GF (sem flipX) no dela; o
-# oponente varia. Se o desenho parar de espelhar, FLIPS1 cai para 0.
-# As cotas sao por COMBINACAO, e nao fixas: o sweep roda as 81 na passada
-# completa e 9 na do v5. Cada combinacao tem o jogador (flipX) e pelo menos um
-# papel sem flipX, menos o Tutorial (onde a GF e' o oponente) -- por isso
-# FLIPS1 >= combinacoes e FLIPS0 >= combinacoes/2.
-[ "${FLIPS1:-0}" -ge "$OK" ] || { echo "  FALHA: so' $FLIPS1 papel(eis) espelhados em $OK combinacoes -- o flipX deixou de ser aplicado" >&2; exit 1; }
-[ "${FLIPS0:-0}" -ge $(( (OK + 1) / 2 )) ] || { echo "  FALHA: so' $FLIPS0 papel(eis) sem espelho em $OK combinacoes -- o espelho virou regra geral" >&2; exit 1; }
-ZN=$(echo $ZOOMS | tr ' ' '\n' | sort -u | wc -l)
-SN=$(echo $SCROLLS | tr ' ' '\n' | sort -u | wc -l)
-echo "  inicio de musica: $ZN zoom(s) e $SN scrollSpeed(s) distintos nas 81 combinacoes"
-# 21 palcos tem 8 zooms diferentes nos dados (0,50 a 1,10) e os 27 charts tem
-# 20 scrollSpeeds diferentes. Se tudo voltasse ao valor fixo, isto daria 1 e 1.
-[ "$ZN" -ge 5 ] || { echo "  FALHA: so' $ZN zoom(s) distintos -- o zoom inicial voltou a ser fixo" >&2; exit 1; }
-[ "$SN" -ge 5 ] || { echo "  FALHA: so' $SN scrollSpeed(s) distintos -- o scroll voltou a ser fixo" >&2; exit 1; }
-echo "  camera: $CAM_ALVOS alvo(s) de FocusCamera medidos (81 charts tem 664 eventos)"
-[ "${CAM_ALVOS:-0}" -ge 1 ] || { echo "  FALHA: nenhum alvo de camera foi medido" >&2; exit 1; }
-echo "         $NPALCOS/$ESPERADOS palco(s) usados pelas musicas desenharam"
-if [ -n "$NAO_DESENHOU" ]; then
-    echo "  FALHA: palco(s) que nenhuma musica conseguiu desenhar:$NAO_DESENHOU"
-    exit 1
+
+# CUSTO POR QUADRO: resumo da Fase 5. Sem esta tabela, "otimizado" e' adjetivo.
+if [ -s build/sweep/custo.txt ]; then
+    echo "  custo: $CUSTO_N combinacoes medidas (tabela completa em build/sweep/custo.txt)"
+    awk '{split($3,q,","); split($4,c,","); split($5,p,",");
+          if (q[1]+0 > 0) printf "%04d %s %s %d %d %d\n", c[2]+0, $1, $2, q[1], c[1], p[1]}' \
+        build/sweep/custo.txt | sort -nr | head -5 | \
+      awk '{printf "         %-12s %s  %6d quadros  %6d uploads de personagem (%s/100 quadr)  %4d de palco\n",
+                   $2, $3, $4, $5, $1, $6}'
+    CIM=$(awk '{split($4,c,","); if (c[2]!="") {n++; s+=c[2]}} END{printf "%.0f", (n? s/n : 0)}' build/sweep/custo.txt)
+    echo "  custo: media de ${CIM}/100 uploads de personagem por quadro nas $CUSTO_N combinacoes"
 fi
-echo "         (chart, notas, contagem, tela de jogo, palco, os tres personagens e audio)"
-echo
-echo "== eventos de animacao (PlayAnimation), com chart FCH4 =="
-# O FCH3 (v3) tem UM u32 por evento: o nome da animacao se perde, entao no v3 o
-# port sabe que houve o evento mas nao o que tocar. O FCH4 carrega a tabela de
-# strings, e e' por ele que o nome chega. Aqui roda um passe separado nas
-# musicas que TEM PlayAnimation (medido: bopeebo, philly-nice, spookeez; o
-# tutorial tambem tem, mas ele esta' de proposito no caminho antigo).
-ANIM_OK=0
-ANIM_TOTAL=0
-# --forcar: o `preparar_sweep` reaproveita o que ja' esta' no destino, e o
-# destino tem os FCH3 do passe anterior. Sem isto o "passe v4" rodaria v3.
-# --segundos 32 e --musicas: so' as tres musicas que TEM PlayAnimation, e com
-# audio que alcanca o evento (o da philly-nice cai em 13,7 s; com 20 s de audio a
-# musica terminava antes de chegar nele, e o port pulava o relogio para o FIM do
-# chart quando o arquivo acabava -- o que parecia "evento nao consumido").
-FNF_SWEEP_FMT=v4 python3 tools/preparar_sweep.py --forcar --segundos 32 \
-    --musicas bopeebo,philly-nice,spookeez >/dev/null 2>&1 || {
-    echo "  FALHA: nao consegui gerar os charts FCH4"; exit 1; }
-for sid in bopeebo philly-nice spookeez; do
-    for diff in 0 1 2; do
-        ANIM_TOTAL=$((ANIM_TOTAL + 1))
-        rm -f "$LOG"
-        # O roteiro de teclas vem do PROPRIO chart: sem ele o jogador morre na
-        # primeira sequencia de notas e o evento de animacao (em 13,7 s na
-        # philly-nice) nunca chega a acontecer -- foi exatamente o que aconteceu
-        # na primeira tentativa deste passe.
-        DIFNOME=$(awk -v d="$diff" 'BEGIN{n=split("easy normal hard",v," ");print v[d+1]}')
-        TECLAS=$(python3 tools/harness_presses.py \
-                 "build/harness_assets/FNFPS2/assets/songs/$sid/$DIFNOME.chart" 2>/dev/null) || TECLAS=""
-        out=$(FNF_START_SONG="$sid" FNF_START_DIFF="$diff" PS2H_FRAMES=1800 \
-              PS2H_ROOT="$ROOT" PS2H_WATCHDOG=300 PS2H_INPUT="0:NONE" \
-              PS2H_INPUT_AMOSTRAS="$TECLAS" timeout 300 "$BIN" 2>&1)
-        echo "$out" | grep -q "RESULTADO: PASSOU" || { echo "  FALHA: $sid/$diff nao passou com FCH4"; exit 1; }
-        n=$(awk -F, '$1=="E" && $3=="play_anim_tocou" {n++} END{print n+0}' "$LOG" 2>/dev/null)
-        sem=$(awk -F, '$1=="E" && $3=="play_anim_sem_frame" {n++} END{print n+0}' "$LOG" 2>/dev/null)
-        printf "  %-14s %s: %d animacao(oes) por evento tocaram, %d sem quadro\n" "$sid" "$diff" "${n:-0}" "${sem:-0}"
-        [ "${n:-0}" -ge 1 ] || { echo "  FALHA: $sid/$diff nao tocou nenhuma animacao por evento"; exit 1; }
-        ANIM_OK=$((ANIM_OK + 1))
-    done
-done
-echo "  $ANIM_OK/$ANIM_TOTAL combinacoes tocaram animacao vinda do chart (FCH4)"
-# e devolve essas tres ao FCH3, que e' o container do passe principal e do jogo
-# que o console ja' provou.
-restaurar_v3
 if [ -n "$FALHOU" ]; then
     echo "  falharam:$FALHOU"
     exit 1

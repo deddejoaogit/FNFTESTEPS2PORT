@@ -390,6 +390,11 @@ static unsigned char g_tutorial_note_state[CHART_MAX_NOTE_STATES];
    passagem ruim deixa o placar negativo. Com u32 isso virava 4 bilhoes no log
    e no HUD. Os outros contadores so' crescem e ficam u32. */
 static s32 g_tutorial_note_score=0;
+/* Custo medido da musica: quadros DESENHADOS com musica tocando (o denominador),
+   uploads de quadro de personagem e de prop do palco. Fase 5 do plano pede
+   numero, e numero sem denominador nao e' medida. */
+static u32 g_custo_frames=0;
+static int g_custo_emitido=0;
 static u32 g_tutorial_note_hits=0,g_tutorial_note_misses=0,g_tutorial_note_combo=0,g_tutorial_note_feedback_frame=0;
 /* Estado da tentativa, com os numeros do original (ver engine/gameplay.h).
    O HUD passou a ler daqui em vez de manter contadores proprios: era assim que
@@ -1379,8 +1384,41 @@ static texbuffer_t *g_slot_bf=0,*g_slot_gf=0;
    e existe para um arquivo corrompido no pendrive nao pedir 2 GB de malloc. */
 #define CENA_PACK_MAX (32u*1024u*1024u)
 
+/* CUSTO DA MUSICA, medido: quadros desenhados com musica tocando (o
+   denominador), uploads de quadro de personagem e de prop do palco. Sai no fim
+   da musica E na saida da cena -- musica que termina por tempo (chart menor que
+   o audio, saida pelo menu, Game Over) nunca passaria pelo fim e ficaria sem
+   medida nenhuma. Uma vez por musica: `g_custo_emitido` guarda. */
+/* Uma amostra do custo acumulado ate' agora. Os numeros sao CUMULATIVOS: a
+   ultima amostra da musica e' o total dela, e as do meio servem para ver se o
+   custo muda ao longo da musica (entrada de prop, troca de animacao). */
+static void custo_amostra(void)
+{
+ u32 fr=g_custo_frames?g_custo_frames:1u;int cu=0,r;
+ for(r=0;r<CH_CENA_PAPEIS;r++)cu+=g_cena_quadros[r];
+ telemetry_event("custo_char",cu,(int)((u32)cu*100u/fr));
+ telemetry_event("custo_palco",(int)g_palco.uploads,(int)((u32)g_palco.uploads*100u/fr));
+ telemetry_event("custo_quadros",(int)fr,(int)(g_chart_clock>0?(u32)g_chart_clock/48u:0u));
+}
+
+/* Amostra periodica: 240 quadros de musica (~4 s a 60 Hz). Sem ela, uma musica
+   cujo audio nao termina dentro da passada do teste ficaria SEM medida, e foi o
+   que aconteceu: so' 43 das 81 combinacoes chegavam ao fim do audio. */
+#define CUSTO_CADA 240u
+
+static void custo_emite(void)
+{
+ /* Sem quadros de musica nao ha' o que medir: `cena_soltar` roda tambem ao
+    ENTRAR na cena (antes de tocar), e emitir ali gravaria "0 uploads em 0
+    quadros" para toda musica, que e' pior que nao medir. */
+ if(g_custo_emitido||g_custo_frames==0)return;
+ g_custo_emitido=1;
+ custo_amostra();
+}
+
 static void cena_soltar(void)
 {
+ custo_emite();
  int i;
  for(i=0;i<CH_CENA_PAPEIS;i++){if(g_cena_mem[i])free(g_cena_mem[i]);g_cena_mem[i]=0;g_cena_mem_bytes[i]=0;}
  g_cena_ram=0;
@@ -1725,7 +1763,7 @@ static void tutorial_notes_reset(void){
  u32 k,scorable=0,comkind=0,sempontos=0,noanim=0;
  memset(g_tutorial_note_state,0,sizeof(g_tutorial_note_state));
  g_tutorial_note_score=0;g_tutorial_note_hits=0;g_tutorial_note_misses=0;g_tutorial_note_combo=0;
- g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;
+ g_tutorial_note_feedback=0;g_tutorial_note_feedback_frame=0;g_tutorial_note_visible=-1;g_custo_frames=0;g_custo_emitido=0;
  /* tallies.totalNotes do original: quantas notas do chart contam para o
     resultado. Sao as notas do jogador (must_press), nao as do oponente -- e
     NonScoreableNoteKind.scoreable = false tira as dela do total
@@ -3049,6 +3087,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      telemetry_event(tocou?"play_anim_tocou":"play_anim_sem_frame",at,(int)((an?(unsigned char)an[0]:0)|(af2<<8)));
     }
    }}
+  /* QUADROS DE MUSICA: o denominador do custo por quadro (evento `custo_*` no
+     fim da musica). Sem ele, "N uploads" nao diz nada -- 40 uploads em 3 s e'
+     caro, em 3 min nao. */
+  if(ui_state==8&&audio_started&&!g_paused){g_custo_frames++;if(!(g_custo_frames%CUSTO_CADA))custo_amostra();}
   if(ui_state==8&&audio_started&&!g_paused)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* MORTE -> GAME OVER.
      PlayState.hx:1255: `if (health <= Constants.HEALTH_MIN && !isPracticeMode
@@ -3105,6 +3147,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    music_clock=g_chart_info.song_end_sample?g_chart_info.song_end_sample:TUTORIAL_AUDIO_SAMPLES;
    heard=music_clock;
    telemetry_event("tutorial_audio_end",(int)music_clock,(int)frame_no);
+   custo_emite();
   }
   /* Tutorial note timing follows the submitted/played audio sample clock. */
   
