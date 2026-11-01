@@ -118,13 +118,21 @@ class Atlas:
         if "ANIMATION" in anim and "AN" not in anim:
             anim = converte_full(anim)
         self.doc = anim
-        self.top = (anim.get("AN") or {}).get("TL", {}) or {}
+        self.an = anim.get("AN") or {}
+        self.top = self.an.get("TL", {}) or {}
         self.symbols = {}
         for s in (anim.get("SD", {}).get("S") or []):
             n = s.get("SN")
             if n:
                 self.symbols[n] = s
         self.meta = anim.get("MD") or {}
+        # `graphic`: timeline em que CADA quadro instancia o mesmo simbolo com
+        # FF=0 e DU=1. E' o symbol tipo "graphic" do Flash, que anda um quadro
+        # por quadro do pai -- e o export as vezes repete a instancia em vez de
+        # esticar a duracao. Sem isso os N quadros desenham o PRIMEIRO quadro do
+        # simbolo e a animacao sai congelada (`tankmanEnding`: 304 quadros,
+        # todos iguais).
+        self.graphic = self._e_grafico()
 
         # spritemap: name -> (sheet_image, x, y, w, h)
         self.sprites = {}
@@ -163,7 +171,67 @@ class Atlas:
                 n = fr.get("N")
                 if n and n not in out:
                     out[n] = (int(fr.get("I", 0)), int(fr.get("DU", 1)))
+        if not out:
+            # ATLAS-EMBRULHO: a timeline de cima nao tem rotulo nenhum; o
+            # nome da animacao esta' no `SN` do documento e o conteudo e' UM
+            # quadro que instancia um simbolo com a animacao inteira
+            # (`week7/erect/cutscene/tankmanEnding`: 1 quadro -> simbolo de 224
+            #  quadros, rotulo "tankman stress ending"). Ler isso como "1
+            # quadro" geraria uma animacao congelada -- que e' pior do que
+            # faltar, porque parece que funcionou.
+            sn = self.an.get("SN")
+            if sn:
+                out[sn] = (0, self.comprimento(self.top))
         return out
+
+    def _e_grafico(self):
+        for lay in self.top.get("L") or []:
+            frs = lay.get("FR") or []
+            if len(frs) < 2:
+                continue
+            ok = True
+            for fr in frs:
+                els = fr.get("E") or []
+                if len(els) != 1 or int(fr.get("DU") or 1) != 1:
+                    ok = False
+                    break
+                si = els[0].get("SI")
+                if not si or int(si.get("FF") or 0) != 0:
+                    ok = False
+                    break
+            if ok:
+                return True
+        return False
+
+    def comprimento(self, tl, prof=0):
+        """Quadros de uma timeline: soma de DU da camada mais longa, descendo
+        para o simbolo instanciado quando a timeline e' so' um embrulho."""
+        melhor = 0
+        for lay in tl.get("L") or []:
+            melhor = max(melhor, sum(int(f.get("DU") or 1) for f in lay.get("FR") or []))
+        if melhor <= 1 and prof < 8:
+            for lay in tl.get("L") or []:
+                for fr in lay.get("FR") or []:
+                    for el in fr.get("E") or []:
+                        si = el.get("SI")
+                        if si and si.get("SN") in self.symbols:
+                            melhor = max(melhor, self.comprimento(
+                                self.symbols[si["SN"]].get("TL") or {}, prof + 1))
+        return melhor
+
+    def e_embrulho(self):
+        """1 quando a timeline de cima e' um quadro que instancia um simbolo:
+        ai' o quadro interno tem de ANDAR junto com o de fora (inner=sync), e
+        nao ficar no primeiro quadro do simbolo."""
+        n = sum(len(lay.get("FR") or []) for lay in self.top.get("L") or [])
+        if n != 1:
+            return False
+        for lay in self.top.get("L") or []:
+            for fr in lay.get("FR") or []:
+                for el in fr.get("E") or []:
+                    if (el.get("SI") or {}).get("SN") in self.symbols:
+                        return True
+        return False
 
     def layer_frames(self, layers, frame):
         """For each layer, the FR entry covering `frame`, or None."""
@@ -180,7 +248,9 @@ class Atlas:
         return cur
 
     # ------------------------------------------------------------------ render --
-    def render(self, frame, layer_order="json", inner="first", ss=1):
+    def render(self, frame, layer_order="json", inner=None, ss=1):
+        if inner is None:
+            inner = "graphic" if self.graphic else "first"
         """Composite one frame of the top timeline -> (RGBA image, bbox)."""
         layers = list(self.top.get("L") or [])
         if layer_order == "reverse":
@@ -216,7 +286,7 @@ class Atlas:
                 world = mat_mul(parent, m)
                 name = si.get("SN")
                 if name in self.symbols:
-                    inner_frame = inner_frame_for(si, offset, inner)
+                    inner_frame = inner_frame_for(si, offset, inner, frame)
                     sub = (self.symbols[name].get("TL") or {}).get("L") or []
                     self._emit(sub, world, inner_frame, inner, ops, depth + 1)
                 elif name in self.sprites:
@@ -363,10 +433,14 @@ def mx_matrix(mx):
     return IDENT
 
 
-def inner_frame_for(si, offset, mode):
+def inner_frame_for(si, offset, mode, frame=0):
     ff = int(si.get("FF") or 0)
     if mode == "first":
         return ff
+    if mode == "graphic":
+        # O symbol "graphic" do Flash anda junto com o pai, um quadro por
+        # quadro -- nao reinicia a cada FR.
+        return ff + frame
     return ff + offset
 
 
@@ -543,9 +617,43 @@ def main():
                 try:
                     atlases[stem] = Atlas(args.assets, stem)
                 except FileNotFoundError as e:
-                    faltando.append((nome, str(e)))
-                    continue
+                    # O `assetPath` de UMA animacao pode ser um atlas SPARROW
+                    # (PNG+XML) dentro de um personagem Animate: os
+                    # `sing*-censor` do pico-playable vem de
+                    # `characters/Pico_Censored`. Nao e' dado ausente -- e'
+                    # outro formato de atlas, e o leitor de plano
+                    # (`pacote_personagem._atlas`) ja' sabe le-lo. Devolve a
+                    # lista de quadros (nome, img, ox, oy).
+                    sp, erro = pp.atlas_nomeado(args.assets, stem)
+                    if sp:
+                        atlases[stem] = ("sparrow", sp)
+                    else:
+                        faltando.append((nome, "%s (sparrow: %s)" % (e, erro)))
+                        continue
             at = atlases[stem]
+            if isinstance(at, tuple):
+                # SPARROW: sem timeline. O prefixo do JSON casa com o comeco do
+                # NOME de cada quadro do XML, e `frameIndices` indexa essa lista
+                # (mesma regra do pacote_personagem).
+                pre = an.get("prefix") or nome
+                nomeados = [f for f in at[1] if f[0].startswith(pre)]
+                if not nomeados:
+                    faltando.append((nome, "prefixo %r nao existe no sparrow"
+                                     % pre))
+                    continue
+                idx = an.get("frameIndices")
+                if idx:
+                    use = [i for i in idx if isinstance(i, int)
+                           and 0 <= i < len(nomeados)]
+                    if len(use) != len(idx):
+                        faltando.append((nome, "%d indices fora do sparrow"
+                                         % (len(idx) - len(use))))
+                    if not use:
+                        continue
+                    nomeados = [nomeados[i] for i in use]
+                planos.append({"nome": nome, "looped": an.get("looped", True),
+                               "sparrow": nomeados, "atlas": None})
+                continue
             labs = anims if at is atlas else at.animations()
             pre = an.get("prefix") or nome
             # O export as vezes deixa ESPACO no rotulo da timeline ("up ",
@@ -575,7 +683,8 @@ def main():
             if not use:
                 continue
             planos.append({"nome": nome, "looped": an.get("looped", True),
-                           "idx": [ini + i for i in use], "atlas": at})
+                           "idx": [ini + i for i in use], "atlas": at,
+                           "inner": "graphic" if at.graphic else "first"})
         if not planos:
             raise SystemExit("%s: nenhuma animacao do character.json existe no "
                              "atlas (%r)" % (args.character, faltando))
@@ -593,9 +702,17 @@ def main():
 
         rendered, boxes, dono = [], [], []
         for plano in planos:
+            if plano.get("sparrow") is not None:
+                for (_n, img, ox, oy) in plano["sparrow"]:
+                    if img is None:
+                        continue
+                    rendered.append((plano["nome"], len(dono), img))
+                    boxes.append((-ox, -oy, -ox + img.width, -oy + img.height))
+                    dono.append(plano["nome"])
+                continue
             for i in plano["idx"]:
                 try:
-                    img, box = plano["atlas"].render(i)
+                    img, box = plano["atlas"].render(i, inner=plano.get("inner"))
                 except ValueError as e:
                     print("  %s quadro %d: %s" % (plano["nome"], i, e))
                     continue

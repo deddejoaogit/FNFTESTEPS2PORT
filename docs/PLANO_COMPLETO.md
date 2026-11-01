@@ -2650,3 +2650,34 @@ assets do harness no lugar dos sinteticos de `bf`/`gf`/`dad` e o tutorial rodou
 1.766.022 B (gf), `char_bf_primeiro`/`char_dad_primeiro` desenhados, nenhum
 estouro, nenhuma escrita fora do limite. Ou seja: o formato que o console vai ler
 nao e' so' o que o empacotador escreve -- e' o que o jogo consome.
+
+## Note kinds medidos com os pacotes de verdade (e o que faltava era o pacote)
+
+O `check_char_packs.py` fecha **46 pacotes, 10.170 quadros, 523 animacoes,
+174.086.278 B, zero falhas**. Com os pacotes REAIS no lugar dos sinteticos do
+harness, a conta dos NOTE KINDS muda de valor pela primeira vez:
+
+| `blazin` hard, 1200 quadros | pacotes sinteticos | pacotes reais |
+|---|---|---|
+| `nota_kind_anim` (animacao tocada) | 104 | **104** |
+| `nota_kind_sem_anim` (o dado pede, o pacote nao tem) | **110** | **0** |
+| `nota_kind_fundo`/`nota_kind_frente` | 0 | **13** |
+| `nota_kind_shake` | 0 | **5** |
+
+Os 110 eram `punchHigh*`/`punchLow*`: o script monta o nome com
+`'punchHigh' + postfix` e o `postfix` vem de `doAlternate()`, que alterna
+`'1'`/`'2'`. O gerador ja' lia isso (o `anim2` do dado), o que faltava era o
+pacote ter as duas metades -- os 46 reais tem.
+
+Outras musicas, mesma passada: `cocoa` 43 cantos com sufixo (`mom` -> `alt`),
+`spaghetti` 92 (`sakura-joint`), `ugh` 3 animacoes (`ugh`/`hehPrettyGood`).
+Nenhum `sem_anim` quando o pacote do personagem em cena e' o real.
+
+**O que continua declarado, e nao tapado:** `stressPicoEnding` do
+`tankman-bloody` esta' no pacote (o atlas-embrulho foi lido: 224 quadros de
+simbolo), mas o `char_kinds` desse personagem ainda mostra os kinds dele porque
+a musica `stress` nao chega nessa animacao na janela varrida -- 1 nota de kind
+aos 62 s. Nao e' falha, e' "nao observado".
+
+**Suite completa com os pacotes reais no harness:** `ALL SUITES PASSED`
+(346 s), incluindo o sweep ASan/UBSan das 81 combinacoes e o Story Mode.
