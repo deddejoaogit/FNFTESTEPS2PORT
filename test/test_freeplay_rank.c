@@ -61,9 +61,11 @@ int main(void)
 
     /* ---- as posicoes de referencia ---- */
     printf("== cinematica de rank: o centro da tela e o lugar da lista\n");
-    /* `setPosition((640-244,8)/2, (360-52,8)/2)` = (197,6 , 153,6). */
-    CHECK_PX(fp_rk_centro_x(), (640.0 - 244.8) / 2.0);
-    CHECK_PX(fp_rk_centro_y(), (360.0 - 52.8) / 2.0);
+    /* `setPosition((640-306)/2, (360-66)/2)` = (167 , 147) -- a largura e a
+     * altura do QUADRO (612x132 na fonte), nao as do desenho (o
+     * `SongMenuItem` nunca chama `updateHitbox()` na capsula). */
+    CHECK_PX(fp_rk_centro_x(), (640.0 - 306.0) / 2.0);
+    CHECK_PX(fp_rk_centro_y(), (360.0 - 66.0) / 2.0);
     /* `originalPos` = intendedX(1), intendedY(1) -> (160,244 , 117,8). */
     CHECK_PX(fp_rk_origem_x(), 135.0 + 30.0 * sin(1.0));
     CHECK_PX(fp_rk_origem_y(), 117.8);
@@ -71,27 +73,27 @@ int main(void)
     /* ---- a capsula ---- */
     printf("== cinematica de rank: a capsula no centro, o tranco e o pouso\n");
     fp_rk_avaliar(0, 0, &e);
-    CHECK_PX(e.cap_x, 197.6);
-    CHECK_PX(e.cap_y, 153.6);
+    CHECK_PX(e.cap_x, 167.0);
+    CHECK_PX(e.cap_y, 147.0);
     fp_rk_avaliar(599, 0, &e);
-    CHECK_PX(e.cap_x, 197.6);
+    CHECK_PX(e.cap_x, 167.0);
     /* L1203: no mesmo instante do timer de 0,1 s, `capsuleToRank.x -= 10;
      * y -= 20`. A tween da queda so' comeca em 0,9 s (L1219). */
     fp_rk_avaliar(600, 0, &e);
-    CHECK_PX(e.cap_x, 187.6);
-    CHECK_PX(e.cap_y, 133.6);
+    CHECK_PX(e.cap_x, 157.0);
+    CHECK_PX(e.cap_y, 127.0);
     fp_rk_avaliar(800, 0, &e);
-    CHECK_PX(e.cap_x, 187.6);
+    CHECK_PX(e.cap_x, 157.0);
     /* L1217: tween para (originalPos - 7, - 80) em 1,3 s com quartIn. */
     {
         double t = 0.5;   /* 900 + 650 = 1550 */
-        double esperado = 187.6 + (fp_rk_origem_x() - 7.0 - 187.6) * quart_in(t);
+        double esperado = 157.0 + (fp_rk_origem_x() - 7.0 - 157.0) * quart_in(t);
         fp_rk_avaliar(1550, 0, &e);
         CHECK_PX(e.cap_x, esperado);
     }
     {
         double t = 0.5;
-        double esperado = 133.6 + (fp_rk_origem_y() - 80.0 - 133.6) * quart_in(t);
+        double esperado = 127.0 + (fp_rk_origem_y() - 80.0 - 127.0) * quart_in(t);
         fp_rk_avaliar(1550, 0, &e);
         CHECK_PX(e.cap_y, esperado);
     }
@@ -227,13 +229,13 @@ int main(void)
     fp_rk_avaliar(599, 0, &e);
     CHECK_PX(e.cap_dx, 0.0);
     /* Primeiro tique em 600+33 ms, com intensidade 0,1 (L1212) sobre uma
-     * largura de 244,8 px: o deslocamento fica dentro de +-24,48. */
+     * largura de 306 px (a do QUADRO, `FlxSpriteGroup.width`): +-30,6. */
     {
         int dentro = 1, k;
         for (k = 0; k < 9; k++) {
             unsigned long t = 600 + (unsigned long)(k + 1) * 33 - 1;
             fp_rk_avaliar(t, 0, &e);
-            if (fabs(e.cap_dx) > 24.48 + 0.01 || fabs(e.cap_dy) > 24.48 + 0.01)
+            if (fabs(e.cap_dx) > 30.6 + 0.01 || fabs(e.cap_dy) > 30.6 + 0.01)
                 dentro = 0;
         }
         CHECK(dentro);
@@ -242,14 +244,14 @@ int main(void)
     fp_rk_avaliar(900, 0, &e);
     CHECK_PX(e.cap_dx, 0.0);
     CHECK_PX(e.cap_dy, 0.0);
-    /* O segundo tremor: 0,6 s a 1/24, intensidade 0,12 (L1284) -> +-29,376. */
+    /* O segundo tremor: 0,6 s a 1/24, intensidade 0,12 (L1284) -> +-36,72. */
     {
         int dentro = 1, mudou = 0, k;
         float ant = 0.0f;
         for (k = 0; k < 14; k++) {
             unsigned long t = 1600 + (unsigned long)(k + 1) * 41 - 1;
             fp_rk_avaliar(t, 0, &e);
-            if (fabs(e.cap_dx) > 29.38 || fabs(e.cap_dy) > 29.38) dentro = 0;
+            if (fabs(e.cap_dx) > 36.73 || fabs(e.cap_dy) > 36.73) dentro = 0;
             if (e.cap_dx != ant) mudou = 1;
             ant = e.cap_dx;
         }
@@ -294,7 +296,7 @@ int main(void)
         /* O tremor do vizinho cabe em 0,12*largura/(dist+1). */
         {
             int k, dentro = 1;
-            float lim = 0.12f * 244.8f / 2.0f;   /* dist 1 */
+            float lim = 0.12f * 306.0f / 2.0f;   /* dist 1 */
             for (k = 0; k < 14; k++) {
                 fp_rk_vizinho(1650 + (unsigned long)(k + 1) * 41 - 1, 1, 9u, &v);
                 if (fabs(v.dx) > lim || fabs(v.dy) > lim) dentro = 0;

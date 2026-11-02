@@ -862,6 +862,12 @@ def _freeplay_files():
         out[selo["tex"]] = make_resultado_pack(selo["w"], selo["h"],
                                                selo["quadros"],
                                                bytes_por_pixel=selo["bpp"] // 8)
+    # A CINEMATICA DE RANK (`freeplay/sparks|sparksadd|vinheta.cfz4`): 16 bpp,
+    # com o numero de quadros e o tamanho que o header manda (o jogo recusa o
+    # pacote se `frame_bytes` nao for exatamente `w*h*2`).
+    for c in (plano.get("cinematica") or {}).values():
+        out[c["tex"]] = make_resultado_pack(c["w"], c["h"], c["quadros"],
+                                           bytes_por_pixel=c["bpp"] // 8)
     return out
 
 

@@ -1409,3 +1409,23 @@ int ps2h_rank_forcado(void)
     const char *e = getenv("FNF_RANK");
     return (e && *e) ? atoi(e) : -1;
 }
+
+/* A CINEMATICA DE RANK da Freeplay so' roda quando o resultado manda
+ * `fromResults.playRankAnim` -- rank PESSOAL e placar valido. O harness chega
+ * ao resultado pelo Practice Mode (e' a unica forma de atravessar uma musica
+ * sem tocar as 48 notas), e o original NAO faz a cinematica em practice
+ * (`isScoreValid = !isPracticeMode && !isBotPlayMode`, ResultState.hx L938).
+ * `FNF_RANK_ANIM=1` forca o caminho, e `FNF_RANK_ANTIGO=<0..5>` forca o rank
+ * que o save tinha, para o `fakeRanking` e as faiscas coloridas aparecerem.
+ * So' o binario do harness tem estas duas portas. */
+int ps2h_rank_anim_forcado(void)
+{
+    const char *e = getenv("FNF_RANK_ANIM");
+    return (e && *e) ? atoi(e) : 0;
+}
+
+int ps2h_rank_antigo_forcado(void)
+{
+    const char *e = getenv("FNF_RANK_ANTIGO");
+    return (e && *e) ? atoi(e) : -1;
+}

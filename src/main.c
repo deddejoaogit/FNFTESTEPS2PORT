@@ -42,6 +42,7 @@
 #include "engine/resultado_rank.h"
 #include "engine/save.h"
 #include "engine/freeplay.h"
+#include "engine/freeplay_rank.h"
 #include "engine/pack_multi.h"
 #include "engine/freeplay_dj_dados.h"
 #include "gameover_dados.h"
@@ -250,6 +251,8 @@ const char *ps2h_musica_inicial(void);
 int ps2h_dificuldade_inicial(void);
 int ps2h_semana_inicial(void);
 int ps2h_rank_forcado(void);
+int ps2h_rank_anim_forcado(void);
+int ps2h_rank_antigo_forcado(void);
 #endif
 static const sr_song_t *g_play_song=0;
 static unsigned g_play_level=0,g_play_song_index=0;
@@ -1171,11 +1174,12 @@ static u32 g_frame_texture_quads;
    registros (PRIM, RGBAQ e quatro pares UV+XYZ2), o mesmo formato que o
    draw_rect_textured do ps2sdk emite para o retangulo texturizado.
    `px`/`py` em sentido horario a partir do canto superior esquerdo. */
-static qword_t *sprite_quad_uv(qword_t*q,const float *px,const float *py,
-                               float u0,float v0,float u1,float v1,
-                               unsigned char a){
+static qword_t *sprite_quad_uv_cor(qword_t*q,const float *px,const float *py,
+                                   float u0,float v0,float u1,float v1,
+                                   unsigned char a,
+                                   unsigned char cr,unsigned char cg,unsigned char cb){
  color_t cor;int i;
- cor.rgbaq=0;cor.r=0x80;cor.g=0x80;cor.b=0x80;cor.a=a;cor.q=1.0f;
+ cor.rgbaq=0;cor.r=cr;cor.g=cg;cor.b=cb;cor.a=a;cor.q=1.0f;
  q->dw[0]=GIF_SET_TAG(5,0,0,0,GIF_FLG_REGLIST,2);
  q->dw[1]=QUAD_REGLIST;
  q++;
@@ -1196,6 +1200,11 @@ static qword_t *sprite_quad_uv(qword_t*q,const float *px,const float *py,
   }}
  g_frame_texture_quads++;
  return q;
+}
+static qword_t *sprite_quad_uv(qword_t*q,const float *px,const float *py,
+                               float u0,float v0,float u1,float v1,
+                               unsigned char a){
+ return sprite_quad_uv_cor(q,px,py,u0,v0,u1,v1,a,0x80,0x80,0x80);
 }
 static void reset_iop(void){SifInitRpc(0);while(!SifIopReset("rom0:UDNL rom0:EELOADCNF",0));while(!SifIopSync());SifInitRpc(0);SifLoadFileInit();}
 static int pad_ready(void){for(;;){int s=padGetState(0,0);if(s==PAD_STATE_STABLE||s==PAD_STATE_FINDCTP1)return 0;if(s==PAD_STATE_DISCONN||s==PAD_STATE_ERROR)return -1;DelayThread(10000);}}
@@ -1385,6 +1394,35 @@ static qword_t *sprite_region_alpha_cor(qword_t*q,float x,float y,float w,float 
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
  r.color=rgba(cr,cg,cb,a);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+/* O QUADRILATERO DA CINEMATICA DE RANK: textura, angulo em GRAUS em volta do
+   proprio centro, alpha e cor no vertice, e o zoom do `rankCamera` por cima.
+   E' assim que o flixel desenha um sprite com `angle`: gira em volta de
+   `origin`, e o `resetHelpers` (`FlxSprite.hx` L751-765) chama `centerOrigin`,
+   entao o eixo e' o centro do quadro. O `zoom` da camera multiplica em volta
+   do centro dela -- (320,180) em 640x360, que e' (FlxG.width/2,
+   FlxG.height/2) na fonte (`FlxCamera.hx`, o scroll e' 0 aqui).
+   O recorte da faixa nao entra: um quadrilatero girado nao e' retangulo, e o
+   precedente e' o nome da musica do ResultState (`sprite_quad_uv`). */
+#define RK_PI 3.14159265358979f
+static qword_t *rk_quad(qword_t*q,float x,float y,float w,float h,
+                        float u,float v,float uw,float vh,
+                        float ang,float zoom,unsigned char a,
+                        unsigned char cr,unsigned char cg,unsigned char cb){
+ static const float dxs[4]={-0.5f,0.5f,0.5f,-0.5f};
+ static const float dys[4]={-0.5f,-0.5f,0.5f,0.5f};
+ float px[4],py[4],cx,cy,sn,cs;
+ int i;
+ cx=x+w*0.5f;cy=y+h*0.5f;
+ sn=sinf(ang*(RK_PI/180.0f));cs=cosf(ang*(RK_PI/180.0f));
+ for(i=0;i<4;i++){
+  float lx=dxs[i]*w,ly=dys[i]*h;
+  float rx=cx+lx*cs-ly*sn,ry=cy+lx*sn+ly*cs;
+  px[i]=320.0f+(rx-320.0f)*zoom;
+  py[i]=180.0f+(ry-180.0f)*zoom;
+ }
+ return sprite_quad_uv_cor(q,px,py,u+.5f,v+.5f,u+uw-.5f,v+vh-.5f,a,cr,cg,cb);
+}
+
 static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh,unsigned char a){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
@@ -1713,6 +1751,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
 #define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* os 27 titulos (1 por musica) */
 #define FP_CHAVE_FUNDO (SP_CHAVE_TELA_BASE + 0x42u) /* o fundo (1 quadro, 16 bpp) */
 #define FP_CHAVE_DJ    (SP_CHAVE_TELA_BASE + 0x43u) /* o DJ (1 quadro, 16 bpp)    */
+#define FP_CHAVE_CINE  (SP_CHAVE_TELA_BASE + 0x45u) /* a cinematica de rank:
+                                        +0 sparks, +1 sparksadd, +2 vinheta */
 #define FP_CHAVE_RB    (SP_CHAVE_TELA_BASE + 0x44u) /* o selo de rank: +0..+5, um
                                                        por rank (6 animacoes)   */
 #define FP_TIT_SLOTS 8
@@ -1785,6 +1825,45 @@ static int g_rb_addr_ok[FP_RB_ANIMS_N];
 static int g_rb_frame[FP_RB_ANIMS_N];
 static int g_rb_rank[FREEPLAY_MAX];      /* rank de cada musica, -1 = nenhum */
 static int g_rb_desenhos = 0, g_rb_logado = 0;
+
+/* ---- A CINEMATICA DE RANK (`FreeplayState.hx` L1069-1344) --------------
+ * Ela NAO roda em toda volta do resultado: o `ResultState.hx` L938-967 so'
+ * manda o `fromResults` com `playRankAnim: true` quando
+ *     isScoreValid  = !PracticeMode && !BotPlayMode
+ *     isPersonalBest = rank > Scoring.calculateRank(prevScoreData)
+ * -- ou seja, rank PESSOAL naquela musica e dificuldade. Fora disso a Freeplay
+ * abre normal e o DJ ainda faz o fist pump (`g_dj_volta_rank`, L1084), mas sem
+ * a cinematica (o `rankAnimStart` so' e' chamado em L780-782 com
+ * `prepForNewRank`, que e' `fromResults.playRankAnim`).
+ * `g_rk_old_rank` = -1 quer dizer "nunca jogada" (`calculateRank(null)` ->
+ * null, L380-385). No comparador do Haxe um `Null<Int>` nulo entra como 0, o
+ * que aqui vira a regra: o rank SHIT (0) na estreia nao faz o slam, qualquer
+ * outro faz. */
+static int g_rk_ativo = 0;        /* a cinematica esta' rodando nesta visita  */
+static int g_rk_old_rank = -1;    /* `fromResults.oldRank`, -1 = nenhum      */
+static int g_rk_new_rank = -1;    /* `fromResults.newRank`                   */
+static int g_rk_pendente = 0;     /* o resultado pediu a cinematica          */
+static int g_rk_desenhos = 0, g_rk_logado = 0, g_rk_fase = -1;
+static int g_rk_fase_logada = -1;
+/* As tres texturas dela: um quadro por vez na VRAM (as faiscas trocam de
+   quadro 5 vezes em 208 ms, como o DJ). */
+static pst_pack_t g_rk_pack[3];
+static int g_rk_ok[3], g_rk_tentou[3];
+static unsigned char *g_rk_buf[3];
+static unsigned int g_rk_buf_bytes[3], g_rk_addr[3];
+static int g_rk_addr_ok[3], g_rk_frame[3];
+static texbuffer_t g_rk_tex[3];
+static const int g_rk_w[3] = {FP_RK_SPARKS_W, FP_RK_SPARKSADD_W, FP_RK_VINHETA_W};
+static const int g_rk_h[3] = {FP_RK_SPARKS_H, FP_RK_SPARKSADD_H, FP_RK_VINHETA_H};
+static const char *const g_rk_tex_nome[3] = {FP_RK_SPARKS_TEX, FP_RK_SPARKSADD_TEX,
+                                             FP_RK_VINHETA_TEX};
+/* `ScoringRank.getRankingFreeplayColor()` (`Scoring.hx` L669-688), na ordem do
+   rank do port: 0 LOSS/SHIT ... 5 PERFECT_GOLD. E' a cor das faiscas
+   (`sparksADD.color = oldRank.getRankingFreeplayColor()`, L1112-1115) e da
+   vinheta (L1279: `rankVignette.color = capsule.getTrailColor()`, que e' a do
+   `fadeAnim`, `evilTrail.color = newRank.getRankingFreeplayColor()`). */
+static const unsigned int g_rk_cor[6] = {0xFF6044FFu, 0xFFEF8764u, 0xFFEAF6FFu,
+                                         0xFFFDCB42u, 0xFFFF58B4u, 0xFFFFB619u};
 static unsigned char g_fpt_buf[24576];
 /* Um slot POR MUSICA: os 27 titulos somam 122.740 B de VRAM (o maior,
    `spaghetti`, 20.672 B), e todos cabem no pool da tela -- entao eles sobem
@@ -1816,12 +1895,16 @@ static void freeplay_dj_soltar(void);
 static void freeplay_dj_carregar(texbuffer_t *tpl);
 static void freeplay_selo_soltar(void);
 static void freeplay_fundo_carregar(texbuffer_t *tpl);
+static void freeplay_cine_carregar(texbuffer_t *tpl);
+static void freeplay_cine_soltar(void);
+static int  freeplay_cine_quadro(int qual, int quadro);
 
 static void freeplay_capsula_soltar(void)
 {
     int i;
     freeplay_dj_soltar();
     freeplay_selo_soltar();
+    freeplay_cine_soltar();
     /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
     if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
     g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
@@ -2103,6 +2186,7 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
     freeplay_fundo_carregar(tpl);
     freeplay_dj_carregar(tpl);
     freeplay_selo_carregar(tpl);
+    freeplay_cine_carregar(tpl);
     freeplay_selo_ranks();
     return g_fpc_ok;
 }
@@ -2168,6 +2252,106 @@ static int freeplay_selo_vram(texbuffer_t *tpl, int rank, int frame)
         g_rb_frame[rank] = frame;
     }
     return 1;
+}
+
+/* ---- A CINEMATICA DE RANK: as tres texturas ----------------------------
+ * `sparks`, `sparksadd` e `rankVignette` (`FreeplayState.hx` L1096-1115 e
+ * L809-814). Cada uma e' um pacote CFZ4 proprio; as faiscas tem 5 quadros e so'
+ * UM fica na VRAM por vez (a animacao anda a 24 fps e o quadro seguinte entra
+ * no lugar do anterior, como o DJ ja' faz). A vinheta e' um quadro so' e sobe
+ * uma vez.
+ *
+ * ORCAMENTO MEDIDO: 33.280 (sparks) + 38.086 (sparksadd) + 115.200 (vinheta)
+ * = 186.566 B. Com a capsula (161.568), o fundo (413.280), os 27 titulos
+ * (122.740), o selo (6.624) e o DJ (277.500), a tela de Freeplay usa 1.168.278
+ * B dos 2.383.872 do pool -- os 21 palcos (pior 1.736.192 B) nao convivem com
+ * ela, e nao precisam: a Freeplay roda com o palco solto.
+ *
+ * Sem os pacotes a cinematica CONTINUA (o `rankBg`, o selo e a capsula nao
+ * dependem deles): o que falta vira um evento de telemetria, nunca uma tela
+ * travada. */
+static void freeplay_cine_soltar(void)
+{
+    int i;
+    for (i = 0; i < 3; i++) {
+        if (g_rk_tentou[i]) pst_fechar(&g_rk_pack[i]);
+        g_rk_tentou[i] = 0; g_rk_ok[i] = 0;
+        if (g_rk_buf[i]) { free(g_rk_buf[i]); g_rk_buf[i] = 0; g_rk_buf_bytes[i] = 0; }
+        if (g_rk_addr_ok[i] || g_rk_addr[i]) sp_soltar(&g_pool, FP_CHAVE_CINE + (unsigned)i);
+        g_rk_addr[i] = 0; g_rk_addr_ok[i] = 0; g_rk_frame[i] = -1;
+    }
+    g_rk_desenhos = 0; g_rk_logado = 0; g_rk_fase = -1; g_rk_fase_logada = -1;
+}
+
+/* Leva o quadro `quadro` de `qual` (0 sparks, 1 sparksadd) para a VRAM.
+   Devolve 1 quando o texbuffer daquele sprite esta' pronto para desenhar. */
+static int freeplay_cine_quadro(int qual, int quadro)
+{
+    texbuffer_t t;
+    unsigned int bytes;
+    if (qual < 0 || qual > 2) return 0;
+    if (!g_rk_ok[qual] || !g_rk_buf[qual]) return 0;
+    if (quadro < 0) return 0;
+    if (g_rk_frame[qual] == quadro) return 1;
+    bytes = (unsigned int)g_rk_w[qual] * (unsigned int)g_rk_h[qual] * 2u;
+    if (pst_quadro(&g_rk_pack[qual], (unsigned int)quadro, g_rk_buf[qual]) != PST_OK) {
+        telemetry_event("freeplay_cine_quadro_falhou", qual, quadro);
+        return 0;
+    }
+    t = g_rk_tex[qual];
+    t.width = (unsigned int)g_rk_w[qual];
+    t.psm = GS_PSM_16;
+    t.address = g_rk_addr[qual];
+    setup_texture_dims(&t, g_rk_w[qual], g_rk_h[qual]);
+    FlushCache(0);
+    upload_raw_psm(&t, g_rk_buf[qual], g_rk_w[qual], g_rk_h[qual], GS_PSM_16);
+    (void)bytes;
+    g_rk_frame[qual] = quadro;
+    return 1;
+}
+
+static void freeplay_cine_carregar(texbuffer_t *tpl)
+{
+    int i;
+    freeplay_cine_soltar();
+    for (i = 0; i < 3; i++) {
+        char caminho[128];
+        unsigned int bytes, addr = 0;
+        texbuffer_t t;
+        snprintf(caminho, sizeof(caminho), FP_DIR "%s", g_rk_tex_nome[i]);
+        if (pst_abrir(caminho, &g_rk_pack[i]) != PST_OK) {
+            telemetry_event("freeplay_cine_falta", i, (int)sp_livre(&g_pool));
+            continue;
+        }
+        g_rk_tentou[i] = 1;
+        bytes = g_rk_pack[i].frame_bytes;
+        if (bytes != (unsigned int)g_rk_w[i] * (unsigned int)g_rk_h[i] * 2u) {
+            telemetry_event("freeplay_cine_tamanho", i, (int)bytes);
+            pst_fechar(&g_rk_pack[i]); g_rk_tentou[i] = 0;
+            continue;
+        }
+        g_rk_buf[i] = (unsigned char *)memalign(64, (size_t)bytes);
+        if (!g_rk_buf[i]) {
+            pst_fechar(&g_rk_pack[i]); g_rk_tentou[i] = 0;
+            continue;
+        }
+        g_rk_buf_bytes[i] = bytes;
+        if (sp_chave(&g_pool, FP_CHAVE_CINE + (unsigned)i, bytes, &addr) < 0) {
+            telemetry_event("freeplay_cine_sem_vram", i, (int)sp_livre(&g_pool));
+            free(g_rk_buf[i]); g_rk_buf[i] = 0; g_rk_buf_bytes[i] = 0;
+            pst_fechar(&g_rk_pack[i]); g_rk_tentou[i] = 0;
+            continue;
+        }
+        g_rk_addr[i] = addr;
+        g_rk_addr_ok[i] = 1;
+        g_rk_frame[i] = -1;
+        t = tpl ? *tpl : g_fpc_tpl;
+        g_rk_tex[i] = t;
+        g_rk_ok[i] = 1;
+    }
+    telemetry_event("freeplay_cine", (g_rk_ok[0] ? 1 : 0) | (g_rk_ok[1] ? 2 : 0) |
+                    (g_rk_ok[2] ? 4 : 0),
+                    FP_RK_SPARKS_VRAM + FP_RK_SPARKSADD_VRAM + FP_RK_VINHETA_VRAM);
 }
 
 /* ---- O DJ: a maquina de estados e o quadro da vez ----------------------
@@ -6331,6 +6515,14 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       chegar nele, entao o unico caminho real e' o de practice. */
    g_res_hs_novo=0;
    {int mi=g_play_song?sr_song_index(g_play_song):-1;
+    /* `fromResults.oldRank` = `Scoring.calculateRank(prevScoreData)`
+       (`ResultState.hx` L962), e `prevScoreData` e' o save ANTES desta
+       partida (`PlayState.hx` L3470 le, L3503-3512 grava). A leitura tem de
+       vir primeiro: depois do `save_novo_recorde` o "antigo" seria o placar
+       de agora e o rank nunca subiria. `save_rank` devolve -1 quando a musica
+       nunca foi jogada nesta dificuldade (`calculateRank(null)` -> null). */
+    g_rk_old_rank=(mi>=0&&mi<SAVE_MUSICAS)
+                    ?save_rank(save_obter(&g_save,mi,story_diff)):-1;
     if(mi>=0&&mi<SAVE_MUSICAS&&!g_play.practice&&g_play.total_notes>0){
      save_score_t r;
      memset(&r,0,sizeof(r));
@@ -6372,6 +6564,21 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     if(g_dj_volta_rank>=0){freeplay_dj_fist_pump(g_dj_volta_rank);
      telemetry_event("freeplay_dj_volta",g_dj_volta_rank,g_dj_estado);g_dj_volta_rank=-1;}
     else{g_dj_volta_rank=-1;}
+    /* O `rankAnimStart` (L1069): comeca em 0 ms nesta tela. O
+       `changeSelection()`/`changeDiff()` de L1078-1079 pousam a selecao na
+       musica e na dificuldade que acabaram de ser jogadas, e a capsula alvo
+       vai para `originalPos` -- o port faz o mesmo de uma vez, porque a lista
+       nao muda de lugar durante a musica. */
+    g_rk_ativo=0;
+    if(g_rk_pendente&&g_fp_n>0&&g_fp_sel>=0&&g_fp_sel<g_fp_n){
+     fp_cap_st*st=&g_fpcs[g_fp_sel];
+     g_rk_ativo=1;g_rk_logado=0;g_rk_desenhos=0;g_rk_fase=-1;g_rk_fase_logada=-1;
+     st->vivo=1;
+     st->x=fp_rk_origem_x();st->y=fp_rk_origem_y();
+     st->sel=1;st->t_texto=(unsigned long)g_fp_ms;st->texto_ok=1;
+     telemetry_event("freeplay_rank_inicio",g_rk_new_rank,g_rk_old_rank);
+    }
+    g_rk_pendente=0;
     telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
@@ -6387,7 +6594,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      dificuldade com o "bubble" da esquerda/direita; aqui, sem a arte das
      capsules, a lista e' vertical (UP/DOWN) e LEFT/RIGHT troca a dificuldade
      entre as que a musica realmente tem. CROSS toca, CIRCLE volta ao menu. */
-  if(transition_frame==0&&ui_state==11&&g_fp_n>0){
+  /* `rankAnimStart` poe a maquina de estados em `Interacting` (L1071) e a
+     devolve a `Idle` so' no fim do tremor (L1287): a lista nao responde
+     enquanto a cinematica roda. */
+  if(transition_frame==0&&ui_state==11&&g_fp_n>0&&!g_rk_ativo){
    /* Todo movimento da lista e' um `dj.onPlayerAction()` no original (L1764
       roda do mouse, L1821 das teclas, L1844/L1850 e L2548 das bordas e do
       arrasto de dificuldade): zera o `timeIdling`, nao troca a animacao. */
@@ -6760,6 +6970,29 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
        `fistPumpLossIntro()` quando o rank e' SHIT). O rank aqui e' o MESMO que
        a tela de resultado mostrou (`resultado_rank()`), nao um recalculo. */
     g_dj_volta_rank=g_fp_active?resultado_rank():-1;
+    /* `ResultState.hx` L938-967: o `fromResults` com `playRankAnim: true` so'
+       vai quando `isScoreValid && isPersonalBest` -- placar valido (fora do
+       Practice) e `rank > Scoring.calculateRank(prevScoreData)`. Um `oldRank`
+       nulo entra como 0 na comparacao do Haxe, entao estrear com SHIT (0) nao
+       faz o slam e qualquer outro rank faz. */
+    g_rk_new_rank=(g_fp_active&&!g_play.practice)?resultado_rank():-1;
+    g_rk_pendente=0;
+    if(g_rk_new_rank>=0){
+     int antigo=g_rk_old_rank<0?0:g_rk_old_rank;
+     if(g_rk_new_rank>antigo)g_rk_pendente=1;
+    }
+#ifdef PS2H
+    /* As duas portas do binario de teste (ver test/ps2harness/ps2h.c): o
+       harness chega ao resultado pelo Practice, onde a cinematica nao roda. */
+    {int ant=ps2h_rank_antigo_forcado();
+     if(ant>=0){g_rk_old_rank=ant;}
+     if(ps2h_rank_anim_forcado()&&g_fp_active){
+      int nr=resultado_rank();
+      g_rk_new_rank=(nr>=0)?nr:0;
+      g_rk_pendente=1;
+     }}
+#endif
+    telemetry_event("freeplay_rank_pedido",g_rk_pendente,g_rk_old_rank*10+g_rk_new_rank);
     target_state=g_fp_active?11:7;transition_frame=1;transitions++;resmus_parar();}
    else if(ui_state==10){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
   frame_mark("F.STATE",ui_state*100+transition_frame);
@@ -7258,6 +7491,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      tudo na tela. */
   if(ui_state==11){
    char lb[96];int i,q0=g_frame_texture_quads,ini,ndes=0;
+   int rk_on=0;fp_rk_estado_t rk;memset(&rk,0,sizeof(rk));
    /* ===== O DJ (`AnimateAtlasFreeplayDJ`) ===== */
    freeplay_dj_passo();
    static const char*dn[3]={"EASY","NORMAL","HARD"};
@@ -7266,6 +7500,21 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    unsigned long ms;
    {u64 agora=GetTimerSystemTime();g_fp_ms=(int)(((agora-g_fp_t0)*1000ull)/(u64)kBUSCLK);}
    ms=(unsigned long)g_fp_ms;
+   /* A CINEMATICA DE RANK: ela dura `FP_RK_FIM` (2,2 s) desde a abertura da
+      tela. O `rankAnimStart` (L1069) e' a primeira coisa que roda ao voltar do
+      resultado com `fromResults.playRankAnim`. */
+   if(g_rk_ativo){
+    if(ms>=(unsigned long)FP_RK_FIM){g_rk_ativo=0;g_rk_fase=-1;g_rk_fase_logada=-1;
+     telemetry_event("freeplay_rank_fim",g_rk_desenhos,(int)(ms-FP_RK_FIM));}
+    else{rk_on=1;fp_rk_avaliar(ms,g_rk_old_rank>=0,&rk);
+     if(rk.fase!=g_rk_fase_logada){g_rk_fase_logada=rk.fase;g_rk_fase=rk.fase;
+      telemetry_event("freeplay_rank_fase",rk.fase,(int)(rk.rc_zoom*1000.0f));
+      /* A posicao da capsula alvo EM DECIMOS DE PX, para o harness do PC poder
+         cobrar os quatro instantes (centro, o tranco de -10/-20, a queda e o
+         pouso em `originalPos`) sem rasterizador. */
+      telemetry_event("freeplay_rank_pos",(int)(rk.cap_x*10.0f),
+                      (int)(rk.cap_y*10.0f));}}
+   }
    if(g_fp_sel<0)g_fp_sel=0;
    if(g_fp_sel>=g_fp_n)g_fp_sel=g_fp_n?g_fp_n-1:0;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
@@ -7335,6 +7584,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    qnao=fp_quadro(0,ms);
    freeplay_capsula_quadro(&stagetex,0,qnao);
    freeplay_capsula_quadro(&stagetex,1,qsel);
+   /* Os dois texbuffers SO' valem depois do upload acima: a copia feita no
+      comeco do bloco usa o que sobrou da visita anterior (ou zeros na
+      primeira), e o primeiro quadro da tela desenhava com endereco invalido. */
+   tsel=g_fptex_sel;tnao=g_fptex_nao;
    /* A JANELA da lista: so' as capsulas que cabem na tela entram no laco. */
    ini=g_fp_sel-FP_JANELA/2;
    if(ini<0)ini=0;
@@ -7343,14 +7596,32 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    for(i=ini;i<ini+FP_JANELA&&i<g_fp_n;i++){
     int sel=(i==g_fp_sel);
     fp_cap_st *st=&g_fpcs[i];
-    float ax=fp_x(i-g_fp_sel),ay=fp_y_item(i+1,g_fp_sel),sx,sy,ox;
+    float ax=fp_x(i+1-g_fp_sel),ay=fp_y_item(i+1,g_fp_sel),sx,sy,ox;
     float alpha=(ms<(unsigned long)FP_ENTRADA_ESCONDE_MS)?0.5f:1.0f;
     const fp_titulo_t *tit;
     texbuffer_t tt;
+    float vdx=0.0f,vdy=0.0f,vang=0.0f;   /* o tremor/angulo das vizinhas */
+    unsigned char va;                     /* alpha do vertice: 0x80 = 1,0  */
     /* `generateSongList`: nasce em `initPosition(FlxG.width, 0)` com
        `y = intendedY(index) + 10` -- entra pela direita e sobe/desce. */
     if(!st->vivo){st->vivo=1;st->x=FP_LARGURA;st->y=ay+10.0f;st->sel=sel;}
-
+    /* A CAPSULA ALVO DA CINEMATICA NAO E' DESENHADA AQUI. No `rankAnimStart`
+       ela sai da lista para o `rankCamera` (`capsuleToRank.cameras =
+       [rankCamera]`, L1136) e o `doLerp = false` (L1123) para o `targetPos` de
+       segui-la: quem manda na posicao dela e' o bloco do `rankCamera`, e o
+       `st->x/st->y` dela ja' foi posto em `originalPos` no comeco da
+       cinematica. */
+    if(rk_on&&sel)continue;
+    /* AS VIZINHAS (L1294-1340): angulo sorteado e tremor, com atraso e
+       intensidade por distancia. Ficam na camera padrao, e e' por isso que
+       elas voltam a aparecer quando o `rankBg` termina (em 1,6 s). */
+    if(rk_on){
+     int dist=(i>g_fp_sel?i-g_fp_sel:g_fp_sel-i)-1;
+     if(dist>=0&&dist<5){
+      fp_rk_viz_t v;fp_rk_vizinho(ms,dist,(unsigned int)(i+1),&v);
+      if(v.ativo){vdx=v.dx;vdy=v.dy;vang=v.ang;}
+     }
+    }
     if(st->sel!=sel){
      /* `updateSelected()` reinicia a animacao e chama `textAppear()`. */
      st->sel=sel;st->t_texto=(unsigned long)g_fp_ms;st->texto_ok=1;
@@ -7365,22 +7636,29 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
         `textAppear()` (1,7;0,2 -> 0,4;1,4 -> 1;1). */
      st->texto_ok=1;st->t_texto=(unsigned long)g_fp_ms;
     }
+    /* O ALPHA DO VERTICE NO GS VALE 0..128 (0x80 = 1,0). A versao anterior
+       multiplicava por 255, entao a meia-transparencia da entrada (`alpha =
+       0.5`, acima) virava 128 = opaco: as capsulas entravam sem o fade. */
+    va=(unsigned char)(alpha*128.0f+0.5f);
     if(g_fpc_ok){
-     float dx=fp_desenho_w(sx),dy=fp_desenho_h(sy);
+     float dw=fp_desenho_w(sx),dh=fp_desenho_h(sy);
      texbuffer_t ct=(sel?tsel:tnao);
      /* L795: `capsule.offset.x = isSelected ? 0 : -5` (metade: -2,5). */
      ox=sel?0.0f:-2.5f;
      q=bind_texture_filter(q,&ct,1);
-     q=sprite_region_alpha(q,st->x+ox,st->y,dx,dy,0.0f,0.0f,
-                           (float)FP_CAP_W,(float)FP_CAP_H,
-                           (unsigned char)(alpha*255.0f+0.5f));
+     if(vang!=0.0f)
+      q=rk_quad(q,st->x+ox+vdx,st->y+vdy,dw,dh,0.0f,0.0f,
+                (float)FP_CAP_W,(float)FP_CAP_H,vang,1.0f,va,0x80,0x80,0x80);
+     else
+      q=sprite_region_alpha(q,st->x+ox+vdx,st->y+vdy,dw,dh,0.0f,0.0f,
+                            (float)FP_CAP_W,(float)FP_CAP_H,va);
      ndes++;
     }
     if(!st->texto_ok)continue;
     tit=freeplay_titulo(i,&tt);
     if(tit){
      float tw=(float)tit->w,th=(float)tit->h,u=0.0f,tsx,tsy;
-     unsigned char ta=(unsigned char)((sel?1.0f:0.6f)*alpha*255.0f+0.5f);
+     unsigned char ta=(unsigned char)((sel?1.0f:0.6f)*alpha*128.0f+0.5f);
      fp_texto_escala((unsigned long)g_fp_ms-st->t_texto,&tsx,&tsy);
      if(tw>FP_TEXTO_CLIP){
       float larga=tw-FP_TEXTO_CLIP;
@@ -7390,8 +7668,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       tw=FP_TEXTO_CLIP;
      }
      q=bind_texture_filter(q,&tt,1);
-     q=sprite_region_alpha(q,st->x+FP_TEXTO_X,st->y+FP_TEXTO_Y,tw*tsx,th*tsy,
-                           u,0.0f,tw,th,ta);
+     if(vang!=0.0f)
+      q=rk_quad(q,st->x+FP_TEXTO_X+vdx,st->y+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
+                u,0.0f,tw,th,vang,1.0f,ta,0x80,0x80,0x80);
+     else
+      q=sprite_region_alpha(q,st->x+FP_TEXTO_X+vdx,st->y+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
+                            u,0.0f,tw,th,ta);
     }
     /* O SELO DE RANK da musica (`ranking`), por cima do titulo: no original ele
        e' `add()`ado depois do `songText`.`ranking.alpha = isSelected ? 1 : 0,7`
@@ -7411,8 +7693,18 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
          vertice vive em 0x80 = 1,0; a cor do flixel (0..255) entra dividida por
          2, como em todo o resto do port. */
       q=gs_blend_add(q);
-      q=sprite_region_alpha_cor(q,st->x+FP_RB_X,
-                            st->y+FP_RB_Y+fp_rb_anims[rb].off_y,
+      if(vang!=0.0f)
+       q=rk_quad(q,st->x+FP_RB_X+vdx,
+                 st->y+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
+                 (float)FP_RB_W,(float)FP_RB_H,
+                 0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
+                 vang,1.0f,(unsigned char)(sel?0x80:0x5A),
+                 (unsigned char)(sel?0x80:0x55),
+                 (unsigned char)(sel?0x80:0x55),
+                 (unsigned char)(sel?0x80:0x55));
+      else
+       q=sprite_region_alpha_cor(q,st->x+FP_RB_X+vdx,
+                            st->y+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
                             (float)FP_RB_W,(float)FP_RB_H,
                             0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
                             (unsigned char)(sel?0x80:0x5A),
@@ -7436,6 +7728,138 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      snprintf(lb,sizeof(lb),"%s  %d/%d",dn[bl],g_fp_sel+1,g_fp_n);
      q=text_draw(q,lb,56.0f,314.0f,0.62f,1);
     }}
+   /* ===== A CINEMATICA DE RANK: o `rankCamera` ==========================
+      Tudo o que segue e' o que a SEGUNDA camera do estado desenha
+      (`FlxG.cameras.add(rankCamera, false)`, L821-822), e por isso sai por
+      cima da lista. No `funnyCam` nao ha' nada visivel: nele moram o
+      `capsuleHitbox` (invisivel) e os `bs` do fundo (L816-819).
+      A ordem aqui e' a ordem de `add()`: `rankBg` (L481), as capsulas
+      (L489/L1136), a vinheta (L813) e as faiscas (L1103/L1111) -- e o `fade`
+      da camera por ultimo, que no flixel fica na camada de `drawFX`. */
+   if(rk_on){
+    float z=rk.rc_zoom;
+    /* 1. `rankBg` (`makeSolidColor(FlxG.width, FlxG.height, 0xD3000000)`,
+       L480; `alpha = 1` em L1089): preto a 0xD3/255 por cima da tela inteira,
+       encolhido pelo zoom como qualquer sprite da camera. */
+    if(rk.bg_alpha>0.002f){
+     float bw=FP_RK_TELA_W*z,bh=FP_RK_TELA_H*z;
+     int ba=(int)((float)FP_RK_BG_ALFA*rk.bg_alpha*0.5f+0.5f);
+     if(ba>128)ba=128;
+     if(ba>0)
+      q=rect_alpha(q,320.0f-bw*0.5f,180.0f-bh*0.5f,320.0f+bw*0.5f,180.0f+bh*0.5f,
+                   0,0,0,(unsigned char)ba);
+    }
+    /* 2. A capsula alvo, com o titulo e o selo, na posicao da cinematica.
+       O grupo inteiro anda junto (o `setPosition` de L1140 e' no grupo). */
+    {
+     int alvo=g_fp_sel;fp_cap_st *st=&g_fpcs[alvo];
+     float bx=rk.cap_x+rk.cap_dx,by=rk.cap_y+rk.cap_dy;
+     const fp_titulo_t *tit;texbuffer_t tt;
+     float tsx,tsy;
+     if(g_fpc_ok){
+      q=bind_texture_filter(q,&tsel,1);
+      q=rk_quad(q,bx,by,FP_DESENHO_W,FP_DESENHO_H,0.0f,0.0f,
+                (float)FP_CAP_W,(float)FP_CAP_H,rk.cap_ang,z,0x80,0x80,0x80,0x80);
+      g_rk_desenhos++;
+     }
+     tit=freeplay_titulo(alvo,&tt);
+     if(tit){
+      float tw=(float)tit->w,th=(float)tit->h,u=0.0f,larga;
+      fp_texto_escala((unsigned long)g_fp_ms-st->t_texto,&tsx,&tsy);
+      if(tw>FP_TEXTO_CLIP){
+       larga=tw-FP_TEXTO_CLIP;
+       u=freeplay_letreiro((unsigned long)g_fp_ms-st->t_texto,larga);
+       if(u<0.0f)u=0.0f;
+       if(u>larga)u=larga;
+       tw=FP_TEXTO_CLIP;
+      }
+      q=bind_texture_filter(q,&tt,1);
+      q=rk_quad(q,bx+FP_TEXTO_X,by+FP_TEXTO_Y,tw*tsx,th*tsy,u,0.0f,tw,th,
+                rk.cap_ang,z,0x80,0x80,0x80,0x80);
+     }
+     /* 3. O selo. O novo (`ranking`/`blurredRanking`) aparece em 0,5 s com a
+        escala 20 e cai para 0,9 em 0,1 s (L1150-1168); o antigo
+        (`fakeRanking`, o `oldRank`) fica no mesmo lugar ate' 0,6 s (L1180).
+        A arte do selo ja' vem escalada a 0,9 do empacotador, entao a escala
+        do flixel entra como `selo_scale / 0,9`. */
+     if(g_rb_ok){
+      float esc=rk.selo_scale/0.9f;
+      int qual;
+      for(qual=0;qual<2;qual++){
+       int rb,frb;texbuffer_t rt;float sw,sh,scx,scy;
+       if(qual==0){
+        if(!rk.selo_visivel||g_rk_new_rank<0)continue;
+        rb=g_rk_new_rank;
+        frb=freeplay_selo_quadro(rb,(unsigned long)g_fp_ms-FP_RK_T_DISPLAY);
+       }else{
+        if(!rk.fake_visivel||g_rk_old_rank<0)continue;
+        rb=g_rk_old_rank;
+        frb=freeplay_selo_quadro(rb,(unsigned long)g_fp_ms);
+       }
+       if(frb<0||!freeplay_selo_vram(&g_fpc_tpl,rb,frb))continue;
+       rt=g_fpc_tpl;
+       rt.width=FP_RB_W;rt.psm=GS_PSM_16;rt.address=g_rb_addr[rb];
+       setup_texture_dims(&rt,FP_RB_W,FP_RB_H);
+       sw=(float)FP_RB_W*esc;sh=(float)FP_RB_H*esc;
+       scx=bx+FP_RB_X+(float)FP_RB_W*0.5f;
+       scy=by+FP_RB_Y+fp_rb_anims[rb].off_y+(float)FP_RB_H*0.5f;
+       q=bind_texture_filter(q,&rt,1);
+       q=gs_blend_add(q);
+       q=rk_quad(q,scx-sw*0.5f,scy-sh*0.5f,sw,sh,0.0f,0.0f,
+                 (float)FP_RB_W,(float)FP_RB_H,rk.cap_ang,z,0x80,0x80,0x80,0x80);
+       q=gs_blend_normal(q);
+      }
+     }
+    }
+    /* 4. A vinheta (`rankVignette`, L809-814 e L1272-1281): ADD, a cor do
+       rank, 1 -> 0 em 0,6 s. A arte e' 320x180 e desenha em 640x360 (o
+       `scale.set(2, 2)` do original), entao ela cobre a tela toda. */
+    if(rk.vinheta_alpha>0.002f&&g_rk_ok[2]&&freeplay_cine_quadro(2,0)){
+     unsigned int c=g_rk_cor[(g_rk_new_rank>=0&&g_rk_new_rank<6)?g_rk_new_rank:0];
+     int va=(int)(rk.vinheta_alpha*128.0f+0.5f);
+     if(va>128)va=128;
+     q=bind_texture_filter(q,&g_rk_tex[2],0);
+     q=gs_blend_add(q);
+     q=rk_quad(q,0.0f,0.0f,FP_RK_TELA_W,FP_RK_TELA_H,0.0f,0.0f,
+               (float)FP_RK_VINHETA_W,(float)FP_RK_VINHETA_H,0.0f,z,
+               (unsigned char)va,(unsigned char)((c>>17)&0x7F),
+               (unsigned char)((c>>9)&0x7F),(unsigned char)((c>>1)&0x7F));
+     q=gs_blend_normal(q);
+    }
+    /* 5. As duas faiscas. `sparks` e' branca e sai em (517,134); `sparksadd`
+       leva a COR do rank ANTIGO (`sparksADD.color = oldRank`, L1112-1115) e
+       sai em (498,116). As duas em ADD e escaladas a 0,5 na fonte. */
+    if(rk.sparks_q>=0&&g_rk_ok[0]&&freeplay_cine_quadro(0,rk.sparks_q)){
+     q=bind_texture_filter(q,&g_rk_tex[0],0);
+     q=gs_blend_add(q);
+     q=rk_quad(q,FP_RK_SPARKS_X,FP_RK_SPARKS_Y,(float)FP_RK_SPARKS_W,
+               (float)FP_RK_SPARKS_H,0.0f,0.0f,(float)FP_RK_SPARKS_W,
+               (float)FP_RK_SPARKS_H,0.0f,z,0x80,0x80,0x80,0x80);
+     q=gs_blend_normal(q);
+    }
+    if(rk.sparksadd_q>=0&&g_rk_ok[1]&&freeplay_cine_quadro(1,rk.sparksadd_q)){
+     unsigned int c=g_rk_cor[g_rk_old_rank>=0&&g_rk_old_rank<6?g_rk_old_rank:0];
+     q=bind_texture_filter(q,&g_rk_tex[1],0);
+     q=gs_blend_add(q);
+     q=rk_quad(q,FP_RK_SPARKSADD_X,FP_RK_SPARKSADD_Y,(float)FP_RK_SPARKSADD_W,
+               (float)FP_RK_SPARKSADD_H,0.0f,0.0f,(float)FP_RK_SPARKSADD_W,
+               (float)FP_RK_SPARKSADD_H,0.0f,z,0x80,
+               (unsigned char)((c>>17)&0x7F),(unsigned char)((c>>9)&0x7F),
+               (unsigned char)((c>>1)&0x7F));
+     q=gs_blend_normal(q);
+    }
+    /* 6. O `fade` da camera (L1087: `rankCamera.fade(0xFF000000, 0.5, true,
+       null, true)`): preto a 100 % que sai em 0,5 s linear. Ele e' desenhado
+       na camada de `drawFX`, DEPOIS de tudo, e cobre a tela inteira -- o zoom
+       da camera nao o afeta. */
+    if(rk.fade_alpha>0.002f){
+     int fa=(int)(rk.fade_alpha*128.0f+0.5f);
+     if(fa>128)fa=128;
+     q=rect_alpha(q,0.0f,0.0f,FP_RK_TELA_W,FP_RK_TELA_H,0,0,0,(unsigned char)fa);
+    }
+    if(!g_rk_logado){g_rk_logado=1;
+     telemetry_event("freeplay_rank_desenho",g_rk_new_rank,g_rk_old_rank);}
+   }
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
    if(!g_fp_drawn){g_fp_drawn=1;telemetry_event("freeplay_draw",g_frame_texture_quads-q0,g_fp_n);}
    if(!g_fp_cap_logado&&ndes>0){g_fp_cap_logado=1;

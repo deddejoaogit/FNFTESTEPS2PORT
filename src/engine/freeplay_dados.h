@@ -99,7 +99,7 @@ static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {
 #define FP_Y_PASSO          57.800f   /* (capsule.height*0,8 + 10) * 0,5 */
 #define FP_DESENHO_W        244.800f
 #define FP_DESENHO_H        52.800f
-#define FP_TEXTO_X          63.648f   /* capsule.width * 0,26 */
+#define FP_TEXTO_X          79.560f   /* capsule.width * 0,26 */
 #define FP_TEXTO_Y          18.000f   /* 45, em 1280x720 */
 #define FP_TEXTO_CLIP       102.000f   /* CapsuleText.clipWidth = 255 */
 #define FP_LERP_X           0.256f

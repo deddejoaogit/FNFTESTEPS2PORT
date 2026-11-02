@@ -183,10 +183,21 @@ static int rk_shake(unsigned long t, unsigned long ini, unsigned long dur_ms,
 
 /* `capsuleToRank.setPosition((FlxG.width / 2) - (capsule.width / 2),
  *                             (FlxG.height / 2) - (capsule.height / 2))`
- * L1140-1142. `capsule.width` e' o `frameWidth * scale` do sprite da capsula,
- * ou seja o `FP_DESENHO_W` do port. */
-float fp_rk_centro_x(void) { return (FP_RK_TELA_W - FP_DESENHO_W) * 0.5f; }
-float fp_rk_centro_y(void) { return (FP_RK_TELA_H - FP_DESENHO_H) * 0.5f; }
+ * L1140-1142.
+ *
+ * `capsule.width` NAO e' a largura desenhada: em flixel, `width` so' muda com
+ * `updateHitbox()`, e o `SongMenuItem` nunca chama `updateHitbox()` na capsula
+ * -- ele mexe em `capsule.scale` direto (L669-670, L692-693, L722-723). Logo
+ * `width` continua sendo o `frameWidth` do quadro (612) e `height` o 132. Em
+ * 640x360 isso e' `FP_CAP_W` e `FP_CAP_H`, nao `FP_DESENHO_W/H`.
+ *
+ * Consequencia VISIVEL, e ela e' da fonte: como `origin` e `offset` do sprite
+ * ficam em (0,0) (sem `updateHitbox`), o desenho sai escalado a partir do
+ * canto, entao a capsula de 244,8 px fica com o canto esquerdo em 167 e o
+ * centro em 289,4 -- 30,6 px a' esquerda do centro da tela. E' assim no
+ * original; o port reproduz. */
+float fp_rk_centro_x(void) { return (FP_RK_TELA_W - (float)FP_CAP_W) * 0.5f; }
+float fp_rk_centro_y(void) { return (FP_RK_TELA_H - (float)FP_CAP_H) * 0.5f; }
 
 /* `originalPos.x = (CUTOUT_WIDTH * SONGS_POS_MULTI) + 320.488; .y = 235.6`
  * (L1120-1121). `CUTOUT_WIDTH` e' 0 no PS2 (nao ha' recorte de tela de
@@ -281,11 +292,13 @@ void fp_rk_avaliar(unsigned long ms, int tem_rank_antigo, fp_rk_estado_t *e)
     /* Os DOIS tremores da capsula alvo, em sequencia:
      *   L1212 `IntervalShake.shake(capsuleToRank, 0.3, 1/30, 0.1, 0, quadOut)`
      *   L1284 `IntervalShake.shake(capsule,        0.6, 1/24, 0.12, 0, quadOut)`
-     * O `object.width` deles e' a largura do grupo com a capsula escalada
-     * (`FP_DESENHO_W`, 244,8 em 640x360). */
+     * O `object.width` deles e' a largura do GRUPO: `FlxSpriteGroup.get_width`
+     * (`FlxSpriteGroup.hx` L839-846) devolve `maxX - minX` dos filhos, e o
+     * maior filho e' a capsula, com 612 de `frameWidth` (o `scale` nao entra em
+     * `width`). Em 640x360: `FP_CAP_W` = 306. */
     dx1 = dy1 = dx2 = dy2 = 0.0f;
-    rk_shake(ms, 600, 300, 33, 0.1f, FP_DESENHO_W, 1u, &dx1, &dy1);
-    rk_shake(ms, 1600, 600, 41, 0.12f, FP_DESENHO_W, 2u, &dx2, &dy2);
+    rk_shake(ms, 600, 300, 33, 0.1f, (float)FP_CAP_W, 1u, &dx1, &dy1);
+    rk_shake(ms, 1600, 600, 41, 0.12f, (float)FP_CAP_W, 2u, &dx2, &dy2);
     e->cap_dx = dx1 + dx2;
     e->cap_dy = dy1 + dy2;
 
@@ -334,7 +347,7 @@ void fp_rk_vizinho(unsigned long ms, int dist, unsigned int semente, fp_rk_viz_t
     else
         v->ang = 0.0f;
     /* `IntervalShake.shake(capsule, 0.6, 1/24, 0.12 / (dist + 1), 0, quadOut)`. */
-    rk_shake(ms, ini, 600, 41, 0.12f / (float)(dist + 1), FP_DESENHO_W,
+    rk_shake(ms, ini, 600, 41, 0.12f / (float)(dist + 1), (float)FP_CAP_W,
              semente + 13u, &v->dx, &v->dy);
 }
 

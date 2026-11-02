@@ -759,6 +759,20 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     fi
     tail -6 /tmp/fnf_freeplay.log
 
+    # CINEMATICA DE RANK: a volta do resultado com rank pessoal (o
+    # `rankAnimStart`/`rankDisplayNew`/`rankAnimSlam` da FreeplayState.hx
+    # L1069-1344). As fases na ordem, os zooms, as posicoes da capsula e o fim
+    # em 2,2 s. O roteiro e' o mesmo da Freeplay: o `FNF_RANK_ANIM` e'
+    # a porta do binario de teste, porque a cinematica NAO roda em practice.
+    echo
+    echo "== cinematica de rank no harness (fases, zooms, posicoes) =="
+    if ! sh tools/run_rank_anim_harness.sh 7000 > /tmp/fnf_rank_anim.log 2>&1; then
+        tail -20 /tmp/fnf_rank_anim.log
+        echo "  FALHA: a cinematica de rank nao passou"
+        exit 1
+    fi
+    tail -6 /tmp/fnf_rank_anim.log
+
     # SAVE: gravar no "cartao", ler de volta e ver o selo de rank na Freeplay.
     # O harness mapeia `mc0:/` para um diretorio quando FNF_CARD=1, entao o
     # formato de 1.960 B, o CRC e o caminho de leitura deixam de ser so' codigo

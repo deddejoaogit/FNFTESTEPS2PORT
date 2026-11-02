@@ -614,10 +614,13 @@ def empacotar(assets, out):
         "desenho_w": round(cap_w_src * HALF, 3),
         "desenho_h": round(cap_h_src * HALF, 3),
         # O titulo dentro da capsula, em 640x360.
-        # `CapsuleText(capsule.width * 0,26, 45, ...)` (L191): a largura e' a da
-        # CAPSULA (612), nao a de outro dado que esteja por perto.
+        # `CapsuleText(capsule.width * 0,26, 45, ...)` (L191): a largura e' a do
+        # QUADRO da capsula (612, porque o `SongMenuItem` nunca chama
+        # `updateHitbox()` nela -- `capsule.scale` muda, `capsule.width` nao),
+        # e o x NAO leva `realScaled`: quem e' escalado e' a fonte, nao a
+        # posicao do texto dentro do grupo. 612 * 0,26 / 2 = 79,56.
         "texto_x": round(float(dado_capsula["src_w"]) * CAPSULA["texto"]["x"]
-                         * CAPSULA["real_scaled"] * HALF, 3),
+                         * HALF, 3),
         "texto_y": round(CAPSULA["texto"]["y"] * CAPSULA["real_scaled"] * HALF, 3),
         "texto_clip": round(CAPSULA["texto"]["clip"] * CAPSULA["real_scaled"] * HALF, 3),
         "xframes": XFRAMES,

@@ -136,6 +136,16 @@ case " ${DJEST:-} " in *" $LOOP_ESP 1 "*) ;; *) echo "  FALHA: o DJ nao voltou a
 [ "${NOTAS:-0}" -gt 0 ] || { echo "  FALHA: o total de notas saiu zero"; FALHA=1; }
 [ "$AUDIO" -ge 1 ] || { echo "  FALHA: a musica da Freeplay nao comecou a tocar"; FALHA=1; }
 [ "$VOLTOU" -ge 2 ] || { echo "  FALHA: depois do resultado o jogo nao voltou para a Freeplay"; FALHA=1; }
+# E A CINEMATICA DE RANK NAO PODE APARECER AQUI: o roteiro chega ao resultado
+# pelo Practice Mode, e o `ResultState.hx` L938-967 nao manda o `fromResults`
+# com `playRankAnim` quando o placar nao e' valido (`isScoreValid`). O caminho
+# que FAZ a cinematica e' o `tools/run_rank_anim_harness.sh`; aqui o que se
+# cobra e' o portao: sem rank pessoal, a lista responde na hora.
+RKANIM=$(awk -F, '$1=="E" && $3=="freeplay_rank_inicio" {n++} END{print n+0}' "$LOG")
+RKPED=$(awk -F, '$1=="E" && $3=="freeplay_rank_pedido" {print $4; exit}' "$LOG")
+echo "  cinematica de rank ......... pedido=${RKPED:-?} inicios=$RKANIM   (0 = nao roda em practice)"
+[ "${RKPED:-0}" = "0" ] || { echo "  FALHA: a cinematica foi pedida em Practice Mode"; FALHA=1; }
+[ "$RKANIM" = "0" ] || { echo "  FALHA: a cinematica de rank rodou sem rank pessoal"; FALHA=1; }
 
 if [ "$FALHA" != 0 ]; then
     echo
