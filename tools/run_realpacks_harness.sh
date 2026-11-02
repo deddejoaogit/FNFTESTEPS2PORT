@@ -35,7 +35,8 @@ BIN=build/fnf_harness
 
 if [ ! -d build/packs/chars ] || [ ! -d build/packs/stages ]; then
     echo "SKIP: build/packs/chars ou build/packs/stages nao existe."
-    echo "      Rode tools/achatar_tudo.sh e tools/pacotar_palcos.py."
+    echo "      Rode tools/empacotar_reais.sh <clone da arte>, ou"
+    echo "      tools/achatar_tudo.sh + tools/pacotar_palcos.py so' para estes dois."
     exit 0
 fi
 if [ ! -x "$BIN" ]; then
