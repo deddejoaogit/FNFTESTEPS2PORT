@@ -3098,7 +3098,8 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | Falta | Por que | O que precisa |
 |---|---|---|
 | *nenhum item de LÓGICA* | -- | -- |
-| o RECORDE so' PERSISTE com memory card | `Save.instance` do original grava num arquivo; o port grava `mc0:/FNFPS2/save.dat` (1.960 B, magic+versão+CRC32). **No PC o `mc0:` não existe**, então o harness roda com o save na RAM (`save_estado,0,-1`) -- a regra é a mesma, o que não dá para provar fora do console é a gravação no cartão | testar no console com um cartão: o log tem de mostrar `save_estado,1` na segunda partida e `save_gravado,1960,0` no fim da primeira |
+| o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
+| mesclagem ADITIVA (`BlendMode.ADD`) | a fonte usa em três lugares da interface: o selo de rank da capsula (`FreeplayRank`), o coração de favorito e o `sparksADD` do rank. O port não tem mesclagem aditiva por sprite -- esses elementos saem com alpha, que é a diferença visual conhecida | não é dado ausente: é um caminho de desenho que falta no port (registrar um `alpha` de ADD no pacote do quadro) |
 
 #### A tela de Resultado: a arte entrou
 
@@ -3199,8 +3200,65 @@ ausente e o selo nunca aparecia. Agora:
 Medido no harness (sem cartao, entao save vazio): `save_estado,0,-1`,
 `save_resultado,1,1` (musica 0/dificuldade 1, e' recorde), `resultado_highscore,1,5375`
 e `resultado_selo_desenho,0,5834` -- o selo desenhou o quadro 0 no instante do
-timer. Num console com cartao, o esperado e' `save_estado,1` na partida
-seguinte e `save_gravado,1960,0` no fim.
+timer.
+
+#### O SAVE no PC: `FNF_CARD=1` e `tools/run_save_harness.sh`
+
+O save mora no cartao, e no PC nao ha' cartao -- entao tudo o que dependia dele
+(save, recorde, selo de recorde e o selo de rank da Freeplay) rodava sempre no
+ramo "sem cartao". O harness agora mapeia `mc0:/` para `<raiz>/FNFPS2/` quando
+`FNF_CARD=1` (`ps2h_map_path`); sem a variavel o caminho vai para um diretorio
+que nunca existe, que e' exatamente o comportamento de um console sem cartao.
+
+`tools/run_save_harness.sh` (entra no `test/run_tests.sh`) faz a volta inteira:
+
+| passo | o que cobra |
+|---|---|
+| 1. partida com cartao vazio | `save_estado,0,-1` e `save_gravado,1960,0` |
+| 2. o arquivo em disco | 1.960 B, `FNFS`, versao 1, 81 registros, **CRC32 conferido pelo zlib do Python** (nao pelo codigo que escreveu), exatamente 1 registro valido, na musica 0/dificuldade 1 |
+| 3. a partida seguinte | `save_estado,1,1960`, `freeplay_selo,1,1104`, `freeplay_selo_ranks,1,1` e o selo de rank desenhado |
+| 4. troca de dificuldade | o selo SOME (0 ranks na dificuldade sem registro) |
+
+O que isso **nao** prova: o cartao do PS2 (`mcInit`, os IRX, o sistema de
+arquivos do cartao). Prova o formato, a gravacao, a leitura, a recusa de arquivo
+estragado e o caminho de desenho -- que sao a parte que o port escreveu.
+
+Dois defeitos que o teste expos e que foram consertados:
+
+* `save_estado,0,-1` significava **duas coisas** ("sem cartao" e "arquivo
+  curto"), porque `SAVE_ERR_CURTO` era -1. Os erros passaram a -2..-6 e -1 e'
+  so' `SAVE_SEM_ARQUIVO`;
+* o log do harness e' aberto **em anexo**: sem apagar, o `awk` lia as linhas da
+  rodada anterior e o teste dizia "o segundo boot nao leu o arquivo" com o
+  arquivo la'.
+
+#### O SELO DE RANK na capsula da Freeplay
+
+Cada capsula mostra o rank que o jogador tirou naquela musica **naquela
+dificuldade** (`FreeplayRank`, `SongMenuItem.hx` L821-901). E' a primeira coisa
+do jogo que o save alimenta de volta na interface.
+
+| | |
+|---|---|
+| arte | `freeplay/rankbadges`, 6 animacoes, 85 quadros no total |
+| quadro | canvas comum 52x54 -> **23x24 a 16 bpp = 1.104 B**, um por quadro |
+| VRAM | um slot **por rank** (`FP_CHAVE_RB + 0..5`): a animacao so' difere entre ranks |
+| animacao | 13 a 17 quadros a 24 fps, **uma vez** (`looped = false`), para no ultimo |
+| posicao | `FreeplayRank(420, 41)` no espaco do item -> (210, 20,5) em 640x360 |
+| alpha | `ranking.alpha = isSelected ? 1 : 0,7` (`updateSelected`) |
+
+Quem escolhe a animacao e' `ScoringRank.getFreeplayRankIconAsset()`
+(Scoring.hx L606-627): PERFECT_GOLD usa a arte dourada (`PERFECTSICK`), SHIT usa
+`LOSS`, o resto pelo proprio nome. O unico deslocamento que sobrevive ao
+`switch` do `set_rank` e' `offset.y -= 8` no GOOD e no GREAT: no Haxe **nao ha'
+fallthrough** ("Case body expressions never fall through", manual 5.5) e o corpo
+de um `case` e' opcional, entao os `case` com so' comentario dentro sao no-op.
+
+Trocar de dificuldade refaz a conta para todas as musicas
+(`freeplay_selo_ranks`, telemetria com quantas tem rank e em que dificuldade).
+O `blend = BlendMode.ADD` da fonte **nao** esta' reproduzido: o port nao tem
+mesclagem aditiva por sprite (o mesmo limite do resto da interface), entao o
+selo e' desenhado com alpha. Esta' na lista de pendencias do console.
 
 #### A tela de Resultado: o PERSONAGEM DO RANK se move
 
