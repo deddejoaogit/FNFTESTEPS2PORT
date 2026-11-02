@@ -296,38 +296,62 @@ int main(void)
         close(fd);
         pcm2 = (short *)b2;
 
-        /* 7. No PRIMEIRO quadro o preview tem ganho 0 e o sfx ja' esta' no
-           volume DELE: 0,4 x 2000 = 800 nos dois canais. */
-        printf("  primeiro quadro (fade 0 + sfx) %d %d   (0,4 x 2000 = 800)\n",
-               pcm2[0], pcm2[1]);
-        CHECK(pcm2[0] == 800);
-        CHECK(pcm2[1] == 800);
-        /* 8. Enquanto o sfx toca (0,1 s = 4800 quadros), L + R = 2 x 800: o
-           instrumental e' espelhado (L = -R) e some na soma. */
+        /* 7-9. ONDE O SFX ENTRA.
+         *
+         * `audio_ring_overlay_slot` PUBLICA um pedido: a thread do anel aplica
+         * no topo do bloco seguinte (READ_SIZE quadros). O teste chamava o
+         * pedido e assumia que ele valia ja' no PRIMEIRO quadro -- verdade
+         * quando a thread ainda nao tinha produzido nada, FALSO quando a
+         * maquina esta' carregada (a suite inteira rodando): a thread ja'
+         * tinha entregado o primeiro bloco e os primeiros quadros saiam sem o
+         * sfx. Medido: 1 falha em 1 execucao da suite, 0 em 20 execucoes do
+         * teste sozinho. Nao era o anel: era o teste cobrando uma
+         * instantaneidade que a API nao promete (e nao deve prometer, porque no
+         * console esperar pelo consumo travava o jogo).
+         *
+         * O que se cobra agora e' o que a API promete: o sfx entra no bloco
+         * seguinte, toca os 4800 quadros dele, e depois o resto da saida e'
+         * IDENTICA a' da rodada sem overlay. A defasagem maxima e' um bloco. */
         {
-            int ok = 0, ruins = 0;
-            for (i = 0; i < 4800; i++) {
-                if (pcm2[i * 2] + pcm2[i * 2 + 1] == 1600) ok++;
-                else if (ruins < 3) { printf("  k=%ld: %d + %d\n", (long)i, pcm2[i*2], pcm2[i*2+1]); ruins++; }
+            long ini_sfx = -1, fim_sfx = -1, k;
+            for (i = 0; i < total_quadros; i++) {
+                if (pcm2[i * 2] + pcm2[i * 2 + 1] == 1600) { ini_sfx = (long)i; break; }
             }
-            printf("  L + R = 1600 nos quadros com sfx  %d de 4800\n", ok);
-            CHECK(ok == 4800);
-        }
-        /* 9. Depois do fim do sfx (4800 quadros) a saida e' IDENTICA a' da
-           rodada sem overlay -- o fim do sfx nao corta nem atrasa a primaria.
-           O bloco de 4096 quadros que contem o fim le' so' o que falta
-           (704 quadros) e o resto do bloco sai so' com o instrumental. */
-        {
-            long ks[4] = { 4800L, 9000L, 60000L, 150000L };
-            int iguais = 0;
-            for (i = 0; i < 4; i++) {
-                long k = ks[i];
-                if (pcm2[k * 2] == pcm[k * 2] && pcm2[k * 2 + 1] == pcm[k * 2 + 1]) iguais++;
-                else printf("  k=%ld: sem sfx %d/%d, com sfx %d/%d\n", k,
-                            pcm[k*2], pcm[k*2+1], pcm2[k*2], pcm2[k*2+1]);
+            printf("  o sfx entra no quadro .......... %ld (no maximo 1 bloco de %d)\n",
+                   ini_sfx, 4096);
+            CHECK(ini_sfx >= 0);
+            CHECK(ini_sfx <= 4096);
+            if (ini_sfx < 0) ini_sfx = 0;
+            /* enquanto o sfx toca: L + R = 2 x 800 (o instrumental e' espelhado
+               e some na soma) */
+            fim_sfx = ini_sfx + 4800;
+            if (fim_sfx > total_quadros) fim_sfx = total_quadros;
+            {
+                int ok = 0, ruins = 0;
+                for (k = ini_sfx; k < fim_sfx; k++) {
+                    if (pcm2[k * 2] + pcm2[k * 2 + 1] == 1600) ok++;
+                    else if (ruins < 3) { printf("  k=%ld: %d + %d\n", k, pcm2[k*2], pcm2[k*2+1]); ruins++; }
+                }
+                printf("  L + R = 1600 nos quadros com sfx  %d de %ld\n", ok, fim_sfx - ini_sfx);
+                CHECK(ok == fim_sfx - ini_sfx);
             }
-            printf("  sem sfx, a saida e' igual a' da 1a rodada  %d de 4\n", iguais);
-            CHECK(iguais == 4);
+            /* depois do fim do sfx a saida e' igual a' da rodada sem overlay --
+               o fim do sfx nao corta nem atrasa a primaria */
+            {
+                long ks[4] = { 4800L, 9000L, 60000L, 150000L };
+                int iguais = 0, comparados = 0;
+                for (i = 0; i < 4; i++) {
+                    k = ks[i];
+                    if (k < fim_sfx || k >= total_quadros) continue;
+                    comparados++;
+                    if (pcm2[k * 2] == pcm[k * 2] && pcm2[k * 2 + 1] == pcm[k * 2 + 1]) iguais++;
+                    else printf("  k=%ld: sem sfx %d/%d, com sfx %d/%d\n", k,
+                                pcm[k*2], pcm[k*2+1], pcm2[k*2], pcm2[k*2+1]);
+                }
+                printf("  sem sfx, a saida e' igual a' da 1a rodada  %d de %d\n", iguais, comparados);
+                CHECK(comparados >= 2);
+                CHECK(iguais == comparados);
+            }
         }
         /* 10. E o pedido com slot explicito devolve -1 sem anel: quem chama
            nao perde o fd. */
