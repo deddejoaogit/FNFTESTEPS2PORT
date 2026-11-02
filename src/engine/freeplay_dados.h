@@ -117,6 +117,25 @@ static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {
 #define FP_SP_INTERVALO_MIN_MS 1200
 #define FP_SP_INTERVALO_MAX_MS 4500
 
+/* O CORACAO DE FAVORITO (`SongMenuItem.hx` L202-219, L306-318 e
+ * L801-802): 10 quadros a 24 fps, UMA vez, parando no ultimo -- e' ele
+ * que fica na tela em repouso. Duas copias: a `Blurred` (atras, so' no
+ * item selecionado) e a nitida, as duas em ADD. O x muda quando o selo
+ * de rank esta' visivel (`checkClip`). Posicoes na metade, no item. */
+#define FP_FV_W             25      /* 48x39 na arte */
+#define FP_FV_H             25
+#define FP_FV_BPP           16
+#define FP_FV_QUADROS       13
+#define FP_FV_FPS           24
+#define FP_FV_VRAM          1250u
+#define FP_FV_TEX           "freeplay/favheart.cfz4"
+#define FP_FV_X             185.000f   /* com o selo de rank (370, 40) */
+#define FP_FV_Y             20.000f
+#define FP_FV_X_SEM_SELO    202.500f   /* sem o selo (405, 40) */
+#define FP_FV_Y_SEM_SELO    20.000f
+#define FP_FV_ALFA_SEL      1.000f
+#define FP_FV_ALFA_NAO_SEL  0.600f   /* o nao-selecionado e' 0,6 */
+
 #define FP_X_BASE           135.000f   /* 270 * 0,5 */
 #define FP_X_AMP            30.000f   /* 60 * 0,5  */
 #define FP_Y_BASE           60.000f   /* 120 * 0,5 */

@@ -156,4 +156,57 @@ void fp_spk_passo(fp_spk_t *s, float dt, float base_x, float base_y);
  * original -- nao reinicia sozinha. */
 int fp_spk_quadro(const fp_spk_t *s);
 
+/* ---- O CORACAO DE FAVORITO -------------------------------------------------
+ *
+ * `SongMenuItem.hx` L202-219 cria DUAS copias do mesmo Sparrow
+ * (`freeplay/favHeart`) em `(380, 40)` no espaco do item, ambas `BlendMode.ADD`
+ * e invisiveis; `checkClip` (L306-318) poe o x em 370 quando o selo de rank
+ * esta' visivel e em 405 quando nao esta'; `updateSelected` (L801-802) da'
+ * `alpha 1` na nitida e `0,6` na do item nao-selecionado, e `0`/`1` na
+ * `Blurred` (que so' aparece no selecionado).
+ *
+ * A ANIMACAO e' de 13 quadros a 24 fps, UMA vez, e PARA no ultimo
+ * (`initData` L568-569 poe `curFrame = numFrames - 1` de proposito): o repouso
+ * e' o quadro 12. Quem toca e' `favoriteSong` (`FreeplayState.hx` L3079-3130):
+ *   - favoritar: `visible = true` nos dois, `play('fav')` do comeco;
+ *   - desfavoritar: `play('fav', true, true, 9)` -- REVERSO, do quadro 9 para
+ *     tras -- e um `FlxTimer` de 0,2 s esconde os dois.
+ * O `y` do ITEM leva um empurrao de 5 px (metade aqui: 2,5): favoritar desce,
+ * desfavoritar sobe, 0,1 s `expoOut`, 0,1 s parado e 0,1 s `expoIn` de volta.
+ *
+ * C puro: sem GS, sem arquivo, sem tempo real.
+ */
+typedef struct {
+    float t;        /* segundos desde o ultimo toque                      */
+    int   modo;     /* FP_FV_PARADO / FP_FV_ENTRANDO / FP_FV_SAINDO       */
+    int   visivel;  /* 0 = nada a desenhar (musica nao favorita)          */
+} fp_fav_t;
+
+#define FP_FV_PARADO   0
+#define FP_FV_ENTRANDO 1
+#define FP_FV_SAINDO   2
+
+/* Zera: invisivel e parado. */
+void fp_fav_reset(fp_fav_t *f);
+
+/* A musica ja' era favorita quando a tela abriu (`refreshDisplay` ->
+ * `favIcon.visible = freeplayData.isFav`): aparece "em repouso", sem animar. */
+void fp_fav_mostra(fp_fav_t *f);
+
+/* `favoriteSong()`: `favoritou` != 0 toca do comeco; 0 toca o reverso e some
+ * em 0,2 s. */
+void fp_fav_toggle(fp_fav_t *f, int favoritou);
+
+/* Um quadro do estado (`favoritou` guarda o que o toque pediu). */
+void fp_fav_passo(fp_fav_t *f, float dt);
+
+/* Quadro do atlas a desenhar, ou -1 quando o coracao nao aparece. */
+int fp_fav_quadro(const fp_fav_t *f);
+
+/* O empurrao do `y` do ITEM, em px de 640x360 (0 fora da janela de 0,3 s). */
+float fp_fav_dy(const fp_fav_t *f);
+
+/* Se o coracao esta' visivel (para o `main.c` nao desenhar duas texturas). */
+int fp_fav_visivel(const fp_fav_t *f);
+
 #endif /* FREEPLAY_H */

@@ -11,12 +11,12 @@
 # PLANO como pendencia.
 #
 # O que este teste cobra, nesta ordem:
-#   1. sem arquivo: o jogo abre, joga uma musica inteira e GRAVA 1.960 B no fim
-#      (`save_gravado,1960,0`), sem travar;
-#   2. o arquivo em disco: 1.960 B, magic `FNFS`, versao 1, 81 registros, CRC32
+#   1. sem arquivo: o jogo abre, joga uma musica inteira e GRAVA 1.992 B no fim
+#      (`save_gravado,1992,0`), sem travar;
+#   2. o arquivo em disco: 1.992 B, magic `FNFS`, versao 2, 81 registros, CRC32
 #      conferido por uma implementacao INDEPENDENTE (o zlib do Python) -- nao
 #      pelo mesmo codigo que escreveu;
-#   3. a partida seguinte LE o arquivo (`save_estado,1,1960`) e a Freeplay
+#   3. a partida seguinte LE o arquivo (`save_estado,1,1992`) e a Freeplay
 #      desenha o selo do rank daquela musica naquela dificuldade
 #      (`freeplay_selo_ranks` com pelo menos 1, e `freeplay_selo_desenho`);
 #   4. a dificuldade em que o rank NAO existe nao desenha selo nenhum (o selo e'
@@ -43,9 +43,9 @@ FNF_CARD=1 sh tools/run_gameplay_harness.sh 7600 > /tmp/save_p1.log 2>&1 || {
 GRAVOU=$(awk -F, '$1=="E" && $3=="save_gravado" {print $4","$5; exit}' "$LOG")
 ESTADO=$(awk -F, '$1=="E" && $3=="save_estado" {print $4","$5; exit}' "$LOG")
 echo "  save_estado ................. $ESTADO (esperado 0,-1: ainda sem arquivo)"
-echo "  save_gravado ................ $GRAVOU (esperado 1960,0)"
+echo "  save_gravado ................ $GRAVOU (esperado 1992,0)"
 [ "$ESTADO" = "0,-1" ] || falha "o primeiro boot devia dizer 0,-1 (sem arquivo) e disse $ESTADO"
-[ "$GRAVOU" = "1960,0" ] || falha "a gravacao devia ser 1960,0 e foi $GRAVOU"
+[ "$GRAVOU" = "1992,0" ] || falha "a gravacao devia ser 1992,0 e foi $GRAVOU"
 [ -f "$SAVE" ] || falha "$SAVE nao existe depois de gravar"
 
 # ---- 2. o arquivo, conferido por fora --------------------------------------
@@ -61,10 +61,10 @@ def check(nome, cond, extra=""):
     print("  %-34s %s%s" % (nome, "ok" if cond else "FALHOU", (" " + extra) if extra else ""))
     if not cond:
         ok = False
-check("tamanho 1.960 B", len(b) == 1960, "%d" % len(b))
+check("tamanho 1.992 B", len(b) == 1992, "%d" % len(b))
 check("magic FNFS", b[:4] == b"FNFS", repr(b[:4]))
 ver, cnt, _res = struct.unpack("<HHI", b[4:12])
-check("versao 1", ver == 1, "%d" % ver)
+check("versao 2", ver == 2, "%d" % ver)
 check("81 registros (27 x 3)", cnt == 81, "%d" % cnt)
 crc = struct.unpack("<I", b[12:16])[0]
 check("CRC32 do corpo (zlib)", (zlib.crc32(b[16:]) & 0xFFFFFFFF) == crc, "%08x" % crc)
@@ -78,6 +78,11 @@ if len(validos) == 1:
     check("jogou a musica 0 na dificuldade 1", i == 1, "indice %d" % i)
     check("placar > 0", score > 0, "%d" % score)
     check("tallies somam as notas", tallies[8] > 0, "totalNotes %d" % tallies[8])
+# A secao do FAVORITO (versao 2): 27 bytes no fim do corpo, um por musica.
+fav = b[16 + 81 * 24:16 + 81 * 24 + 27]
+check("secao do favorito (27 B)", len(fav) == 27, str(len(fav)))
+check("nenhum favorito ainda", sum(fav) == 0, str(sum(fav)))
+check("corpo v2 = 1944 + 32", len(b) - 16 == 1976, str(len(b) - 16))
 sys.exit(0 if ok else 1)
 PY
 else
@@ -103,11 +108,11 @@ RANKS=$(awk -F, '$1=="E" && $3=="freeplay_selo_ranks" {print $4","$5; exit}' "$L
 DES=$(awk -F, '$1=="E" && $3=="freeplay_selo_desenho" {print $4; exit}' "$LOG")
 SELO=$(awk -F, '$1=="E" && $3=="freeplay_selo" {print $4","$5; exit}' "$LOG")
 NDES=$(awk -F, '$1=="E" && $3=="freeplay_selo_desenho" {n++} END{print n+0}' "$LOG")
-echo "  save_estado ................. $LEU (esperado 1,1960)"
+echo "  save_estado ................. $LEU (esperado 1,1992)"
 echo "  freeplay_selo (pacote) ...... $SELO (esperado 1,1104)"
 echo "  ranks na lista .............. $RANKS (esperado >=1 na dificuldade 1)"
 echo "  selo desenhado .............. rank $DES em $NDES quadro(s)"
-[ "$LEU" = "1,1960" ] || falha "o segundo boot devia ler 1,1960 e disse $LEU"
+[ "$LEU" = "1,1992" ] || falha "o segundo boot devia ler 1,1992 e disse $LEU"
 [ "$SELO" = "1,1104" ] || falha "o pacote do selo devia abrir com 1104 B e abriu $SELO"
 RCOM=${RANKS%%,*}
 [ "${RCOM:-0}" -ge 1 ] || falha "nenhuma musica da lista tinha rank ($RANKS)"
@@ -133,7 +138,7 @@ printf '%s' "$RANKS" | grep -q "0:2 " || falha "depois do RIGHT (dif 2) nao devi
 
 echo
 if [ "$FALHA" -eq 0 ]; then
-    echo "SAVE: PASSOU (gravacao 1.960 B, CRC pelo zlib, leitura na partida"
+    echo "SAVE: PASSOU (gravacao 1.992 B, CRC pelo zlib, leitura na partida"
     echo "      seguinte e o selo de rank desenhado na dificuldade certa)"
     exit 0
 fi

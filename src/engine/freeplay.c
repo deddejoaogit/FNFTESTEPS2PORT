@@ -215,3 +215,97 @@ int fp_spk_quadro(const fp_spk_t *s)
     if (k >= FP_SPK_QUADROS) k = FP_SPK_QUADROS - 1;
     return k;
 }
+
+/* ---- O CORACAO DE FAVORITO --------------------------------------------
+ *
+ * Ver o bloco no `freeplay.h`. As tres coisas que o original faz e que aqui
+ * viram conta: a animacao (13 quadros a 24 fps, uma vez, parando no ultimo), o
+ * reverso do desfavoritar (`play('fav', true, true, 9)`) e o empurrao de 5 px
+ * do item (0,1 s `expoOut`, 0,1 s parado, 0,1 s `expoIn`).
+ */
+
+#define FP_FV_DURA    ((float)FP_FV_QUADROS / (float)FP_FV_FPS)
+#define FP_FV_ESCONDE 0.2f                 /* `new FlxTimer().start(0.2, ...)` */
+#define FP_FV_EMPURRAO (5.0f * FP_MEIA)    /* favoritar: y - 5 na fonte */
+#define FP_FV_TRECHO  0.1f                 /* cada tween de 0,1 s      */
+
+void fp_fav_reset(fp_fav_t *f)
+{
+    if (!f) return;
+    f->t = 0.0f;
+    f->modo = FP_FV_PARADO;
+    f->visivel = 0;
+}
+
+void fp_fav_mostra(fp_fav_t *f)
+{
+    if (!f) return;
+    f->t = FP_FV_DURA;      /* parado no ULTIMO quadro */
+    f->modo = FP_FV_PARADO;
+    f->visivel = 1;
+}
+
+void fp_fav_toggle(fp_fav_t *f, int favoritou)
+{
+    if (!f) return;
+    f->t = 0.0f;
+    if (favoritou) {
+        f->modo = FP_FV_ENTRANDO;
+        f->visivel = 1;
+    } else {
+        f->modo = FP_FV_SAINDO;
+        /* Continua visivel: o `FlxTimer` de 0,2 s e' que esconde. */
+    }
+}
+
+void fp_fav_passo(fp_fav_t *f, float dt)
+{
+    if (!f || !f->visivel) return;
+    f->t += dt;
+    if (f->modo == FP_FV_ENTRANDO && f->t >= FP_FV_DURA) {
+        f->modo = FP_FV_PARADO;      /* para no ultimo quadro, como o looped=false */
+    } else if (f->modo == FP_FV_SAINDO && f->t >= FP_FV_ESCONDE) {
+        f->visivel = 0;
+        f->modo = FP_FV_PARADO;
+    }
+}
+
+int fp_fav_quadro(const fp_fav_t *f)
+{
+    int k;
+    if (!f || !f->visivel) return -1;
+    if (f->modo == FP_FV_PARADO) return FP_FV_QUADROS - 1;
+    k = (int)(f->t * (float)FP_FV_FPS);
+    if (k < 0) k = 0;
+    if (k >= FP_FV_QUADROS) k = FP_FV_QUADROS - 1;
+    /* O reverso do desfavoritar comeca no quadro 9 e DESCE (`play(name, true,
+       true, 9)`). */
+    return (f->modo == FP_FV_SAINDO) ? (9 - k) : k;
+}
+
+float fp_fav_dy(const fp_fav_t *f)
+{
+    float u, e;
+    if (!f || !f->visivel || f->modo == FP_FV_PARADO) return 0.0f;
+    /* `FlxTween.tween(y, y -/+ 5, 0.1, expoOut)` e o de volta com
+       `startDelay 0.1` e `expoIn`: 0..0,1 desce, 0,1..0,2 parado, 0,2..0,3
+       volta. O sinal depende do modo (`favoriteSong` desce, o unfav sobe). */
+    if (f->t < FP_FV_TRECHO) {
+        u = f->t / FP_FV_TRECHO;
+        e = 1.0f - powf(2.0f, -10.0f * u);              /* expoOut */
+        return (f->modo == FP_FV_ENTRANDO ? -1.0f : 1.0f) * FP_FV_EMPURRAO * e;
+    }
+    if (f->t < 2.0f * FP_FV_TRECHO)
+        return (f->modo == FP_FV_ENTRANDO ? -1.0f : 1.0f) * FP_FV_EMPURRAO;
+    if (f->t < FP_FV_ESCONDE + FP_FV_TRECHO) {
+        u = (f->t - 2.0f * FP_FV_TRECHO) / FP_FV_TRECHO;
+        e = powf(2.0f, 10.0f * (u - 1.0f));             /* expoIn  */
+        return (f->modo == FP_FV_ENTRANDO ? -1.0f : 1.0f) * FP_FV_EMPURRAO * (1.0f - e);
+    }
+    return 0.0f;
+}
+
+int fp_fav_visivel(const fp_fav_t *f)
+{
+    return (f && f->visivel) ? 1 : 0;
+}

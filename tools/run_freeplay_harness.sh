@@ -220,9 +220,9 @@ SAVE=build/harness_assets/FNFPS2/save.dat
 mkdir -p build/harness_assets/FNFPS2
 python3 - "$SAVE" <<'PY2'
 import struct, sys, zlib
-b = bytearray(1960)
+b = bytearray(1992)          # versao 2: 16 + 81*24 + 32 (favorito)
 b[0:4] = b"FNFS"
-struct.pack_into("<HHI", b, 4, 1, 81, 0)
+struct.pack_into("<HHI", b, 4, 2, 81, 0)   # versao 2 -- a que tem 1992 B
 # musica 0, dificuldade 1 (NORMAL) -- a que a Freeplay abre selecionada.
 o = 16 + (0 * 3 + 1) * 24
 tot = 48
@@ -232,9 +232,17 @@ struct.pack_into("<9H", b, o + 4, tot, 0, 0, 0, 0, tot, tot, tot, tot)
 b[o + 22] = 1                      # valido
 struct.pack_into("<I", b, 12, zlib.crc32(bytes(b[16:])) & 0xFFFFFFFF)
 open(sys.argv[1], "wb").write(bytes(b))
-print("  save dourado escrito: 1.960 B, musica 0 / dificuldade 1, %d/%d sick" % (tot, tot))
+print("  save dourado escrito: 1.992 B, musica 0 / dificuldade 1, %d/%d sick" % (tot, tot))
 PY2
-ENTRADA_OURO="200:CROSS,420:CROSS,640:DOWN,700:CROSS"
+# TRES SQUAREs e o `FREEPLAY_FAVORITE` (`favoriteSong`, FreeplayState.hx
+# L3079-3130): 900 marca (som `fav`), 1000 desmarca (som `unfav` e a animacao ao
+# REVERSO, `play('fav', true, true, 9)`) e 1100 marca de novo -- assim os dois
+# sentidos rodam e o arquivo que sobra no cartao termina favoritado. A Freeplay
+# abre no quadro 796 deste roteiro (medido) e a transicao leva ~15 quadros,
+# entao 900 e' o primeiro SQUARE que a lista ja' responde. O original nao liga
+# botao nenhum nesse controle (so' o teclado, tecla F): o SQUARE e' escolha do
+# port, ver docs/PLANO_COMPLETO.md.
+ENTRADA_OURO="200:CROSS,420:CROSS,640:DOWN,700:CROSS,900:SQUARE,1000:SQUARE,1100:SQUARE"
 rm -f "$LOG"
 FNF_CARD=1 PS2H_INPUT="$ENTRADA_OURO" sh tools/run_harness.sh 1200 > /tmp/freeplay_ouro.log 2>&1 || {
     echo "  FALHA: o harness nao passou com o save dourado"; tail -20 /tmp/freeplay_ouro.log; exit 1; }
@@ -251,12 +259,30 @@ echo "  brilho (abriu, B) ........... ${BRILHO:-?}   (26x25 em 16 bpp = 1300 B)"
 echo "  ranks dourados na lista ..... ${OURO:-?}"
 echo "  brilho desenhado ............ quadro ${QOURO:-?} em ${NDESOURO:-0} desenho(s), x=${XOURO:-?} decimos"
 echo "  brilho disparou ............. ${DISPARO:-?}   (x,y em decimos: 2000..2115 e 60..225)"
+FVPAC=$(awk -F, '$1=="E" && $3=="freeplay_fav" {print $4","$5; exit}' "$LOG")
+FVDES=$(awk -F, '$1=="E" && $3=="freeplay_fav_desenho" {print $4","$5; exit}' "$LOG")
+FVMAR=$(awk -F, '$1=="E" && $3=="freeplay_fav_marca" {print $4","$5; exit}' "$LOG")
+FVSO=$(awk -F, '$1=="E" && $3=="ui_som" && $4==3 {print $4":"$5; exit}' "$LOG")
+FVSO4=$(awk -F, '$1=="E" && $3=="ui_som" && $4==4 {print $4":"$5; exit}' "$LOG")
+FVMARKS=$(awk -F, '$1=="E" && $3=="freeplay_fav_marca" {printf "%s", $4}' "$LOG")
+echo "  coracao (abriu, B) .......... ${FVPAC:-?}   (25x25 em 16 bpp = 1250 B)"
+echo "  coracao desenhado ........... ${FVDES:-?}   (quadro,x em decimos)"
+echo "  coracao marcou .............. ${FVMAR:-?}   (1=favoritou, indice da musica)"
+echo "  coracao som ................. ${FVSO:-?} / ${FVSO4:-?}   (slot 3 = fav, 4 = unfav, 0..100)"
+echo "  coracao marcas .............. ${FVMARKS:-?}   (1,0,1: marca, desmarca, marca)"
 [ "${BRILHO%%,*}" = "1" ] || { echo "  FALHA: o pacote do brilho nao abriu (${BRILHO:-sem evento})"; FALHA=1; }
 [ "${BRILHO##*,}" = "1300" ] || { echo "  FALHA: o brilho abriu com ${BRILHO##*,} B e o header manda 1300"; FALHA=1; }
 [ -z "${BRILHOFALHA:-}" ] || { echo "  FALHA: brilho do selo: $BRILHOFALHA"; FALHA=1; }
 [ "${OURO:-0}" -ge 1 ] || { echo "  FALHA: o rank dourado do save nao chegou na lista (${OURO:-sem evento})"; FALHA=1; }
 [ "${NDESOURO:-0}" -ge 1 ] || { echo "  FALHA: o brilho do selo dourado nunca foi desenhado"; FALHA=1; }
 [ "${QOURO:-?}" = "9" ] || { echo "  FALHA: o primeiro brilho saiu no quadro ${QOURO} e o sprite comeca no ULTIMO (9, o 1x1 vazio)"; FALHA=1; }
+[ "${FVPAC%%,*}" = "1" ] || { echo "  FALHA: o pacote do coracao nao abriu (${FVPAC:-sem evento})"; FALHA=1; }
+[ "${FVPAC##*,}" = "1250" ] || { echo "  FALHA: o coracao abriu com ${FVPAC##*,} B e o header manda 1250"; FALHA=1; }
+[ "${FVMAR%%,*}" = "1" ] || { echo "  FALHA: o SQUARE nao marcou a musica como favorita (${FVMAR:-sem evento})"; FALHA=1; }
+[ -n "${FVDES:-}" ] || { echo "  FALHA: o coracao nunca foi desenhado"; FALHA=1; }
+[ "${FVSO:-}" = "3:100" ] || { echo "  FALHA: o som de favoritar nao tocou a 1,0 (${FVSO:-nenhum})"; FALHA=1; }
+[ "${FVSO4:-}" = "4:100" ] || { echo "  FALHA: o som de desfavoritar nao tocou a 1,0 (${FVSO4:-nenhum})"; FALHA=1; }
+[ "${FVMARKS:-}" = "101" ] || { echo "  FALHA: as marcas do coracao foram '${FVMARKS:-}' e nao 1,0,1"; FALHA=1; }
 [ -n "${DISPARO:-}" ] || { echo "  FALHA: o brilho nunca disparou (o timer de 1 s nao chegou 'a tela)"; FALHA=1; }
 if [ -n "${DISPARO:-}" ]; then
     DY=${DISPARO%%,*}; DYY=${DISPARO##*,}
@@ -273,5 +299,28 @@ if [ -n "${XOURO:-}" ]; then
         echo "  FALHA: o brilho saiu em x=$XOURO decimos e o sorteio e' 2000..2115"; FALHA=1; }
 fi
 
+# O SAVE NO "CARTAO": o `favoriteSong()` passa por `toggleFavorite()` ->
+# `Save.save()` (`FreeplayState.hx` L3130), entao o arquivo reescrito tem de ter
+# o byte da musica 0 em 1. O favorito e' um byte por musica logo depois dos 81
+# registros de 24 B: corpo = 16 do cabecalho + 1944 + indice; total 1992 B.
+if [ -f "$SAVE" ]; then
+    FBYTE=$(python3 - "$SAVE" <<'PY2'
+import sys
+b = open(sys.argv[1], "rb").read()
+o = 16 + 81 * 24
+print("%d,%d" % (len(b), b[o] if len(b) > o else -1))
+PY2
+)
+    echo "  coracao no save ............. ${FBYTE:-?}   (bytes, byte dos favoritos)"
+    [ "${FBYTE%%,*}" = "1992" ] || { echo "  FALHA: o save no cartao ficou com ${FBYTE%%,*} B e o formato manda 1992"; FALHA=1; }
+    [ "${FBYTE##*,}" = "1" ] || { echo "  FALHA: o save gravado nao tem o favorito da musica 0 (byte ${FBYTE##*,})"; FALHA=1; }
+fi
+
+if [ "$FALHA" != 0 ]; then
+    echo
+    echo "FREEPLAY: FALHOU"
+    exit 1
+fi
+
 echo
-echo "FREEPLAY: PASSOU (lista, dificuldade, chart da musica escolhida e volta)"
+echo "FREEPLAY: PASSOU (lista, dificuldade, chart, brilho, coracao e volta)"

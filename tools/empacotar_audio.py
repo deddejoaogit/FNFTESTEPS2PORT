@@ -125,10 +125,16 @@ RESULTADOS = [
 # CIRCLE. O `menu_sfx.pcm` do porto nao tem essa amostra (so' scroll e confirm
 # mais a fonte VCR), entao ela vem como arquivo proprio -- e' a mesma pasta dos
 # outros dois para o pendrive nao ganhar mais uma.
+# `fav` e `unfav` entraram com o CORACAO DE FAVORITO da Freeplay:
+# `FunkinSound.playOnce(Paths.sound('fav'), 1)` e `'unfav'` no `favoriteSong()`
+# (`FreeplayState.hx` L3092 e L3115). Mesma pasta dos outros: a tela ja' le
+# `assets/result/` (`UI_SOM_DIR`) e nao ha' motivo para uma pasta nova.
 SONS_RESULTADO = [
     ("preload/sounds/scrollMenu", "scroll_menu", False),
     ("preload/sounds/confirmMenu", "confirm_menu", False),
     ("preload/sounds/cancelMenu", "cancel_menu", False),
+    ("preload/sounds/fav", "fav", False),
+    ("preload/sounds/unfav", "unfav", False),
     ("shared/sounds/tickleFight", "tickle_fight", False),
 ]
 

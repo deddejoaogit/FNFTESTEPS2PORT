@@ -3241,10 +3241,11 @@ cinemática:
 
 VRAM da cinemática: **186.566 B** (33.280 + 38.086 + 115.200), com as faíscas a
 um quadro por vez na VRAM (5 subidas de 33 KB em 208 ms). Somando a cápsula
-(161.568), o fundo (413.280), os 27 títulos (122.740), o selo (6.624) e o DJ
-(277.500), a tela de Freeplay usa **1.168.278 B** dos 2.383.872 do pool — os
-21 palcos (pior 1.736.192 B) não convivem com ela, e não precisam: a Freeplay
-roda com o palco solto.
+(161.568), o fundo (413.280), os 27 títulos (122.740), o selo (6.624), o DJ
+(277.500), o brilho do selo dourado (**1.300**: 26×25 em 16 bpp) e o coração de
+favorito (**1.250**: 25×25 em 16 bpp), a tela de Freeplay usa **1.170.828 B**
+dos 2.383.872 do pool — os 21 palcos (pior 1.736.192 B) não convivem com ela, e
+não precisam: a Freeplay roda com o palco solto.
 
 ## O ÁUDIO DA FREEPLAY (o preview e os jingles do rank) — planejado aqui, fechado no fim do documento
 
@@ -3325,8 +3326,10 @@ era "o próximo passo". Foi feito — e o buraco era maior do que a linha dizia:
 preview da tela (`playCurSongPreview`: 20 % do instrumental em laço com dois
 fades de 2 s) e os três `playOnce` de menu também estavam fora. Ver *"Fechado:
 o ÁUDIO DA FREEPLAY"* e *"Fechado: os `playOnce` de menu"*, no fim do documento.
-O que continua fora **desta tela**, agora com nome e motivo, são os sons de
-**favorito** (`fav`/`unfav`: a função não existe no port) e os das **opções**.
+O que continua fora **desta tela**, agora com nome e motivo, são só os sons do
+**menu de opções** (`OffsetMenu.hx` L418/L422: a tela ainda é stub). Os dois do
+**favorito** (`fav`/`unfav`) entraram nesta build junto com o coração da cápsula
+— ver *Fechado: o FAVORITO*.
 A mesma verificação vale para as *cápsulas da Freeplay*: `shared/images/` do
 clone esparso tem 27 entradas e **nenhuma** pasta `freeplay`. Não é "arte que o
 empacotador não pegou": o clone precisa de `git sparse-checkout add`.
@@ -3341,9 +3344,8 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | Falta | Por que | O que precisa |
 |---|---|---|
 | *nenhum item de LÓGICA* | -- | -- |
-| o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
+| o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1992,0` no fim da primeira música e `save_estado,1,1992` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
-| o coração de FAVORITO da capsula (`favIcon`/`favIconBlurred`) | `SongMenuItem.hx` L202-219 e L308-309: o `favHeart` (10 quadros de canvas 48×39, `setGraphicSize(50, 50)`, `BlendMode.ADD`, os dois sprites em `(380, 40)` no item, invisíveis ate' a musica ser favorita). Quem LIGA o coração e' `favoriteSong()` (L3084-3130), que precisa de um campo no SAVE -- e e' por isso que a arte sozinha não basta | arte empacotada (10 quadros de 24×20 px na metade, ~15 KB com um quadro na VRAM), o campo `favorito` por musica no `save.dat` e os dois sons `fav`/`unfav` de `preload/sounds/freeplay/` |
 | o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
 
 #### A tela de Resultado: a arte entrou
@@ -3459,9 +3461,9 @@ que nunca existe, que e' exatamente o comportamento de um console sem cartao.
 
 | passo | o que cobra |
 |---|---|
-| 1. partida com cartao vazio | `save_estado,0,-1` e `save_gravado,1960,0` |
+| 1. partida com cartao vazio | `save_estado,0,-1` e `save_gravado,1992,0` |
 | 2. o arquivo em disco | 1.960 B, `FNFS`, versao 1, 81 registros, **CRC32 conferido pelo zlib do Python** (nao pelo codigo que escreveu), exatamente 1 registro valido, na musica 0/dificuldade 1 |
-| 3. a partida seguinte | `save_estado,1,1960`, `freeplay_selo,1,1104`, `freeplay_selo_ranks,1,1` e o selo de rank desenhado |
+| 3. a partida seguinte | `save_estado,1,1992`, `freeplay_selo,1,1104`, `freeplay_selo_ranks,1,1` e o selo de rank desenhado |
 | 4. troca de dificuldade | o selo SOME (0 ranks na dificuldade sem registro) |
 
 O que isso **nao** prova: o cartao do PS2 (`mcInit`, os IRX, o sistema de
@@ -4344,24 +4346,80 @@ décimos é o `ranking.x` (210,0) sem sorteio ainda, e o disparo em
 conta, a ordem dos sorteios, o caminho pacote → pendrive → VRAM e que o desenho
 acontece; o brilho somando no GS com ADD e 0,7 é do console.
 
-## Próximo passo planejado: o FAVORITO (o coração da cápsula)
+## Fechado: o FAVORITO (o coração da cápsula)
 
-O último item da Freeplay que não é som: marcar e desmarcar uma música como
-favorita. Ele não é só desenho — a fonte tem **estado no save**, e por isso é um
-passo com dado novo no arquivo, não um enfeite.
+Marcar e desmarcar uma música com o coração era o último pedaço da Freeplay que
+não era som. Ele não é só desenho: a fonte guarda **estado no save**, e foi por
+isso que este passo mexeu no `save.dat` antes de mexer na tela.
 
-| peça | fonte | medido |
+### O que a fonte manda, com a linha
+
+| peça | fonte | número medido |
 |---|---|---|
-| arte | `Paths.getSparrowAtlas('freeplay/favHeart')`, L203/L213 | **10 quadros**, canvas 48×39 (`frameX`/`frameY` por quadro: 21×16, 48×39, 39×32, 30×24) |
-| tamanho | `setGraphicSize(50, 50)` L207/L216 | 50×50 em 1280×720 → **25×25** na metade, 1.250 B por quadro em 16 bpp |
-| posição | `new FlxSprite(380, 40)` L202/L212 e `favIconBlurred.x = this.x + 370` L308-309 | (190, 20) na metade, dentro do item |
-| mistura | L208/L218 | os dois são `BlendMode.ADD`; o `favIcon` é o nítido e o `Blurred` fica atrás |
-| visibilidade | L209/L217 | os dois nascem `visible = false`; quem liga é o favorito |
-| interação | `favoriteSong()` L3084-3130 | um tween de ±5 px em 0,1 s no ícone, e `freeplay/fav` \| `unfav` (`Paths.sound`, volume 1) |
+| arte | `Paths.getSparrowAtlas('freeplay/favHeart')` L203/L213 | **13 quadros** (`0000`..`0012`), canvas 48×39; `addByPrefix('fav', 'favorite heart', 24, false)` — uma vez, sem laço |
+| repouso | `initData` L568-569 (`curFrame = numFrames - 1`) | parado no **quadro 12** quando a música já era favorita |
+| tamanho | `setGraphicSize(50, 50)` L207/L216 | 50×50 em 1280×720 → **25×25** na metade = **1.250 B** por quadro em 16 bpp |
+| posição | `new FlxSprite(380, 40)` L202/L212 + `checkClip` L306-318 | `this.x + 370` **com** o selo de rank e `this.x + 405` sem; y 40 → em 640×360, x **185,0 / 202,5** e y **20,0**, dentro do item |
+| duas cópias | L202-219 e L801-802 | as duas em `BlendMode.ADD`; a `favIconBlurred` vai **atrás** e só no selecionado (alpha 1, e 0 no resto); a nítida fica em alpha **1** no selecionado e **0,6** nos outros |
+| favoritar | `favoriteSong` L3079-3130 | `visible = true` e `play('fav')` do quadro 0 |
+| desfavoritar | idem | `play('fav', true, true, 9)` — **reverso**, do quadro 9 para trás — e `new FlxTimer().start(0,2)` esconde os dois |
+| empurrão | L3087-3113 | o `y` do **item** anda 5 px (metade: **2,5**): 0,1 s `expoOut`, 0,1 s parado, 0,1 s `expoIn` de volta; favoritar desce, desfavoritar sobe |
+| sons | `Paths.sound('fav')` / `'unfav'` | `playOnce` com volume **1,0** |
 
-O que falta medir antes do código: o formato do campo no save (o original guarda
-`favoriteSongs` por **id de música**, não por dificuldade — o `save.dat` do port
-tem 24 B por (música, dificuldade) e vai precisar de um byte novo ou de uma
-tabela à parte), e se os dois sons existem como `.ogg` no clone. Sem essas duas
-respostas o passo vira invenção, e é exatamente o tipo de coisa que a regra 4 do
-`REGRAS.md` proíbe.
+### O save: versão 2, com o favorito por música
+
+`Save.favoriteSongs` (v0.8.6, `Save.hx` L992) é uma **lista de ids** e
+`isSongFavorited` (L660-668) só pergunta se o id está nela: o favorito é por
+**música**, não por dificuldade. O `save.dat` do port ganhou 32 bytes:
+
+| versão | tamanho | corpo | conteúdo |
+|---|---|---|---|
+| 1 (a que está no cartão) | 1.960 B | 1.944 | 81 registros de 24 B, CRC32 no fim |
+| **2** (esta build) | **1.992 B** | **1.976** | os mesmos 81 registros + **27 bytes** de favorito (1 por música) + 5 de zero, mesmo CRC32 |
+
+A leitura aceita as duas: o CRC é conferido sobre o corpo da versão **que o
+cabeçalho declara**, então um cartão com a v1 continua valendo e o favorito fica
+zerado — recusar o arquivo antigo apagaria o placar do jogador. `save_favorito` /
+`save_favoritar` são a API; quem grava é o mesmo `save_gravar_no_cartao` de
+sempre. O harness do save cobre v2 (ida e volta), v1 sintética e o favorito.
+
+### A tecla: uma divergência declarada
+
+`Controls.hx` L1138-1139: `getDefaultGamepadBinds(Control.FREEPLAY_FAVORITE)`
+devolve **lista vazia** — no original o favorito só tem teclado (`F`). No
+console não há teclado, então o port escolheu o **SQUARE**, o único botão livre
+na tela (o direcional anda, CROSS toca, CIRCLE volta, START pausa). É
+divergência de entrada, registrada aqui e no comentário do `src/main.c`; nenhum
+evento do jogo foi encurtado ou removido por causa dela.
+
+### Medido no harness (`tools/run_freeplay_harness.sh`)
+
+O roteiro dourado passou a apertar SQUARE três vezes (900 marca, 1000 desmarca,
+1100 marca de novo — assim os dois sentidos rodam e o arquivo termina favoritado):
+
+```
+  coracao (abriu, B) .......... 1,1250   (25x25 em 16 bpp = 1250 B)
+  coracao desenhado ........... 0,3452   (quadro,x em decimos)
+  coracao marcou .............. 1,0   (1=favoritou, indice da musica)
+  coracao som ................. 3:100 / 4:100   (slot 3 = fav, 4 = unfav)
+  coracao marcas .............. 101   (1,0,1: marca, desmarca, marca)
+  coracao no save ............. 1992,1   (bytes, byte dos favoritos)
+```
+
+O x de 3.452 décimos é o `this.x` do item (160,2) + 185,0 — com o selo de rank
+visível, como manda o `checkClip`. O byte em 1 no arquivo de 1.992 B é a prova de
+que o caminho é `favoriteSong` → `toggleFavorite` → `Save.save`, e não só um
+desenho na tela. O teste de PC (`test/test_freeplay.c`) cobre a conta pura: o
+repouso no quadro 12, a animação de 13 quadros parando no último, o reverso
+9→0 com o esconder em 0,2 s e o empurrão de ±2,5 px nos três trechos de 0,1 s.
+
+**O que isso não prova**: nada disso foi visto numa TV. O que o PC prova é a
+conta, o caminho pacote → pendrive → VRAM, a gravação e o desenho acontecendo; o
+coração somando no GS com ADD e 0,6/1,0 é do console.
+
+Pendrive: +2 PCM (`fav` 83.144 B e `unfav` 51.428 B em `assets/result/`, o gate
+do `tools/build_pendrive.sh` subiu de 16 para **18** arquivos) e +1 pacote
+(`freeplay/favheart.cfz4`, 4.655 B).
+
+**O que ainda falta nesta tela**: só os sons do **menu de opções**
+(`OffsetMenu.hx` L418/L422) — a tela em si continua stub.

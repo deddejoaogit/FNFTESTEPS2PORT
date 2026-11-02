@@ -279,6 +279,104 @@ int main(void)
         CHECK_PX(FP_SP_Y, 20.5f);
     }
 
+    /* ---- O CORACAO DE FAVORITO ------------------------------------------
+       `SongMenuItem.hx` L202-219 (as duas copias, ADD, invisiveis), L568-569
+       (`curFrame = numFrames - 1`: o repouso e' o ULTIMO quadro), L801-802
+       (alfa 1/0,6 no item selecionado/nao) e `FreeplayState.hx` L3079-3130
+       (`favoriteSong`: animacao de 13 quadros, reverso do 9, timer de 0,2 s e
+       o empurrao de 5 px do item). */
+    {
+        fp_fav_t f;
+        float t;
+
+        /* Sem favorito: nada a desenhar, e o empurrao tambem e' zero. */
+        fp_fav_reset(&f);
+        CHECK_EQ(fp_fav_visivel(&f), 0);
+        CHECK_EQ(fp_fav_quadro(&f), -1);
+        CHECK_PX(fp_fav_dy(&f), 0.0f);
+        fp_fav_passo(&f, 10.0f);
+        CHECK_EQ(fp_fav_visivel(&f), 0);
+
+        /* Favoritada e parada (`refreshDisplay` -> `visible = isFav`): desenha
+           o ULTIMO quadro, sem animar e sem empurrao. */
+        fp_fav_mostra(&f);
+        CHECK_EQ(fp_fav_visivel(&f), 1);
+        CHECK_EQ(fp_fav_quadro(&f), FP_FV_QUADROS - 1);
+        CHECK_PX(fp_fav_dy(&f), 0.0f);
+        fp_fav_passo(&f, 5.0f);
+        CHECK_EQ(fp_fav_quadro(&f), FP_FV_QUADROS - 1);
+
+        /* FAVORITAR: do quadro 0 ao 12, uma vez, e PARA no ultimo. */
+        fp_fav_toggle(&f, 1);
+        CHECK_EQ(fp_fav_visivel(&f), 1);
+        CHECK_EQ(fp_fav_quadro(&f), 0);
+        {
+            int q_ant = fp_fav_quadro(&f), sobe = 1, q_fim;
+            for (t = 0.0f; t < 1.2f; t += 1.0f / 240.0f) {
+                fp_fav_passo(&f, 1.0f / 240.0f);
+                if (fp_fav_quadro(&f) < q_ant) sobe = 0;
+                q_ant = fp_fav_quadro(&f);
+            }
+            q_fim = q_ant;
+            CHECK(sobe);
+            CHECK_EQ(q_fim, FP_FV_QUADROS - 1);
+        }
+        /* A duracao da animacao e' `quadros / fps`, e depois dela o coracao
+           continua VISIVEL: e' o `looped = false` parando no fim. */
+        CHECK_PX(FP_FV_QUADROS / (float)FP_FV_FPS, 13.0f / 24.0f);
+        CHECK_EQ(fp_fav_visivel(&f), 1);
+
+        /* O EMPURRAO do item (5 px na fonte, metade na tela): desce no
+           favoritar, 0,1 s `expoOut`, 0,1 parado, 0,1 `expoIn` de volta. */
+        fp_fav_toggle(&f, 1);
+        CHECK_PX(fp_fav_dy(&f), 0.0f);          /* inicio do expoOut */
+        fp_fav_passo(&f, 0.15f);
+        CHECK_PX(fp_fav_dy(&f), -2.5f);         /* meio do tween, parado  */
+        fp_fav_passo(&f, 0.20f);
+        CHECK_PX(fp_fav_dy(&f), 0.0f);          /* voltou (t = 0,35)     */
+
+        /* DESFAVORITAR: `play('fav', true, true, 9)` -- REVERSO a partir do
+           quadro 9 -- e o `FlxTimer` de 0,2 s esconde os dois. O empurrao vai
+           para o lado contrario (sobe). */
+        fp_fav_toggle(&f, 0);
+        CHECK_EQ(fp_fav_visivel(&f), 1);
+        CHECK_EQ(fp_fav_quadro(&f), 9);
+        /* Passos de 2,5/24 e 1,4/24 s: cair no MEIO do quadro, para a borda
+           do `(int)(t * fps)` nao depender do arredondamento do float. */
+        fp_fav_passo(&f, 2.5f / 24.0f);
+        CHECK_EQ(fp_fav_quadro(&f), 7);
+        fp_fav_passo(&f, 1.4f / 24.0f);
+        CHECK_EQ(fp_fav_quadro(&f), 6);
+        {
+            fp_fav_t g;
+            /* O desfavoritar so' acontece numa musica VISIVEL como favorita
+               (`favIcon.visible` ja' era `true`): por isso o `mostra` antes. */
+            fp_fav_mostra(&g);
+            fp_fav_toggle(&g, 0);
+            fp_fav_passo(&g, 0.05f);
+            /* Metade do expoOut: 2,5 * (1 - 2^-5) = 2,42 -- e do lado
+               CONTRARIO ao do favoritar. */
+            CHECK(fp_fav_dy(&g) > 2.4f && fp_fav_dy(&g) < 2.5f);
+            fp_fav_passo(&g, 0.16f);            /* t = 0,21: o timer vence */
+            CHECK_EQ(fp_fav_visivel(&g), 0);
+            CHECK_EQ(fp_fav_quadro(&g), -1);
+            CHECK_PX(fp_fav_dy(&g), 0.0f);
+        }
+
+        /* O dado do pacote e o do sprite. */
+        CHECK_EQ(FP_FV_QUADROS, 13);
+        CHECK_EQ(FP_FV_FPS, 24);
+        CHECK_EQ(FP_FV_BPP, 16);
+        CHECK_EQ(FP_FV_VRAM, (unsigned)FP_FV_W * (unsigned)FP_FV_H * 2u);
+        CHECK_PX(FP_FV_W, 25.0f);
+        CHECK_PX(FP_FV_H, 25.0f);
+        CHECK_PX(FP_FV_X, 185.0f);
+        CHECK_PX(FP_FV_X_SEM_SELO, 202.5f);
+        CHECK_PX(FP_FV_Y, 20.0f);
+        CHECK_PX(FP_FV_ALFA_SEL, 1.0f);
+        CHECK_PX(FP_FV_ALFA_NAO_SEL, 0.6f);
+    }
+
     if (falhas)
     {
         printf("FREEPLAY: %d FALHA(S)\n", falhas);

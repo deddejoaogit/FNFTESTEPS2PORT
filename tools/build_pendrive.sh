@@ -165,7 +165,7 @@ for f in "$GO_SRC"/*.pcm; do
         # `confirm_menu`, `tickle_fight`): ResultState procura em
         # `resultScreen/...` no original, mas no port os PCM ficam em
         # assets/result/ (mesma divisao de gameover/ e pause/).
-        res_*|scroll_menu*|confirm_menu*|cancel_menu*|tickle_fight*)
+        res_*|scroll_menu*|confirm_menu*|cancel_menu*|fav.pcm|unfav.pcm|tickle_fight*)
             cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
     esac
@@ -292,7 +292,7 @@ FNF PS2 -- COMO INSTALAR
                                     compilada no FNF_PS2.ELF)
 
    O RECORDE fica no MEMORY CARD, nao no pendrive:
-       mc0:/FNFPS2/save.dat           1.960 B (placar e tallies por musica e
+       mc0:/FNFPS2/save.dat           1.992 B (placar e tallies por musica e
                                       dificuldade). Sem cartao o jogo roda
                                       igual e o save vale so' na sessao -- o log
                                       diz `save_estado,0,-1`.

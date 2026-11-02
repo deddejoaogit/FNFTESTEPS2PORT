@@ -60,6 +60,13 @@ typedef struct {
 
 typedef struct {
     save_score_t s[SAVE_MUSICAS][SAVE_DIFS];
+    /* O FAVORITO e' por MUSICA, nao por dificuldade: `Save.favoriteSongs`
+     * (Save.hx L992) e' uma lista de ids, e `isSongFavorited` (L660-668) so'
+     * olha se o id esta' nela. O port guarda um byte por musica (o "id" e' o
+     * indice do registro de musicas) -- sem variacao, porque o port nao tem
+     * variacoes: o `idAndVariation` do original (`bopeebo:default`) vira o
+     * indice. */
+    unsigned char fav[SAVE_MUSICAS];
     int carregado;              /* 1 = veio de arquivo conferido          */
     int sujo;                   /* 1 = mudou desde a ultima gravacao      */
 } save_t;
@@ -80,13 +87,32 @@ void save_aplicar(save_t *sv, int musica, int dif, const save_score_t *novo);
 /* Rank (0..5, os mesmos de `fnf_rank_t`) do registro, ou -1 se nao houver. */
 int save_rank(const save_score_t *r);
 
-/* ---- formato -------------------------------------------------------------
- * Cabecalho de 16 bytes: "FNFS" + versao (u16) + registros (u16) + CRC32 do
- * corpo. Corpo: SAVE_MUSICAS*SAVE_DIFS registros de 24 bytes, na ordem
- * musica*3 + dif. Total: 16 + 81*24 = 1960 bytes (cabe em um bloco de memory
- * card, que e' 8 KB). */
+/* `Save.isSongFavorited(id)` (L660-668): 1 quando a musica esta' no favorito.
+ * Musica fora da faixa devolve 0. */
+int save_favorito(const save_t *sv, int musica);
 
-#define SAVE_ARQUIVO_BYTES (16 + SAVE_MUSICAS * SAVE_DIFS * 24)
+/* `Save.favoriteSong` / `Save.unfavoriteSong` (L671-686) com o `sujo` do
+ * arquivo marcado. `on` != 0 marca, 0 desmarca. Nao faz nada fora da faixa. */
+void save_favoritar(save_t *sv, int musica, int on);
+
+/* ---- formato -------------------------------------------------------------
+ * VERSAO 2 (a 1 continua sendo LIDA -- e' o arquivo que a build anterior
+ * gravava no cartao de quem ja' jogou; recusar seria perder o placar do
+ * jogador).
+ *
+ * Cabecalho de 16 bytes: "FNFS" + versao (u16) + registros (u16) + CRC32 do
+ * corpo. Corpo:
+ *   - SAVE_MUSICAS*SAVE_DIFS registros de 24 bytes, na ordem musica*3 + dif
+ *     (1944 bytes, igual 'a versao 1);
+ *   - SAVE_FAVORITOS_BYTES: 27 bytes de favorito (1 por musica) + 5 de zero,
+ *     para o corpo ficar em 16 bytes redondos.
+ * Total: 16 + 1944 + 32 = 1992 bytes (cabe em um bloco de memory card, 8 KB).
+ * A versao 1 tinha 1960 (sem a secao do favorito). */
+
+#define SAVE_CORPO_V1        (SAVE_MUSICAS * SAVE_DIFS * 24)   /* 1944 */
+#define SAVE_ARQUIVO_BYTES_V1 (16 + SAVE_CORPO_V1)             /* 1960 */
+#define SAVE_FAVORITOS_BYTES  32                               /* 27 + 5  */
+#define SAVE_ARQUIVO_BYTES (16 + SAVE_CORPO_V1 + SAVE_FAVORITOS_BYTES) /* 1992 */
 
 /* Escreve o arquivo em `dst` (SAVE_ARQUIVO_BYTES). Devolve os bytes escritos. */
 unsigned int save_serializar(const save_t *sv, unsigned char *dst);

@@ -281,6 +281,51 @@ SPARKLE = {
     "saida": "sparkle",
 }
 
+# O CORACAO DE FAVORITO
+# ---------------------
+# `SongMenuItem.hx` L202-219 (as duas copias), L308-309 (`checkClip`),
+# L801-802 (`updateSelected`) e `FreeplayState.hx` L3079-3130 (`favoriteSong`):
+#
+#     favIconBlurred = new FlxSprite(380, 40);
+#     favIconBlurred.frames = Paths.getSparrowAtlas('freeplay/favHeart');
+#     favIconBlurred.animation.addByPrefix('fav', 'favorite heart', 24, false);
+#     favIconBlurred.animation.play('fav');
+#     favIconBlurred.setGraphicSize(50, 50);
+#     favIconBlurred.blend = BlendMode.ADD;
+#     favIconBlurred.visible = false;
+#     favIcon = new FlxSprite(favIconBlurred.x, favIconBlurred.y);   // a mesma coisa
+#
+#     // checkClip (L306-318): o x depende do SELO estar visivel
+#     favIconBlurred.x = favIcon.x = this.x + (selo ? 370 : 405);
+#     // updateSelected (L801-802)
+#     favIcon.alpha = isSelected ? 1 : 0.6;      favIconBlurred.alpha = isSelected ? 1 : 0;
+#
+# MEDIDO no .xml: **13** quadros de canvas 48x39 (`favorite heart0000..0012`:
+# o `0000`/`0004`/`0005` com um pedaco de 21x16, `0001`/`0002` 48x39, `0003`
+# 39x32 e `0006..0012` 30x24, todos alinhados pelo `frameX`/`frameY` no mesmo
+# canvas de 48x39). A animacao e' de 13 quadros a 24 fps = 0,54167 s. `setGraphicSize(50, 50)` estica o canvas para 50x50 em 1280x720 ->
+# **25x25** na metade, 1.250 B por quadro em 16 bpp. A animacao toca UMA vez
+# (looped = false) e para no ultimo quadro: e' ele que fica na tela em repouso
+# (`initData` L568-569 poe `curFrame = numFrames - 1` de proposito).
+#
+# O `this.x +` da L308: `favIcon` e' FILHO do grupo do item, entao o x dele e'
+# local. Somar `this.x` (a posicao do grupo) poe o coracao a `2*this.x + 370` no
+# espaco do pai -- fora da capsula. O port usa o valor LOCAL (370/405), que e'
+# a posicao que o layout do original desenha e a mesma convencao do selo de
+# rank (`new FreeplayRank(420, 41)`, local). Divergencia medida e registrada.
+FAVORITO = {
+    "fonte": "freeplay/favHeart",
+    "prefixo": "favorite heart",   # `addByPrefix('fav', 'favorite heart', 24, false)`
+    "fps": 24,
+    "tamanho": (50.0, 50.0),       # `setGraphicSize(50, 50)`         L207/L216
+    "pos": (370.0, 40.0),          # com o selo de rank visivel       L308
+    "pos_sem_selo": (405.0, 40.0), # sem o selo                       L314
+    "alpha_sel": 1.0,              # `favIcon.alpha = isSelected ? 1`  L801
+    "alpha_nao_sel": 0.6,          # `: 0.6`                           L801
+    "bpp": 16,
+    "saida": "favheart",
+}
+
 # `SongMenuItem.update()` L670-700: o salto de entrada anda uma casa por 1/24 s
 # e escala a capsula por `xFrames` (x) e o inverso (y).
 XFRAMES = [1.7, 1.8, 0.85, 0.85, 0.97, 0.97, 1.0]
@@ -712,6 +757,66 @@ def empacotar(assets, out):
                     "linha": "SongMenuItem.hx L156-166, L228-233 e L493-504",
                 }
 
+    # ---- 3e. O CORACAO DE FAVORITO --------------------------------------
+    dado_fav = None
+    fv_png = os.path.join(base, FAVORITO["fonte"] + ".png")
+    fv_xml = os.path.join(base, FAVORITO["fonte"] + ".xml")
+    if not (os.path.isfile(fv_png) and os.path.isfile(fv_xml)):
+        problemas.append("freeplay: falta o coracao de favorito %s (ou o .xml)"
+                         % fv_png)
+    else:
+        q_fv = ler_xml(fv_xml)
+        nomes_fv = quadros_da_folha(q_fv, FAVORITO["prefixo"])
+        if len(nomes_fv) != 13:
+            problemas.append("freeplay: o coracao tem %d quadros, o medido e' 13"
+                             % len(nomes_fv))
+        else:
+            folha_fv = Image.open(fv_png).convert("RGBA")
+            cw_fv = max(q_fv[n]["fw"] or q_fv[n]["w"] for n in nomes_fv)
+            ch_fv = max(q_fv[n]["fh"] or q_fv[n]["h"] for n in nomes_fv)
+            # `setGraphicSize(50, 50)` estica o canvas INTEIRO para 50x50; aqui
+            # isso e' (50,50) * metade, arredondado uma vez.
+            w_fv = max(1, int(round(FAVORITO["tamanho"][0] * HALF)))
+            h_fv = max(1, int(round(FAVORITO["tamanho"][1] * HALF)))
+            if w_fv > MAX_TEX or h_fv > MAX_TEX:
+                problemas.append("freeplay: o coracao %dx%d passa do limite %d"
+                                 % (w_fv, h_fv, MAX_TEX))
+            else:
+                blocos_fv = []
+                for n in nomes_fv:
+                    q = q_fv[n]
+                    pedaco = folha_fv.crop((q["x"], q["y"],
+                                            q["x"] + q["w"], q["y"] + q["h"]))
+                    tela = Image.new("RGBA", (cw_fv, ch_fv), (0, 0, 0, 0))
+                    tela.paste(pedaco, (-q["fx"], -q["fy"]))
+                    tela = tela.resize((w_fv, h_fv), Image.LANCZOS)
+                    blocos_fv.append(lz4.block.compress(
+                        pp.to_ps2_bytes(tela, FAVORITO["bpp"]), store_size=False))
+                partes_fv = pp.write_packs(
+                    blocos_fv, w_fv * h_fv * (FAVORITO["bpp"] // 8),
+                    os.path.join(out, FAVORITO["saida"] + ".cfz4"))
+                dado_fav = {
+                    "fonte": FAVORITO["fonte"],
+                    "prefixo": FAVORITO["prefixo"],
+                    "tex": "freeplay/" + FAVORITO["saida"] + ".cfz4",
+                    "partes": [os.path.basename(p[0]) for p in partes_fv],
+                    "src_w": cw_fv, "src_h": ch_fv,
+                    "w": w_fv, "h": h_fv,
+                    "bpp": FAVORITO["bpp"],
+                    "quadros": len(blocos_fv),
+                    "fps": FAVORITO["fps"],
+                    "alpha_sel": FAVORITO["alpha_sel"],
+                    "alpha_nao_sel": FAVORITO["alpha_nao_sel"],
+                    # Ja' na metade (640x360) e no espaco do ITEM.
+                    "x": round(FAVORITO["pos"][0] * HALF, 3),
+                    "y": round(FAVORITO["pos"][1] * HALF, 3),
+                    "x_sem_selo": round(FAVORITO["pos_sem_selo"][0] * HALF, 3),
+                    "y_sem_selo": round(FAVORITO["pos_sem_selo"][1] * HALF, 3),
+                    "vram_bytes": w_fv * h_fv * (FAVORITO["bpp"] // 8),
+                    "linha": "SongMenuItem.hx L202-219, L306-318, L801-802 e "
+                             "FreeplayState.hx L3079-3130",
+                }
+
     # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
     # `capsule.height` do original e' o canvas SEM CORTE da CAPSULA (src_h), nao
@@ -731,6 +836,7 @@ def empacotar(assets, out):
         "selo": dado_selo,
         "cinematica": dado_cine,
         "sparkle": dado_sparkle,
+        "favorito": dado_fav,
         "titulos": titulos_out,
         "escala": HALF,
         # `intendedX(index) = 270 + 60*fastSin(index)`; `intendedY(index) =
@@ -889,6 +995,31 @@ def escreve_header(dado):
         a("#define FP_SP_PRIMEIRO_MS   %d" % sp["primeiro_ms"])
         a("#define FP_SP_INTERVALO_MIN_MS %d" % sp["intervalo_min_ms"])
         a("#define FP_SP_INTERVALO_MAX_MS %d" % sp["intervalo_max_ms"])
+        a("")
+    fv = dado.get("favorito")
+    if fv:
+        a("/* O CORACAO DE FAVORITO (`SongMenuItem.hx` L202-219, L306-318 e\n"
+          " * L801-802): 10 quadros a 24 fps, UMA vez, parando no ultimo -- e' ele\n"
+          " * que fica na tela em repouso. Duas copias: a `Blurred` (atras, so' no\n"
+          " * item selecionado) e a nitida, as duas em ADD. O x muda quando o selo\n"
+          " * de rank esta' visivel (`checkClip`). Posicoes na metade, no item. */")
+        a("#define FP_FV_W             %d      /* %dx%d na arte */"
+          % (fv["w"], fv["src_w"], fv["src_h"]))
+        a("#define FP_FV_H             %d" % fv["h"])
+        a("#define FP_FV_BPP           %d" % fv["bpp"])
+        a("#define FP_FV_QUADROS       %d" % fv["quadros"])
+        a("#define FP_FV_FPS           %d" % fv["fps"])
+        a("#define FP_FV_VRAM          %du" % fv["vram_bytes"])
+        a("#define FP_FV_TEX           \"%s\"" % fv["tex"])
+        a("#define FP_FV_X             %.3ff   /* com o selo de rank (370, 40) */"
+          % fv["x"])
+        a("#define FP_FV_Y             %.3ff" % fv["y"])
+        a("#define FP_FV_X_SEM_SELO    %.3ff   /* sem o selo (405, 40) */"
+          % fv["x_sem_selo"])
+        a("#define FP_FV_Y_SEM_SELO    %.3ff" % fv["y_sem_selo"])
+        a("#define FP_FV_ALFA_SEL      %.3ff" % fv["alpha_sel"])
+        a("#define FP_FV_ALFA_NAO_SEL  %.3ff   /* o nao-selecionado e' 0,6 */"
+          % fv["alpha_nao_sel"])
         a("")
     a("#define FP_X_BASE           %.3ff   /* 270 * 0,5 */" % dado["x_base"])
     a("#define FP_X_AMP            %.3ff   /* 60 * 0,5  */" % dado["x_amp"])

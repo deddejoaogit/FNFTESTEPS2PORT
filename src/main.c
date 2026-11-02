@@ -1759,6 +1759,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
                                                        por rank (6 animacoes)   */
 #define FP_CHAVE_SP    (SP_CHAVE_TELA_BASE + 0x46u) /* o brilho do selo dourado
                                                        (1 quadro, 26x25, 16 bpp) */
+#define FP_CHAVE_FV    (SP_CHAVE_TELA_BASE + 0x47u) /* o coracao de favorito
+                                                       (1 quadro, 25x25, 16 bpp) */
 #define FP_TIT_SLOTS 8
 #define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
 
@@ -1852,6 +1854,21 @@ static int g_sp_addr_ok = 0, g_sp_frame = -1;
 static texbuffer_t g_sp_tex;
 static int g_sp_desenhos = 0, g_sp_logado = 0, g_sp_disparo = 0;
 
+/* ---- O CORACAO DE FAVORITO (`SongMenuItem.hx` L202-219, L306-318, L801-802 e
+ * `FreeplayState.hx` L3079-3130) ------------------------------------------
+ * Como o brilho, e' por ITEM (o sprite mora dentro do grupo) e por musica. Um
+ * CFZ4 de 13 quadros de 25x25 em 16 bpp, um quadro na VRAM (1.250 B). O estado
+ * de cada coracao vem do SAVE (`save_favorito`), que e' onde a musica vira
+ * favorita: `toggleFavorite` grava e o sprite so' reflete. */
+static fp_fav_t g_fpfav[FREEPLAY_MAX];
+static pst_pack_t g_fv_pack;
+static int g_fv_ok = 0, g_fv_tentou = 0;
+static unsigned char *g_fv_buf = 0;
+static unsigned int g_fv_buf_bytes = 0, g_fv_addr = 0;
+static int g_fv_addr_ok = 0, g_fv_frame = -1;
+static texbuffer_t g_fv_tex;
+static int g_fv_desenhos = 0, g_fv_logado = 0;
+
 /* ---- A CINEMATICA DE RANK (`FreeplayState.hx` L1069-1344) --------------
  * Ela NAO roda em toda volta do resultado: o `ResultState.hx` L938-967 so'
  * manda o `fromResults` com `playRankAnim: true` quando
@@ -1925,6 +1942,8 @@ static void freeplay_cine_carregar(texbuffer_t *tpl);
 static void freeplay_cine_soltar(void);
 static void freeplay_brilho_soltar(void);
 static void freeplay_brilho_carregar(texbuffer_t *tpl);
+static void freeplay_fav_soltar(void);
+static void freeplay_fav_carregar(texbuffer_t *tpl);
 static int  freeplay_cine_quadro(int qual, int quadro);
 
 static void freeplay_capsula_soltar(void)
@@ -1934,6 +1953,7 @@ static void freeplay_capsula_soltar(void)
     freeplay_selo_soltar();
     freeplay_cine_soltar();
     freeplay_brilho_soltar();
+    freeplay_fav_soltar();
     /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
     if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
     g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
@@ -2043,6 +2063,13 @@ static void freeplay_selo_ranks(void)
         /* `refreshDisplay` -> `updateScoringRank`: o brilho so' existe no
            PERFECT_GOLD, e cada passada pela tela re-arma o primeiro disparo
            em 1 s (o `FlxTimer` antigo e' cancelado, L494). */
+        /* O CORACAO: `refreshDisplay` -> `favIcon.visible = freeplayData.isFav`
+           (SongMenuItem.hx L458-459). O dado e' do save (`isSongFavorited`),
+           por MUSICA -- nao por dificuldade. */
+        if (idx >= 0 && idx < SAVE_MUSICAS && save_favorito(&g_save, idx))
+            fp_fav_mostra(&g_fpfav[i]);
+        else
+            fp_fav_reset(&g_fpfav[i]);
         if (g_rb_rank[i] == FNF_RANK_PERFECT_GOLD)
             fp_spk_arma(&g_fpsp[i], (unsigned int)(i + 1) * 2654435761u,
                         FP_SP_X, FP_SP_Y);
@@ -2225,6 +2252,7 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
     freeplay_selo_carregar(tpl);
     freeplay_cine_carregar(tpl);
     freeplay_brilho_carregar(tpl);
+    freeplay_fav_carregar(tpl);
     freeplay_selo_ranks();
     return g_fpc_ok;
 }
@@ -2342,6 +2370,77 @@ static int freeplay_brilho_vram(texbuffer_t *tpl, int quadro)
         FlushCache(0);
         upload_raw_psm(&t, g_sp_buf, FP_SP_W, FP_SP_H, GS_PSM_16);
         g_sp_frame = quadro;
+    }
+    return 1;
+}
+
+static void freeplay_fav_soltar(void)
+{
+    int i;
+    if (g_fv_tentou) pst_fechar(&g_fv_pack);
+    g_fv_tentou = 0; g_fv_ok = 0; g_fv_logado = 0; g_fv_desenhos = 0;
+    if (g_fv_buf) { free(g_fv_buf); g_fv_buf = 0; g_fv_buf_bytes = 0; }
+    if (g_fv_addr_ok || g_fv_addr) sp_soltar(&g_pool, FP_CHAVE_FV);
+    g_fv_addr = 0; g_fv_addr_ok = 0; g_fv_frame = -1;
+    for (i = 0; i < FREEPLAY_MAX; i++) fp_fav_reset(&g_fpfav[i]);
+}
+
+static void freeplay_fav_carregar(texbuffer_t *tpl)
+{
+    char caminho[128];
+    unsigned int bytes;
+    freeplay_fav_soltar();
+    snprintf(caminho, sizeof(caminho), FP_DIR "%s", FP_FV_TEX);
+    if (pst_abrir(caminho, &g_fv_pack) != PST_OK) {
+        telemetry_event("freeplay_fav_falta", 0, (int)sp_livre(&g_pool));
+        return;
+    }
+    g_fv_tentou = 1;
+    bytes = g_fv_pack.frame_bytes;
+    if (bytes != (unsigned int)FP_FV_W * (unsigned int)FP_FV_H * 2u ||
+        g_fv_pack.count != (unsigned int)FP_FV_QUADROS) {
+        telemetry_event("freeplay_fav_tamanho", (int)bytes, (int)g_fv_pack.count);
+        pst_fechar(&g_fv_pack); g_fv_tentou = 0;
+        return;
+    }
+    g_fv_buf = (unsigned char *)memalign(64, (size_t)bytes);
+    if (!g_fv_buf) { pst_fechar(&g_fv_pack); g_fv_tentou = 0; return; }
+    g_fv_buf_bytes = bytes;
+    if (sp_chave(&g_pool, FP_CHAVE_FV, bytes, &g_fv_addr) < 0) {
+        telemetry_event("freeplay_fav_sem_vram", 0, (int)sp_livre(&g_pool));
+        free(g_fv_buf); g_fv_buf = 0; g_fv_buf_bytes = 0;
+        pst_fechar(&g_fv_pack); g_fv_tentou = 0; g_fv_addr = 0;
+        return;
+    }
+    g_fv_addr_ok = 1; g_fv_frame = -1;
+    {
+        texbuffer_t t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_FV_W;
+        t.psm = GS_PSM_16;
+        t.address = g_fv_addr;
+        setup_texture_dims(&t, FP_FV_W, FP_FV_H);
+        g_fv_tex = t;
+    }
+    g_fv_ok = 1;
+    telemetry_event("freeplay_fav", 1, (int)bytes);
+}
+
+/* Leva o quadro `quadro` do coracao para a VRAM. 1 quando esta' la'. */
+static int freeplay_fav_vram(texbuffer_t *tpl, int quadro)
+{
+    texbuffer_t t;
+    if (!g_fv_ok || !g_fv_buf || quadro < 0 || quadro >= FP_FV_QUADROS) return 0;
+    if (g_fv_frame != quadro) {
+        if (pst_quadro(&g_fv_pack, (unsigned int)quadro, g_fv_buf) != PST_OK)
+            return 0;
+        t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_FV_W;
+        t.psm = GS_PSM_16;
+        t.address = g_fv_addr;
+        setup_texture_dims(&t, FP_FV_W, FP_FV_H);
+        FlushCache(0);
+        upload_raw_psm(&t, g_fv_buf, FP_FV_W, FP_FV_H, GS_PSM_16);
+        g_fv_frame = quadro;
     }
     return 1;
 }
@@ -3053,12 +3152,18 @@ static void freeplay_audio_passo(int parado)
    Um toque novo do MESMO som recomeca o som no mesmo slot: e' o limite de vozes
    que a tela de Resultado ja' declara (nao ha' duas instancias do mesmo sfx). */
 #define UI_SOM_DIR "mass:/FNFPS2/assets/result/"
-#define UI_SOM_N 3
+#define UI_SOM_N 5
 #define UI_SOM_SCROLL 0
 #define UI_SOM_CONFIRM 1
 #define UI_SOM_CANCEL 2
-static const char *const ui_som_nome[UI_SOM_N]={"scroll_menu","confirm_menu","cancel_menu"};
-static int ui_som_fd[UI_SOM_N]={-1,-1,-1};
+/* Os dois do FAVORITO (`FreeplayState.hx` L3092 e L3115: `Paths.sound('fav')` e
+   `'unfav'` a volume 1). Sao slots fixos como os tres de cima: o mesmo arquivo
+   e' reaproveitado, entao o `open` acontece uma vez por parada do anel. */
+#define UI_SOM_FAV 3
+#define UI_SOM_UNFAV 4
+static const char *const ui_som_nome[UI_SOM_N]={"scroll_menu","confirm_menu",
+                                                "cancel_menu","fav","unfav"};
+static int ui_som_fd[UI_SOM_N]={-1,-1,-1,-1,-1};
 static unsigned int ui_som_ger=0;
 
 /* `vol_pct` e' o volume da LINHA da fonte (o `playOnce(som, volume)`): 0,4 no
@@ -4317,7 +4422,7 @@ static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
 /* ===================== O SAVE (memory card) ==============================
  * O original guarda o recorde por musica e dificuldade no `Save` (`Save.hx`),
  * que o flixel grava num arquivo. Aqui o arquivo e' um so', de tamanho fixo
- * (1960 B: cabecalho de 16 + 81 registros de 24), no memory card:
+ * (1992 B: cabecalho de 16 + 81 registros de 24 + 32 do favorito), no cartao:
  *
  *     mc0:/FNFPS2/save.dat
  *
@@ -4356,8 +4461,12 @@ static void save_carregar_do_cartao(void)
         total += n;
     }
     close(fd);
-    r = (total == (int)SAVE_ARQUIVO_BYTES)
-            ? save_desserializar(&g_save, buf, SAVE_ARQUIVO_BYTES)
+    /* O arquivo da VERSAO 1 (1960 B) tambem entra: `save_desserializar` confere
+       o CRC do tamanho que a versao do cabecalho manda. Aceitar so' o tamanho
+       exato da versao atual faria o port "esquecer" o placar de quem jogou na
+       build anterior. */
+    r = (total >= (int)SAVE_ARQUIVO_BYTES_V1)
+            ? save_desserializar(&g_save, buf, (unsigned int)total)
             : SAVE_ERR_CURTO;
     if (r == 0) {
         g_save_ok = 1;
@@ -7099,6 +7208,26 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       (L2764) acabam de comecar e o fade da transicao leva 0,25 s. Quem para o
       anel e' `freeplay_audio_sair()`, na troca de estado -- e ele so' toca no
       anel se ele ainda for o desta tela (ver o comentario de la'). */
+   else if(pressed&PAD_SQUARE){
+    /* `controls.FREEPLAY_FAVORITE` -> `favoriteSong()` (`FreeplayState.hx`
+       L1686, L2150 e L3079-3130) e o `toggleFavorite()` que grava no save.
+       O ORIGINAL NAO LIGA BOTAO NENHUM: o `getDefaultGamepadBinds` devolve
+       lista vazia para `FREEPLAY_FAVORITE` (Controls.hx L1138-1140) e so' o
+       teclado tem a tecla F. No console nao ha' teclado, entao o SQUARE e' a
+       escolha do port -- o unico botao livre na tela (direcional anda, CROSS
+       toca, CIRCLE volta, START pausa). Divergencia registrada. */
+    int fidx=sr_song_index(g_fp[g_fp_sel]);
+    if(fidx>=0&&fidx<SAVE_MUSICAS){
+     int fav=save_favorito(&g_save,fidx);
+     save_favoritar(&g_save,fidx,!fav);
+     fp_fav_toggle(&g_fpfav[g_fp_sel],!fav);
+     ui_som_tocar(fav?UI_SOM_UNFAV:UI_SOM_FAV,100);
+     if(g_save.sujo)save_gravar_no_cartao();
+     /* O `freeplay_fav` ja' e' o do PACOTE (abriu, N bytes). Este aqui e' a
+        MARCA: (1 = virou favorita, indice da musica). */
+     telemetry_event("freeplay_fav_marca",!fav,fidx);
+    }
+   }
    if(pressed&PAD_CIRCLE){ui_som_tocar(UI_SOM_CANCEL,100);target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
     /* `FreeplayState.hx` L2764-2765: `playOnce(confirmMenu)` e o
@@ -8016,8 +8145,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     if(dms>100)dms=100;
     sp_ms_ant=g_fp_ms;
     dt=(float)dms/1000.0f;
-    {int si;for(si=0;si<g_fp_n&&si<FREEPLAY_MAX;si++)
-      fp_spk_passo(&g_fpsp[si],dt,FP_SP_X,FP_SP_Y);}}
+    {int si;for(si=0;si<g_fp_n&&si<FREEPLAY_MAX;si++){
+      fp_spk_passo(&g_fpsp[si],dt,FP_SP_X,FP_SP_Y);
+      /* O coracao usa o tempo do `FlxTimer` (0,2 s escondendo, 0,3 s de
+         empurrao) e a animacao de 13 quadros: mesmo `dt` real. */
+      fp_fav_passo(&g_fpfav[si],dt);}}}
    /* A CINEMATICA DE RANK: ela dura `FP_RK_FIM` (2,2 s) desde a abertura da
       tela. O `rankAnimStart` (L1069) e' a primeira coisa que roda ao voltar do
       resultado com `fromResults.playRankAnim`. */
@@ -8122,6 +8254,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     const fp_titulo_t *tit;
     texbuffer_t tt;
     float vdx=0.0f,vdy=0.0f,vang=0.0f;   /* o tremor/angulo das vizinhas */
+    float fady=0.0f,ysd;                 /* o empurrao do coracao e o y desenhado */
     unsigned char va;                     /* alpha do vertice: 0x80 = 1,0  */
     /* `generateSongList`: nasce em `initPosition(FlxG.width, 0)` com
        `y = intendedY(index) + 10` -- entra pela direita e sobe/desce. */
@@ -8149,6 +8282,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     }
     st->x=fp_suave_x(st->x,ax,1.0f/60.0f);
     st->y=fp_suave_y(st->y,ay,1.0f/60.0f);
+    /* O EMPURRAO do `favoriteSong` (`FlxTween` de +-5 px no y do ITEM, 0,1 s
+       expoOut + 0,1 s parado + 0,1 s expoIn; na metade: 2,5 px). Ele entra so'
+       no y DESENHADO: o `st->y` e' o do `smoothLerpPrecision` e misturar os
+       dois faria o alvo da lista escorregar a cada quadro. */
+    fady=fp_fav_dy(&g_fpfav[i]);
+    ysd=st->y+fady;
     /* O salto de entrada: `scale.x = xFrames[passo]`, `scale.y = 1/xFrames[passo]`
        (L687-688) -- e o passo e' de 1/24 s, 7 vezes. */
     sx=fp_escala_x(passo);sy=fp_escala_y(passo);
@@ -8168,10 +8307,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      ox=sel?0.0f:-2.5f;
      q=bind_texture_filter(q,&ct,1);
      if(vang!=0.0f)
-      q=rk_quad(q,st->x+ox+vdx,st->y+vdy,dw,dh,0.0f,0.0f,
+      q=rk_quad(q,st->x+ox+vdx,ysd+vdy,dw,dh,0.0f,0.0f,
                 (float)FP_CAP_W,(float)FP_CAP_H,vang,1.0f,va,0x80,0x80,0x80);
      else
-      q=sprite_region_alpha(q,st->x+ox+vdx,st->y+vdy,dw,dh,0.0f,0.0f,
+      q=sprite_region_alpha(q,st->x+ox+vdx,ysd+vdy,dw,dh,0.0f,0.0f,
                             (float)FP_CAP_W,(float)FP_CAP_H,va);
      ndes++;
     }
@@ -8190,10 +8329,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      }
      q=bind_texture_filter(q,&tt,1);
      if(vang!=0.0f)
-      q=rk_quad(q,st->x+FP_TEXTO_X+vdx,st->y+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
+      q=rk_quad(q,st->x+FP_TEXTO_X+vdx,ysd+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
                 u,0.0f,tw,th,vang,1.0f,ta,0x80,0x80,0x80);
      else
-      q=sprite_region_alpha(q,st->x+FP_TEXTO_X+vdx,st->y+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
+      q=sprite_region_alpha(q,st->x+FP_TEXTO_X+vdx,ysd+FP_TEXTO_Y+vdy,tw*tsx,th*tsy,
                             u,0.0f,tw,th,ta);
     }
     /* O SELO DE RANK da musica (`ranking`), por cima do titulo: no original ele
@@ -8216,7 +8355,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       q=gs_blend_add(q);
       if(vang!=0.0f)
        q=rk_quad(q,st->x+FP_RB_X+vdx,
-                 st->y+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
+                 ysd+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
                  (float)FP_RB_W,(float)FP_RB_H,
                  0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
                  vang,1.0f,(unsigned char)(sel?0x80:0x5A),
@@ -8225,7 +8364,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
                  (unsigned char)(sel?0x80:0x55));
       else
        q=sprite_region_alpha_cor(q,st->x+FP_RB_X+vdx,
-                            st->y+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
+                            ysd+FP_RB_Y+fp_rb_anims[rb].off_y+vdy,
                             (float)FP_RB_W,(float)FP_RB_H,
                             0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
                             (unsigned char)(sel?0x80:0x5A),
@@ -8258,12 +8397,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       q=bind_texture_filter(q,&spt,1);
       q=gs_blend_add(q);
       if(vang!=0.0f)
-       q=rk_quad(q,st->x+sp->x+vdx,st->y+sp->y+vdy,
+       q=rk_quad(q,st->x+sp->x+vdx,ysd+sp->y+vdy,
                  (float)FP_SP_W,(float)FP_SP_H,
                  0.0f,0.0f,(float)FP_SP_W,(float)FP_SP_H,
                  vang,1.0f,sa,0x80,0x80,0x80);
       else
-       q=sprite_region_alpha(q,st->x+sp->x+vdx,st->y+sp->y+vdy,
+       q=sprite_region_alpha(q,st->x+sp->x+vdx,ysd+sp->y+vdy,
                              (float)FP_SP_W,(float)FP_SP_H,
                              0.0f,0.0f,(float)FP_SP_W,(float)FP_SP_H,sa);
       q=gs_blend_normal(q);
@@ -8276,6 +8415,45 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       if(qsp==0&&!g_sp_disparo){g_sp_disparo=1;
        telemetry_event("freeplay_brilho_disparo",(int)(sp->x*10.0f),
                        (int)(sp->y*10.0f));}
+     }
+    }
+    /* O CORACAO DE FAVORITO (`SongMenuItem.hx` L202-219 e L801-802). Sao DUAS
+       copias do mesmo quadro, as duas em ADD: a `favIconBlurred` atras (alpha 1
+       no selecionado e 0 no resto -- nem se desenha) e a nitida na frente
+       (alpha 1 no selecionado, 0,6 no resto). O x depende do SELO estar
+       visivel (`checkClip` L306-318): 370 com selo, 405 sem. */
+    if(g_fv_ok&&i<FREEPLAY_MAX&&fp_fav_visivel(&g_fpfav[i])){
+     int qfv=fp_fav_quadro(&g_fpfav[i]);
+     if(qfv>=0&&freeplay_fav_vram(&g_fpc_tpl,qfv)){
+      texbuffer_t fvt=g_fpc_tpl;
+      float fvx=st->x+((g_rb_ok&&g_rb_rank[i]>=0)?FP_FV_X:FP_FV_X_SEM_SELO);
+      float fvy=ysd+FP_FV_Y;
+      unsigned char fva=(unsigned char)
+        ((sel?FP_FV_ALFA_SEL:FP_FV_ALFA_NAO_SEL)*128.0f+0.5f);
+      fvt.width=FP_FV_W;fvt.psm=GS_PSM_16;fvt.address=g_fv_addr;
+      setup_texture_dims(&fvt,FP_FV_W,FP_FV_H);
+      q=bind_texture_filter(q,&fvt,1);
+      q=gs_blend_add(q);
+      if(sel){
+       if(vang!=0.0f)
+        q=rk_quad(q,fvx+vdx,fvy+vdy,(float)FP_FV_W,(float)FP_FV_H,
+                  0.0f,0.0f,(float)FP_FV_W,(float)FP_FV_H,
+                  vang,1.0f,0x80,0x80,0x80,0x80);
+       else
+        q=sprite_region_alpha(q,fvx+vdx,fvy+vdy,(float)FP_FV_W,(float)FP_FV_H,
+                              0.0f,0.0f,(float)FP_FV_W,(float)FP_FV_H,0x80);
+      }
+      if(vang!=0.0f)
+       q=rk_quad(q,fvx+vdx,fvy+vdy,(float)FP_FV_W,(float)FP_FV_H,
+                 0.0f,0.0f,(float)FP_FV_W,(float)FP_FV_H,
+                 vang,1.0f,fva,0x80,0x80,0x80);
+      else
+       q=sprite_region_alpha(q,fvx+vdx,fvy+vdy,(float)FP_FV_W,(float)FP_FV_H,
+                             0.0f,0.0f,(float)FP_FV_W,(float)FP_FV_H,fva);
+      q=gs_blend_normal(q);
+      g_fv_desenhos++;
+      if(!g_fv_logado){g_fv_logado=1;
+       telemetry_event("freeplay_fav_desenho",qfv,(int)(fvx*10.0f));}
      }
     }
    }

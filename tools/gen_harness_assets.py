@@ -870,6 +870,12 @@ def _freeplay_files():
     if sp:
         out[sp["tex"]] = make_resultado_pack(sp["w"], sp["h"], sp["quadros"],
                                             bytes_por_pixel=sp["bpp"] // 8)
+    # O CORACAO DE FAVORITO (`freeplay/favheart.cfz4`): 13 quadros de 25x25 em
+    # 16 bpp, um slot de VRAM (`FP_FV_VRAM` = 1.250 B).
+    fv = plano.get("favorito")
+    if fv:
+        out[fv["tex"]] = make_resultado_pack(fv["w"], fv["h"], fv["quadros"],
+                                            bytes_por_pixel=fv["bpp"] // 8)
     # A CINEMATICA DE RANK (`freeplay/sparks|sparksadd|vinheta.cfz4`): 16 bpp,
     # com o numero de quadros e o tamanho que o header manda (o jogo recusa o
     # pacote se `frame_bytes` nao for exatamente `w*h*2`).
@@ -1000,6 +1006,10 @@ def build(root, charts_src=None):
         # porque o `menu_sfx.pcm` do porto nao tem essa amostra -- ver o
         # comentario em tools/empacotar_audio.py.
         "result/cancel_menu.pcm": pcm(48000 * 4 // 8, 348),
+        # Os dois do CORACAO DE FAVORITO (`favoriteSong`, FreeplayState L3092 e
+        # L3115), no mesmo diretorio dos outros sfx de menu.
+        "result/fav.pcm": pcm(48000 * 4 // 8, 350),
+        "result/unfav.pcm": pcm(48000 * 4 // 8, 352),
 
         "font.rgba": rgba_pattern(384, 192, 1),
         "title_alphabet.rgba": rgba_pattern(384, 192, 2),

@@ -224,6 +224,74 @@ int main(void)
                " e o destino fica intocado\n");
     }
 
+    printf("== save: o FAVORITO e o arquivo da VERSAO 1\n");
+    {
+        /* `Save.favoriteSong`/`unfavoriteSong` (Save.hx L671-686) e
+           `isSongFavorited` (L660-668): o favorito e' por MUSICA, nao por
+           dificuldade. */
+        unsigned int r;
+        save_init(&sv);
+        CHECK_EQ(save_favorito(&sv, 3), 0);
+        CHECK_EQ(save_favorito(&sv, 99), 0);          /* fora da faixa */
+        CHECK_EQ(save_favorito(&sv, -1), 0);
+        save_favoritar(&sv, 99, 1);                   /* nao estoura */
+        CHECK(!sv.sujo);
+        save_favoritar(&sv, 3, 1);
+        CHECK_EQ(save_favorito(&sv, 3), 1);
+        CHECK(sv.sujo);
+        CHECK_EQ(save_favorito(&sv, 0), 0);
+        CHECK_EQ(save_favorito(&sv, 4), 0);
+
+        n = save_serializar(&sv, buf);
+        CHECK_EQ(n, SAVE_ARQUIVO_BYTES);
+        CHECK_EQ(SAVE_ARQUIVO_BYTES, 1992u);
+        CHECK_EQ(SAVE_ARQUIVO_BYTES_V1, 1960u);
+        CHECK_EQ(save_desserializar(&volta, buf, n), 0);
+        CHECK_EQ(save_favorito(&volta, 3), 1);
+        CHECK_EQ(save_favorito(&volta, 4), 0);
+        CHECK(!volta.sujo);
+        /* Repetir o mesmo valor nao suja o arquivo; trocar, sim. */
+        save_favoritar(&volta, 3, 1);
+        CHECK(!volta.sujo);
+        save_favoritar(&volta, 3, 0);
+        CHECK_EQ(save_favorito(&volta, 3), 0);
+        CHECK(volta.sujo);
+
+        /* O ARQUIVO DA VERSAO 1 (1960 B): mesmo corpo, versao 1, SEM a secao do
+           favorito. Tem de ser lido inteiro -- recusa-lo apagaria o placar de
+           quem jogou na build anterior --, com favorito nenhum. */
+        {
+            static unsigned char v1[SAVE_ARQUIVO_BYTES_V1];
+            save_t velho;
+            save_init(&sv);
+            save_aplicar(&sv, 5, 2, &a);
+            n = save_serializar(&sv, buf);
+            CHECK_EQ(n, SAVE_ARQUIVO_BYTES);
+            memcpy(v1, buf, SAVE_ARQUIVO_BYTES_V1);
+            v1[4] = 1; v1[5] = 0;                     /* versao 1 */
+            {
+                unsigned int crc = save_crc32(v1 + 16, SAVE_CORPO_V1);
+                v1[12] = (unsigned char)(crc & 0xFFu);
+                v1[13] = (unsigned char)((crc >> 8) & 0xFFu);
+                v1[14] = (unsigned char)((crc >> 16) & 0xFFu);
+                v1[15] = (unsigned char)((crc >> 24) & 0xFFu);
+            }
+            save_init(&velho);
+            r = save_desserializar(&velho, v1, SAVE_ARQUIVO_BYTES_V1);
+            CHECK_EQ(r, 0);
+            CHECK(velho.carregado);
+            CHECK(save_obter(&velho, 5, 2) != 0);
+            CHECK_EQ(save_obter(&velho, 5, 2)->score, a.score);
+            CHECK_EQ(save_favorito(&velho, 5), 0);
+            CHECK_EQ(save_favorito(&velho, 3), 0);
+            /* E os 1960 B NAO valem como versao 2: o CRC cobre outro tamanho. */
+            memcpy(v1, buf, SAVE_ARQUIVO_BYTES_V1);
+            CHECK_EQ(save_desserializar(&velho, v1, SAVE_ARQUIVO_BYTES_V1),
+                     SAVE_ERR_CURTO);
+            printf("  favorito por musica; v2 ida e volta; v1 lido com o placar\n");
+        }
+    }
+
     printf(falhas ? "\nSAVE FALHOU (%d)\n" : "\nSAVE OK\n", falhas);
     return falhas ? 1 : 0;
 }

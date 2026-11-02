@@ -5,7 +5,8 @@
 #include "save.h"
 #include "gameplay.h"
 
-#define SAVE_VERSAO 1u
+#define SAVE_VERSAO 2u      /* ver o formato no .h */
+#define SAVE_VERSAO_1 1u    /* o arquivo da build anterior: lido, nao gravado */
 #define SAVE_REG_BYTES 24u
 
 void save_init(save_t *sv)
@@ -144,9 +145,25 @@ static unsigned int get32(const unsigned char *p)
            ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
 }
 
+int save_favorito(const save_t *sv, int musica)
+{
+    if (!sv || musica < 0 || musica >= SAVE_MUSICAS) return 0;
+    return sv->fav[musica] ? 1 : 0;
+}
+
+void save_favoritar(save_t *sv, int musica, int on)
+{
+    unsigned char novo;
+    if (!sv || musica < 0 || musica >= SAVE_MUSICAS) return;
+    novo = on ? 1u : 0u;
+    if (sv->fav[musica] == novo) return;
+    sv->fav[musica] = novo;
+    sv->sujo = 1;
+}
+
 unsigned int save_serializar(const save_t *sv, unsigned char *dst)
 {
-    unsigned int m, d, off;
+    unsigned int m, d, off, i;
     unsigned char *corpo;
     if (!sv || !dst) return 0;
     corpo = dst + 16;
@@ -169,6 +186,10 @@ unsigned int save_serializar(const save_t *sv, unsigned char *dst)
             p[23] = 0u;
             off += SAVE_REG_BYTES;
         }
+    /* A secao do FAVORITO: 27 bytes + 5 de zero. */
+    for (i = 0; i < SAVE_MUSICAS; i++) corpo[off + i] = sv->fav[i] ? 1u : 0u;
+    for (i = SAVE_MUSICAS; i < SAVE_FAVORITOS_BYTES; i++) corpo[off + i] = 0u;
+    off += SAVE_FAVORITOS_BYTES;
     memcpy(dst, "FNFS", 4);
     put16(dst + 4, SAVE_VERSAO);
     put16(dst + 6, (unsigned int)(SAVE_MUSICAS * SAVE_DIFS));
@@ -180,16 +201,21 @@ unsigned int save_serializar(const save_t *sv, unsigned char *dst)
 int save_desserializar(save_t *sv, const unsigned char *src, unsigned int bytes)
 {
     save_t tmp;
-    unsigned int m, d, off;
+    unsigned int m, d, off, ver, corpo_bytes;
     if (!sv || !src) return SAVE_ERR_CURTO;
     if (bytes < 16u) return SAVE_ERR_CURTO;
     if (memcmp(src, "FNFS", 4) != 0) return SAVE_ERR_MAGIC;
-    if (get16(src + 4) != SAVE_VERSAO) return SAVE_ERR_VERSAO;
+    ver = get16(src + 4);
+    /* A VERSAO 1 (1960 bytes, sem favorito) continua valida: e' o arquivo que a
+       build anterior deixou no cartao, e recusa-lo apagaria o placar do
+       jogador. O CRC cobre so' o corpo da versao que o arquivo diz ser. */
+    if (ver == SAVE_VERSAO_1) corpo_bytes = SAVE_CORPO_V1;
+    else if (ver == SAVE_VERSAO) corpo_bytes = SAVE_CORPO_V1 + SAVE_FAVORITOS_BYTES;
+    else return SAVE_ERR_VERSAO;
     if (get16(src + 6) != (unsigned int)(SAVE_MUSICAS * SAVE_DIFS))
         return SAVE_ERR_CONTAGEM;
-    if (bytes < (unsigned int)SAVE_ARQUIVO_BYTES) return SAVE_ERR_CURTO;
-    if (save_crc32(src + 16, (unsigned int)SAVE_MUSICAS * SAVE_DIFS * SAVE_REG_BYTES)
-        != get32(src + 12))
+    if (bytes < 16u + corpo_bytes) return SAVE_ERR_CURTO;
+    if (save_crc32(src + 16, corpo_bytes) != get32(src + 12))
         return SAVE_ERR_CRC;
 
     save_init(&tmp);
@@ -212,6 +238,11 @@ int save_desserializar(save_t *sv, const unsigned char *src, unsigned int bytes)
             if (!r->valido) memset(r, 0, sizeof(*r));
             off += SAVE_REG_BYTES;
         }
+    /* O favorito so' existe da versao 2 em diante; na 1 fica tudo zero, que e'
+       o que o `save_init` ja' deixou. */
+    if (ver >= SAVE_VERSAO)
+        for (m = 0; m < SAVE_MUSICAS; m++)
+            tmp.fav[m] = (src + 16)[off + m] ? 1u : 0u;
     tmp.carregado = 1;
     tmp.sujo = 0;
     *sv = tmp;
