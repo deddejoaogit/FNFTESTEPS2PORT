@@ -40,6 +40,7 @@
 #include "engine/splash.h"
 #include "engine/resultado.h"
 #include "engine/resultado_rank.h"
+#include "engine/save.h"
 #include "engine/freeplay.h"
 #include "engine/pack_multi.h"
 #include "engine/freeplay_dj_dados.h"
@@ -51,10 +52,11 @@
 #include <malloc.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>   /* mkdir() do diretorio do save no memory card */
 #include <string.h>
 
 #ifndef FNF_PS2_VERSION
-#define FNF_PS2_VERSION "0.2.35-official-element-geometry"
+#define FNF_PS2_VERSION "0.2.36-rank-character-and-save"
 #endif
 #define SCREEN_W 640
 #define SCREEN_H 448
@@ -333,6 +335,21 @@ static int g_res_rrf_desenho=-1;            /* mascara do ultimo conjunto    */
 static int g_res_rrf_logado=0;
 static int g_res_rrf_visto=0;              /* mascara: entrada ja' apareceu  */
 static int g_res_hs_logado=0;              /* o timer do selo de recorde     */
+/* O SELO DE RECORDE em si (`highscoreNew`): um pacote CFZ4 e UM quadro na VRAM
+   (42.200 B a 16 bpp, medido). So' sobe quando o resultado E' recorde. */
+static pst_pack_t g_res_hs_pack;
+static int g_res_hs_ok=0,g_res_hs_addr=0,g_res_hs_frame=-1,g_res_hs_desenho=0;
+static unsigned int g_res_hs_inicio=0;   /* getHighscoreDelay() do rank       */
+static unsigned char *g_res_hs_pixels=0;
+/* O RECORDE POR MUSICA E DIFICULDADE (engine/save.c). Sem ele o selo
+   `highscoreNew` nao tem dado nenhum: `params.isNewHighscore` viria do
+   `Save.instance` do original, e o port nao tinha save. Aqui ele existe, com a
+   regra do original, e o ARQUIVO vai para o memory card quando ha' um; sem
+   cartao a tela continua igual e o log diz que o save e' volatil. */
+static save_t g_save;
+static int g_save_ok=0;         /* 1 = o cartao respondeu (leitura/escrita)     */
+static int g_save_logado=0;
+static int g_res_hs_novo=0;     /* 1 = este resultado E' recorde               */
 static unsigned int g_res_rrf_ram=0;
 /* O PLACAR: os 52 quadros dos dez digitos num UNICO atlas (os dez aparecem ao
    mesmo tempo e durante o shuffle qualquer valor pode estar em qualquer
@@ -3421,6 +3438,100 @@ static qword_t *splash_draw(qword_t*q,texbuffer_t*t,u32 sample){
  }
  if(n!=g_splash_desenho){g_splash_desenho=n;telemetry_event("splash_ativos",n,g_splash.criados);}
  return q;}
+/* ===================== O SAVE (memory card) ==============================
+ * O original guarda o recorde por musica e dificuldade no `Save` (`Save.hx`),
+ * que o flixel grava num arquivo. Aqui o arquivo e' um so', de tamanho fixo
+ * (1960 B: cabecalho de 16 + 81 registros de 24), no memory card:
+ *
+ *     mc0:/FNFPS2/save.dat
+ *
+ * POR QUE `mc0:` E NAO O PENDRIVE
+ * O pendrive e' o cartucho do jogo: sai da maquina. Recorde que some junto com
+ * o cartao do jogo nao e' o comportamento do original. O memory card e' o lugar
+ * do save no PS2.
+ *
+ * SEM CARTAO NAO TRAVA NADA (regra 7): `open()` num dispositivo que nao existe
+ * devolve erro na hora, entao o jogo segue com o save vazio na RAM, escreve
+ * `save_estado,0,<erro>` no log e o resto da tela nao muda. O que ele NAO faz e'
+ * fingir que gravou: `save_gravado` diz 0 e o motivo.
+ *
+ * O FORMATO e' do `engine/save.c` (magic + versao + contagem + CRC32): arquivo
+ * cortado, de outra versao ou corrompido e' recusado INTEIRO, e o jogo comeca
+ * como se nunca tivesse jogado -- nunca com numeros inventados. */
+#define SAVE_DIR  "mc0:/FNFPS2"
+#define SAVE_PATH "mc0:/FNFPS2/save.dat"
+
+static void save_carregar_do_cartao(void)
+{
+    static unsigned char buf[SAVE_ARQUIVO_BYTES];
+    int fd, n, total = 0, r;
+    save_init(&g_save);
+    g_save_ok = 0;
+    fd = open(SAVE_PATH, O_RDONLY);
+    if (fd < 0) {
+        telemetry_event("save_estado", 0, -1);
+        return;
+    }
+    while (total < (int)SAVE_ARQUIVO_BYTES) {
+        n = read(fd, buf + total, (unsigned int)(SAVE_ARQUIVO_BYTES - total));
+        if (n <= 0) break;
+        total += n;
+    }
+    close(fd);
+    r = (total == (int)SAVE_ARQUIVO_BYTES)
+            ? save_desserializar(&g_save, buf, SAVE_ARQUIVO_BYTES)
+            : SAVE_ERR_CURTO;
+    if (r == 0) {
+        g_save_ok = 1;
+        telemetry_event("save_estado", 1, total);
+    } else {
+        /* Arquivo estragado NAO vira save meio lido: zera e diz o motivo. */
+        save_init(&g_save);
+        telemetry_event("save_estado", 0, r);
+    }
+}
+
+static void save_gravar_no_cartao(void)
+{
+    static unsigned char buf[SAVE_ARQUIVO_BYTES];
+    unsigned int n;
+    int fd;
+    if (!g_save.sujo) return;
+    n = save_serializar(&g_save, buf);
+    if (n == 0) return;
+    /* O diretorio do save: `mkdir` devolve erro quando ja' existe, e isso nao
+     * e' problema. */
+    mkdir(SAVE_DIR, 0777);
+    fd = open(SAVE_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        telemetry_event("save_gravado", 0, -1);
+        return;
+    }
+    {
+        unsigned int feito = 0;
+        while (feito < n) {
+            int w = write(fd, buf + feito, n - feito);
+            if (w <= 0) break;
+            feito += (unsigned int)w;
+        }
+        fsync(fd);
+        close(fd);
+        if (feito == n) {
+            g_save.sujo = 0;
+            g_save_ok = 1;
+            telemetry_event("save_gravado", (int)n, 0);
+        } else {
+            telemetry_event("save_gravado", (int)feito, -2);
+        }
+    }
+    /* Uma vez so' no log: com ou sem cartao, o JOGO segue igual. */
+    if (!g_save_logado) {
+        g_save_logado = 1;
+        telemetry_event("save_cartao", g_save_ok,
+                        g_save_ok ? 0 : (int)0);
+    }
+}
+
 #define RES_ASSET_DIR "mass:/FNFPS2/assets/"
 static void resultado_soltar(void);
 static int resultado_rank(void);   /* o rank da TELA (com o override de harness) */
@@ -3527,6 +3638,21 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
    telemetry_event("resultado_sem_vram",-2,(int)sp_livre(pool));
   }
   telemetry_event("resultado_placar_arte",g_res_score_ok,(int)bytes);}
+ /* O SELO DE RECORDE (`highscoreNew`). Carrega SEMPRE que a tela abre (a arte e'
+    pequena e o dado -- "e' recorde?" -- ja' foi decidido na entrada), mas so'
+    DESENHA quando o resultado e' recorde. */
+ g_res_hs_ok=0;g_res_hs_addr=0;g_res_hs_frame=-1;g_res_hs_desenho=0;
+ /* O instante de entrada e' o `getHighscoreDelay()` do rank desta partida. */
+ {int ri=res_rr_indice(resultado_rank());
+  g_res_hs_inicio=ri>=0?res_rr_highscore_ms(ri):0u;}
+ {unsigned int bytes=RES_HS_VRAM,addr=0;
+  if(pst_abrir(RES_ASSET_DIR RES_HS_TEX,&g_res_hs_pack)==PST_OK){
+   if(!g_res_hs_pixels)g_res_hs_pixels=(unsigned char*)memalign(64,(size_t)bytes);
+   if(g_res_hs_pixels&&sp_chave(pool,SP_CHAVE_TELA_BASE+0x29u,bytes,&addr)>=0){
+    g_res_hs_addr=addr;g_res_hs_ok=1;
+   }else telemetry_event("resultado_sem_vram",0x29,(int)sp_livre(pool));
+  }
+  telemetry_event("resultado_selo",g_res_hs_ok,(int)bytes);}
  /* A ANIMACAO DO PERSONAGEM POR RANK. Cada entrada e' um pacote CFZ4 aberto
     pelo `pack_multi` (tabela na RAM, quadro no pendrive) e UM quadro na VRAM.
     O pacote do rank `PERFECT` e' o MESMO arquivo do `PERFECT_GOLD` (o
@@ -3746,6 +3872,41 @@ static qword_t *resultado_rrf_arte(qword_t *q, texbuffer_t *tpl)
  return q;
 }
 
+/* O SELO DE RECORDE no desenho (`highscoreNew`, zIndex 1200 -- o ULTIMO grupo
+   da tela, depois das folhas e do placar). Entra no `getHighscoreDelay()` do
+   rank e so' quando o resultado E' recorde; depois da primeira passada ele
+   repete do quadro 16 (`play("new", true, false, 16)`). Um quadro por vez na
+   VRAM, lido do pendrive quando muda. */
+static qword_t *resultado_selo_arte(qword_t *q, texbuffer_t *tpl)
+{
+ int fr;
+ texbuffer_t t;
+ if(!g_res_hs_ok)return q;
+ fr=res_hs_quadro((unsigned long)g_res_ms,g_res_hs_inicio);
+ if(fr<0)return q;
+ if(fr!=g_res_hs_frame){
+  if(pst_quadro(&g_res_hs_pack,(unsigned)fr,g_res_hs_pixels)!=PST_OK)return q;
+  t=*tpl;t.width=g_res_hs.w;t.psm=RES_HS_BPP==16?GS_PSM_16:GS_PSM_32;
+  t.address=(unsigned int)g_res_hs_addr;
+  setup_texture_dims(&t,(int)g_res_hs.w,(int)g_res_hs.h);
+  FlushCache(0);
+  if(RES_HS_BPP==16)upload_raw_psm(&t,g_res_hs_pixels,(int)g_res_hs.w,
+                                   (int)g_res_hs.h,GS_PSM_16);
+  else upload_raw(&t,g_res_hs_pixels,(int)g_res_hs.w,(int)g_res_hs.h);
+  g_res_hs_frame=fr;
+ }
+ t=*tpl;t.width=g_res_hs.w;t.psm=RES_HS_BPP==16?GS_PSM_16:GS_PSM_32;
+ t.address=(unsigned int)g_res_hs_addr;
+ setup_texture_dims(&t,(int)g_res_hs.w,(int)g_res_hs.h);
+ q=bind_texture_filter(q,&t,1);
+ q=sprite_region(q,g_res_hs.x,g_res_hs.y,
+                 (float)g_res_hs.w*g_res_hs.fator,(float)g_res_hs.h*g_res_hs.fator,
+                 0.0f,0.0f,(float)g_res_hs.w,(float)g_res_hs.h);
+ if(!g_res_hs_desenho){g_res_hs_desenho=1;
+  telemetry_event("resultado_selo_desenho",fr,g_res_ms);}
+ return q;
+}
+
 static void resultado_soltar(void)
 {
  int i;
@@ -3755,9 +3916,13 @@ static void resultado_soltar(void)
  if(g_res_ss_addr)sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x26u);
  g_res_ss_ok=0;g_res_ss_addr=0;g_res_ss_frame=-1;g_res_ss_logado=0;
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
+ if(g_res_hs_addr)sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x29u);
  {int k;for(k=0;k<(int)RES_RR_MAX_ENTRADAS;k++){
    if(g_res_rrf_vram[k])sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x27u+(unsigned)k);
    g_res_rrf_vram[k]=0;g_res_rrf_addr[k]=0;g_res_rrf_frame[k]=0xffffffffu;}}
+ if(g_res_hs_ok){pst_fechar(&g_res_hs_pack);}
+ g_res_hs_ok=0;g_res_hs_addr=0;g_res_hs_frame=-1;g_res_hs_desenho=0;
+ g_res_hs_inicio=0;
  res_rr_liberar(&g_res_rrf);
  if(g_res_rrf_pixels){free(g_res_rrf_pixels);g_res_rrf_pixels=0;g_res_rrf_pixels_bytes=0;}
  g_res_rrf_ok=0;g_res_rrf_rank=-1;g_res_rrf_desenho=-1;g_res_rrf_logado=0;g_res_rrf_ram=0;
@@ -5261,7 +5426,12 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
    sai do proprio telemetry_init. */
 if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
-{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
+{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}
+/* O SAVE DO MEMORY CARD. Uma leitura de 1.960 B; sem cartao `open()` devolve
+   erro na hora e o jogo segue com o save vazio (o log diz o motivo). Fica aqui,
+   antes de qualquer tela, porque o selo de recorde e a Freeplay precisam do
+   dado ja' no primeiro resultado. */
+save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
  dma_channel_initialize(DMA_CHANNEL_GIF,NULL,0);dma_channel_fast_waits(DMA_CHANNEL_GIF);graph_vram_clear();
  fb[0].width=SCREEN_W;fb[0].height=SCREEN_H;fb[0].psm=FB_PSM;fb[0].mask=0;fb[0].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);fb[1]=fb[0];fb[1].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
@@ -5908,6 +6078,35 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       fundo entram. `g_res_t0` marca o instante da abertura, porque os timers
       do original (6/24, 21/24 e 36/24 s) contam a partir dela. */
    resultado_carregar(&g_pool,&stagetex,story_diff);
+   /* O RECORDE DESTA MUSICA. E' aqui que o original decide duas coisas de uma
+      vez (`PlayState.hx` L3503-3512): PERGUNTA se o placar e' recorde
+      (`Save.isSongHighScore`) e GRAVA o melhor (`Save.applySongRank`). A ordem
+      importa -- perguntar depois de gravar daria "recorde" em toda partida.
+      Practice Mode nao conta (`if (!isPracticeMode && !isBotPlayMode)`). */
+   g_res_hs_novo=0;
+   {int mi=g_play_song?sr_song_index(g_play_song):-1;
+    if(mi>=0&&mi<SAVE_MUSICAS&&!g_play.practice&&g_play.total_notes>0){
+     save_score_t r;
+     memset(&r,0,sizeof(r));
+     r.score=(unsigned int)(g_play.score>0?g_play.score:0);
+     r.sick=(unsigned short)(g_play.sick>0?g_play.sick:0);
+     r.good=(unsigned short)(g_play.good>0?g_play.good:0);
+     r.bad=(unsigned short)(g_play.bad>0?g_play.bad:0);
+     r.shit=(unsigned short)(g_play.shit>0?g_play.shit:0);
+     r.missed=(unsigned short)(g_play.missed>0?g_play.missed:0);
+     r.combo=(unsigned short)(g_play.combo>0?g_play.combo:0);
+     r.max_combo=(unsigned short)(g_play.max_combo>0?g_play.max_combo:0);
+     r.total_hit=(unsigned short)(g_play.total_notes_hit>0?g_play.total_notes_hit:0);
+     r.total_notes=(unsigned short)g_play.total_notes;
+     r.valido=1;
+     g_res_hs_novo=save_novo_recorde(&g_save,mi,story_diff,r.score);
+     save_aplicar(&g_save,mi,story_diff,&r);
+     telemetry_event("save_resultado",mi*10+story_diff,g_res_hs_novo);
+     /* O original grava na hora (`setSongScore` -> `Save.system.flush()`). */
+     save_gravar_no_cartao();
+    }else{
+     telemetry_event("save_resultado",-1,g_play.practice?1:0);
+    }}
    g_res_t0=GetTimerSystemTime();g_res_ms=0;g_res_logado=0;
    /* O ZOOM DO HUD, medido: o maior valor da musica e quantas vezes o HUD
       subiu. Sem isso, "o HUD pisca" nao teria numero nenhum no log do
@@ -7294,7 +7493,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      unsigned int hs=res_rr_highscore_ms(g_res_rrf_rank);
      if(hs&&(unsigned long)g_res_ms>=hs){
       g_res_hs_logado=1;
-      telemetry_event("resultado_highscore",0,(int)hs);
+      telemetry_event("resultado_highscore",g_res_hs_novo,(int)hs);
      }
     }
     /* AS ANIMACOES DO PERSONAGEM DO RANK (zIndex 499..501). Entram entre os
@@ -7616,6 +7815,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     q=text_draw(q,lb,tx,ty+242,1.1f,1);
    }
    q=text_draw(q,"CROSS  CONTINUE",tx,ty+272,0.8f,1);}   /* fecha o bloco do leiaute */
+   /* O SELO DE RECORDE: zIndex 1200 e o ULTIMO `add` da tela no original, entao
+      ele e' o ultimo a ser desenhado aqui tambem (por cima das folhas e do
+      placar). So' aparece quando o resultado e' recorde -- e o "e' recorde?" vem
+      do `engine/save.c`, nao de um palpite. */
+   if(g_res_hs_novo&&g_res_hs_ok)q=resultado_selo_arte(q,&stagetex);
    q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);
    if(!g_result_drawn){g_result_drawn=1;
     telemetry_event("result_draw",g_frame_texture_quads-q0,0);

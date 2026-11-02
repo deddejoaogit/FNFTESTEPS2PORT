@@ -95,6 +95,12 @@ float sr_scroll(const sr_song_t *song, int difficulty);
 /* Total number of songs across all weeks. */
 unsigned int sr_song_count(void);
 
+/* Indice ESTAVEL da musica na lista do jogo (0..sr_song_count()-1), na ordem
+ * das semanas -- e' a chave do save (`Save.scores.songs` do original e' um mapa
+ * por id, e aqui a lista e' fixa, entao o indice e' a mesma coisa sem alocar
+ * nada). -1 quando a musica nao esta' na lista. */
+int sr_song_index(const sr_song_t *song);
+
 /* Week by index (0..SR_LEVEL_COUNT-1), or NULL when out of range. */
 const sr_level_t *sr_level(unsigned int index);
 

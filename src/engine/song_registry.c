@@ -43,6 +43,19 @@ unsigned int sr_song_count(void)
     return n;
 }
 
+int sr_song_index(const sr_song_t *song)
+{
+    unsigned int i, j;
+    int n = 0;
+    if (!song) return -1;
+    for (i = 0; i < SR_LEVEL_COUNT; i++) {
+        const sr_level_t *l = g_levels[i];
+        for (j = 0; j < l->song_count; j++, n++)
+            if (l->songs[j] == song) return n;
+    }
+    return -1;
+}
+
 const sr_level_t *sr_level(unsigned int index)
 {
     if (index >= SR_LEVEL_COUNT) return NULL;

@@ -168,6 +168,30 @@ float res_rank_scroll_x(const res_rank_t *r, int linha, unsigned long ms)
 
 #define RES_SCORE_NOMES_MAX 10
 
+int res_hs_quadro(unsigned long ms, unsigned int inicio_ms)
+{
+#ifdef RES_HS_QUADROS
+    unsigned long k;
+    unsigned int primeiro;
+    if (RES_HS_FPS == 0u || RES_HS_QUADROS == 0u) return -1;
+    /* O instante NAO e' fixo: e' o `rank.getHighscoreDelay()` do rank da
+     * partida (Scoring.hx L587-604), que o chamador tem na tabela do rank. */
+    if (ms < (unsigned long)inicio_ms) return -1;
+    k = ((ms - (unsigned long)inicio_ms) * (unsigned long)RES_HS_FPS) / 1000ul;
+    if (k < (unsigned long)RES_HS_QUADROS) return (int)k;
+    primeiro = RES_HS_LOOP;
+    if (primeiro >= RES_HS_QUADROS) return (int)(RES_HS_QUADROS - 1u);
+    /* Depois da primeira passada, `play("new", true, false, 16)`: recomeca no
+     * quadro 16 e vai ate' o fim, para sempre. */
+    return (int)(primeiro + (unsigned int)((k - (unsigned long)RES_HS_QUADROS) %
+                (unsigned long)(RES_HS_QUADROS - primeiro)));
+#else
+    (void)ms;
+    (void)inicio_ms;
+    return -1;
+#endif
+}
+
 int res_score_digitos(long score)
 {
     long lim = 10000000000L;  /* Math.pow(10, group.members.length), 10 slots */

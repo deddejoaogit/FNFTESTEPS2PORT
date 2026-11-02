@@ -28,7 +28,8 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 cd "$HERE"
 for t in empacotar_resultado empacotar_tallies empacotar_clearpercent \
          empacotar_topbar empacotar_nome empacotar_resultado_musica \
-         empacotar_soundsystem empacotar_resultado_rank; do
+         empacotar_soundsystem empacotar_resultado_rank \
+         empacotar_highscore; do
     echo "== $t =="
     python3 "tools/$t.py" --assets "$ASSETS"
 done

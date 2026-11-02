@@ -640,6 +640,44 @@ int main(void)
     res_liberar(&r);
     CHECK_EQ(res_quadro(&r, 0, 900000ul), -1);   /* fechado: nao mostra nada */
 
+    /* O SELO DE RECORDE (`highscoreNew`). A fonte (`ResultState.hx` L408-427):
+     * 29 quadros a 24 fps, e ao terminar toca de novo A PARTIR DO QUADRO 16
+     * (`play("new", true, false, 16)`), o que se repete para sempre. O instante
+     * de entrada e' o `getHighscoreDelay()` do rank -- por isso a funcao recebe
+     * o inicio em vez de ter um numero fixo. */
+    {
+        /* 5375 ms = 129/24, o GREAT (o rank que o roteiro do harness alcanca). */
+        unsigned int ini = 5375u;
+        int q0 = res_hs_quadro(ini - 1u, ini);
+        CHECK_EQ(q0, -1);                       /* antes do timer: nada */
+        CHECK_EQ(res_hs_quadro(ini, ini), 0);
+        CHECK_EQ(res_hs_quadro(ini + 41u, ini), 0);
+        CHECK_EQ(res_hs_quadro(ini + 42u, ini), 1);
+        /* Cada quadro dura 1000/24 = 41,67 ms: o quadro 28 comeca em 1166,7 ms,
+         * entao em 1166 ainda e' o 27 e em 1167 ja' e' o 28. A primeira passada
+         * acaba em 1208,3 ms (quadro 29, que nao existe). */
+        CHECK_EQ(res_hs_quadro(ini + 1166u, ini), 27);
+        CHECK_EQ(res_hs_quadro(ini + 1167u, ini), 28);
+        CHECK_EQ(res_hs_quadro(ini + 1208u, ini), 28);
+        /* Depois: `play("new", true, false, 16)`, ou seja 16..28 (13 quadros,
+         * 541,7 ms) para sempre. */
+        CHECK_EQ(res_hs_quadro(ini + 1209u, ini), 16);
+        CHECK_EQ(res_hs_quadro(ini + 1251u, ini), 17);
+        CHECK_EQ(res_hs_quadro(ini + 1209u + 542u, ini), 16);
+        {
+            /* Um valor sempre dentro da faixa, por mais tempo que passe. */
+            unsigned long t;
+            int dentro = 1;
+            for (t = ini; t < ini + 600000ul; t += 137ul) {
+                int q = res_hs_quadro(t, ini);
+                if (q < 0 || q >= (int)RES_HS_QUADROS) dentro = 0;
+            }
+            CHECK_EQ(dentro, 1);
+        }
+        printf("  ok:   selo de recorde: %d quadros, entra no getHighscoreDelay e"
+               " repete do %d\n", (int)RES_HS_QUADROS, (int)RES_HS_LOOP);
+    }
+
     snprintf(cmd, sizeof(cmd), "rm -rf %s", DIR);
     if (system(cmd) != 0) { /* limpeza best-effort */ }
 

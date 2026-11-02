@@ -2214,5 +2214,30 @@
   "vram_bytes": 186224,
   "limite": 190000,
   "linha": "ResultState.hx L189-199 (posicao, 8/24 s, 24 fps, zIndex 1100)"
+ },
+ "highscore": {
+  "id": "highscoreNew",
+  "prefixo": "highscoreAnim0",
+  "fonte": "resultScreen/highscoreNew",
+  "src_w": 844,
+  "src_h": 99,
+  "escala": 0.5,
+  "fator": 1.0,
+  "w": 422,
+  "h": 50,
+  "bpp": 16,
+  "quadros": 29,
+  "fps": 24,
+  "looped": false,
+  "quadro_loop": 16,
+  "x": 22.0,
+  "y": 278.5,
+  "tex": "resultado/highscoreNew.cfz4",
+  "partes": [
+   "highscoreNew.cfz4"
+  ],
+  "vram_bytes": 42200,
+  "limite": 217856,
+  "linha": "ResultState.hx L149 e L408-427 (posicao, 24 fps, quadro 16 do loop, zIndex 1200, rank.getHighscoreDelay())"
  }
 }

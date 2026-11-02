@@ -208,6 +208,33 @@ static const res_ss_t g_res_ss = {
 
 
 
+/* O SELO DE RECORDE (`highscoreNew`, ResultState.hx L149 e L408-427):
+ * 29 quadros a 24 fps NAO loopados; ao terminar, toca de novo a partir do
+ * quadro 16 (`play("new", true, false, 16)`), que e' o que repete.
+ * Em (44,557) do original, zIndex 1200. `x`/`y` ja' estao em 640x360.
+ * Ele SO' aparece quando o resultado E' recorde -- e o recorde vem do
+ * `engine/save.c`, nao de um palpite. */
+#define RES_HS_QUADROS 29u
+#define RES_HS_FPS     24u
+#define RES_HS_LOOP    16u
+#define RES_HS_BPP     16u
+#define RES_HS_TEX     "resultado/highscoreNew.cfz4"
+#define RES_HS_VRAM    42200u
+
+typedef struct {
+    unsigned short w, h;      /* canvas NO PACOTE               */
+    float          fator;     /* desenho = w/h * fator          */
+    float          x, y;      /* canto superior esquerdo        */
+    /* inicio (getHighscoreDelay) NAO fica aqui: ele e' do RANK, e mora
+     * na tabela do rank (`res_rr_highscore_ms`). */
+} res_hs_t;
+
+static const res_hs_t g_res_hs = {
+    422u, 50u, 1.0000f, 22.0f, 278.5f
+};
+
+
+
 #define RES_TALLIES 7u
 #define RES_TALLY_FRAMES 10u
 

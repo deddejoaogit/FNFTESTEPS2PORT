@@ -95,6 +95,16 @@ float res_rank_scroll_y(const res_rank_t *r, unsigned long ms);
  * (`(i % 2 == 0) ? -7.0 : 7.0`, L694-698). */
 float res_rank_scroll_x(const res_rank_t *r, int linha, unsigned long ms);
 
+/* ---- O SELO DE RECORDE (`highscoreNew`) ----------------------------------
+ *
+ * `ResultState.hx` L408-427: 29 quadros a 24 fps NAO loopados; ao terminar, toca
+ * de novo A PARTIR DO QUADRO 16 e, como o `looped` do anim e' false, isso se
+ * repete. O instante de entrada e' o `rank.getHighscoreDelay()`, e ele so'
+ * aparece quando o resultado E' recorde -- o que o `engine/save.c` decide.
+ * Funcao pura do tempo: nao le' arquivo nem VRAM.
+ */
+int res_hs_quadro(unsigned long ms, unsigned int inicio_ms);
+
 /* ---- O PLACAR (ResultScore.hx L17-75 e L108-180) --------------------------
  *
  * `ResultState.create()` L151: `new ResultScore(35, 305, 10, score)` -- dez

@@ -770,6 +770,18 @@ def _freeplay_dj_files():
     return out
 
 
+def resultado_highscore():
+    """O SELO DE RECORDE (`highscoreNew`), do plano: (tex, w, h, quadros, bpp)."""
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return None
+    d = json.load(open(caminho, encoding="utf-8")).get("highscore")
+    if not d:
+        return None
+    return d["tex"], d["w"], d["h"], d["quadros"], d.get("bpp", 16)
+
+
 def _resultado_rank_files():
     """A ANIMACAO DO PERSONAGEM POR RANK (`assets-data/resultado-rank-plan.json`).
 
@@ -975,6 +987,14 @@ def build(root, charts_src=None):
         # (o `PERFECT` reusa o do `PERFECT_GOLD`). Sem eles a tela de Resultado
         # nao mostra o personagem do rank e o log diz `resultado_rrf`=0.
         **_resultado_rank_files(),
+        # O SELO DE RECORDE: CFZ4 de 29 quadros no tamanho do plano (422x50 a
+        # 16 bpp). Sem ele o selo nao acende e o log diz `resultado_selo`=0.
+        **(dict([("%s" % resultado_highscore()[0],
+                 make_resultado_pack(resultado_highscore()[1],
+                                     resultado_highscore()[2],
+                                     resultado_highscore()[3],
+                                     2))])
+           if resultado_highscore() else {}),
         # O atlas do PLACAR: os 52 quadros dos digitos num unico RGBA, no
         # tamanho exato que `g_res_score` espera (sem ele os digitos nao saem).
         **({"resultado/%s" % os.path.basename(resultado_score()[0]):

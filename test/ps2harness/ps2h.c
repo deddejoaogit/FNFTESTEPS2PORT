@@ -829,6 +829,13 @@ static const char *ps2h_map_path(const char *p, char *buf, size_t n)
    nao abriu" e reprova a raiz de assets por um arquivo que NUNCA existiu. */
 static int h_ausencia_declarada(const char *p)
 {
+    /* O MEMORY CARD NAO E' ASSET. O save do jogo mora em `mc0:` (o cartao do
+       PS2, nao o pendrive do jogo), e no PC nao existe `mc0:`: o `open` falha
+       ali do mesmo jeito que falharia num console sem cartao, e o JOGO trata
+       isso como "save volatil" (o log diz `save_estado,0,-1`). Contar essa
+       falha como asset ausente reprovaria a raiz de assets por um caminho que
+       nunca pertenceu a ela. */
+    if (p && !strncmp(p, "mc0:/", 5)) return 1;
     return strstr(p, "/gameover/loss_sfx-pico-gutpunch.pcm") != NULL
         || strstr(p, "/gameover/loss_sfx-pico-and-nene.pcm") != NULL;
 }

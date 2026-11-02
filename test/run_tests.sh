@@ -449,6 +449,19 @@ echo
 # inicial, o loop por rotulo/por quadro e a pausa no ultimo quadro. Tambem
 # confere a TABELA gerada: todo rank tem indice, toda entrada cabe no proprio
 # pacote e o pior rank cabe nos 350.208 B medidos livres na tela de Resultado.
+# O SAVE: o recorde por musica e dificuldade. Sem ele o selo de recorde do
+# ResultState nao tem dado (`params.isNewHighscore`), e o port ficava com o
+# `else` da fonte para sempre. Aqui se prova a regra do original (primeiro
+# resultado E' recorde; empate nao; o save guarda o maior placar com os tallies
+# do melhor rank), o formato (ida e volta) e a recusa inteira de arquivo
+# corrompido. `gameplay.c` entra porque o rank do registro sai da MESMA funcao
+# que julgou a musica (`fnf_play_rank`).
+echo "== save: recorde por musica e dificuldade (o dado do selo de recorde) =="
+$CC $FLAGS test/test_save.c src/engine/save.c src/engine/gameplay.c \
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_save -lm
+/tmp/fnf_test_save || exit 1
+echo
+
 echo "== resultado: a animacao do personagem por rank =="
 $CC $FLAGS test/test_resultado_rank.c src/engine/resultado_rank.c \
     src/engine/pack_multi.c src/engine/pack_stream.c \

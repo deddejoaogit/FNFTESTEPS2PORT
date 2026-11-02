@@ -3083,7 +3083,8 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| `highscoreNew` (o selo de recorde) | **e' do jogo, mas o DADO nao existe**: `ResultState.hx` L415-426 so' o desenha se `params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)` | o TIMER do original ja' roda (`rank.getHighscoreDelay()`: 5833 ms no PERFECT/EXCELLENT, 5375 no GREAT, 5292 no GOOD, 8625 no SHIT) e o desenho NAO acontece -- e' o `else` da fonte, e o log diz `resultado_highscore,0,<ms>`. Falta o SAVE (memory card) para esse campo ter valor; enquanto nao houver, o caso e' reportado, nunca inventado |
+| *nenhum item de LÓGICA* | -- | -- |
+| o RECORDE so' PERSISTE com memory card | `Save.instance` do original grava num arquivo; o port grava `mc0:/FNFPS2/save.dat` (1.960 B, magic+versão+CRC32). **No PC o `mc0:` não existe**, então o harness roda com o save na RAM (`save_estado,0,-1`) -- a regra é a mesma, o que não dá para provar fora do console é a gravação no cartão | testar no console com um cartão: o log tem de mostrar `save_estado,1` na segunda partida e `save_gravado,1960,0` no fim da primeira |
 
 #### A tela de Resultado: a arte entrou
 
@@ -3138,6 +3139,41 @@ vertical (250 ms alternando a cada 83 ms) e as 12 linhas horizontais em
 `y = 60 + 67,5*i` com `vel.x = -/+3,5` e espaco de 5 px tambem sao os da
 fonte, com as formulas isoladas em `engine/resultado.c` (funcoes puras, com a
 linha do original no comentario) e testadas em `test/test_resultado.c`.
+
+#### O SAVE: o recorde por musica e dificuldade, e o SELO DE RECORDE
+
+`ResultState.hx` L415-426 so' desenha o `highscoreNew` quando
+`params.isNewHighscore`. Esse valor vem de
+`Save.instance.isSongHighScore(...)` (`PlayState.hx` L3503), isto e', do SAVE do
+jogo. Ate' esta build o port nao tinha save nenhum, entao o campo era dado
+ausente e o selo nunca aparecia. Agora:
+
+* **`engine/save.c`** guarda `score` + `tallies` (sick/good/bad/shit/missed/
+  combo/maxCombo/totalNotesHit/totalNotes) por musica x dificuldade (27 x 3),
+  com a regra da fonte: `isSongHighScore` (Save.hx L568-582: **sem registro ->
+  `true`**, senao `score >` o guardado) e `applySongRank` (L531-556: maior
+  placar + tallies do melhor rank; no empate, os do maior `tallyCompletion`).
+  O rank NAO tem formula paralela: o registro e' montado num `fnf_play_t` e
+  quem responde e' `fnf_play_rank`, a mesma funcao que julgou a musica.
+* **O formato** e' de tamanho fixo (1.960 B: `FNFS` + versao + contagem + CRC32
+  + 81 registros de 24 B). Arquivo curto, de outra versao ou com CRC errado e'
+  recusado INTEIRO -- o jogo comeca como quem nunca jogou, nunca com numero
+  inventado (`test/test_save.c` prova as cinco recusas).
+* **O arquivo** vai para o memory card: `mc0:/FNFPS2/save.dat`. Sem cartao o
+  `open()` falha na hora (nada trava) e o log diz `save_estado,0,-1` e
+  `save_gravado,0,-1`; o save fica na RAM e a tela e' a mesma.
+* **O selo** (`highscoreNew`) entrou como arte: Sparrow de **29 quadros** a
+  24 fps, canvas de 844x99 no original -> **422x50 a 16 bpp = 42.200 B** de
+  VRAM (cabe nos 175.616 B que sobram no pior rank). Ele entra no
+  `rank.getHighscoreDelay()` (8625 ms no SHIT, 5375 no GREAT, ...) e, depois da
+  primeira passada, repete do quadro 16 (`play("new", true, false, 16)`), como
+  a fonte. zIndex 1200: e' o ultimo grupo da tela.
+
+Medido no harness (sem cartao, entao save vazio): `save_estado,0,-1`,
+`save_resultado,1,1` (musica 0/dificuldade 1, e' recorde), `resultado_highscore,1,5375`
+e `resultado_selo_desenho,0,5834` -- o selo desenhou o quadro 0 no instante do
+timer. Num console com cartao, o esperado e' `save_estado,1` na partida
+seguinte e `save_gravado,1960,0` no fim.
 
 #### A tela de Resultado: o PERSONAGEM DO RANK se move
 

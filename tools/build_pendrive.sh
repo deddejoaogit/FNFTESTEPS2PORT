@@ -278,6 +278,14 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/resultado/      a arte da tela de Resultado (folhas, placar,
                                     rank, a animacao do personagem por rank)
        FNFPS2/assets/freeplay/       as capsulas, o fundo, os titulos e o DJ
+                                    (o .chp4 do DJ fica de fora: a tabela vai
+                                    compilada no FNF_PS2.ELF)
+
+   O RECORDE fica no MEMORY CARD, nao no pendrive:
+       mc0:/FNFPS2/save.dat           1.960 B (placar e tallies por musica e
+                                      dificuldade). Sem cartao o jogo roda
+                                      igual e o save vale so' na sessao -- o log
+                                      diz `save_estado,0,-1`.
    Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
    os fundos nao aparecem. Sem gameover/ a tela de game over fica sem som
    (musica, o sfx do blue balls e o gameOverEnd do confirmar). Os dois casos deixam evento no log

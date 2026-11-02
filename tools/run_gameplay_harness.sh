@@ -212,11 +212,38 @@ rrf_entra() {
 RESRRF0=$(rrf_entra 0)
 RESRRF1=$(rrf_entra 1)
 RESRRFDES=$(awk -F, '$1=="E" && $3=="resultado_rrf_desenho" {v=$4} END{print v}' "$LOG")
-# O SELO DE RECORDE (`highscoreNew`): o VALOR nao existe -- o port nao tem save,
-# entao `params.isNewHighscore` e' dado ausente e o selo fica invisivel (o `else`
-# da fonte). O que se cobra aqui e' o TIMER: `rank.getHighscoreDelay()` depois da
-# abertura da tela (Scoring.hx L587-604), e o log dizendo que nao desenhou.
+# O SELO DE RECORDE (`highscoreNew`). O VALOR agora existe: o `engine/save.c`
+# guarda o recorde por musica e dificuldade, e a primeira partida de uma musica
+# E' recorde (`Save.hx` L577-580: sem registro anterior, `true`). Aqui nao ha'
+# memory card, entao o save vive na RAM (`save_estado,0`), mas a REGRA e' a
+# mesma -- e' ela que este gate cobra: `save_resultado` com o indice da musica
+# e o "e' recorde?", e o timer de `rank.getHighscoreDelay()` (L587-604) com o
+# valor 1 (desenhado).
 RESHS=$(awk -F, '$1=="E" && $3=="resultado_highscore" {print $4; exit}' "$LOG")
+SAVEEST=$(awk -F, '$1=="E" && $3=="save_estado" {print $4; exit}' "$LOG")
+SAVERES=$(awk -F, '$1=="E" && $3=="save_resultado" {print $4; exit}' "$LOG")
+SAVERESISNEW=$(awk -F, '$1=="E" && $3=="save_resultado" {print $5; exit}' "$LOG")
+SAVEGRAV=$(awk -F, '$1=="E" && $3=="save_gravado" {print $4; exit}' "$LOG")
+# O SELO DE RECORDE em si: a arte carregou (`resultado_selo`) e, quando o
+# resultado E' recorde, foi DESENHADA (`resultado_selo_desenho` traz o quadro e
+# o ms). O ms tem de ser >= o `getHighscoreDelay()` do rank.
+RESSELO=$(awk -F, '$1=="E" && $3=="resultado_selo" {print $4; exit}' "$LOG")
+RESSELODES=$(awk -F, '$1=="E" && $3=="resultado_selo_desenho" {print $4; exit}' "$LOG")
+RESSELOMS=$(awk -F, '$1=="E" && $3=="resultado_selo_desenho" {print $5; exit}' "$LOG")
+# O `getHighscoreDelay()` do rank (Scoring.hx L587-604): 140/24 no
+# PERFECT/PERFECT_GOLD/EXCELLENT, 129/24 no GREAT, 127/24 no GOOD, 207/24 no
+# SHIT. Calculado AQUI porque os relatorios impressos antes das conferencias
+# tambem o citam.
+case "${RANK_FORCADO:--1}" in
+    -1) case "${RANK:-2}" in
+            0) ESP_HS=8625 ;; 1) ESP_HS=5292 ;; 2) ESP_HS=5375 ;;
+            3) ESP_HS=5833 ;; *) ESP_HS=5833 ;;
+        esac ;;
+    *) case "$RANK_FORCADO" in
+           0) ESP_HS=8625 ;; 1) ESP_HS=5292 ;; 2) ESP_HS=5375 ;;
+           3) ESP_HS=5833 ;; *) ESP_HS=5833 ;;
+       esac ;;
+esac
 RESHSMS=$(awk -F, '$1=="E" && $3=="resultado_highscore" {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
@@ -247,7 +274,9 @@ echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (e
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 echo "  personagem do rank .......... entradas=${RESRRF:-?} VRAM=${RESRRFVRAM:-?} B (livre depois=${RESRRLIVRE:-?} B) desenhadas=${RESRRFDES:-?}"
 echo "  personagem do rank: entrada 0 em ${RESRRF0:-?} ms, entrada 1 em ${RESRRF1:-?} ms (so' nos ranks de duas)"
-echo "  selo de recorde ............. desenhado=${RESHS:-?} no timer de ${RESHSMS:-?} ms (dado ausente: sem save)"
+echo "  selo de recorde ............. desenhado=${RESHS:-?} no timer de ${RESHSMS:-?} ms"
+echo "  save ........................ leu=${SAVEEST:-?} (0 = sem cartao) resultado=${SAVERES:-?} recorde=${SAVERESISNEW:-?} gravou=${SAVEGRAV:-?} B"
+echo "  selo de recorde: arte ...... carregada=${RESSELO:-?} desenhada=${RESSELODES:-?} (quadro) em ${RESSELOMS:-?} ms (esperado >= $ESP_HS)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
@@ -387,15 +416,36 @@ fi
 # save nao ha' "e' recorde?"), cobra-se o TIMER certo e o log declarando o caso:
 #   PERFECT/PERFECT_GOLD/EXCELLENT 140/24 = 5833 ms, GREAT 129/24 = 5375,
 #   GOOD 127/24 = 5292, SHIT 207/24 = 8625.
-case "$ESP_RANK_ANIM" in
-    0) ESP_HS=8625 ;;  1) ESP_HS=5292 ;;  2) ESP_HS=5375 ;;
-    3) ESP_HS=5833 ;;  *) ESP_HS=5833 ;;
-esac
 if [ -z "${RESHS:-}" ]; then
     echo "  FALHA: o timer do selo de recorde nunca disparou (esperado em $ESP_HS ms)"; FALHA=1
 else
-    [ "$RESHS" = 0 ] || { echo "  FALHA: o selo de recorde foi desenhado ($RESHS) e o port nao tem save"; FALHA=1; }
+    # A PRIMEIRA partida de uma musica E' recorde (Save.hx L577-580). Sem cartao
+    # no harness o save comeca vazio, entao o esperado aqui e' 1 -- e um 0
+    # significaria que a regra "sem registro -> recorde" sumiu.
+    [ "$RESHS" = 1 ] || { echo "  FALHA: o selo de recorde ficou $RESHS e a primeira partida tem de ser recorde"; FALHA=1; }
     [ "$RESHSMS" = "$ESP_HS" ] || { echo "  FALHA: o timer do selo e' $RESHSMS ms e a fonte diz $ESP_HS ms"; FALHA=1; }
+fi
+if [ -z "${SAVERES:-}" ]; then
+    echo "  FALHA: o save nao registrou o resultado desta musica"; FALHA=1
+else
+    [ "${SAVERESISNEW:-0}" = 1 ] || { echo "  FALHA: o save diz que o primeiro resultado NAO e' recorde"; FALHA=1; }
+fi
+# Sem memory card o save e' volatil, e o log tem de dizer isso em vez de fingir
+# que gravou: `save_estado,0,<erro>` e `save_gravado,0,<erro>`.
+[ -n "${SAVEEST:-}" ] || { echo "  FALHA: o save nunca foi tentado (nem leitura nem erro no log)"; FALHA=1; }
+[ "${SAVEGRAV:-?}" != "" ] || { echo "  FALHA: o save nao tentou gravar depois do resultado"; FALHA=1; }
+
+# O SELO DESENHADO. Com recorde (o caso do harness: save vazio), a arte tem de
+# carregar e o selo tem de sair no timer do rank -- nao antes, porque o
+# `FlxTimer` da fonte e' quem manda.
+[ "${RESSELO:-0}" -eq 1 ] || { echo "  FALHA: a arte do selo de recorde nao carregou"; FALHA=1; }
+if [ -z "${RESSELODES:-}" ]; then
+    echo "  FALHA: o resultado E' recorde e o selo nao foi desenhado"; FALHA=1
+else
+    [ "${RESSELOMS:-0}" -ge "$ESP_HS" ] || {
+        echo "  FALHA: o selo saiu em $RESSELOMS ms, antes do timer do rank ($ESP_HS ms)"; FALHA=1; }
+    [ "${RESSELOMS:-0}" -le $((ESP_HS + 200)) ] || {
+        echo "  FALHA: o selo saiu em $RESSELOMS ms e o timer do rank e' $ESP_HS ms"; FALHA=1; }
 fi
 
 # ARTE DO RANK. Tres exigencias:

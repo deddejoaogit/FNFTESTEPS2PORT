@@ -181,6 +181,21 @@ if _plano_rank:
             nrk += 1
 ok &= (nrk >= 8)
 
+# O SELO DE RECORDE: 29 quadros, o tamanho e a profundidade do plano.
+_rh = g.resultado_highscore()
+if _rh:
+    _tex, _w, _h, _nq, _bpp = _rh
+    _pk = g.make_resultado_pack(_w, _h, _nq, _bpp // 8)
+    _ver, _cnt, _fb = struct.unpack("<III", _pk[4:16])
+    _ok = (_pk[:4] == b"CFZ4" and _ver == 1 and _cnt == _nq
+           and _fb == _w * _h * (_bpp // 8)
+           and marcas_do_pacote(_pk, _cnt, _fb))
+    print(f"  RESULTADO   {_tex:34s} {_w}x{_h} quadros={_cnt} "
+          f"frame_bytes={_fb} integro={_ok}")
+    ok &= _ok
+else:
+    ok = False
+
 # O atlas do PLACAR: 52 quadros, o tamanho do plano, e cada um pintado na sua
 # celula (so' o quadro desenhado tem pixel).
 _rs = g.resultado_score()
