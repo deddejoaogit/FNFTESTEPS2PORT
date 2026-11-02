@@ -1550,6 +1550,15 @@ Medido, percorrendo os 468 eventos do `spaghetti` normal pelo `ss_evento`:
 jogo (`palco_ev_resumo`, a cada 300 quadros) mostra **aplicados=2, sem=0** já no
 primeiro segundo e meio de música, e `evento_sem_script` desapareceu do log.
 
+**O sweep passou a cobrar isso.** O bloco que exigia o aviso na `spaghetti`
+comparava `$diff = easy`, mas `$diff` é o NÚMERO da dificuldade (0/1/2): o bloco
+**nunca rodou** — descoberto justamente ao fechar o pulse, porque o passe v5
+passava com o nome dos eventos ainda perdido. Agora ele compara `$DN` e cobra por
+formato: **v3** o evento não tem campo para o nome, então `evento_sem_script`
+tem de aparecer; **v5** os 86 são aplicados, então `evento_sem_script` tem de ser
+**zero** e `palco_ev_resumo` (aplicados > 0) tem de aparecer. Medido depois da
+correção: `spaghetti` 3/3 nos dois passes.
+
 **O decodificador saiu do `main.c`.** Ele mora em `stage_script.c`
 (`ss_ssf_bloco`), onde o teste alcança, porque **o harness do PC não alcança este
 caminho**: a primeira lista do `spaghetti` entra em **38,5 s** e o relógio da

@@ -275,6 +275,10 @@ for sid in $LISTA; do
         palco=$(campo palco_entra 4)
         nicon=$(awk -F, '$1=="E" && $3=="evento_sem_icone" {n++} END{print n+0}' "$LOG" 2>/dev/null)
         nscript=$(awk -F, '$1=="E" && $3=="evento_sem_script" {n++} END{print n+0}' "$LOG" 2>/dev/null)
+        # `palco_ev_resumo,aplicados,sem_script`: o ULTIMO valor do log e' o
+        # acumulado da musica. E' a prova de que o `ss_evento` rodou (aplicados
+        # > 0) mesmo quando a colheita junta os 86 eventos em tres linhas.
+        nserafim=$(awk -F, '$1=="E" && $3=="palco_ev_resumo" {v=$4} END{print (v==""?0:v)}' "$LOG" 2>/dev/null)
         # CUSTO POR QUADRO (Fase 5): uploads de quadro de personagem e de prop do
         # palco divididos pelos quadros DESENHADOS com musica tocando. E' o
         # denominador que faltava: "1149 uploads" nao diz nada sem ele. A tabela
@@ -334,15 +338,22 @@ for sid in $LISTA; do
             [ "${nvazio:-0}" -ge 1 ] 2>/dev/null || motivo="slot gf vazio nao foi reportado${motivo:+, $motivo}"
         fi
         [ "${charruim:-0}" -eq 0 ] 2>/dev/null || motivo="pacote ou VRAM do oponente falhou${motivo:+, $motivo}"
-        # ESPAGUETE e' a unica musica com eventos que o port NAO reproduz, e os
-        # dois grupos tem de aparecer no log: SetHealthIcon (a arte dos icones
-        # nao esta' no pacote de dados) e os `sserafim*` (o script do palco nao
-        # esta'). Se um dia a arte ou o script entrarem no repositorio, este
-        # teste vira o lembrete de tirar o aviso -- e se os eventos pararem de
-        # chegar, ele acusa a perda em vez de deixar o silencio passar.
-        if [ "$sid" = "spaghetti" ] && [ "$diff" = "easy" ]; then
+        # ESPAGUETE: a unica musica com eventos de SCRIPT de palco e com
+        # SetHealthIcon. O que se cobra depende do FORMATO, e o motivo e' o dado:
+        #   v3  -> o evento nao tem campo para o NOME, entao o port so' pode
+        #          contar (`evento_sem_script` tem de aparecer);
+        #   v5  -> o nome viaja no chart, os 86 eventos sao aplicados e
+        #          `evento_sem_script` tem de ser ZERO, com `palco_ev_resumo`
+        #          provando que o `ss_evento` rodou (aplicados > 0).
+        # A comparacao era `$diff = easy`, mas `$diff` e' o NUMERO da
+        # dificuldade (0/1/2) -- o bloco nunca rodava. Descoberto ao fechar o
+        # pulse: o passe v5 passava com o nome dos eventos ainda perdido.
+        if [ "$sid" = "spaghetti" ] && [ "$DN" = "easy" ]; then
             if [ "${FNF_SWEEP_FMT:-v3}" = "v5" ]; then
                 [ "${nicon:-0}" -ge 1 ] 2>/dev/null || motivo="SetHealthIcon nao chegou ao jogo${motivo:+, $motivo}"
+                [ "${nscript:-0}" -eq 0 ] 2>/dev/null || motivo="evento de script RECUSADO no v5 (o nome se perdeu)${motivo:+, $motivo}"
+                [ "${nserafim:-0}" -ge 1 ] 2>/dev/null || motivo="nenhum evento de script aplicado${motivo:+, $motivo}"
+            else
                 [ "${nscript:-0}" -ge 1 ] 2>/dev/null || motivo="evento de script nao chegou ao jogo${motivo:+, $motivo}"
             fi
         fi
