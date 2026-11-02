@@ -134,3 +134,84 @@ float fp_fundo_x(unsigned long desde_ms)
     e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t) * (1.0f - t) * (1.0f - t);
     return FP_FUNDO_X - (float)FP_FUNDO_W * (1.0f - e);
 }
+
+/* ---- O BRILHO DO SELO DOURADO -----------------------------------------
+ *
+ * Ver o bloco no `freeplay.h`: `SongMenuItem.hx` L156-166, L228-233 e
+ * L493-504. O sorteio e' `FlxG.random.float(a, b)` = uniforme em [a, b), e o
+ * port faz o mesmo com um LCG proprio, semente por musica.
+ */
+
+/* `FlxG.random.float(a, b)`: uniforme em [a, b). */
+static float fp_spk_sorteia(unsigned int *s, float a, float b)
+{
+    *s = (*s) * 1103515245u + 12345u;
+    /* Os 24 bits altos: o LCG do glibc perde os bits baixos primeiro. */
+    {
+        float u = (float)(((*s) >> 8) & 0xFFFFFFu) / 16777216.0f;
+        return a + u * (b - a);
+    }
+}
+
+/* Duracao de uma passada: 10 quadros a 24 fps = 0,41667 s. */
+static float fp_spk_dura(void)
+{
+    return (float)FP_SPK_QUADROS / (float)FP_SPK_FPS;
+}
+
+static void fp_spk_parar(fp_spk_t *s, unsigned int semente)
+{
+    s->semente = semente ? semente : 1u;
+    s->x = FP_SP_X;
+    s->y = FP_SP_Y;
+    s->t_anim = fp_spk_dura();   /* parado no ultimo quadro (o 1x1 vazio) */
+    s->t_espera = 0.0f;
+    s->armado = 0;
+}
+
+void fp_spk_desarma(fp_spk_t *s, unsigned int semente)
+{
+    fp_spk_parar(s, semente);
+}
+
+void fp_spk_arma(fp_spk_t *s, unsigned int semente, float base_x, float base_y)
+{
+    fp_spk_parar(s, semente);
+    s->armado = 1;
+    s->x = base_x;
+    s->y = base_y;
+    /* `new FlxTimer().start(1, sparkleEffect)` (L502): o primeiro disparo nao
+       sorteia nada. */
+    s->t_espera = (float)FP_SP_PRIMEIRO_MS / 1000.0f;
+}
+
+void fp_spk_passo(fp_spk_t *s, float dt, float base_x, float base_y)
+{
+    float dx, dy, espera;
+    if (!s->armado) return;
+    s->t_anim += dt;
+    s->t_espera -= dt;
+    if (s->t_espera > 0.0f) return;
+    /* `sparkleEffect`: primeiro a posicao (x e depois y), depois o intervalo
+       seguinte. A ordem importa para a sequencia do LCG ser a mesma toda vez. */
+    dx = fp_spk_sorteia(&s->semente, FP_SP_DX_MIN, FP_SP_DX_MAX);
+    dy = fp_spk_sorteia(&s->semente, FP_SP_DY_MIN, FP_SP_DY_MAX);
+    espera = fp_spk_sorteia(&s->semente,
+                            (float)FP_SP_INTERVALO_MIN_MS / 1000.0f,
+                            (float)FP_SP_INTERVALO_MAX_MS / 1000.0f);
+    s->x = base_x + dx;
+    s->y = base_y + dy;
+    s->t_anim = 0.0f;                 /* `play('sparkle', true)` */
+    /* O FlxTimer leva a sobra negativa: `_timeCounter += time`. */
+    s->t_espera += espera;
+}
+
+int fp_spk_quadro(const fp_spk_t *s)
+{
+    int k;
+    if (!s->armado) return -1;
+    k = (int)(s->t_anim * (float)FP_SPK_FPS);
+    if (k < 0) k = 0;
+    if (k >= FP_SPK_QUADROS) k = FP_SPK_QUADROS - 1;
+    return k;
+}

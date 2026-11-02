@@ -155,6 +155,33 @@
    "linha": "FreeplayState.hx L809-814 e L1268-1281"
   }
  },
+ "sparkle": {
+  "fonte": "freeplay/sparkle",
+  "prefixo": "sparkle Export0",
+  "tex": "freeplay/sparkle.cfz4",
+  "partes": [
+   "sparkle.cfz4"
+  ],
+  "src_w": 64,
+  "src_h": 63,
+  "w": 26,
+  "h": 25,
+  "bpp": 16,
+  "quadros": 10,
+  "fps": 24,
+  "alpha": 0.7,
+  "x": 210.0,
+  "y": 20.5,
+  "dx_min": -10.0,
+  "dx_max": 1.5,
+  "dy_min": -14.5,
+  "dy_max": 2.0,
+  "primeiro_ms": 1000,
+  "intervalo_min_ms": 1200,
+  "intervalo_max_ms": 4500,
+  "vram_bytes": 1300,
+  "linha": "SongMenuItem.hx L156-166, L228-233 e L493-504"
+ },
  "titulos": {
   "tutorial": {
    "id": "tutorial",

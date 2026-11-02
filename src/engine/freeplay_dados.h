@@ -93,6 +93,30 @@ static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {
 #define FP_RK_VINHETA_X           0.000f
 #define FP_RK_VINHETA_Y           0.000f
 
+/* O BRILHO DO SELO PERFECT_GOLD (`SongMenuItem.hx` L156-166,
+ * L228-233 e L493-504): 10 quadros a 24 fps, UMA vez, ADD a 0,7. So'
+ * UM quadro mora na VRAM por vez (1.300 B). As posicoes ja' estao na
+ * metade (640x360), no espaco do item -- o (420, 41) do `ranking`. */
+#define FP_SP_W             26      /* 64x63 na arte */
+#define FP_SP_H             25
+#define FP_SP_BPP           16
+#define FP_SP_QUADROS       10
+#define FP_SP_FPS           24
+#define FP_SP_VRAM          1300u
+#define FP_SP_TEX           "freeplay/sparkle.cfz4"
+#define FP_SP_X             210.000f   /* FreeplayRank(420, 41) */
+#define FP_SP_Y             20.500f
+#define FP_SP_DX_MIN        -10.000f   /* x - 20 */
+#define FP_SP_DX_MAX        1.500f   /* x + 3  */
+#define FP_SP_DY_MIN        -14.500f   /* y - 29 */
+#define FP_SP_DY_MAX        2.000f   /* y + 4  */
+#define FP_SP_ALFA          0.700f   /* sparkle.alpha = 0.7 */
+/* O PRIMEIRO disparo vem em 1 s fixo; os seguintes em 1,2..4,5 s
+ * (`FlxTimer.start(1, ...)` e `start(FlxG.random.float(1.2, 4.5), ...)`). */
+#define FP_SP_PRIMEIRO_MS   1000
+#define FP_SP_INTERVALO_MIN_MS 1200
+#define FP_SP_INTERVALO_MAX_MS 4500
+
 #define FP_X_BASE           135.000f   /* 270 * 0,5 */
 #define FP_X_AMP            30.000f   /* 60 * 0,5  */
 #define FP_Y_BASE           60.000f   /* 120 * 0,5 */

@@ -3222,10 +3222,11 @@ O que a cinemática **usa** de dado já levantado antes desta build:
 
 Dado que falta **não é arte nem som**: os dois Sparrows, a vinheta, o
 `sparkle` (256×256, 10 quadros) e os 5 `.ogg` de `preload/sounds/ranks/` estão
-todos no clone. O encanamento das três coisas abaixo **entrou** nesta build; o
-que ficou de fora são os SONS de `ranks/` (o áudio da tela é o próximo passo,
-e o `.ogg`→PCM é o mesmo caminho de `empacotar_audio.py`) e o `sparkle`/
-`favHeart`, que são da cápsula na lista e não da cinemática:
+todos no clone. O encanamento das três coisas abaixo **entrou** nesta build, e
+depois dele entraram os SONS de `ranks/` (seção *Fechado: o ÁUDIO DA
+FREEPLAY*) e o `sparkle` (seção *Fechado: o brilho do selo PERFECT_GOLD*). O
+que segue de fora daqui é o `favHeart`, que é da cápsula na lista e não da
+cinemática:
 
 1. os parâmetros que o Resultado passa para a Freeplay —
    `fromResults {songId, difficultyId, oldRank, newRank, playRankAnim}`
@@ -3342,7 +3343,7 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
-| o `sparkle` da capsula e o coração de favorito | `SongMenuItem.hx` L156-166 (`sparkle`, 10 quadros, escala 0,8, `BlendMode.ADD`, alpha 0,7, invisível ate' um `FlxTimer` de 1,2-4,5 s o sortear em volta do selo) e L208/L218 (`favIcon`/`favIconBlurred`) | arte empacotada (10 quadros de 31 a 59 px) + o sorteio do `sparkleEffect`. E' efeito decorativo; o selo em si ja' esta' com ADD, alpha e cinza do original |
+| o coração de FAVORITO da capsula (`favIcon`/`favIconBlurred`) | `SongMenuItem.hx` L202-219 e L308-309: o `favHeart` (10 quadros de canvas 48×39, `setGraphicSize(50, 50)`, `BlendMode.ADD`, os dois sprites em `(380, 40)` no item, invisíveis ate' a musica ser favorita). Quem LIGA o coração e' `favoriteSong()` (L3084-3130), que precisa de um campo no SAVE -- e e' por isso que a arte sozinha não basta | arte empacotada (10 quadros de 24×20 px na metade, ~15 KB com um quadro na VRAM), o campo `favorito` por musica no `save.dat` e os dois sons `fav`/`unfav` de `preload/sounds/freeplay/` |
 | o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
 
 #### A tela de Resultado: a arte entrou
@@ -3537,8 +3538,10 @@ nao-selecionado `alpha = 0x5A` (0,7) e cor `0x55` (o `0xAA` do flixel dividido
 por 2, que e' a convencao do port para o `color` do sprite). O harness do save
 continua vendo o selo desenhar (`selo desenhado: rank 2 em 1 quadro(s)`).
 
-Fica de fora, e esta' na tabela de pendencias: o `sparkle` (10 quadros, escala
-0,8, ADD, alpha 0,7, sorteado por `FlxTimer` em volta do selo).
+O `sparkle` **entrou** depois desta build -- ver *Fechado: o brilho do selo
+PERFECT_GOLD*: 10 quadros, escala 0,8, ADD, alpha 0,7, sorteado pelo `FlxTimer`
+em volta do selo. O que fica de fora, e está na tabela de pendências, é o
+`favHeart`.
 
 #### A tela de Resultado: o PERSONAGEM DO RANK se move
 
@@ -4270,25 +4273,95 @@ estes números.
 - os sons do menu de **opções** (`OffsetMenu.hx` L418/L422): a tela de ajustes do
   port é um stub sem lista de itens, então não há evento para somar.
 
-## Próximo passo planejado: o `sparkle` do selo PERFECT_GOLD (medido antes do código)
+## Fechado: o brilho do selo PERFECT_GOLD (o `sparkle`)
 
-O efeito que falta na cápsula da Freeplay é o único que a fonte liga **só** para
-o rank `PERFECT_GOLD` — não é um brilho genérico:
+O efeito é o único que a fonte liga **só** para o rank `PERFECT_GOLD` — não é um
+brilho genérico: `updateScoringRank` (`SongMenuItem.hx` L493-504) põe
+`sparkle.visible = true` e arma o primeiro `sparkleEffect` em 1 s, e nenhum outro
+rank toca no sprite.
+
+**Duas estimativas desta seção estavam erradas, e a medição as corrigiu.** O
+plano anterior dizia "9 quadros úteis = 0,375 s" e "~56 KB para os 10 quadros":
+o prefixo `sparkle Export0` casa os **dez** subtextures (`0000..0009`), e o
+`addByPrefix(..., 24, false)` toca os dez, com o último — **1×1** — sendo o
+"vazio" em que a animação para. Encurtar para 9 quadros mudaria o tempo do
+evento. E os 56 KB supunham os dez quadros residentes; o pacote guarda os dez no
+pendrive e mantém **um** na VRAM, como o selo e as faíscas.
 
 | peça | fonte | medido |
 |---|---|---|
-| atlas | `Paths.getSparrowAtlas('freeplay/sparkle')`, `SongMenuItem.hx` L157 | `preload/images/freeplay/sparkle.png` + `.xml`: **10 quadros**, `sparkle Export0000..0009` |
-| tamanhos | o mesmo `.xml` | 31×31, 47×47, 59×59, 63×63, 64×63 — o último quadro é **1×1** (vazio) |
-| animação | `addByPrefix('sparkle', 'sparkle Export0', 24, false)` L158 | 24 fps, **sem laço**: 9 quadros úteis = 0,375 s |
-| desenho | L160-164 | `scale 0,8`, `blend = ADD`, `alpha = 0,7` |
-| quando aparece | `updateScoringRank` L493-504 | só com `newRank == PERFECT_GOLD`: `sparkle.visible = true` e o primeiro `sparkleEffect` em **1 s** |
-| posição | `sparkleEffect` L230 | `x = ranking.x - 20 .. +3`, `y = ranking.y - 29 .. +4` (aleatório), a cada **1,2 a 4,5 s** |
-| durante a cinemática | `FreeplayState.hx` L1073 e L1291 | `alpha = 0` no começo do `rankAnimStart` e `0,7` no fim do tremor |
+| atlas | `Paths.getSparrowAtlas('freeplay/sparkle')`, L157 | 10 quadros: 31×31 (×2), 47×47 (×2), 59×59 (×2), 63×63 (×2), 64×63 e **1×1** |
+| animação | `addByPrefix('sparkle', 'sparkle Export0', 24, false)` L158 | 24 fps, sem laço: **10 quadros = 0,41667 s**, e para no último |
+| desenho | L160-164 | `scale 0,8`, `blend = ADD`, `alpha = 0,7` → na metade da tela: canvas **26×25**, alpha do vértice **0x5A** |
+| quando | `updateScoringRank` L498-504 | só `PERFECT_GOLD`; `visible = true` e o primeiro disparo em **1 s** fixo |
+| posição | `sparkleEffect` L230 | `x = ranking.x − 20..+3`, `y = ranking.y − 29..+4` (metade: 200,0..211,5 e 6,0..22,5), re-sorteada a cada **1,2..4,5 s** |
+| durante a cinemática | `FreeplayState.hx` L1073, L1291 | `alpha = 0` no `rankAnimStart`, `0,7` no fim do `IntervalShake` |
 
-Custo estimado de VRAM: os 10 quadros somam ~28 mil pixels; a 16 bpp, **~56 KB**
-para todos de uma vez (o pool da Freeplay tem 1,2 MB livres), e a posição/timer
-são função do tempo, então cabem em `engine/freeplay.c` como função pura com o
-teste no PC. O `favHeart` (`favHeart.png/.xml`, 1 quadro) e a função de
-**favorito** (L208-218, L3084-3130: `toggleFavorite`, dois sons, o tween de
-±5 px em 0,1 s e o campo no save) são o passo seguinte, e dependem de um campo
-novo no save — por isso não entram junto com o `sparkle`.
+VRAM: **1.300 B** residentes (26×25×2) e o pacote de 10 quadros no pendrive em
+**3.343 B** (`build/packs/freeplay/sparkle.cfz4`).
+
+**Onde cada pedaço entrou**
+
+- `tools/empacotar_freeplay.py`: seção `SPARKLE`, que exige **10 quadros** no
+  `.xml` (se o dado mudar, o empacotador reprova em vez de arredondar), compõe
+  cada quadro no canvas 64×63 do XML (`frameX`/`frameY`, que é a origem que o
+  flixel usa), reduz a 0,4 (0,8 do sprite × a metade da tela) e escreve o
+  `freeplay/sparkle.cfz4` + o bloco `FP_SP_*` do `freeplay_dados.h`.
+- `src/engine/freeplay.c/.h`: `fp_spk_*` — a função pura com os três sorteios na
+  ordem da fonte (x, y e o intervalo seguinte), o LCG determinístico (a mesma
+  escolha do `shake.h`) e o `FlxTimer` carregando a sobra negativa
+  (`_timeCounter += time`). `test/test_freeplay.c` cobra: o primeiro disparo em
+  1 s (nada em 59 quadros de 1/60, sim no 60º), as quatro faixas dos sorteios,
+  os dez quadros vistos em ordem e sem voltar, o segundo disparo entre 1,2 e
+  4,5 s, e a mesma semente dando a mesma sequência.
+- `src/main.c`: carga em `freeplay_capsula_carregar` (uma chave de VRAM, um
+  quadro por vez), o `fp_spk_arma`/`desarma` em `freeplay_selo_ranks` (é a
+  `refreshDisplay` → `updateScoringRank`: o `FlxTimer` antigo é cancelado e o
+  primeiro disparo recomeça em 1 s), o passo de **todas** as músicas da lista por
+  quadro (inclusive fora da janela e durante a cinemática, como os `FlxTimer` do
+  original) e o desenho por cima do selo, com ADD. O item que está na cinemática
+  não chega ao desenho — é o resultado visível do `alpha = 0` do
+  `rankAnimStart`.
+- `tools/run_freeplay_harness.sh`: um segundo cenário escreve um `save.dat` com
+  **um** registro válido e 100 % `sick` (`save_rank`: `sick == total_notes` →
+  `PERFECT_GOLD`), abre a Freeplay e cobra o caminho inteiro.
+
+**Medido no harness do PC** (o cenário do save dourado):
+
+```
+brilho (abriu, B) ........... 1,1300   (26x25 em 16 bpp = 1300 B)
+ranks dourados na lista ..... 1
+brilho desenhado ............ quadro 9 em 1 desenho(s), x=2100 decimos
+brilho disparou ............. 2038,98   (x,y em decimos: 2000..2115 e 60..225)
+```
+
+O primeiro desenho sai no **quadro 9** (o 1×1 vazio) porque a animação que tocou
+na criação já terminou quando o sprite aparece — é o original. O `x=2100`
+décimos é o `ranking.x` (210,0) sem sorteio ainda, e o disparo em
+`(203,8 ; 9,8)` é o `sparkleEffect` rodando, dentro das duas faixas.
+
+**O que isso não prova**: nada disso foi visto numa TV. O que o PC prova é a
+conta, a ordem dos sorteios, o caminho pacote → pendrive → VRAM e que o desenho
+acontece; o brilho somando no GS com ADD e 0,7 é do console.
+
+## Próximo passo planejado: o FAVORITO (o coração da cápsula)
+
+O último item da Freeplay que não é som: marcar e desmarcar uma música como
+favorita. Ele não é só desenho — a fonte tem **estado no save**, e por isso é um
+passo com dado novo no arquivo, não um enfeite.
+
+| peça | fonte | medido |
+|---|---|---|
+| arte | `Paths.getSparrowAtlas('freeplay/favHeart')`, L203/L213 | **10 quadros**, canvas 48×39 (`frameX`/`frameY` por quadro: 21×16, 48×39, 39×32, 30×24) |
+| tamanho | `setGraphicSize(50, 50)` L207/L216 | 50×50 em 1280×720 → **25×25** na metade, 1.250 B por quadro em 16 bpp |
+| posição | `new FlxSprite(380, 40)` L202/L212 e `favIconBlurred.x = this.x + 370` L308-309 | (190, 20) na metade, dentro do item |
+| mistura | L208/L218 | os dois são `BlendMode.ADD`; o `favIcon` é o nítido e o `Blurred` fica atrás |
+| visibilidade | L209/L217 | os dois nascem `visible = false`; quem liga é o favorito |
+| interação | `favoriteSong()` L3084-3130 | um tween de ±5 px em 0,1 s no ícone, e `freeplay/fav` \| `unfav` (`Paths.sound`, volume 1) |
+
+O que falta medir antes do código: o formato do campo no save (o original guarda
+`favoriteSongs` por **id de música**, não por dificuldade — o `save.dat` do port
+tem 24 B por (música, dificuldade) e vai precisar de um byte novo ou de uma
+tabela à parte), e se os dois sons existem como `.ogg` no clone. Sem essas duas
+respostas o passo vira invenção, e é exatamente o tipo de coisa que a regra 4 do
+`REGRAS.md` proíbe.

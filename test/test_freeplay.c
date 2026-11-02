@@ -164,6 +164,121 @@ int main(void)
         CHECK(FP_FUNDO_VRAM == (unsigned)FP_FUNDO_W * 360u * 2u);
     }
 
+    printf("== freeplay: o brilho do selo PERFECT_GOLD (SongMenuItem.hx)\n");
+    {
+        /* `sparkleEffect` (L228-233): x = random(x-20, x+3), y = random(y-29,
+           y+4) e o proximo disparo em random(1,2 .. 4,5) s; o primeiro vem em
+           1 s fixo (L502). Tudo em 640x360, no espaco do item. */
+        const float base_x = FP_SP_X, base_y = FP_SP_Y;
+        fp_spk_t a, b;
+        float t, t_primeiro = 0.0f, t_segundo = 0.0f;
+        int k, ultimo = -1, bursts = 0, antes_ok = 1, monotono = 1;
+
+        /* Desarmado: nada a desenhar (rank que nao e' dourado). */
+        fp_spk_desarma(&a, 12345u);
+        CHECK_EQ(fp_spk_quadro(&a), -1);
+        fp_spk_passo(&a, 5.0f, base_x, base_y);
+        CHECK_EQ(fp_spk_quadro(&a), -1);
+        CHECK_PX(a.x, base_x);
+        CHECK_PX(a.y, base_y);
+
+        /* Armado: parado no ULTIMO quadro (a animacao que tocou na criacao ja'
+           terminou -- e' o 1x1 vazio), no meio do item. */
+        fp_spk_arma(&a, 12345u, base_x, base_y);
+        CHECK_EQ(fp_spk_quadro(&a), FP_SP_QUADROS - 1);
+        CHECK_PX(a.x, base_x);
+        CHECK_PX(a.y, base_y);
+
+        /* O primeiro disparo e' em 1 s: 59 quadros de 1/60 nao chegam, e no
+           sexagesimo (1,0 s, ou 61 com a sobra de 32 bits) a animacao ja'
+           comecou do quadro 0. */
+        for (k = 0; k < 59; k++) fp_spk_passo(&a, 1.0f / 60.0f, base_x, base_y);
+        CHECK_PX(a.x, base_x);
+        CHECK_PX(a.y, base_y);
+        CHECK_EQ(fp_spk_quadro(&a), FP_SP_QUADROS - 1);
+        for (k = 0; k < 2 && fp_spk_quadro(&a) != 0; k++)
+            fp_spk_passo(&a, 1.0f / 60.0f, base_x, base_y);
+        CHECK_EQ(fp_spk_quadro(&a), 0);
+        CHECK(a.x >= base_x + FP_SP_DX_MIN && a.x < base_x + FP_SP_DX_MAX);
+        CHECK(a.y >= base_y + FP_SP_DY_MIN && a.y < base_y + FP_SP_DY_MAX);
+
+        /* A animacao anda a 24 fps e PARA no ultimo quadro: 10 quadros em
+           10/24 s, e nada depois disso ate' o proximo disparo. */
+        {
+            float acumulado = 0.0f;
+            int vistos[FP_SP_QUADROS];
+            int i;
+            for (i = 0; i < FP_SP_QUADROS; i++) vistos[i] = 0;
+            vistos[fp_spk_quadro(&a)] = 1;
+            while (acumulado < 0.6f + 0.1f) {
+                fp_spk_passo(&a, 1.0f / 240.0f, base_x, base_y);
+                acumulado += 1.0f / 240.0f;
+                if (acumulado > 0.5f) break;   /* antes do proximo disparo */
+                k = fp_spk_quadro(&a);
+                if (k != -1) vistos[k] = 1;
+                if (k < ultimo) monotono = 0;
+                ultimo = k;
+            }
+            for (i = 0; i < FP_SP_QUADROS; i++) CHECK(vistos[i] == 1);
+        }
+
+        /* Uma rajada completa, do zero, medida no relogio: primeiro disparo em
+           1 s, o segundo entre 1,2 e 4,5 s depois. E a sequencia e'
+           deterministica (mesma semente, mesmo resultado). */
+        fp_spk_arma(&a, 777u, base_x, base_y);
+        fp_spk_arma(&b, 777u, base_x, base_y);
+        {
+            float x_antes = base_x, y_antes = base_y;
+            for (t = 0.0f; t < 12.0f; t += 1.0f / 240.0f) {
+                int qa;
+                fp_spk_passo(&a, 1.0f / 240.0f, base_x, base_y);
+                fp_spk_passo(&b, 1.0f / 240.0f, base_x, base_y);
+                qa = fp_spk_quadro(&a);
+                /* A BORDA do disparo: a posicao mudou. O quadro 0 dura 1/24 s
+                   (dez passos de 1/240), entao contar todo quadro 0 contaria
+                   cada rajada dez vezes. */
+                if (a.x != x_antes || a.y != y_antes) {
+                    if (bursts == 0) t_primeiro = t + 1.0f / 240.0f;
+                    else if (bursts == 1) t_segundo = t + 1.0f / 240.0f;
+                    bursts++;
+                    if (a.x < base_x + FP_SP_DX_MIN || a.x >= base_x + FP_SP_DX_MAX)
+                        antes_ok = 0;
+                    if (a.y < base_y + FP_SP_DY_MIN || a.y >= base_y + FP_SP_DY_MAX)
+                        antes_ok = 0;
+                    x_antes = a.x;
+                    y_antes = a.y;
+                }
+                if (a.x != b.x || a.y != b.y || qa != fp_spk_quadro(&b)) monotono = 0;
+            }
+        }
+        CHECK(antes_ok);
+        CHECK(monotono);
+        CHECK(t_primeiro >= 59.0f / 60.0f && t_primeiro <= 1.0f + 1.0f / 240.0f);
+        CHECK(t_primeiro > 0.0f);
+        CHECK(bursts >= 3);        /* 12 s com rajadas a cada 1,2..4,5 s */
+        {
+            float intervalo = t_segundo - t_primeiro;
+            CHECK(intervalo >= FP_SP_INTERVALO_MIN_MS / 1000.0f - 0.001f);
+            CHECK(intervalo <= FP_SP_INTERVALO_MAX_MS / 1000.0f + 0.02f);
+            /* A distancia entre disparos NAO e' o intervalo do primeiro (1 s):
+               e' sorteada. Se fosse a mesma, a tela ficaria metronomica. */
+            CHECK(intervalo > 1.05f);
+        }
+
+        /* O dado do pacote: 10 quadros, 24 fps, 0,7 de alpha, 16 bpp, e o
+           tamanho da VRAM e' o de UM quadro em 16 bpp. */
+        CHECK(FP_SP_QUADROS == 10);
+        CHECK(FP_SP_FPS == 24);
+        CHECK(FP_SPK_QUADROS == FP_SP_QUADROS);
+        CHECK(FP_SPK_FPS == FP_SP_FPS);
+        CHECK(FP_SP_ALFA > 0.69f && FP_SP_ALFA < 0.71f);
+        CHECK(FP_SP_BPP == 16);
+        CHECK(FP_SP_VRAM == (unsigned)FP_SP_W * (unsigned)FP_SP_H * 2u);
+        CHECK(FP_SP_W > 0 && FP_SP_H > 0);
+        CHECK_PX(FP_SP_X, 210.0f);
+        CHECK_PX(FP_SP_Y, 20.5f);
+    }
+
     if (falhas)
     {
         printf("FREEPLAY: %d FALHA(S)\n", falhas);

@@ -103,4 +103,57 @@ const fp_titulo_t *fp_titulo(const char *id);
  * e' a da tela -- `setGraphicSize(0, FlxG.height + 1)` (L456). */
 float fp_fundo_x(unsigned long desde_ms);
 
+/* ---- O BRILHO DO SELO DOURADO (PERFECT_GOLD) --------------------------
+ *
+ * `SongMenuItem.hx` L156-166 cria o sprite em `(ranking.x, ranking.y)` =
+ * (420, 41), com `scale 0,8`, `BlendMode.ADD`, `alpha = 0,7`, `visible =
+ * false` e a animacao `sparkle` tocando UMA vez (10 quadros a 24 fps; o
+ * decimo e' 1x1, o "vazio" em que ela para).
+ * `updateScoringRank` (L493-504) so' e' dourado quando o rank e'
+ * PERFECT_GOLD: ai' poe `visible = true` e arma o PRIMEIRO disparo em 1 s.
+ * `sparkleEffect` (L228-233) sorteia a posicao em `x - 20..x + 3`,
+ * `y - 29..y + 4`, da' `play('sparkle', true)` e re-arma em 1,2..4,5 s.
+ *
+ * O QUE E' FIEL E O QUE NAO E'
+ * Posicao, intervalos, quadro e a ORDEM dos sorteios (x, y, intervalo) sao os
+ * da fonte. A sequencia de numeros em si nao: o original sorteia pelo
+ * `FlxG.random`, o port por um LCG deterministico com semente por musica --
+ * a mesma escolha registrada em `shake.h`, porque o harness tem de dar o
+ * mesmo resultado duas vezes. O que se preserva e' a distribuicao uniforme
+ * nas faixas e o instante de cada disparo.
+ *
+ * C puro: sem GS, sem VRAM, sem arquivo. Quem chama passa o dt.
+ */
+
+typedef struct {
+    float x, y;       /* canto do sprite no espaco do item, em 640x360 */
+    float t_anim;     /* segundos desde o disparo que esta' desenhando */
+    float t_espera;   /* segundos que faltam para o proximo disparo    */
+    unsigned int semente;
+    int armado;       /* 0 = o rank nao e' PERFECT_GOLD: nada a desenhar */
+} fp_spk_t;
+
+/* Quadros da animacao (`addByPrefix('sparkle', 'sparkle Export0', 24, false)`).
+ * Igual a `FP_SP_QUADROS` do pacote; o `main.c` cobra isso num assert. */
+#define FP_SPK_QUADROS FP_SP_QUADROS
+#define FP_SPK_FPS     FP_SP_FPS
+
+/* Desarma: o rank deixou de ser dourado (ou a tela esta' sendo montada).
+ * `semente` fica guardada para a proxima vez que armar. */
+void fp_spk_desarma(fp_spk_t *s, unsigned int semente);
+
+/* `updateScoringRank(PERFECT_GOLD)`: armado, no meio do item (`base_x`,
+ * `base_y` ja' na metade) e parado no ULTIMO quadro -- e' onde a animacao que
+ * tocou na criacao parou. O primeiro disparo vem em 1 s. */
+void fp_spk_arma(fp_spk_t *s, unsigned int semente, float base_x, float base_y);
+
+/* Um quadro do estado. `base_x`/`base_y` sao o (ranking.x, ranking.y) do item,
+ * o ponto de onde o sorteio de `sparkleEffect` parte. */
+void fp_spk_passo(fp_spk_t *s, float dt, float base_x, float base_y);
+
+/* Quadro do atlas a desenhar, ou -1 quando nao ha' nada (desarmado). Depois
+ * de 10/24 s a animacao PARA no ultimo quadro, como o `looped = false` do
+ * original -- nao reinicia sozinha. */
+int fp_spk_quadro(const fp_spk_t *s);
+
 #endif /* FREEPLAY_H */

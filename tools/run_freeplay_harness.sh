@@ -206,5 +206,72 @@ if [ "$FALHA" != 0 ]; then
     exit 1
 fi
 
+# ---- 3. O BRILHO DO SELO PERFECT_GOLD ------------------------------------
+# O `sparkle` so' existe quando o rank e' PERFECT_GOLD (`updateScoringRank`,
+# `SongMenuItem.hx` L493-504). O caminho normal deste harness toca a musica no
+# Practice Mode, entao o rank salvo nunca e' dourado -- sem um save dourado o
+# brilho nao teria prova nenhuma. Aqui se escreve um `save.dat` com UM registro
+# valido e 100 % `sick` (`fnf_play_rank`: sick == total_notes -> PERFECT_GOLD)
+# e se cobra: o pacote abriu com os 1.300 B do header, o brilho foi DESENHADO e
+# o primeiro desenho foi o quadro 0 (o disparo de 1 s), na posicao sorteada.
+echo
+echo "== freeplay: o brilho do selo PERFECT_GOLD (save com rank 5) =="
+SAVE=build/harness_assets/FNFPS2/save.dat
+mkdir -p build/harness_assets/FNFPS2
+python3 - "$SAVE" <<'PY2'
+import struct, sys, zlib
+b = bytearray(1960)
+b[0:4] = b"FNFS"
+struct.pack_into("<HHI", b, 4, 1, 81, 0)
+# musica 0, dificuldade 1 (NORMAL) -- a que a Freeplay abre selecionada.
+o = 16 + (0 * 3 + 1) * 24
+tot = 48
+struct.pack_into("<I", b, o, 350000)
+# sick, good, bad, shit, missed, combo, maxCombo, totalHit, totalNotes
+struct.pack_into("<9H", b, o + 4, tot, 0, 0, 0, 0, tot, tot, tot, tot)
+b[o + 22] = 1                      # valido
+struct.pack_into("<I", b, 12, zlib.crc32(bytes(b[16:])) & 0xFFFFFFFF)
+open(sys.argv[1], "wb").write(bytes(b))
+print("  save dourado escrito: 1.960 B, musica 0 / dificuldade 1, %d/%d sick" % (tot, tot))
+PY2
+ENTRADA_OURO="200:CROSS,420:CROSS,640:DOWN,700:CROSS"
+rm -f "$LOG"
+FNF_CARD=1 PS2H_INPUT="$ENTRADA_OURO" sh tools/run_harness.sh 1200 > /tmp/freeplay_ouro.log 2>&1 || {
+    echo "  FALHA: o harness nao passou com o save dourado"; tail -20 /tmp/freeplay_ouro.log; exit 1; }
+BRILHO=$(awk -F, '$1=="E" && $3=="freeplay_brilho" {print $4","$5; exit}' "$LOG")
+BRILHOFALHA=$(awk -F, '$1=="E" && ($3=="freeplay_brilho_falta" || $3=="freeplay_brilho_tamanho" || $3=="freeplay_brilho_sem_vram") {printf "%s ", $3}' "$LOG")
+OURO=$(awk -F, '$1=="E" && $3=="freeplay_selo_ranks" {print $4; exit}' "$LOG")
+NDESOURO=$(awk -F, '$1=="E" && $3=="freeplay_brilho_desenho" {n++} END{print n+0}' "$LOG")
+QOURO=$(awk -F, '$1=="E" && $3=="freeplay_brilho_desenho" {print $4; exit}' "$LOG")
+XOURO=$(awk -F, '$1=="E" && $3=="freeplay_brilho_desenho" {print $5; exit}' "$LOG")
+# O DISPARO: o quadro 0 so' existe quando o `sparkleEffect` roda. O x e o y
+# sao o sorteio da fonte (x -20..+3, y -29..+4) em decimos de px.
+DISPARO=$(awk -F, '$1=="E" && $3=="freeplay_brilho_disparo" {print $4","$5; exit}' "$LOG")
+echo "  brilho (abriu, B) ........... ${BRILHO:-?}   (26x25 em 16 bpp = 1300 B)"
+echo "  ranks dourados na lista ..... ${OURO:-?}"
+echo "  brilho desenhado ............ quadro ${QOURO:-?} em ${NDESOURO:-0} desenho(s), x=${XOURO:-?} decimos"
+echo "  brilho disparou ............. ${DISPARO:-?}   (x,y em decimos: 2000..2115 e 60..225)"
+[ "${BRILHO%%,*}" = "1" ] || { echo "  FALHA: o pacote do brilho nao abriu (${BRILHO:-sem evento})"; FALHA=1; }
+[ "${BRILHO##*,}" = "1300" ] || { echo "  FALHA: o brilho abriu com ${BRILHO##*,} B e o header manda 1300"; FALHA=1; }
+[ -z "${BRILHOFALHA:-}" ] || { echo "  FALHA: brilho do selo: $BRILHOFALHA"; FALHA=1; }
+[ "${OURO:-0}" -ge 1 ] || { echo "  FALHA: o rank dourado do save nao chegou na lista (${OURO:-sem evento})"; FALHA=1; }
+[ "${NDESOURO:-0}" -ge 1 ] || { echo "  FALHA: o brilho do selo dourado nunca foi desenhado"; FALHA=1; }
+[ "${QOURO:-?}" = "9" ] || { echo "  FALHA: o primeiro brilho saiu no quadro ${QOURO} e o sprite comeca no ULTIMO (9, o 1x1 vazio)"; FALHA=1; }
+[ -n "${DISPARO:-}" ] || { echo "  FALHA: o brilho nunca disparou (o timer de 1 s nao chegou 'a tela)"; FALHA=1; }
+if [ -n "${DISPARO:-}" ]; then
+    DY=${DISPARO%%,*}; DYY=${DISPARO##*,}
+    [ "$DY" -ge 2000 ] && [ "$DY" -le 2115 ] || {
+        echo "  FALHA: o disparo saiu em x=$DY decimos e o sorteio e' 2000..2115"; FALHA=1; }
+    [ "$DYY" -ge 60 ] && [ "$DYY" -le 225 ] || {
+        echo "  FALHA: o disparo saiu em y=$DYY decimos e o sorteio e' 60..225"; FALHA=1; }
+fi
+# A posicao sorteada: `ranking.x - 20..+3` e `ranking.y - 29..+4`, em 640x360.
+# O `x` do ranking e' 210,0 -> o desenho tem de cair em 200,0..211,5 (2000..2115
+# em decimos). Fora disso o sorteio esta' no espaco errado.
+if [ -n "${XOURO:-}" ]; then
+    [ "$XOURO" -ge 2000 ] && [ "$XOURO" -le 2115 ] || {
+        echo "  FALHA: o brilho saiu em x=$XOURO decimos e o sorteio e' 2000..2115"; FALHA=1; }
+fi
+
 echo
 echo "FREEPLAY: PASSOU (lista, dificuldade, chart da musica escolhida e volta)"

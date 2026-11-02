@@ -1757,6 +1757,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
                                         +0 sparks, +1 sparksadd, +2 vinheta */
 #define FP_CHAVE_RB    (SP_CHAVE_TELA_BASE + 0x44u) /* o selo de rank: +0..+5, um
                                                        por rank (6 animacoes)   */
+#define FP_CHAVE_SP    (SP_CHAVE_TELA_BASE + 0x46u) /* o brilho do selo dourado
+                                                       (1 quadro, 26x25, 16 bpp) */
 #define FP_TIT_SLOTS 8
 #define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
 
@@ -1827,6 +1829,28 @@ static int g_rb_addr_ok[FP_RB_ANIMS_N];
 static int g_rb_frame[FP_RB_ANIMS_N];
 static int g_rb_rank[FREEPLAY_MAX];      /* rank de cada musica, -1 = nenhum */
 static int g_rb_desenhos = 0, g_rb_logado = 0;
+
+/* ---- O BRILHO DO SELO PERFECT_GOLD (`SongMenuItem.hx` L156-166, L228-233,
+ * L493-504) ------------------------------------------------------------
+ * Cada ITEM da lista tem o seu (o sprite e' `add()`ado dentro do grupo do
+ * item), entao o estado e' por musica, como o rank. Os pacotes sao um CFZ4 de
+ * 10 quadros de 26x25 em 16 bpp; so' UM mora na VRAM (1.300 B, `FP_SP_VRAM`)
+ * e o cache evita reenviar o mesmo quadro. Quem conta o tempo e' o
+ * `fp_spk_*` do `freeplay.c` (funcao pura, com teste no PC): aqui so' se
+ * pergunta o quadro e se desenha.
+ *
+ * O ALPHA DA CINEMATICA. `rankAnimStart` poe `capsuleToRank.sparkle.alpha = 0`
+ * (FreeplayState L1073) e o fim do `IntervalShake` devolve 0,7 (L1291). O
+ * port NAO desenha o brilho do item que esta' na cinematica -- e' o mesmo
+ * resultado visivel do alpha 0, sem guardar um alpha que ninguem mais usa. */
+static fp_spk_t g_fpsp[FREEPLAY_MAX];
+static pst_pack_t g_sp_pack;
+static int g_sp_ok = 0, g_sp_tentou = 0;
+static unsigned char *g_sp_buf = 0;
+static unsigned int g_sp_buf_bytes = 0, g_sp_addr = 0;
+static int g_sp_addr_ok = 0, g_sp_frame = -1;
+static texbuffer_t g_sp_tex;
+static int g_sp_desenhos = 0, g_sp_logado = 0, g_sp_disparo = 0;
 
 /* ---- A CINEMATICA DE RANK (`FreeplayState.hx` L1069-1344) --------------
  * Ela NAO roda em toda volta do resultado: o `ResultState.hx` L938-967 so'
@@ -1899,6 +1923,8 @@ static void freeplay_selo_soltar(void);
 static void freeplay_fundo_carregar(texbuffer_t *tpl);
 static void freeplay_cine_carregar(texbuffer_t *tpl);
 static void freeplay_cine_soltar(void);
+static void freeplay_brilho_soltar(void);
+static void freeplay_brilho_carregar(texbuffer_t *tpl);
 static int  freeplay_cine_quadro(int qual, int quadro);
 
 static void freeplay_capsula_soltar(void)
@@ -1907,6 +1933,7 @@ static void freeplay_capsula_soltar(void)
     freeplay_dj_soltar();
     freeplay_selo_soltar();
     freeplay_cine_soltar();
+    freeplay_brilho_soltar();
     /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
     if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
     g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
@@ -2013,6 +2040,14 @@ static void freeplay_selo_ranks(void)
         g_rb_rank[i] = (idx >= 0 && idx < SAVE_MUSICAS)
                            ? save_rank(save_obter(&g_save, idx, dif)) : -1;
         if (g_rb_rank[i] >= 0) com++;
+        /* `refreshDisplay` -> `updateScoringRank`: o brilho so' existe no
+           PERFECT_GOLD, e cada passada pela tela re-arma o primeiro disparo
+           em 1 s (o `FlxTimer` antigo e' cancelado, L494). */
+        if (g_rb_rank[i] == FNF_RANK_PERFECT_GOLD)
+            fp_spk_arma(&g_fpsp[i], (unsigned int)(i + 1) * 2654435761u,
+                        FP_SP_X, FP_SP_Y);
+        else
+            fp_spk_desarma(&g_fpsp[i], (unsigned int)(i + 1) * 2654435761u);
      }
      telemetry_event("freeplay_selo_ranks", com, dif);}
 }
@@ -2189,6 +2224,7 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
     freeplay_dj_carregar(tpl);
     freeplay_selo_carregar(tpl);
     freeplay_cine_carregar(tpl);
+    freeplay_brilho_carregar(tpl);
     freeplay_selo_ranks();
     return g_fpc_ok;
 }
@@ -2233,6 +2269,81 @@ static int freeplay_selo_quadro(int rank, unsigned long ms)
     k = (ms * (unsigned long)FP_RB_FPS) / 1000ul;
     if (k >= (unsigned long)a->n) k = (unsigned long)a->n - 1ul;
     return a->ini + (int)k;
+}
+
+static void freeplay_brilho_soltar(void)
+{
+    int i;
+    if (g_sp_tentou) pst_fechar(&g_sp_pack);
+    g_sp_tentou = 0; g_sp_ok = 0; g_sp_logado = 0; g_sp_disparo = 0;
+    if (g_sp_buf) { free(g_sp_buf); g_sp_buf = 0; g_sp_buf_bytes = 0; }
+    if (g_sp_addr_ok || g_sp_addr) sp_soltar(&g_pool, FP_CHAVE_SP);
+    g_sp_addr = 0; g_sp_addr_ok = 0; g_sp_frame = -1; g_sp_desenhos = 0;
+    for (i = 0; i < FREEPLAY_MAX; i++) fp_spk_desarma(&g_fpsp[i],
+                                                      (unsigned int)(i + 1));
+}
+
+/* Abre o pacote do brilho e reserva o slot de VRAM. Sem o pacote a tela
+   continua inteira: os selos dourados ficam sem brilho. */
+static void freeplay_brilho_carregar(texbuffer_t *tpl)
+{
+    char caminho[128];
+    unsigned int bytes;
+    freeplay_brilho_soltar();
+    snprintf(caminho, sizeof(caminho), FP_DIR "%s", FP_SP_TEX);
+    if (pst_abrir(caminho, &g_sp_pack) != PST_OK) {
+        telemetry_event("freeplay_brilho_falta", 0, (int)sp_livre(&g_pool));
+        return;
+    }
+    g_sp_tentou = 1;
+    bytes = g_sp_pack.frame_bytes;
+    if (bytes != (unsigned int)FP_SP_W * (unsigned int)FP_SP_H * 2u ||
+        g_sp_pack.count != (unsigned int)FP_SP_QUADROS) {
+        telemetry_event("freeplay_brilho_tamanho", (int)bytes,
+                        (int)g_sp_pack.count);
+        pst_fechar(&g_sp_pack); g_sp_tentou = 0;
+        return;
+    }
+    g_sp_buf = (unsigned char *)memalign(64, (size_t)bytes);
+    if (!g_sp_buf) { pst_fechar(&g_sp_pack); g_sp_tentou = 0; return; }
+    g_sp_buf_bytes = bytes;
+    if (sp_chave(&g_pool, FP_CHAVE_SP, bytes, &g_sp_addr) < 0) {
+        telemetry_event("freeplay_brilho_sem_vram", 0, (int)sp_livre(&g_pool));
+        free(g_sp_buf); g_sp_buf = 0; g_sp_buf_bytes = 0;
+        pst_fechar(&g_sp_pack); g_sp_tentou = 0; g_sp_addr = 0;
+        return;
+    }
+    g_sp_addr_ok = 1; g_sp_frame = -1;
+    {
+        texbuffer_t t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_SP_W;
+        t.psm = GS_PSM_16;
+        t.address = g_sp_addr;
+        setup_texture_dims(&t, FP_SP_W, FP_SP_H);
+        g_sp_tex = t;
+    }
+    g_sp_ok = 1;
+    telemetry_event("freeplay_brilho", 1, (int)bytes);
+}
+
+/* Leva o quadro `quadro` do brilho para a VRAM. Devolve 1 quando esta' la'. */
+static int freeplay_brilho_vram(texbuffer_t *tpl, int quadro)
+{
+    texbuffer_t t;
+    if (!g_sp_ok || !g_sp_buf || quadro < 0 || quadro >= FP_SP_QUADROS) return 0;
+    if (g_sp_frame != quadro) {
+        if (pst_quadro(&g_sp_pack, (unsigned int)quadro, g_sp_buf) != PST_OK)
+            return 0;
+        t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_SP_W;
+        t.psm = GS_PSM_16;
+        t.address = g_sp_addr;
+        setup_texture_dims(&t, FP_SP_W, FP_SP_H);
+        FlushCache(0);
+        upload_raw_psm(&t, g_sp_buf, FP_SP_W, FP_SP_H, GS_PSM_16);
+        g_sp_frame = quadro;
+    }
+    return 1;
 }
 
 /* Leva o quadro `frame` (indice global) do pacote para o slot do `rank`.
@@ -7891,6 +8002,22 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    ms=(unsigned long)g_fp_ms;
    /* Vence o `FADE_IN_DELAY` de 0,25 s: o preview comeca. */
    freeplay_audio_passo(transition_frame!=0);
+   /* O BRILHO DOS SELOS DOURADOS: cada item tem o seu tempo (o sprite e' um
+      filho do grupo do item), e ele anda enquanto a tela esta' aberta --
+      inclusive com o item fora da janela e durante a cinematica, como os
+      `FlxTimer` do original. So' PERFECT_GOLD e' armado (o
+      `updateScoringRank`), entao o custo e' um teste por musica por quadro. */
+   {static int sp_ms_ant=-1;int dms=g_fp_ms-sp_ms_ant;float dt;
+    /* O `dt` do brilho e' o TEMPO REAL (`g_fp_ms`), nao 1/60: os intervalos de
+       1 s e de 1,2..4,5 s do `FlxTimer` sao relogio, e a tela pode nao estar a
+       60 fps. A trava de 100 ms evita um salto de varios disparos depois de um
+       engasgo (o `FlxTimer` tambem consome o tempo todo de uma vez). */
+    if(sp_ms_ant<0||dms<0)dms=0;
+    if(dms>100)dms=100;
+    sp_ms_ant=g_fp_ms;
+    dt=(float)dms/1000.0f;
+    {int si;for(si=0;si<g_fp_n&&si<FREEPLAY_MAX;si++)
+      fp_spk_passo(&g_fpsp[si],dt,FP_SP_X,FP_SP_Y);}}
    /* A CINEMATICA DE RANK: ela dura `FP_RK_FIM` (2,2 s) desde a abertura da
       tela. O `rankAnimStart` (L1069) e' a primeira coisa que roda ao voltar do
       resultado com `fromResults.playRankAnim`. */
@@ -8109,6 +8236,46 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       g_rb_desenhos++;
       if(!g_rb_logado){g_rb_logado=1;
        telemetry_event("freeplay_selo_desenho",rb,(int)(st->x*10.0f));}
+     }
+    }
+    /* O BRILHO DO SELO DOURADO, por cima do selo: no original o `sparkle` e'
+       `add()`ado DEPOIS do `ranking` (SongMenuItem.hx L166), com
+       `BlendMode.ADD` e `alpha = 0,7` (L161-164). O alpha do vertice do GS
+       vale 0..128, entao 0,7 = 0x5A -- o mesmo numero que o selo
+       nao-selecionado ja' usa. A posicao vem do `fp_spk_*`: `(ranking.x,
+       ranking.y)` mais o sorteio do `sparkleEffect` (x -20..+3, y -29..+4, ja'
+       na metade). O item que esta' na cinematica nao chega aqui (o `continue`
+       do `rk_on&&sel`), que e' o resultado visivel do `alpha = 0` do
+       `rankAnimStart` ate' o fim do `IntervalShake`. */
+    if(g_sp_ok&&i<FREEPLAY_MAX&&g_rb_rank[i]==FNF_RANK_PERFECT_GOLD){
+     int qsp=fp_spk_quadro(&g_fpsp[i]);
+     if(qsp>=0&&freeplay_brilho_vram(&g_fpc_tpl,qsp)){
+      const fp_spk_t*sp=&g_fpsp[i];
+      texbuffer_t spt=g_fpc_tpl;
+      unsigned char sa=(unsigned char)(FP_SP_ALFA*128.0f+0.5f);
+      spt.width=FP_SP_W;spt.psm=GS_PSM_16;spt.address=g_sp_addr;
+      setup_texture_dims(&spt,FP_SP_W,FP_SP_H);
+      q=bind_texture_filter(q,&spt,1);
+      q=gs_blend_add(q);
+      if(vang!=0.0f)
+       q=rk_quad(q,st->x+sp->x+vdx,st->y+sp->y+vdy,
+                 (float)FP_SP_W,(float)FP_SP_H,
+                 0.0f,0.0f,(float)FP_SP_W,(float)FP_SP_H,
+                 vang,1.0f,sa,0x80,0x80,0x80);
+      else
+       q=sprite_region_alpha(q,st->x+sp->x+vdx,st->y+sp->y+vdy,
+                             (float)FP_SP_W,(float)FP_SP_H,
+                             0.0f,0.0f,(float)FP_SP_W,(float)FP_SP_H,sa);
+      q=gs_blend_normal(q);
+      g_sp_desenhos++;
+      if(!g_sp_logado){g_sp_logado=1;
+       telemetry_event("freeplay_brilho_desenho",qsp,(int)(sp->x*10.0f));}
+      /* O DISPARO: o quadro 0 so' aparece quando o `sparkleEffect` roda (o
+         resto do tempo o sprite esta' no ultimo quadro, o vazio). E' a prova de
+         que o `FlxTimer` de 1 s / 1,2..4,5 s chegou 'a tela. */
+      if(qsp==0&&!g_sp_disparo){g_sp_disparo=1;
+       telemetry_event("freeplay_brilho_disparo",(int)(sp->x*10.0f),
+                       (int)(sp->y*10.0f));}
      }
     }
    }

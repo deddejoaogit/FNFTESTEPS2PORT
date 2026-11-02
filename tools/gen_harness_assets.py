@@ -863,6 +863,13 @@ def _freeplay_files():
         out[selo["tex"]] = make_resultado_pack(selo["w"], selo["h"],
                                                selo["quadros"],
                                                bytes_por_pixel=selo["bpp"] // 8)
+    # O BRILHO DO SELO DOURADO (`freeplay/sparkle.cfz4`): 10 quadros de 26x25
+    # em 16 bpp, um slot de VRAM (`FP_SP_VRAM` = 1.300 B). O jogo recusa o
+    # pacote se `frame_bytes` nao for `w*h*2` ou se a contagem nao for 10.
+    sp = plano.get("sparkle")
+    if sp:
+        out[sp["tex"]] = make_resultado_pack(sp["w"], sp["h"], sp["quadros"],
+                                            bytes_por_pixel=sp["bpp"] // 8)
     # A CINEMATICA DE RANK (`freeplay/sparks|sparksadd|vinheta.cfz4`): 16 bpp,
     # com o numero de quadros e o tamanho que o header manda (o jogo recusa o
     # pacote se `frame_bytes` nao for exatamente `w*h*2`).

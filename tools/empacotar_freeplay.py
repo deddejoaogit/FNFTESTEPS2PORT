@@ -223,6 +223,64 @@ CINEMATICA = {
     },
 }
 
+# O BRILHO DO SELO PERFECT_GOLD
+# -----------------------------
+# `SongMenuItem.hx` L156-166 (criacao), L228-233 (`sparkleEffect`) e L493-504
+# (`updateScoringRank`):
+#
+#     sparkle = new FlxSprite(ranking.x, ranking.y);          // (420, 41)
+#     sparkle.frames = Paths.getSparrowAtlas('freeplay/sparkle');
+#     sparkle.animation.addByPrefix('sparkle', 'sparkle Export0', 24, false);
+#     sparkle.animation.play('sparkle', true);
+#     sparkle.scale.set(0.8, 0.8);
+#     sparkle.blend = BlendMode.ADD;
+#     sparkle.visible = false;
+#     sparkle.alpha = 0.7;
+#     ...
+#     function sparkleEffect(timer) {
+#       sparkle.setPosition(FlxG.random.float(x - 20, x + 3),
+#                           FlxG.random.float(y - 29, y + 4));
+#       sparkle.animation.play('sparkle', true);
+#       sparkleTimer = new FlxTimer().start(FlxG.random.float(1.2, 4.5), sparkleEffect);
+#     }
+#     ...
+#     if (newRank == PERFECT_GOLD) {
+#       sparkleTimer = new FlxTimer().start(1, sparkleEffect);
+#       sparkle.visible = true;
+#     }
+#
+# MEDIDO no .xml: 10 quadros de 64x63 (`frameWidth`/`frameHeight`), sendo
+# `Export0000/0001` o mesmo desenho 31x31, `0002/0003` 47x47, `0004/0005`
+# 59x59, `0006/0007` 63x63, `0008` 64x63 (cheio) e `0009` **1x1** -- o ultimo
+# quadro e' o "vazio" em que a animacao (looped = false) PARA. Ou seja: a
+# animacao e' de 10 quadros a 24 fps = 0,4167 s, e os 9 primeiros desenham o
+# brilho. O prefixo `sparkle Export0` casa os DEZ (0000..0009): e' o que o
+# `addByPrefix` faz, e e' o que se empacota aqui. Encurtar a animacao para 9
+# quadros (0,375 s) seria mudar o tempo do evento.
+#
+# ESCALA: `scale 0,8` do sprite sobre a metade da tela = 0,4. O canvas de
+# 64x63 vira 26x25 (arredondado uma vez) e cada quadro custa 26*25*2 = 1.300 B
+# em 16 bpp; os 10 quadros moram num CFZ4 e so' UM fica na VRAM por vez, como o
+# selo e as faiscas: 1.300 B residentes, 10 subidas de 1,3 KB por rajada.
+#
+# A COR: o ADD com `alpha 0,7` e' o mesmo caminho do selo (achatado em 16 bpp,
+# o alfa do vertice do GS vale 0x5A para 0,7).
+SPARKLE = {
+    "fonte": "freeplay/sparkle",
+    "prefixo": "sparkle Export0",   # `addByPrefix('sparkle', 'sparkle Export0')`
+    "fps": 24,
+    "escala": 0.8,                  # sparkle.scale.set(0.8, 0.8)   L160
+    "pos": (420.0, 41.0),           # new FlxSprite(ranking.x, ranking.y) L156
+    "alpha": 0.7,                   # sparkle.alpha = 0.7            L164
+    # `FlxG.random.float(ranking.x - 20, ranking.x + 3)` e o y -29..+4 (L230).
+    "dx": (-20.0, 3.0),
+    "dy": (-29.0, 4.0),
+    "primeiro_s": 1.0,              # `new FlxTimer().start(1, sparkleEffect)` L502
+    "intervalo": (1.2, 4.5),        # `start(FlxG.random.float(1.2, 4.5), ...)` L232
+    "bpp": 16,
+    "saida": "sparkle",
+}
+
 # `SongMenuItem.update()` L670-700: o salto de entrada anda uma casa por 1/24 s
 # e escala a capsula por `xFrames` (x) e o inverso (y).
 XFRAMES = [1.7, 1.8, 0.85, 0.85, 0.97, 0.97, 1.0]
@@ -584,6 +642,76 @@ def empacotar(assets, out):
                       "FreeplayState.hx L809-814 e L1268-1281"),
         }
 
+    # ---- 3d. O BRILHO DO SELO DOURADO -----------------------------------
+    # Mesmo formato do selo de rank: um CFZ4 com os 10 quadros, um canvas
+    # comum (o `frameWidth`x`frameHeight` do XML) e so' UM quadro na VRAM.
+    dado_sparkle = None
+    sp_png = os.path.join(base, SPARKLE["fonte"] + ".png")
+    sp_xml = os.path.join(base, SPARKLE["fonte"] + ".xml")
+    if not (os.path.isfile(sp_png) and os.path.isfile(sp_xml)):
+        problemas.append("freeplay: falta o brilho do selo %s (ou o .xml)" % sp_png)
+    else:
+        q_sp = ler_xml(sp_xml)
+        nomes_sp = quadros_da_folha(q_sp, SPARKLE["prefixo"])
+        if not nomes_sp:
+            problemas.append("freeplay: nenhum quadro do brilho com o prefixo %r"
+                             % SPARKLE["prefixo"])
+        elif len(nomes_sp) != 10:
+            # O dado medido: 10 quadros, o ultimo 1x1. Se o .xml mudar, e' dado
+            # novo, e o dado novo tem de ser medido -- nao arredondado aqui.
+            problemas.append("freeplay: o brilho tem %d quadros, o medido e' 10"
+                             % len(nomes_sp))
+        else:
+            folha_sp = Image.open(sp_png).convert("RGBA")
+            esc = SPARKLE["escala"] * HALF
+            cw_sp = max(q_sp[n]["fw"] or q_sp[n]["w"] for n in nomes_sp)
+            ch_sp = max(q_sp[n]["fh"] or q_sp[n]["h"] for n in nomes_sp)
+            w_sp = max(1, int(round(cw_sp * esc)))
+            h_sp = max(1, int(round(ch_sp * esc)))
+            if w_sp > MAX_TEX or h_sp > MAX_TEX:
+                problemas.append("freeplay: o brilho %dx%d passa do limite %d"
+                                 % (w_sp, h_sp, MAX_TEX))
+            else:
+                blocos_sp = []
+                for n in nomes_sp:
+                    q = q_sp[n]
+                    pedaco = folha_sp.crop((q["x"], q["y"],
+                                            q["x"] + q["w"], q["y"] + q["h"]))
+                    tela = Image.new("RGBA", (cw_sp, ch_sp), (0, 0, 0, 0))
+                    tela.paste(pedaco, (-q["fx"], -q["fy"]))
+                    tela = tela.resize((w_sp, h_sp), Image.LANCZOS)
+                    blocos_sp.append(lz4.block.compress(
+                        pp.to_ps2_bytes(tela, SPARKLE["bpp"]), store_size=False))
+                partes_sp = pp.write_packs(
+                    blocos_sp, w_sp * h_sp * (SPARKLE["bpp"] // 8),
+                    os.path.join(out, SPARKLE["saida"] + ".cfz4"))
+                dado_sparkle = {
+                    "fonte": SPARKLE["fonte"],
+                    "prefixo": SPARKLE["prefixo"],
+                    "tex": "freeplay/" + SPARKLE["saida"] + ".cfz4",
+                    "partes": [os.path.basename(p[0]) for p in partes_sp],
+                    "src_w": cw_sp, "src_h": ch_sp,
+                    "w": w_sp, "h": h_sp,
+                    "bpp": SPARKLE["bpp"],
+                    "quadros": len(blocos_sp),
+                    "fps": SPARKLE["fps"],
+                    "alpha": SPARKLE["alpha"],
+                    # A posicao do sprite dentro do item, em 640x360 (o item ja'
+                    # e' desenhado 'a metade; quem escala 0,8 e' o sprite).
+                    "x": round(SPARKLE["pos"][0] * HALF, 3),
+                    "y": round(SPARKLE["pos"][1] * HALF, 3),
+                    # `sparkleEffect`: o sorteio do x e do y, em 640x360.
+                    "dx_min": round(SPARKLE["dx"][0] * HALF, 3),
+                    "dx_max": round(SPARKLE["dx"][1] * HALF, 3),
+                    "dy_min": round(SPARKLE["dy"][0] * HALF, 3),
+                    "dy_max": round(SPARKLE["dy"][1] * HALF, 3),
+                    "primeiro_ms": int(round(SPARKLE["primeiro_s"] * 1000)),
+                    "intervalo_min_ms": int(round(SPARKLE["intervalo"][0] * 1000)),
+                    "intervalo_max_ms": int(round(SPARKLE["intervalo"][1] * 1000)),
+                    "vram_bytes": w_sp * h_sp * (SPARKLE["bpp"] // 8),
+                    "linha": "SongMenuItem.hx L156-166, L228-233 e L493-504",
+                }
+
     # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
     # `capsule.height` do original e' o canvas SEM CORTE da CAPSULA (src_h), nao
@@ -602,6 +730,7 @@ def empacotar(assets, out):
         "fundo": dado_fundo,
         "selo": dado_selo,
         "cinematica": dado_cine,
+        "sparkle": dado_sparkle,
         "titulos": titulos_out,
         "escala": HALF,
         # `intendedX(index) = 270 + 60*fastSin(index)`; `intendedY(index) =
@@ -731,6 +860,35 @@ def escreve_header(dado):
             a("#define %s_TEX         \"%s\"" % (pre, c["tex"]))
             a("#define %s_X           %.3ff" % (pre, c["x"]))
             a("#define %s_Y           %.3ff" % (pre, c["y"]))
+        a("")
+    sp = dado.get("sparkle")
+    if sp:
+        a("/* O BRILHO DO SELO PERFECT_GOLD (`SongMenuItem.hx` L156-166,\n"
+          " * L228-233 e L493-504): 10 quadros a 24 fps, UMA vez, ADD a 0,7. So'\n"
+          " * UM quadro mora na VRAM por vez (1.300 B). As posicoes ja' estao na\n"
+          " * metade (640x360), no espaco do item -- o (420, 41) do `ranking`. */")
+        a("#define FP_SP_W             %d      /* %dx%d na arte */"
+          % (sp["w"], sp["src_w"], sp["src_h"]))
+        a("#define FP_SP_H             %d" % sp["h"])
+        a("#define FP_SP_BPP           %d" % sp["bpp"])
+        a("#define FP_SP_QUADROS       %d" % sp["quadros"])
+        a("#define FP_SP_FPS           %d" % sp["fps"])
+        a("#define FP_SP_VRAM          %du" % sp["vram_bytes"])
+        a("#define FP_SP_TEX           \"%s\"" % sp["tex"])
+        a("#define FP_SP_X             %.3ff   /* FreeplayRank(420, 41) */"
+          % sp["x"])
+        a("#define FP_SP_Y             %.3ff" % sp["y"])
+        a("#define FP_SP_DX_MIN        %.3ff   /* x - 20 */" % sp["dx_min"])
+        a("#define FP_SP_DX_MAX        %.3ff   /* x + 3  */" % sp["dx_max"])
+        a("#define FP_SP_DY_MIN        %.3ff   /* y - 29 */" % sp["dy_min"])
+        a("#define FP_SP_DY_MAX        %.3ff   /* y + 4  */" % sp["dy_max"])
+        a("#define FP_SP_ALFA          %.3ff   /* sparkle.alpha = 0.7 */"
+          % sp["alpha"])
+        a("/* O PRIMEIRO disparo vem em 1 s fixo; os seguintes em 1,2..4,5 s\n"
+          " * (`FlxTimer.start(1, ...)` e `start(FlxG.random.float(1.2, 4.5), ...)`). */")
+        a("#define FP_SP_PRIMEIRO_MS   %d" % sp["primeiro_ms"])
+        a("#define FP_SP_INTERVALO_MIN_MS %d" % sp["intervalo_min_ms"])
+        a("#define FP_SP_INTERVALO_MAX_MS %d" % sp["intervalo_max_ms"])
         a("")
     a("#define FP_X_BASE           %.3ff   /* 270 * 0,5 */" % dado["x_base"])
     a("#define FP_X_AMP            %.3ff   /* 60 * 0,5  */" % dado["x_amp"])
