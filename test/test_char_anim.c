@@ -263,6 +263,7 @@ int main(void)
         const sr_song_t *lista[32];
         unsigned int n = 0, sem, k, i;
         unsigned int com_gf = 0, sem_gf = 0, com_op = 0, oponente_e_gf = 0;
+        unsigned int com_dancarinas = 0;
         for (sem = 0; sem < sr_level_count(); sem++) {
             const sr_level_t *lv = sr_level(sem);
             if (!lv) continue;
@@ -286,6 +287,24 @@ int main(void)
                 com_gf++;
             } else sem_gf++;
             com_op++;
+            /* AS TRES DANCARINAS: so' o palco `sserafim` as cria -- os ids vem
+               do SCRIPT do palco (`fetchCharacter('sserafim-yunjin')`,
+               sserafim.hxc L146-148), nao do playData da musica. Em qualquer
+               outro palco os tres papeis ficam vazios, e o `slot` delas e'
+               NULL porque a posicao tambem vem do script. */
+            {
+                int k2, tem = (strcmp(lista[i]->stage, "sserafim") == 0);
+                for (k2 = 0; k2 < 3; k2++) {
+                    CHECK(cena[CH_PAPEL_DC0 + k2].slot == NULL);
+                    if (tem) {
+                        CHECK(cena[CH_PAPEL_DC0 + k2].ci >= 0);
+                        CHECK(cena[CH_PAPEL_DC0 + k2].ci < CH_CHAR_COUNT);
+                    } else {
+                        CHECK_EQ(cena[CH_PAPEL_DC0 + k2].ci, -1);
+                    }
+                }
+                if (tem) com_dancarinas++;
+            }
             if (cena[CH_PAPEL_DAD].ci == ch_find("gf")) {
                 oponente_e_gf++;
                 /* A GF e' o OPONENTE nessa musica, entao ela nao entra tambem
@@ -298,6 +317,8 @@ int main(void)
         CHECK_EQ(com_gf + sem_gf, 27);
         CHECK(com_gf > 0);
         CHECK(sem_gf > 0);
+        /* uma musica no palco `sserafim` (a `spaghetti`), e so' ela */
+        CHECK_EQ(com_dancarinas, 1);
         CHECK_EQ(oponente_e_gf, 1);   /* so' o Tutorial */
         if (falhas == 0)
             printf("  %u com namorada, %u sem (slot vazio), %u com oponente; "

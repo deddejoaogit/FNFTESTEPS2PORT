@@ -204,5 +204,22 @@ int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS])
     out[CH_PAPEL_DAD].papel = CH_PAPEL_DAD;
     out[CH_PAPEL_DAD].slot = "dad";
     out[CH_PAPEL_DAD].ci = song->opponent ? ch_find(song->opponent) : -1;
+
+    /* As tres dancarinas do sserafim: criadas pelo SCRIPT do palco, nao pelo
+       playData da musica, e por isso os ids vem daqui (sserafim.hxc L146-148,
+       `fetchCharacter('sserafim-yunjin'|'-chaewon'|'-eunchae')`). Em qualquer
+       outro palco os tres papeis ficam vazios -- nada e' inventado. */
+    {
+        static const char *dc[3] = { "sserafim-yunjin", "sserafim-chaewon",
+                                     "sserafim-eunchae" };
+        int k;
+        for (k = 0; k < 3; k++) {
+            int papel = CH_PAPEL_DC0 + k;
+            out[papel].papel = papel;
+            out[papel].slot = NULL;
+            out[papel].ci = (song->stage && strcmp(song->stage, "sserafim") == 0)
+                                ? ch_find(dc[k]) : -1;
+        }
+    }
     return 0;
 }

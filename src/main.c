@@ -2015,6 +2015,11 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
     sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 2u);
     sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 4u);
     sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 5u);
+    /* As tres dancarinas do sserafim. Soltar chave que nunca foi pedida e'
+       no-op no pool, entao isso vale para as 26 musicas sem dancarina. */
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 8u);
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 9u);
+    sp_soltar(&g_pool, SP_CHAVE_TELA_BASE + 10u);
     sp_limpar(&g_pool);       /* dois cliques: solta o que nao for fixo */
     /* A `tex` do menu volta a ser fixa, no endereco que o pool der. O conteudo
        dela e' reenviado por quem desenha a tela (o titulo, o menu e o story
@@ -3672,6 +3677,9 @@ static void icone_atualiza(float health)
         unsigned int estado;
         float vida;
         if (!g_icone_ativo[lado]) continue;
+        /* `iconP2.visible`: o sserafim so' mostra o icone do oponente depois do
+           chute final (`sserafim.hxc` L237; escondido de novo no retry, L370). */
+        if (lado == ICONE_OPONENTE && !ss_icone_p2(&g_script)) continue;
         vida = (lado == ICONE_JOGADOR) ? health : hi_vida_oponente(health);
         estado = hi_estado(vida, g_icone_pack[lado].quadros);
         if ((int)estado != g_icone_estado[lado]) {
@@ -3782,6 +3790,11 @@ static void palco_trem_som_para(void)
     g_palco_trem_slot = -1;
 }
 
+/* Estado de repouso das tres dancarinas do sserafim (`doorclosed` +
+   danceEvery 0). Definida junto do desenho da cena; o `onSongRetry` do palco
+   precisa dela aqui, antes. */
+static void cena_dancarinas_preparo(long ms);
+
 static void palco_som_toca(int banco, int n, int vol)
 {
     char caminho[192];
@@ -3887,6 +3900,10 @@ static void palco_script_anda(const char *stage, float t, int step)
     if (t < g_script.t) {
         ss_reiniciar(&g_script);
         palco_trem_som_para();        /* `onSongRetry` -> `trainSound.stop()` */
+        /* O `onSongRetry` do sserafim refaz `resetClear()`: a yunjin volta
+           para `doorclosed` com danceEvery 0 e o icone do oponente some
+           (`iconP2.visible = false`, L370). */
+        cena_dancarinas_preparo(0);
         telemetry_event("palco_script_retry", (int)g_script.palco, 0);
     }
     /* O `onSongEnd` do script (L223-228) para o relampago na cutscene final. O
@@ -4237,6 +4254,11 @@ static int g_cena_tex_w=0,g_cena_tex_h=0;
    e' resolvido por PERSONAGEM (o script e' do personagem, nao do papel), e o
    unico lugar que sabe o id e' ch_chars[ci].id. */
 static int g_cena_ci[CH_CENA_PAPEIS];
+/* SCROLL FACTOR de cada papel. 1,0 e' o padrao do flixel para personagem --
+   e' o que os tres slots do palco usam. As tres dancarinas do sserafim sao a
+   excecao: o script do palco poe 0,95/0,95/0,97 (`sserafim.hxc` L158-160), e
+   ignorar isso desloca as tres em relacao ao caminhao quando a camera anda. */
+static float g_cena_scroll[CH_CENA_PAPEIS];
 /* `doAlternate()` dos scripts Blazin': os kinds `punchhigh`/`punchlow` pedem
    `'punchHigh' + postfix`, e o postfix alterna '1'/'2' a cada chamada -- os dois
    nomes existem nos dados ('punchHigh1'/'punchHigh2'). O contador e' POR PAPEL,
@@ -4404,6 +4426,11 @@ static void cena_soltar(void)
     pacotes de personagem (senao a proxima musica herdaria o icone da anterior
     e a VRAM ficaria presa). */
  icone_soltar();
+ /* As tres dancarinas do sserafim tambem: a musica seguinte nao herda a VRAM
+    delas, e uma segunda passada pela `spaghetti` nao acha a chave presa. */
+ sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+8u);
+ sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+9u);
+ sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+10u);
  for(i=0;i<CH_CENA_PAPEIS;i++){if(g_cena_mem[i])free(g_cena_mem[i]);g_cena_mem[i]=0;g_cena_mem_bytes[i]=0;}
  g_cena_ram=0;
  g_cena_estado=0;
@@ -4545,6 +4572,14 @@ static int cena_carregar(const sr_song_t *song)
     if(r==CH_PAPEL_DAD)chave=SP_CHAVE_TELA_BASE+2u;
     else if(r==CH_PAPEL_BF)chave=SP_CHAVE_TELA_BASE+4u;
     else if(r==CH_PAPEL_GF)chave=SP_CHAVE_TELA_BASE+5u;
+    /* As tres dancarinas do sserafim (+8, +9, +10): chaves livres do pool,
+       medidas contra as 585.728 B que os tres atlas ocupam (yunjin 270x332
+       passo 320 = 212.480 B, chaewon 197x330 passo 256 = 168.960 B, eunchae
+       324x266 passo 384 = 204.288 B) -- o palco sserafim inteiro cabe nos
+       4.194.304 B do GS. */
+    else if(r==CH_PAPEL_DC0)chave=SP_CHAVE_TELA_BASE+8u;
+    else if(r==CH_PAPEL_DC1)chave=SP_CHAVE_TELA_BASE+9u;
+    else if(r==CH_PAPEL_DC2)chave=SP_CHAVE_TELA_BASE+10u;
     tpl=g_slot_bf?g_slot_bf:&g_gftex16;
     capacidade=bytes;
     if(!chave){
@@ -4625,6 +4660,10 @@ static int cena_carregar(const sr_song_t *song)
     dependem da CENA, entao nascem aqui junto com os pacotes. */
  icone_carregar(ICONE_JOGADOR,g_cena_bf_ci);
  icone_carregar(ICONE_OPONENTE,g_cena_dad_ci);
+ /* As tres dancarinas do sserafim entram no estado de repouso do script
+    (`doorclosed` + danceEvery 0 na yunjin). Nos outros 20 palcos os tres
+    papeis estao inativos e a funcao nao toca em nada. */
+ cena_dancarinas_preparo(0);
  return g_cena_estado>0?0:-3;
 }
 
@@ -4656,9 +4695,75 @@ static int cena_passo(void)
     return (int)chart_step_at((u32)g_chart_clock);
 }
 
+/* O INDICE em ch_chars[] do personagem de um papel. Antes era um ternario de
+   tres casos escritos em cada funcao (GF/BF/DAD); com os seis papeis do port
+   (tres slots do palco + as tres dancarinas do sserafim) a fonte unica e'
+   `g_cena_ci[]`, que a carga preenche. */
+static int cena_ci(int papel)
+{
+ return (papel>=0&&papel<CH_CENA_PAPEIS)?g_cena_ci[papel]:-1;
+}
+
+/* ESTADO DAS TRES DANCARINAS DO sserafim, do lado do desenho.
+   O script (`ss_dancarina_anim`) guarda (qual animacao, instante em que ela
+   comecou); aqui fica o que o port JA' tocou, para o `forced` do
+   `playAnimation` do original valer: dois chutes seguidos com a mesma
+   animacao tem de recomecar os dois. */
+static int g_dc_qual[3];
+static long g_dc_t0[3];
+
+/* O ESTADO DE REPOUSO (`sserafim.hxc` L941-946, `resetClear`):
+     yunjin.playAnimation('doorclosed', true, true);
+     yunjin.danceEvery = 0;
+   Ou seja: ela fica PARADA na porta fechada, sem dancar, do comeco da musica
+   ate' o chute final (`yunjin.danceEvery = 1`, L232). O `onSongRetry` refaz
+   esse estado, e e' por isso que a funcao tambem e' chamada no retry. */
+static void cena_dancarinas_preparo(long ms)
+{
+ int k;
+ for(k=0;k<3;k++){
+  int papel=CH_PAPEL_DC0+k,ci=cena_ci(papel);
+  g_dc_qual[k]=0;g_dc_t0[k]=0;
+  if(!g_cena.p[papel].ativo)continue;
+  cc_danca_cada(&g_cena,papel,ci>=0?ch_chars[ci].dance:1.0f);
+ }
+ if(g_cena.p[CH_PAPEL_DC0].ativo){
+  cc_danca_cada(&g_cena,CH_PAPEL_DC0,0.0f);
+  if(!cc_toca_forcado(&g_cena,CH_PAPEL_DC0,"doorclosed",ms))
+   telemetry_event("char_dancarina_sem_doorclosed",CH_PAPEL_DC0,0);
+ }
+}
+
+/* A ANIMACAO PEDIDA PELO SCRIPT, aplicada uma vez por mudanca de pedido. */
+static void cena_dancarinas_sync(long ms)
+{
+ int k;
+ for(k=0;k<3;k++){
+  int papel=CH_PAPEL_DC0+k,qual=0,ci;
+  float t0=0.0f;
+  long t0ms;
+  if(!g_cena.p[papel].ativo)continue;
+  if(!ss_dancarina_anim(&g_script,k,&qual,&t0))continue;
+  t0ms=(long)(t0*1000.0f+0.5f);
+  if(qual==g_dc_qual[k]&&t0ms==g_dc_t0[k])continue;
+  g_dc_qual[k]=qual;g_dc_t0[k]=t0ms;
+  if(qual<=0){cena_dancarinas_preparo(ms);continue;}
+  if(!cc_toca_forcado(&g_cena,papel,qual==2?"kick2":"kick1",ms)){
+   telemetry_event("char_dancarina_sem_kick",k,qual);
+   continue;
+  }
+  telemetry_event("char_dancarina_kick",k,qual);
+  /* L232: o chute FINAL liga a danca automatica dela (`danceEvery = 1`). */
+  if(qual==2&&papel==CH_PAPEL_DC0){
+   ci=cena_ci(papel);
+   cc_danca_cada(&g_cena,papel,ci>=0?ch_chars[ci].dance:1.0f);
+  }
+ }
+}
+
 static long cena_canto_ms(int papel,int missing)
 {
- int ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+ int ci=cena_ci(papel);
  float passos,bpm;
  if(ci<0||ci>=CH_CHAR_COUNT)return 0;
  passos=ch_chars[ci].sing>0.0f?ch_chars[ci].sing:8.0f;   /* CharacterData DEFAULT_SINGTIME */
@@ -4676,11 +4781,17 @@ static long cena_canto_ms(int papel,int missing)
 static int cena_canvas_mundo(int papel,const bs_slot_t *slot,float *w,float *h)
 {
  int ci;
- if(papel<0||papel>=CH_CENA_PAPEIS||!slot||!g_cena.p[papel].ativo)return 0;
- ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+ float escala_slot;
+ if(papel<0||papel>=CH_CENA_PAPEIS||!g_cena.p[papel].ativo)return 0;
+ /* Slot NULL so' vale para as dancarinas: elas nao estao em bs_slots[], a
+    posicao vem do script do palco e a escala do slot e' 1 (o script nao toca
+    no scale delas; `sserafim.hxc` L146-164 so' escreve posicao e scroll). */
+ if(!slot&&papel<CH_PAPEL_DC0)return 0;
+ ci=cena_ci(papel);
  if(ci<0||ci>=CH_CHAR_COUNT)return 0;
+ escala_slot=slot?slot->scale:1.0f;
  {float em=ch_escala_mundo(cp_escala(&g_cena.p[papel].pacote),
-                           ch_chars[ci].scale,slot->scale);
+                           ch_chars[ci].scale,escala_slot);
   if(w)*w=(float)g_cena_texde_w[papel]*em;
   if(h)*h=(float)g_cena_texde_h[papel]*em;}
  return 1;
@@ -4730,8 +4841,28 @@ static int go_foco_bf(float *fx,float *fy)
 static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int passo,long ms,float cx,float cy,float sc)
 {
  int qd;
+ bs_slot_t falso;
  if(papel<0||papel>=CH_CENA_PAPEIS)return q;
- if(!g_cena.p[papel].ativo||!slot||g_cena_texde_w[papel]<=0)return q;
+ if(!g_cena.p[papel].ativo||g_cena_texde_w[papel]<=0)return q;
+ /* AS TRES DANCARINAS NAO TEM SLOT no bs_slots[] do palco: o script cria as
+    tres fora dos tres papeis e escreve a posicao a mao. O slot sintetico leva
+    essa posicao como se fosse o pe' do slot, que e' exatamente a conta que o
+    `ch_anchor` faz (`y - canvas_h`) e reproduz o
+    `setPosition(x - origin.x, y - origin.y)` do original com
+    `origin = (width/2, height)` (BaseCharacter.get_characterOrigin L90-95).
+    scale 1 e offsets de camera zerados porque o script nao mexe em nenhum dos
+    dois (sserafim.hxc L146-164). */
+ if(!slot){
+  float dx=0.0f,dy=0.0f,dsc=1.0f;
+  int k=papel-CH_PAPEL_DC0;
+  if(k<0||k>2)return q;
+  if(!ss_dancarina(&g_script,k,&dx,&dy,&dsc))return q;
+  if(!ss_dancarina_visivel(&g_script,k))return q;
+  g_cena_scroll[papel]=dsc;
+  memset(&falso,0,sizeof falso);
+  falso.x=dx;falso.y=dy;falso.scale=1.0f;
+  slot=&falso;
+ }
  qd=cc_quadro(&g_cena,papel,ms,passo);
  if(qd>=0&&g_cena_pixels&&cp_quadro(&g_cena.p[papel].pacote,(unsigned)qd,g_cena_pixels)==0){
   FlushCache(0);
@@ -4741,7 +4872,7 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
  }
  {
   ch_anchor_t an;
-  int ci=papel==CH_PAPEL_GF?g_cena_gf_ci:(papel==CH_PAPEL_BF?g_cena_bf_ci:g_cena_dad_ci);
+  int ci=cena_ci(papel);
   /* TAMANHO. O canvas do pacote esta' na escala em que foi empacotado (0,5 nos
      46 personagens reais); o original desenha a arte vezes `CharacterData.scale`
      vezes o `scale` do slot do palco (Stage.hx L451-455). `ch_escala_mundo`
@@ -4753,9 +4884,17 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
      tamanho em unidades do original -- era so' o tamanho que faltava. */
   float em=ch_escala_mundo(cp_escala(&g_cena.p[papel].pacote),
                            ci>=0?ch_chars[ci].scale:1.0f,slot->scale);
+  const float sf=g_cena_scroll[papel]>0.0f?g_cena_scroll[papel]:1.0f;
   float wm=0.0f,hm=0.0f;
+  if(ci<0||ci>=CH_CHAR_COUNT)return q;
   cena_canvas_mundo(papel,slot,&wm,&hm);   /* a MESMA conta que a camera usa */
-  ch_anchor(&ch_chars[ci],slot,wm,hm,0.0f,papel==CH_PAPEL_GF?0:1,&an);
+  /* `usa_offsets` = 0 para quem o SCRIPT nao aplica o globalOffsets: a GF
+     (gf.hx) e as tres dancarinas. Nelas o `setPosition` do script vem DEPOIS
+     do `addCharacter` e sobrescreve o x/y que o `setScale` tinha escrito com
+     `feetPos - characterOrigin + globalOffsets` (BaseCharacter.hx L280-290),
+     entao somar o offsets outra vez empurraria as tres (o da yunjin e' [2,347])
+     347 px para baixo. */
+  ch_anchor(&ch_chars[ci],slot,wm,hm,0.0f,(papel==CH_PAPEL_GF||papel>=CH_PAPEL_DC0)?0:1,&an);
   /* OFFSETS POR ANIMACAO: a posicao do personagem NAO e' a mesma em toda
      animacao. Bopper.hx L321-325 copia `animationOffsets.get(name)` para
      `animOffsets` a cada troca de animacao e L338-339 subtrai
@@ -4786,7 +4925,11 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
    }}
   q=bind_texture_filter(q,&g_cena_texde[papel],1);
   {
-   float sx=320.0f+(an.sprite_x-cx)*sc,sy=180.0f+(an.sprite_y-cy)*sc;
+   /* SCROLL FACTOR como no layout do palco (`stage_layout.c`):
+      `x0 = 320 + (px - cam*f + 640*f - 640) * sc`. Com f = 1 isso e' o de
+      sempre; com f = 0,95 (as dancarinas) o personagem desliza junto com o
+      caminhao em vez de ficar preso ao fundo. */
+   float sx=320.0f+(an.sprite_x-cx*sf+640.0f*sf-640.0f)*sc,sy=180.0f+(an.sprite_y-cy*sf+360.0f*sf-360.0f)*sc;
    /* A COR DO PERSONAGEM, quando o palco manda (`BaseCharacter.color`). O
       `phillyBlazin.hxc` L114-117 poe bf e dad em 0xDEDEDE e gf em 0x888888, e
       L180-184 escurece os tres a 0x606060 por 0,3 s a cada relampago. O GS
@@ -4894,6 +5037,81 @@ static unsigned short tutorial_lane_button(unsigned int lane){static const unsig
 /* O passo do tremor, uma vez por quadro (o `FlxCamera.update`). O modulo
    `engine/shake.c` tem a conta e o teste; aqui so' se aplica o resultado. */
 static void cena_shake_passo(void){shk_passo(&g_shake,TUT_DT,SHAKE_CAM_W,SHAKE_CAM_H);}
+/* Definidas mais abaixo; declaradas aqui porque o canto por lado (que aplica o
+   NOTE KIND) vem antes delas no arquivo. */
+static int cena_nota_kind(int papel,const chart_note_t *n,int dir,int missing,
+                          long agora,long sing_ms);
+static int nota_noanim(const chart_note_t *n);
+
+/* O `characterType` DE CADA PAPEL.
+   BaseCharacter.hx L557-660: quem canta numa nota e' decidido pelo TIPO do
+   personagem -- `BF` canta as notas do JOGADOR, `DAD` as do OPONENTE e `GF` nao
+   canta (ela so' toca combo/drop). O port tinha isso escrito a mao por papel
+   (bf->jogador, dad->oponente, gf->combo), o que e' o valor PADRAO do original
+   (PlayState.hx L2200-2225 marca cada personagem ao adicionar).
+   O `sserafim` MEXE nisso: `setGirlsSinging` troca o tipo dos SEIS personagens
+   por evento do chart (sserafim.hxc L307-323), e por isso o tipo passa a ser
+   consultado por papel em vez de fixo no codigo. */
+#define CENA_TIPO_GF  0
+#define CENA_TIPO_BF  1
+#define CENA_TIPO_DAD 2
+
+static int cena_tipo(int papel)
+{
+ /* A ORDEM do `setGirlsSinging`: 0 yunjin, 1 dad, 2 chaewon, 3 eunchae,
+    4 bf, 5 gf -- a mesma do vetor de `addCharacter` do script. */
+ int idx,t;
+ if(papel<0||papel>=CH_CENA_PAPEIS)return CENA_TIPO_DAD;
+ idx= papel==CH_PAPEL_DC0?0: papel==CH_PAPEL_DAD?1: papel==CH_PAPEL_DC1?2:
+      papel==CH_PAPEL_DC2?3: papel==CH_PAPEL_BF?4:5;
+ t=ss_canta_tipo(&g_script,idx);
+ if(t>=0)return t?CENA_TIPO_BF:CENA_TIPO_DAD;
+ /* Sem override do palco, o padrao do PlayState. As dancarinas (inativas fora
+    do sserafim) ficam como DAD, que e' o valor que o `addCharacter` do palco
+    lhes daria. */
+ return papel==CH_PAPEL_GF?CENA_TIPO_GF:(papel==CH_PAPEL_BF?CENA_TIPO_BF:CENA_TIPO_DAD);
+}
+
+/* Este papel canta as notas deste lado? `jogador` 1 = nota do jogador. */
+static int cena_canta_lado(int papel,int jogador)
+{
+ int t=cena_tipo(papel);
+ return jogador?(t==CENA_TIPO_BF):(t==CENA_TIPO_DAD);
+}
+
+/* TODOS os personagens do lado cantam (o original chama o `onNoteHit`/
+   `onNoteMiss` de CADA personagem do palco). Devolve quantos cantaram. */
+static int cena_canto_lado(int jogador,const chart_note_t *n,int dir,int missing,long ms)
+{
+ int papel,quantos=0;
+ for(papel=0;papel<CH_CENA_PAPEIS;papel++){
+  long cm;
+  if(!g_cena.p[papel].ativo||!cena_canta_lado(papel,jogador))continue;
+  if(nota_noanim(n))continue;
+  cm=cena_canto_ms(papel,missing);
+  if(cena_nota_kind(papel,n,dir,missing,ms,cm)){quantos++;continue;}
+  cc_canto(&g_cena,papel,dir,missing,ms,cm);
+  quantos++;
+ }
+ return quantos;
+}
+
+/* COMBO / DROP de quem e' do tipo GF (BaseCharacter.hx L586-600, L651-681). */
+static void cena_combo_gf(int acerto,int judge,int combo,long ms)
+{
+ int papel;
+ for(papel=0;papel<CH_CENA_PAPEIS;papel++){
+  if(!g_cena.p[papel].ativo||cena_tipo(papel)!=CENA_TIPO_GF)continue;
+  if(acerto){
+   if(judge==FNF_JUDGE_SICK||judge==FNF_JUDGE_GOOD){
+    if(cc_combo(&g_cena,papel,combo,ms))telemetry_event("char_combo",combo,judge);
+   }else if(cc_drop(&g_cena,papel,combo,ms))telemetry_event("char_combo_drop",combo,judge);
+  }else{
+   if(cc_drop(&g_cena,papel,combo,ms))telemetry_event("char_combo_drop",combo,0);
+  }
+ }
+}
+
 static int cena_nota_kind(int papel,const chart_note_t *n,int dir,int missing,
                           long agora,long sing_ms){
  const nk_acao_t *a;const char *kind,*pid;
@@ -4992,29 +5210,22 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
       toca o maior `drop<N>` que ele alcanca. Tem de ser lido antes do
       fnf_play_miss(), que e' quem zera o combo. */
    {int combo_antes=g_play.combo;
-    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&note.lane<=3){
-     long ms=(long)(sample/48u),cm=cena_canto_ms(CH_PAPEL_BF,1);
-     if(!cena_nota_kind(CH_PAPEL_BF,&note,(int)note.lane,1,ms,cm))
-      cc_canto(&g_cena,CH_PAPEL_BF,(int)note.lane,1,ms,cm);
-    }
+    if(note.lane<=3)cena_canto_lado(1,&note,(int)note.lane,1,(long)(sample/48u));
     fnf_play_miss(&g_play);
-    if(g_cena.p[CH_PAPEL_GF].ativo&&cc_drop(&g_cena,CH_PAPEL_GF,combo_antes,(long)(sample/48u)))telemetry_event("char_combo_drop",combo_antes,0);}g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
+    cena_combo_gf(0,0,combo_antes,(long)(sample/48u));}g_tutorial_note_misses=(u32)g_play.missed;g_tutorial_note_combo=(u32)g_play.combo;g_tutorial_note_score=(s32)g_play.score;g_tutorial_note_feedback=4;g_tutorial_note_feedback_frame=frame;}
  }
  /* Notas do oponente: no Tutorial a GF e a oponente, pelo gf.hxc, entao
     ela canta quando a nota dela chega. Estado 3 marca "ja cantada". */
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){
   chart_note_t note;
   if(chart_note(i,&note)<0||note.must_press||g_tutorial_note_state[i]||note.lane>3)continue;
-  if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;/* o OPONENTE generico canta a mesma nota: o slot dad e' o papel de quem nao e' o jogador (ch_cena_plano) */if(note.lane<=3){
-   long ms=(long)(sample/48u);
-   long cm=cena_canto_ms(CH_PAPEL_DAD,0),cg=cena_canto_ms(CH_PAPEL_GF,0);
-   if(!nota_noanim(&note)){
-    if(g_cena.p[CH_PAPEL_DAD].ativo&&!cena_nota_kind(CH_PAPEL_DAD,&note,(int)note.lane,0,ms,cm))
-     cc_canto(&g_cena,CH_PAPEL_DAD,(int)note.lane,0,ms,cm);
-    if(g_cena.p[CH_PAPEL_GF].ativo&&!cena_nota_kind(CH_PAPEL_GF,&note,(int)note.lane,0,ms,cg))
-     cc_canto(&g_cena,CH_PAPEL_GF,(int)note.lane,0,ms,cg);
-   }
-  }}
+  if((s32)sample>=(s32)note.sample){g_tutorial_note_state[i]=3;g_gf_sing=(int)note.lane;g_gf_sing_at=sample;
+   /* QUEM CANTA A NOTA DO OPONENTE: todo personagem cujo tipo e' DAD -- o
+      `onNoteHit` do BaseCharacter roda por personagem. No Tutorial o oponente
+      e' a propria GF e ela esta' no slot `dad`, entao quem canta ali e' o papel
+      DAD mesmo (o slot `gf` esta' vazio). */
+   if(note.lane<=3)cena_canto_lado(0,&note,(int)note.lane,0,(long)(sample/48u));
+  }
  }
  for(lane=0;lane<4;lane++)if(pressed&tutorial_lane_button(lane)){
   int best=-1;u32 best_abs=0xffffffffu;
@@ -5034,11 +5245,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
    if(chart_note((u32)best,&note)<0)best=-1;
    else{fnf_judge_t judge;
     offset=(s32)sample-(s32)note.sample;g_tutorial_note_state[best]=1;g_bf_sing=(int)lane;g_bf_sing_at=sample;
-    if(!nota_noanim(&note)&&g_cena.p[CH_PAPEL_BF].ativo&&lane<=3){
-     long ms=(long)(sample/48u),cm=cena_canto_ms(CH_PAPEL_BF,0);
-     if(!cena_nota_kind(CH_PAPEL_BF,&note,(int)lane,0,ms,cm))
-      cc_canto(&g_cena,CH_PAPEL_BF,(int)lane,0,ms,cm);
-    }
+    if(lane<=3)cena_canto_lado(1,&note,(int)lane,0,(long)(sample/48u));
     /* NonScoreableNoteKind: a nota e' consumida, o strum reage, mas nada
        entra em pontos, vida, combo ou acerto -- PlayState.hx L3159 poe todo
        o applyScore() dentro de `if (note.scoreable)`. */
@@ -5064,11 +5271,7 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
        (so' o numero EXATO: combo50 nao vale no 51); `bad`/`shit` quebram o
        combo e tocam o `drop<N>`. Sem nenhuma das duas animacoes no
        personagem, cc_combo/cc_drop devolvem 0 e nada e' inventado. */
-    if(g_cena.p[CH_PAPEL_GF].ativo&&(judge==FNF_JUDGE_SICK||judge==FNF_JUDGE_GOOD)){
-     if(cc_combo(&g_cena,CH_PAPEL_GF,(int)g_play.combo,(long)(sample/48u)))telemetry_event("char_combo",(int)g_play.combo,judge);
-    }else if(g_cena.p[CH_PAPEL_GF].ativo){
-     if(cc_drop(&g_cena,CH_PAPEL_GF,(int)g_play.combo,(long)(sample/48u)))telemetry_event("char_combo_drop",(int)g_play.combo,judge);
-    }
+    cena_combo_gf(1,judge,(int)g_play.combo,(long)(sample/48u));
     g_tutorial_note_hits=(u32)g_play.total_notes_hit;
     g_tutorial_note_combo=(u32)g_play.combo;
     g_tutorial_note_score=(s32)g_play.score;
@@ -5079,7 +5282,10 @@ static void tutorial_notes_update(u32 sample,unsigned short pressed,u32 frame){
 }
 static float tutorial_note_y(s32 delta){return 26.3f+(float)delta*(0.45f/(48.0f*2.0f))*g_tut_scroll;}
 static qword_t *tutorial_notes_draw(qword_t*q,texbuffer_t*atlas,texbuffer_t*font,u32 sample,unsigned short held,u32 frame){
- u32 i,visible=0;unsigned int lane;if(g_tutorial_note_asset_status!=0||g_chart_status!=0)return q;q=bind_texture_filter(q,atlas,0);
+ u32 i,visible=0;unsigned int lane;
+ /* UMA leitura por quadro, e nao uma por seta: o script do sserafim esconde a
+    trilha do oponente a musica inteira (`hideOpponentStrumline`). */
+ int st_esconde_strum=ss_esconde_strum_oponente(&g_script);if(g_tutorial_note_asset_status!=0||g_chart_status!=0)return q;q=bind_texture_filter(q,atlas,0);
  /* ZOOM DO HUD (camHUD.zoom): receptores, trilhas e notas estao nessa camera
     (PlayState.hx L2257-2264), entao posicao E tamanho saem escalados por
     g_hud_zoom em torno do centro da tela. O trecho de TEXTURA nao muda -- o
@@ -5106,7 +5312,9 @@ static qword_t *tutorial_notes_draw(qword_t*q,texbuffer_t*atlas,texbuffer_t*font
      repositorio (veio pronto do Drive) -- entao o comportamento fica como
      esta' ate' haver o arquivo para medir. */
   q=sprite_region_alpha(q,x,ry,rw,rh,lane*TUTORIAL_NOTE_SOURCE_TILE,TUTORIAL_NOTE_SOURCE_TILE,g_note_w[lane],g_note_h[lane],128);
-  q=sprite_region_alpha(q,hz_x(g_receptor_x[lane]+320.0f),ry,rw,rh,lane*TUTORIAL_NOTE_SOURCE_TILE,TUTORIAL_NOTE_SOURCE_TILE,g_note_w[lane],g_note_h[lane],128);}
+  /* A trilha do OPONENTE, que o `hideOpponentStrumline` do sserafim apaga
+     (sserafim.hxc L188-195) -- nos outros 20 palcos ela continua. */
+  if(!st_esconde_strum)q=sprite_region_alpha(q,hz_x(g_receptor_x[lane]+320.0f),ry,rw,rh,lane*TUTORIAL_NOTE_SOURCE_TILE,TUTORIAL_NOTE_SOURCE_TILE,g_note_w[lane],g_note_h[lane],128);}
  for(i=0;i<g_chart_info.note_count&&i<CHART_MAX_NOTE_STATES;i++){chart_note_t note;s32 delta,tail_delta;float x,y,tail_y;int state;if(chart_note(i,&note)<0||note.lane>3)continue;state=g_tutorial_note_state[i];delta=(s32)note.sample-(s32)sample;tail_delta=(s32)(note.sample+note.duration)-(s32)sample;x=g_note_x[note.lane]+(note.must_press?320.0f:0.0f);if(note.duration&&(!note.must_press||state!=2)&&tail_delta>0&&delta<(s32)TUTORIAL_NOTE_AHEAD){y=tutorial_note_y(delta);tail_y=tutorial_note_y(tail_delta);if(tail_y>y){float top=y+g_note_h[note.lane]*.28f;if(top<26.3f)top=26.3f;if(tail_y>360.0f)tail_y=360.0f;if(tail_y>top)q=rect_alpha(q,hz_x(x+g_note_w[note.lane]*.39f),hz_y(top),hz_x(x+g_note_w[note.lane]*.61f),hz_y(tail_y),224,224,240,150);}}/* As notas do oponente nunca eram retiradas: so o teste de must_press
    marcava estado, entao elas desciam alem do receptor e iam parar
    perto dos pes do BF. No oficial elas somem quando chegam. O canto
@@ -8784,7 +8992,8 @@ float x,y,w,h;
     const char *stg=palco_atual();
     int bt2=cena_passo();     /* o passo do chart: e' ele que decide quando dancar */
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
-    int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
+    int zz[6],ord[6]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD,
+                      CH_PAPEL_DC0,CH_PAPEL_DC1,CH_PAPEL_DC2},ai,bi,limite;
     palco_lista_t pl;
     /* O zIndex do SLOT do palco, ou o que o NOTE KIND mandou (moveToBack/Front).
        O script faz `this.zIndex = 2000/3000; currentStage.refresh()`, e o
@@ -8800,11 +9009,19 @@ float x,y,w,h;
     zz[0]=g_z_extra[CH_PAPEL_GF]?g_z_extra[CH_PAPEL_GF]:palco_slot_z(stg,"gf");
     zz[1]=g_z_extra[CH_PAPEL_BF]?g_z_extra[CH_PAPEL_BF]:palco_slot_z(stg,"bf");
     zz[2]=g_z_extra[CH_PAPEL_DAD]?g_z_extra[CH_PAPEL_DAD]:palco_slot_z(stg,"dad");
+    /* AS TRES DANCARINAS: zIndex 1000 escrito a mao pelo script
+       (`sserafim.hxc` L154-156), depois dos tres slots na ORDEM DE ADICAO
+       (yunjin, chaewon, eunchae, L150-152) -- e' o desempate do `refresh()`
+       para z igual. Em qualquer outro palco os tres papeis estao inativos e
+       nao desenham nada. */
+    zz[3]=zz[4]=zz[5]=1000;
+    /* O chute pedido pelo `sserafimKick` vira animacao ANTES do desenho. */
+    cena_dancarinas_sync(ms2);
     /* z crescente, como o `FunkinGroup.refresh()` (SortUtil.byZIndex) que o
        Stage chama depois de adicionar todo mundo. A ordem de adicao do
        PlayState e' GF (L2207), BF (L2216) e DAD (L2225), e ela e' o desempate
        aqui porque o corte e' estavel. */
-    for(ai=1;ai<3;ai++){int zi=zz[ai],zo=ord[ai];
+    for(ai=1;ai<6;ai++){int zi=zz[ai],zo=ord[ai];
      for(bi=ai-1;bi>=0&&zz[bi]>zi;bi--){zz[bi+1]=zz[bi];ord[bi+1]=ord[bi];}
      zz[bi+1]=zi;ord[bi+1]=zo;}
     palco_abre(&pl,stg,cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st);
@@ -8812,10 +9029,13 @@ float x,y,w,h;
     if(palco_reserva(&pl,stg)){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}
     /* [props z < gf] gf [props z < dad] dad [props z < bf] bf [props z >= bf] */
     limite=-PALCO_Z_FIM;
-    for(ai=0;ai<3;ai++){
-     const char *rp=ord[ai]==CH_PAPEL_GF?"gf":ord[ai]==CH_PAPEL_DAD?"dad":"bf";
+    for(ai=0;ai<6;ai++){
+     const char *rp=ord[ai]==CH_PAPEL_GF?"gf":ord[ai]==CH_PAPEL_DAD?"dad":
+                    (ord[ai]==CH_PAPEL_BF?"bf":NULL);
      q=palco_fatia(q,&pl,limite,zz[ai]);
-     q=cena_desenha(q,ord[ai],ch_slot(stg,rp),bt2,ms2,cx,cy,sc);
+     /* slot NULL = personagem que o SCRIPT criou (as tres dancarinas): a
+        posicao vem do `ss_dancarina`, nao do bs_slots[]. */
+     q=cena_desenha(q,ord[ai],rp?ch_slot(stg,rp):NULL,bt2,ms2,cx,cy,sc);
      limite=zz[ai];
     }
     q=palco_fatia(q,&pl,limite,PALCO_Z_FIM);

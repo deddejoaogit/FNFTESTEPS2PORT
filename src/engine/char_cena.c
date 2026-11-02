@@ -13,11 +13,12 @@ void cc_reset(cc_cena_t *c)
 {
     if (!c) return;
     memset(c, 0, sizeof(*c));
-    c->p[CH_PAPEL_GF].papel = CH_PAPEL_GF;
-    c->p[CH_PAPEL_BF].papel = CH_PAPEL_BF;
-    c->p[CH_PAPEL_DAD].papel = CH_PAPEL_DAD;
-    c->p[CH_PAPEL_GF].anim = c->p[CH_PAPEL_BF].anim = c->p[CH_PAPEL_DAD].anim = -1;
-    c->p[CH_PAPEL_GF].quadro = c->p[CH_PAPEL_BF].quadro = c->p[CH_PAPEL_DAD].quadro = -1;
+    int i;
+    for (i = 0; i < CH_CENA_PAPEIS; i++) {
+        c->p[i].papel = i;
+        c->p[i].anim = -1;
+        c->p[i].quadro = -1;
+    }
 }
 
 int cc_anexar(cc_cena_t *c, int papel, const unsigned char *pacote,
@@ -153,6 +154,23 @@ int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora)
         p->quadro = -1;
     }
     p->canto_ate = 0;       /* animacao nomeada nao e' canto */
+    p->especial = 1;
+    return 1;
+}
+
+int cc_toca_forcado(cc_cena_t *c, int papel, const char *nome, long agora)
+{
+    cc_papel_t *p;
+    int a;
+    if (!c || papel < 0 || papel >= CH_CENA_PAPEIS || !nome) return 0;
+    p = &c->p[papel];
+    if (!p->ativo) return 0;
+    a = cp_anim_i(&p->pacote, nome);
+    if (a < 0) return 0;
+    p->anim = a;
+    p->t0 = agora;
+    p->quadro = -1;         /* o proximo cc_quadro sobe o quadro 0 */
+    p->canto_ate = 0;
     p->especial = 1;
     return 1;
 }
@@ -322,14 +340,26 @@ int cc_quadro(cc_cena_t *c, int papel, long agora, int passo)
                dancar. E' a unica leitura que mantem a musica tocando. */
             if (e.fps100 > 0 && passado >= (long)((long)e.count * 100000L / (long)e.fps100)) {
                 p->especial = 0;
-                /* Volta a dancar: tambem conta como danca jogada. */
-                a = anim_ocioso(p, p->dancas & 1);
-                p->dancas++;
-                if (a >= 0 && a != p->anim) {
-                    p->anim = a;
-                    p->t0 = agora;
-                    p->quadro = -1;
+                /* `danceEvery = 0` DESLIGA a danca automatica: o
+                   `event.beat % (danceEvery*4)` do Bopper.hx L166 nunca da'
+                   zero, e o personagem fica PARADO no ultimo quadro da
+                   animacao. E' o estado da yunjin no sserafim
+                   (`resetClear()` L943: `danceEvery = 0` + `doorclosed`), e
+                   voltar para o `idle` ali seria uma animacao que o original
+                   nao toca. */
+                if (p->danca_cada > 0.0f) {
+                    /* Volta a dancar: tambem conta como danca jogada. */
+                    a = anim_ocioso(p, p->dancas & 1);
+                    p->dancas++;
+                    if (a >= 0 && a != p->anim) {
+                        p->anim = a;
+                        p->t0 = agora;
+                        p->quadro = -1;
+                    }
                 }
+                /* Com `danca_cada <= 0` nao troca de animacao: o `ca_frame`
+                   abaixo trava no ULTIMO quadro dela, que e' o que o original
+                   mostra (a animacao acabou e o `dance()` nunca vem). */
             }
         }
     }

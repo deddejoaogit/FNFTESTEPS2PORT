@@ -205,6 +205,44 @@ int main(void)
         CHECK_EQ(cc_anim(&c, CH_PAPEL_DAD), 3);              /* singLEFT-end */
     }
 
+    printf("== `cc_toca_forcado` e o `danceEvery = 0` (as dancarinas do sserafim) ==\n");
+    {
+        /* `sserafim.hxc` L230: `playAnimation('kick2', true, false)` -- o
+           `forced` reinicia mesmo que a animacao ja' seja essa. Sem isso dois
+           chutes seguidos apareciam como um so'. E L943: `danceEvery = 0`
+           poe a yunjin parada no ultimo quadro da animacao (a porta fechada),
+           em vez de voltar a dancar. */
+        cc_cena_t c;
+        const anim_t a[3] = {
+            { "doorclosed", 0, 2, 2400, 1 },  /* 41,7 ms por quadro */
+            { "kick1", 2, 3, 2400, 0 },       /* 125 ms por quadro  */
+            { "kick2", 5, 3, 2400, 0 },
+        };
+        unsigned int n = montar(8, 3, a);
+        cc_reset(&c);
+        CHECK_EQ(cc_anexar(&c, CH_PAPEL_DC0, g_pac, n, 0), 0);
+        cc_danca_cada(&c, CH_PAPEL_DC0, 0.0f);
+        CHECK_EQ(cc_toca_forcado(&c, CH_PAPEL_DC0, "doorclosed", 0), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DC0), 0);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DC0, 0, 0), 0);
+        /* Mesma animacao de novo: o forcado REINICIA do quadro 0. */
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DC0, 50, 0), 1);
+        CHECK_EQ(cc_toca_forcado(&c, CH_PAPEL_DC0, "doorclosed", 60), 1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DC0, 60, 0), 0);
+        /* Um nome que ele nao tem nao inventa nada. */
+        CHECK_EQ(cc_toca_forcado(&c, CH_PAPEL_DC0, "kick3", 70), 0);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DC0), 0);
+        /* O `kick1` termina em 375 ms e, com danceEvery = 0, ela FICA nele
+           (ultimo quadro), sem voltar para o `doorclosed`. */
+        CHECK_EQ(cc_toca_forcado(&c, CH_PAPEL_DC0, "kick1", 100), 1);
+        CHECK_EQ(cc_quadro(&c, CH_PAPEL_DC0, 600, 4), 4);   /* 500/125 = 4 */
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DC0), 1);             /* ainda kick1 */
+        /* E o mesmo pedido NAO reinicia pelo cc_toca comum (a diferenca entre
+           os dois); o forcado reinicia. */
+        CHECK_EQ(cc_toca(&c, CH_PAPEL_DC0, "kick1", 700), 1);
+        CHECK_EQ(cc_anim(&c, CH_PAPEL_DC0), 1);
+    }
+
     printf("== animacao SEGURA para a tela de GAME OVER ==\n");
     {
         /* O `firstDeath` -> `deathLoop` da tela de morte

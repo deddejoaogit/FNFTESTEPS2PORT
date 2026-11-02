@@ -167,18 +167,35 @@ void ch_foco_morte(const ch_dados_t *c, const bs_slot_t *slot,
 #define CH_PAPEL_GF 0
 #define CH_PAPEL_BF 1
 #define CH_PAPEL_DAD 2
-#define CH_CENA_PAPEIS 3
+
+/* AS TRES DANCARINAS DO sserafim (sserafim.hxc L146-164).
+   Elas NAO sao slots do palco: o script as cria com
+   `addCharacter(x, CharacterType.OTHER)`, escreve zIndex 1000, scrollFactor
+   0,95/0,95/0,97 e a posicao a mao (`setPosition(-621 - origin.x, 154 -
+   origin.y)` e assim por diante). Por isso tem papel PROPRIO e `slot` NULL:
+   quem manda na posicao e no scroll e' o script do palco
+   (`ss_dancarina()`), nao o bs_slots[] do JSON. */
+#define CH_PAPEL_DC0 3      /* sserafim-yunjin  (chute/porta)      */
+#define CH_PAPEL_DC1 4      /* sserafim-chaewon                    */
+#define CH_PAPEL_DC2 5      /* sserafim-eunchae                    */
+#define CH_CENA_PAPEIS 6
 
 typedef struct {
-    int papel;          /* CH_PAPEL_*                          */
+    int papel;          /* CH_PAPEL_*                            */
     int ci;             /* indice em ch_chars[], -1 = slot vazio */
-    const char *slot;   /* "gf", "bf", "dad"                   */
+    const char *slot;   /* "gf", "bf", "dad"; NULL = criado pelo script */
 } ch_cena_t;
 
-/* Preenche out[0..2] (gf, bf, dad) a partir da musica. Devolve 0, ou -1 se a
+/* Preenche out[0..CH_CENA_PAPEIS-1] a partir da musica. Devolve 0, ou -1 se a
    musica ou a saida nao existem. Slot sem personagem fica com ci = -1 -- NAO
    se inventa personagem para tampar buraco: 11 das 27 musicas nao tem
-   `girlfriend` no dado, e o slot fica vazio, como no original. */
+   `girlfriend` no dado, e o slot fica vazio, como no original.
+
+   Os tres ultimos papeis (DC0..DC2) so' sao preenchidos quando o PALCO da
+   musica e' o `sserafim`: e' o unico script que cria personagens fora dos tres
+   slots (`sserafim.hxc` L146-164, com os ids escritos no proprio script). Nos
+   outros 20 palcos eles ficam com ci = -1, que e' o mesmo que dizer "este palco
+   nao cria personagem nenhum". */
 int ch_cena_plano(const sr_song_t *song, ch_cena_t out[CH_CENA_PAPEIS]);
 
 /* Slot de um palco pelo papel ("bf", "gf", "dad"); 0 se nao existir. */

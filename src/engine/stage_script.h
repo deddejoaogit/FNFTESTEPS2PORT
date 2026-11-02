@@ -288,6 +288,10 @@ typedef struct {
     int i_ssf_tl1, i_ssf_tl2;   /* `truckLight1`, `truckLight2`            */
     int i_ssf_blc, i_ssf_blw;   /* `backLightColor`, `backLightWhite`      */
     int i_ssf_cob;              /* `solidCover`                           */
+    /* `truckDoor`: o prop ESTATICO da porta do caminhao, escondido ate' o
+       quadro 23 do chute final (`sserafim.hxc` L255). Antes disso a porta faz
+       parte da animacao da propria yunjin. */
+    int i_ssf_door;
     int ssf_ativo;              /* 1 = o script do sserafim esta' instalado */
     struct { int ativo; float a0, a1, t0, dur; } ssf_tw[4];  /* 0..3 na ordem
                                    tl1, tl2, blc, blw */
@@ -306,6 +310,14 @@ typedef struct {
     int ssf_kick_final;         /* o `final` do evento (kick1 ou kick2)     */
     unsigned int ssf_canta;     /* mascara de `sserafimSing`               */
     unsigned int ssf_mostra;    /* mascara de `sserafimShow`               */
+    /* AS TRES DANCARINAS (`CharacterType.OTHER`, L146-164 do script). O
+       `sserafim.hxc` cria yunjin, chaewon e eunchae, poe as tres em zIndex
+       1000 com scrollFactor 0,95/0,95/0,97 e posicao
+       `(x, y) - characterOrigin`, e liga/desliga cada uma pelos bits 0, 2 e 3
+       de `ssf_mostra`. A animacao delas e' `idle`, salvo o chute da yunjin. */
+    int dc_anim[3];             /* 0 = idle, 1 = kick1, 2 = kick2          */
+    float dc_t0[3];             /* instante em que a animacao comecou      */
+    int dc_kick_fim;            /* instante do chute final (`kick2`)       */
 
     /* O delta do QUADRO corrente, em segundos: e' o `FlxG.elapsed` que o
        `fastCarDrive` (limoRide L106) usa como divisor da velocidade. Quem
@@ -445,6 +457,52 @@ void ss_ssf_pulsa_lista(ss_t *ss, int n, const unsigned int *cores,
  * 0 = aplicado, -1 = truncado, -2 = listas desalinhadas (recusa, nao inventa). */
 int ss_ssf_bloco(ss_t *ss, const void *bloco, unsigned int len,
                  const char *(*nome_de)(unsigned int));
+
+/* ---- as TRES DANCARINAS do sserafim ----
+ * `sserafim.hxc` L146-164: `yunjin`, `chaewon` e `eunchae` (indices 0, 1, 2),
+ * todas `CharacterType.OTHER` e zIndex 1000. Posicao = `(x, y) -
+ * characterOrigin`, onde o `characterOrigin` do BaseCharacter.hx L90-95 e'
+ * `(width/2, height)` do PROPRIO sprite -- por isso a funcao devolve o ponto
+ * do PESCOCO (o `x, y` do script) e o desenho subtrai meia largura e a altura
+ * inteira do canvas.
+ *
+ *   k = 0 yunjin  -> (-621, 154) scrollFactor 0,95
+ *   k = 1 chaewon -> ( 687,  98) scrollFactor 0,95
+ *   k = 2 eunchae -> ( 770, 675) scrollFactor 0,97
+ *
+ * Devolve 1 quando o palco tem a dancarina de indice `k`. */
+#define SS_DC_YUNJIN  0
+#define SS_DC_CHAEWON 1
+#define SS_DC_EUNCHAE 2
+int ss_dancarina(const ss_t *ss, int k, float *x, float *y, float *scroll);
+/* Visivel agora? Bits 0, 2 e 3 do `ssf_mostra` (L289-303 `setGirlsVisible`). */
+int ss_dancarina_visivel(const ss_t *ss, int k);
+/* A animacao corrente: `qual` 0 = idle, 1 = kick1, 2 = kick2; `t0` em segundos
+ * de musica (o mesmo relogio do `ss_update`). */
+int ss_dancarina_anim(const ss_t *ss, int k, int *qual, float *t0);
+/* A `truckDoor` (prop) so' aparece no QUADRO 23 do `kick2` (L239-248). Devolve
+ * 1 quando a porta ja' tem de estar visivel. */
+int ss_dancarina_porta(const ss_t *ss);
+
+/* `hideOpponentStrumline()` (sserafim.hxc L188-195, chamado no PRIMEIRO
+   `onUpdate`): as quatro setas do oponente ficam invisiveis pela musica
+   inteira -- o palco mostra o time cantando, nao a trilha. 1 = esconder; fora
+   do sserafim 0, que e' o dado de todos os outros palcos. */
+int ss_esconde_strum_oponente(const ss_t *ss);
+
+/* `iconP2.visible` do sserafim: nasce escondido (`onSongRetry` L370) e so'
+   aparece no chute FINAL (L237), ficando visivel ate' o fim da musica. 1 =
+   aparece. Fora do sserafim devolve 1 (ninguem esconde o icone). */
+int ss_icone_p2(const ss_t *ss);
+
+/* `setGirlsSinging(Array<Bool>)` (sserafim.hxc L307-323): o `characterType`
+   de CADA personagem do palco, na ordem do script -- 0 yunjin, 1 dad,
+   2 chaewon, 3 eunchae, 4 bf, 5 gf. `true` poe o personagem em
+   `CharacterType.BF` e `false` em `CharacterType.DAD`; e' o tipo que decide de
+   QUEM sao as notas que fazem ele cantar (BaseCharacter.hx L557-660: BF canta
+   nas notas do jogador, DAD nas do oponente). Devolve 1 = BF, 0 = DAD e -1
+   quando o palco nao mexe no tipo (todos os outros 20 palcos). */
+int ss_canta_tipo(const ss_t *ss, int idx);
 
 /* As curvas do `FlxEase` que os scripts usam, com a formula da fonte
  * (`FlxEase.hx` L61-64 e L137-145):

@@ -82,6 +82,14 @@ int cc_canto_sufixo(cc_cena_t *c, int papel, int dir, int missing,
    personagem nao tem essa animacao (aí o evento vira log, nao invencao). */
 int cc_toca(cc_cena_t *c, int papel, const char *nome, long agora);
 
+/* Como `cc_toca`, mas SEMPRE reinicia a animacao do quadro zero -- e' o
+   `playAnimation(nome, forced = true, ...)` do original. O `cc_toca` nao
+   reinicia quando o nome e' o mesmo da animacao corrente, e o chute da yunjin
+   (`sserafimKick`: `playAnimation('kick1'|'kick2', true, false)`) precisa
+   reiniciar mesmo que o chute anterior seja o mesmo -- dois chutes seguidos
+   tem de aparecer como dois chutes. */
+int cc_toca_forcado(cc_cena_t *c, int papel, const char *nome, long agora);
+
 /* danceEvery do personagem do papel, em BATIDAS (ch_dados_t.dance). Chamado
    depois de `cc_anexar`; sem ele vale 1.0, que e' o DEFAULT_DANCEEVERY. */
 void cc_danca_cada(cc_cena_t *c, int papel, float cada);

@@ -5231,10 +5231,11 @@ entrada com texto e uma dúzia de eventos de música.
 |---|---|---|
 | 13 props do palco | `assets-data/stage-props.json` → `stage_dados.h` | **empacotados** |
 | 3 dançarinas + `sserafim-gf` (cutscene) + `sserafim-sakura` (note kind) | `char_dados.h` L635-640 | **empacotados** (`characterOrigin` de cada uma conferido) |
-| **slot OUTRO** no desenho (as 3 dançarinas em `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97) | `sserafim.hxc` L160-164 | **falta código** — o `char_cena` desenha 3 papéis (bf/dad/gf); falta um quarto |
-| `setGirlsSinging` (o `characterType` de DAD/BF) | `sserafim.hxc` L307-323 | **recebido, não aplicado**. O `characterType` decide de QUEM são as notas que fazem o personagem cantar (`BaseCharacter.hx` L557-660: `BF` canta nas notas do jogador, `DAD` nas do oponente). Nas janelas do `sserafimSing` o DAD passa a cantar nas notas do JOGADOR e vice-versa. O port fixa bf→jogador e dad→oponente; trocar isso é mexer na camada de animação por nota, e só vale a pena junto com os slots das dançarinas |
+| **slot OUTRO** no desenho (as 3 dançarinas em `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97) | `sserafim.hxc` L146-164 | **fechado** — `CH_PAPEL_DC0..DC2` (papéis 3, 4 e 5; `CH_CENA_PAPEIS` = 6), `slot` NULL porque a posição vem do script (`ss_dancarina`), `z` 1000 na ordem de adição do script e a ordem de desenho por `zIndex` passou a ter seis entradas. VRAM em três chaves livres do pool (`+8`, `+9`, `+10`), soltas no `cena_soltar` e no `palco_ui_entrou`. O `scrollFactor` entrou no desenho (`x0 = 320 + (px - cam*f + 640*f - 640)`, a MESMA conta do `stage_layout.c`) |
+| `setGirlsSinging` (o `characterType` de DAD/BF) | `sserafim.hxc` L307-323 | **fechado** — `ss_canta_tipo(ss, idx)` devolve o bit do `sserafimSing` e o `main.c` resolve o TIPO por papel (`cena_tipo`: GF/BF/DAD); o canto e o combo passaram a ser despachados por tipo (`cena_canto_lado`, `cena_combo_gf`) em vez de "bf canta o jogador, dad o oponente". Efeito medido no harness do `spaghetti`: 6 `char_carregado` (papéis 38..43) e `char_dancarina_kick,0,1` / `,0,2` nos dois chutes |
+| `hideOpponentStrumline` e o `iconP2` | L188-195, L237, L370 | **fechado** — `ss_esconde_strum_oponente` tira as quatro setas do oponente a música toda; `ss_icone_p2` só liga o ícone no chute FINAL e o desliga de novo no retry |
 | **a MEDIÇÃO de VRAM das 3 dançarinas** | `shared/images/characters/sserafim/*/spritemap1.json` (clone de arte, via API do GitHub) | **MEDIDO**: o canvas do CHP4 é o MAIOR QUADRO, não a folha. A 0,5 (a escala do empacotador): `yunjin` 539x664 → 270x332 (stride 320) = **212.480 B**; `chaewon` 394x661 → 197x330 (256) = **168.960 B**; `eunchae` 649x533 → 324x266 (384) = **204.288 B**. Total **585.728 B** de 4 194 304 B — cabe. (O plano antes disto dizia que não dava para medir; dava, bastava ler o `spritemap1.json` em vez do JSON de personagem, que não traz tamanho de quadro.) |
-| `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **falta o slot** (o pedido já chega ao `ss_t`) |
+| `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **fechado** — o chute vira `cc_toca_forcado` (o `forced: true` do original reinicia mesmo com a mesma animação), o `danceEvery` da yunjin começa em 0 (`doorclosed`, L941-946) e volta a 1 no chute final (L232), e a porta estática entra quando `(t - kick2) >= 23/24 s` (`ss_dancarina_porta`), pela mesma tabela do prop (`ss_prop_alpha`) |
 | `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente |
 | `doorKick1`, `doorKick2` | `sserafim/sounds/` no clone de arte | **JÁ EMPACOTADOS** (`tools/empacotar_audio.py`, `SONS_PALCO`). O plano dizia que faltavam e estava errado: medidos 1,389 s e 3,120 s a 44,1 kHz (145.152 B e 326.016 B a 48 kHz) |
 | som da cutscene | `Paths.sound(...)` | **FALTA** — a cutscene inteira depende da arte |
@@ -5246,14 +5247,20 @@ entrada com texto e uma dúzia de eventos de música.
 
 ### Ordem de trabalho que sobrou (com a medição acima)
 
-1. **slot OUTRO + as três dançarinas**: 585.728 B medidos, cabe no orçamento.
-   Falta o quarto (quinto e sexto) papel no `char_cena`/`char_layout`, com
-   `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97 e posição
-   `(x - characterOrigin.x, y - characterOrigin.y)` de L162-164; as máscaras de
-   `sserafimShow`/`sserafimSing` já chegam no `ss_t` (`ssf_mostra`, `ssf_canta`).
-2. **`sserafimKick`**: a `yunjin.playAnimation('kick1'/'kick2')` e o
-   `truckDoor.visible` no quadro 23 (o SOM já toca).
-3. **`setGirlsSinging`**: trocar o lado que faz cada papel cantar
-   (`BaseCharacter.hx` L557-660) — só faz sentido com (1) pronto.
+1. ~~slot OUTRO + as três dançarinas~~ — **feito** (papéis 3..5).
+2. ~~`sserafimKick` (animação + porta)~~ — **feito**.
+3. ~~`setGirlsSinging`~~ — **feito** (tipo por papel).
 4. **a cutscene** (L567-930): depende da arte que falta (`floor`, `dust*`,
-   `sserafimCutscene`, `SEEYOU2`, `gameOver` do palco).
+   `sserafimCutscene`, `SEEYOU2`, `gameOver` do palco) e do `SserafimShader`.
+   É o único item do palco que ainda não tem nem código nem arte neste
+   ambiente — por isso vem depois dos 21 palcos.
+5. **`sserafimDark`** (L413-421) e o `SserafimShader`: brilho/contraste/matiz por
+   pixel; mesma classe de falta de plataforma do `wiggle.frag` (ver acima).
+
+**Conferência de desenho pendente (1 linha):** a auditoria da faixa visível do
+harness acusou **1 linha fora** (`y 381,7..392,0` contra a faixa `56..391`) no
+`spaghetti`, num prop grande (w = 3 239,8) com o corte do `band_clip` em
+391,5625. Não é das dançarinas (elas não têm quad desse tamanho) e não é
+estouro: é o corte padrão do port batendo no limite da faixa por 0,56 linha.
+Fica registrado para medir no console; o certo é o `band_clip` fechar em 391,0
+inteiro.

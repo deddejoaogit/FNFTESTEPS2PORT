@@ -1137,6 +1137,7 @@ int main(void)
         CHECK_EQ(sf.ssf_kick_final, 1);
         CHECK_EQ(sf.som, 2);
         e.p0 = 0;
+
         /* Um nome desconhecido nao e' do palco: devolve 0 e o main.c conta. */
         CHECK_EQ(ss_evento(&sf, "outroPalcoQualquer", &e), 0);
         /* As mascaras de `sserafimSing`/`sserafimShow` chegam inteiras. */
@@ -1266,6 +1267,65 @@ int main(void)
         CHECK_EQ(sf.ssf_luz, 0);
         CHECK_EQ(sf.ssf_n, 0);
         CHECK_NEAR(ss_ssf_flash_alpha(&sf), 1.0);   /* o flash nao e' resetado */
+
+        /* ---- AS TRES DANCARINAS (L146-164 e L289-303) ---- */
+        {
+            float x = 0.0f, y = 0.0f, sc = 0.0f;
+            /* Estado limpo: o chute final do bloco de cima ja' tinha deixado a
+               porta visivel, e ela NAO volta a sumir sozinha (o original so'
+               a esconde no `resetClear`). */
+            ss_init(&sf, "sserafim");
+            int qual = -1;
+            float t0 = -1.0f;
+            /* Posicao e scroll: `setPosition(-621 - origin.x, 154 - origin.y)` e
+               `scrollFactor.set(0.95, 0.95)` -- so' o ponto do script, porque o
+               `origin` e' o canvas do sprite (quem o subtrai e' o desenho). */
+            CHECK_EQ(ss_dancarina(&sf, SS_DC_YUNJIN, &x, &y, &sc), 1);
+            CHECK_NEAR(x, -621.0f); CHECK_NEAR(y, 154.0f); CHECK_NEAR(sc, 0.95f);
+            CHECK_EQ(ss_dancarina(&sf, SS_DC_CHAEWON, &x, &y, &sc), 1);
+            CHECK_NEAR(x, 687.0f); CHECK_NEAR(y, 98.0f); CHECK_NEAR(sc, 0.95f);
+            CHECK_EQ(ss_dancarina(&sf, SS_DC_EUNCHAE, &x, &y, &sc), 1);
+            CHECK_NEAR(x, 770.0f); CHECK_NEAR(y, 675.0f); CHECK_NEAR(sc, 0.97f);
+            /* `baseVisible` (L28) = [true, false, false, false, false, false]:
+               no instante zero so' a yunjin esta' em cena. */
+            e.p0 = 0; e.a = 1u;
+            CHECK_EQ(ss_evento(&sf, "sserafimShow", &e), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_YUNJIN), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_CHAEWON), 0);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_EUNCHAE), 0);
+            /* [1,0,1,1,1]: as tres aparecem (bits 0, 2 e 3). */
+            e.a = 0x1Du;
+            CHECK_EQ(ss_evento(&sf, "sserafimShow", &e), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_YUNJIN), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_CHAEWON), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_EUNCHAE), 1);
+            /* O CHUTE SIMPLES poe a `kick1` (L269) e NAO mostra o icone nem a
+               porta. */
+            e.p0 = 0;
+            CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
+            CHECK_EQ(ss_dancarina_anim(&sf, SS_DC_YUNJIN, &qual, &t0), 1);
+            CHECK_EQ(qual, 1);
+            CHECK_EQ(ss_icone_p2(&sf), 0);
+            CHECK_EQ(ss_dancarina_porta(&sf), 0);
+            CHECK_EQ(ss_prop_alpha(&sf, sf.i_ssf_door), 0.0f);
+            /* O CHUTE FINAL poe a `kick2` (L230), mostra o `iconP2` (L237) e
+               agenda a porta no QUADRO 23 de 24 (L251-256): 958,3 ms. */
+            e.p0 = 1;
+            CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
+            CHECK_EQ(ss_dancarina_anim(&sf, SS_DC_YUNJIN, &qual, &t0), 1);
+            CHECK_EQ(qual, 2);
+            CHECK_EQ(ss_icone_p2(&sf), 1);
+            CHECK_EQ(ss_dancarina_porta(&sf), 0);
+            ss_update(&sf, 0.4f);
+            CHECK_EQ(ss_dancarina_porta(&sf), 0);      /* 9,6 de 24 quadros */
+            CHECK_EQ(ss_prop_alpha(&sf, sf.i_ssf_door), 0.0f);
+            ss_update(&sf, 0.7f);
+            CHECK_EQ(ss_dancarina_porta(&sf), 1);      /* 26,4: passou do 23 */
+            CHECK_EQ(ss_prop_alpha(&sf, sf.i_ssf_door), 1.0f);
+            /* A trilha do oponente fica escondida a musica inteira (L188-195). */
+            CHECK_EQ(ss_esconde_strum_oponente(&sf), 1);
+        }
+
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

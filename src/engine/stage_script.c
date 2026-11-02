@@ -193,6 +193,16 @@
               `velocity.x = (int(170,220) / FlxG.elapsed) * 3`,
               `fastCarCanDrive = false` e `new Sequence(carSequenceData)`
      L152-165 `onPause`/`onResume` ligam/desligam `carSequence.running`      */
+/* AS TRES DANCARINAS (sserafim.hxc L146-164): `(x, y)` do `setPosition`, em
+   unidades do original. O desenho subtrai o `characterOrigin` (meia largura e a
+   altura do canvas), que e' o `BaseCharacter.get_characterOrigin` L90-95. */
+static const float ss_dc_pos[3][2] = {
+    { -621.0f,  154.0f },   /* yunjin  */
+    {  687.0f,   98.0f },   /* chaewon */
+    {  770.0f,  675.0f }    /* eunchae */
+};
+static const float ss_dc_scroll[3] = { 0.95f, 0.95f, 0.97f };
+
 #define SS_CAR_X0       (-12600.0f)  /* L87 `fastCar.x = -12600`         */
 #define SS_CAR_Y_MIN    350          /* L88 `int(350, 380)`              */
 #define SS_CAR_Y_MAX    380
@@ -317,6 +327,7 @@ void ss_init(ss_t *ss, const char *palco_id)
     ss->i_tank = -1;
     ss->i_fastcar = -1;
     ss->i_ssf_tl1 = ss->i_ssf_tl2 = ss->i_ssf_blc = ss->i_ssf_blw = ss->i_ssf_cob = -1;
+    ss->i_ssf_door = -1;
     ss->som_vol = 100;
     ss->i_freaks = -1;
     ss->sufixo_medo = 0;
@@ -463,6 +474,7 @@ void ss_init(ss_t *ss, const char *palco_id)
            desenha e' o caminho de cor do palco, e o alpha vem de
            `ss_cor_alpha`. */
         ss->i_ssf_cob = acha_cor(ss->palco, "solidCover");
+        ss->i_ssf_door = acha_prop(ss->palco, "truckDoor");
         /* Sem os dois caminhoes e as duas luzes de fundo o script nao tem o que
            acender. A cobertura e' opcional para o resto funcionar, mas o
            `sserafimCover` sem ela nao faz nada (e' o dado que falta). */
@@ -548,6 +560,10 @@ void ss_reiniciar(ss_t *ss)
        cobertura, e o `buildStage` termina com `setLightState(false)`. */
     if (ss->ssf_ativo) {
         int k;
+        /* As tres dancarinas voltam ao `idle`: o `onSongRetry` refaz
+           `setGirlsVisible(baseVisible)`/`setGirlsSinging(baseSinging)`. */
+        for (k = 0; k < 3; k++) { ss->dc_anim[k] = 0; ss->dc_t0[k] = 0.0f; }
+        ss->dc_kick_fim = -1;
         for (k = 0; k < 4; k++) {
             ss->ssf_tw[k].ativo = 0;
             ss->ssf_a[k] = 0.0f;
@@ -1136,6 +1152,12 @@ int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev)
            ainda nao tem slot (ver o plano); o pedido fica registrado. */
         ss->ssf_kick_final = ev->p0 != 0;
         ss->ssf_kick_pedido = 1;
+        /* `yunjin.playAnimation('kick1'|'kick2', true, false)` (L222/L233): o
+           `true` e' `forced`, entao reinicia do quadro 0 mesmo que ja' esteja
+           tocando -- o instante guardado e' o do evento. */
+        ss->dc_anim[SS_DC_YUNJIN] = ss->ssf_kick_final ? 2 : 1;
+        ss->dc_t0[SS_DC_YUNJIN] = ss->t;
+        if (ss->ssf_kick_final) ss->dc_kick_fim = (int)(ss->t * 1000.0f);
         ss->som = ss->ssf_kick_final ? 2 : 1;
         ss->som_banco = SS_SOM_DOORKICK;
         ss->som_vol = 100;
@@ -1512,6 +1534,10 @@ float ss_prop_alpha(const ss_t *ss, int prop_abs)
        tween morto o alpha e' 0, que e' o fim dele e o do dado. */
     if (ss->ssf_ativo) {
         int k;
+        /* A PORTA DO CAMINHAO: escondida enquanto a porta faz parte da
+           animacao da yunjin; visivel a partir do quadro 23 do chute final
+           (L251-256: `if (frameNumber == 23) truckDoor.visible = true`). */
+        if (prop_abs == ss->i_ssf_door) return ss_dancarina_porta(ss) ? 1.0f : 0.0f;
         for (k = 0; k < 4; k++)
             if (prop_abs == ssf_abs(ss, k))
                 return ss->ssf_tw[k].ativo ? ss->ssf_a[k] : 0.0f;
@@ -1674,6 +1700,67 @@ int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)
     rgb[1] = ss->cor[papel][1];
     rgb[2] = ss->cor[papel][2];
     return 1;
+}
+
+int ss_dancarina(const ss_t *ss, int k, float *x, float *y, float *scroll)
+{
+    if (!ss || !ss->ssf_ativo || k < 0 || k > 2) return 0;
+    if (x) *x = ss_dc_pos[k][0];
+    if (y) *y = ss_dc_pos[k][1];
+    if (scroll) *scroll = ss_dc_scroll[k];
+    return 1;
+}
+
+int ss_dancarina_visivel(const ss_t *ss, int k)
+{
+    unsigned int bit;
+    if (!ss || !ss->ssf_ativo || k < 0 || k > 2) return 0;
+    /* `setGirlsVisible` L293-298: yunjin = bit 0, chaewon = bit 2, eunchae =
+       bit 3 (bit 1 e' o DAD e bit 4 e' o BF; ver `ss_alpha_papel`). */
+    bit = (k == SS_DC_YUNJIN) ? 0u : (k == SS_DC_CHAEWON ? 2u : 3u);
+    return (ss->ssf_mostra >> bit) & 1u;
+}
+
+int ss_dancarina_anim(const ss_t *ss, int k, int *qual, float *t0)
+{
+    if (!ss || !ss->ssf_ativo || k < 0 || k > 2) return 0;
+    if (qual) *qual = ss->dc_anim[k];
+    if (t0) *t0 = ss->dc_t0[k];
+    return 1;
+}
+
+int ss_esconde_strum_oponente(const ss_t *ss)
+{
+    return (ss && ss->ssf_ativo) ? 1 : 0;
+}
+
+int ss_canta_tipo(const ss_t *ss, int idx)
+{
+    /* `baseSinging` (L29) nasce FALSO nos seis, e o `addCharacter` do palco
+       (L345) aplica `baseSinging[targetIndex] ? BF : DAD` -- ou seja, no
+       sserafim TODO MUNDO comeca como DAD (canta as notas do OPONENTE) ate' o
+       primeiro `sserafimSing`, que troca quem canta o que. */
+    if (!ss || !ss->ssf_ativo || idx < 0 || idx > 5) return -1;
+    return (int)((ss->ssf_canta >> (unsigned)idx) & 1u);
+}
+
+int ss_icone_p2(const ss_t *ss)
+{
+    if (!ss || !ss->ssf_ativo) return 1;
+    /* L237 liga no chute final; L370 desliga de novo no `onSongRetry` (que
+       refaz o estado pelo `ss_reiniciar`). */
+    return ss->dc_anim[SS_DC_YUNJIN] == 2;
+}
+
+int ss_dancarina_porta(const ss_t *ss)
+{
+    /* L249-256: o `onFrameChange` do `kick2` poe a `truckDoor` visivel no
+       QUADRO 23 e nao a esconde mais. O pacote medido do `kick2` tem 24 quadros
+       a 24 fps, entao o quadro 23 cai em 23/24 s depois do evento -- o desvio
+       maximo e' um quadro. Sem o `kick2` tocando a porta fica como estava. */
+    if (!ss || !ss->ssf_ativo || ss->dc_kick_fim < 0) return 0;
+    if (ss->dc_anim[SS_DC_YUNJIN] != 2) return 1;   /* o kick2 ja' terminou */
+    return (ss->t * 1000.0f) - (float)ss->dc_kick_fim >= (23.0f * 1000.0f / 24.0f);
 }
 
 float ss_alpha_papel(const ss_t *ss, int papel)
