@@ -47,6 +47,17 @@ import gen_stage_dados as gsd
 
 DATA = os.path.join(PROJECT, "assets-data")
 PLAN = os.path.join(DATA, "stage-props.json")
+# Os sprites que o SCRIPT do palco cria (`new FlxTiledSprite`, `new FlxBackdrop`)
+# nao estao no JSON do palco, logo nao passam por `plan_prop`. Eles sao UMA
+# imagem, na escala do palco, e o dado deles (com a linha da fonte) esta' em
+# assets-data/stage-criados.json -- ver tools/gen_stage_criados.py.
+CRIADOS = os.path.join(DATA, "stage-criados.json")
+
+
+def criados_do_palco(sid):
+    if not os.path.isfile(CRIADOS):
+        return []
+    return json.load(open(CRIADOS, encoding="utf-8")).get("palcos", {}).get(sid, [])
 
 
 def stage_limit(bpp, sid=None, reservas=None):
@@ -111,8 +122,13 @@ def _stage_scale(native, limit):
     return lo
 
 
-def pack_stage(assets, sid, props, limit, out_root, bpp):
-    """Pack one stage. -> (entries, bytes_written, problems, scale, vram)."""
+def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
+    """Pack one stage. -> (entries, bytes, problems, scale, vram, criados).
+
+    `criados` sao os sprites do script do palco (assets-data/stage-criados.json):
+    uma imagem cada, na MESMA escala dos props -- e' a resolucao que o bloco
+    ocupa na tela e, no caso do `scrollingSky`, o periodo da repeticao.
+    """
     problems = []
     stage_dir = os.path.join(out_root, sid)
     os.makedirs(stage_dir, exist_ok=True)
@@ -205,6 +221,51 @@ def pack_stage(assets, sid, props, limit, out_root, bpp):
             "anims": plan_anims,
         })
 
+    # OS SPRITES DO SCRIPT: uma imagem, uma escala (a do palco), um pacote.
+    criados_plan = []
+    for c in criados:
+        nome = c.get("nome") or "criado"
+        kind, carga = pp.resolve(assets, c.get("asset") or "")
+        if kind is None:
+            problems.append("%s/%s: %s" % (sid, nome, carga))
+            continue
+        if kind == "animate":
+            # Um sprite de script e' UMA imagem. Um atlas do Animate exigiria
+            # achatamento, que nenhum dos 5 scripts pede -- e adivinhar aqui
+            # seria pior que dizer que o dado nao serve.
+            problems.append("%s/%s: e' um atlas do Animate, nao uma imagem"
+                            % (sid, nome))
+            continue
+        img = pp.Image.open(carga[0]).convert("RGBA")
+        if img.size != (int(c["src_w"]), int(c["src_h"])):
+            # O JSON diz o tamanho nativo e o periodo da repeticao usa esse
+            # numero: um PNG diferente muda o mundo, nao so' a resolucao.
+            problems.append("%s/%s: o PNG e' %dx%d e o dado diz %dx%d"
+                            % (sid, nome, img.size[0], img.size[1],
+                               c["src_w"], c["src_h"]))
+            continue
+        sw = max(1, int(round(c["src_w"] * f)))
+        sh = max(1, int(round(c["src_h"] * f)))
+        if sw > 1024 or sh > 1024:
+            problems.append("%s/%s: %dx%d passa do limite de textura 1024"
+                            % (sid, nome, sw, sh))
+            continue
+        scaled = img if (sw, sh) == img.size else img.resize((sw, sh), pp.Image.NEAREST)
+        bloco = lz4.block.compress(pp.to_ps2_bytes(scaled, bpp), store_size=False)
+        destino = os.path.join(stage_dir, nome + ".cfz4")
+        keep.add(nome + ".cfz4")
+        parts = pp.write_packs([bloco], sw * sh * (bpp // 8), destino)
+        for extra in glob.glob(destino + ".part*"):
+            keep.add(os.path.basename(extra))
+        written += sum(t for _p, t, _f, _n in parts)
+        vram += sw * sh * (bpp // 8)
+        criados_plan.append({"name": nome, "asset": c["asset"],
+                             "tex": "stages/%s/%s.cfz4" % (sid, nome),
+                             "sw": sw, "sh": sh,
+                             "src_w": int(c["src_w"]), "src_h": int(c["src_h"])})
+        print("  %-22s %-16s sprite de script %4dx%-4d -> %3dx%-3d"
+              % (sid, nome, img.size[0], img.size[1], sw, sh))
+
     if vram > limit:
         problems.append("%s: %d B de textura contra %d B de orcamento"
                         % (sid, vram, limit))
@@ -213,7 +274,7 @@ def pack_stage(assets, sid, props, limit, out_root, bpp):
         if fn.endswith(".cfz4") and fn not in keep:
             os.remove(os.path.join(stage_dir, fn))
             problems.append("removed stale %s/%s" % (sid, fn))
-    return entries, written, problems, f, vram
+    return entries, written, problems, f, vram, criados_plan
 
 
 def main():
@@ -287,8 +348,9 @@ def main():
             q["animType"] = src.get("animType")
             q["animations"] = src.get("animations")
             merged.append(q)
-        entries, written, probs, f, vram = pack_stage(args.assets, sid, merged,
-                                                      limit, out_root, args.bpp)
+        entries, written, probs, f, vram, criados_plan = pack_stage(
+            args.assets, sid, merged, limit, out_root, args.bpp,
+            criados_do_palco(sid))
         total_bytes += written
         problems.extend(probs)
         if entries is None:
@@ -296,7 +358,8 @@ def main():
             # vez de entrar vazio (um palco vazio desenha so' o ceu).
             continue
         plan["stages"].append({"id": sid, "zoom": round(zoom, 6),
-                               "scale": round(f, 6), "props": entries})
+                               "scale": round(f, 6), "props": entries,
+                               "criados": criados_plan})
         print("%-22s escala %.3f  %2d props  %8d B VRAM (%.0f%% do orcamento)"
               "  %9d B no disco"
               % (sid, f, len(entries), vram, 100.0 * vram / limit, written))

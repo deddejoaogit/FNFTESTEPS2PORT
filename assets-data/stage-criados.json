@@ -1,0 +1,41 @@
+{
+ "nota": "Os sprites que o SCRIPT do palco cria e que por isso NAO estao no JSON do palco. Cada entrada tem a linha da fonte. Fonte: preload/scripts/stages/<palco>.hxc do funkin.assets (medido), nao estimativa. Quem consome: tools/pacotar_palcos.py (empacota a imagem) e tools/gen_stage_criados.py (gera src/stage_criados_dados.h). O inventario completo (666 linhas que mudam estado em 18 scripts) esta em tools/analisa_scripts_palco.py.",
+ "campos": {
+  "nome": "nome do sprite no script (variavel)",
+  "asset": "caminho que o Paths.image() do script pede, sem extensao",
+  "src_w/src_h": "tamanho NATIVO da imagem em pixels = periodo da repeticao (medido do PNG)",
+  "x/y/w/h": "o quad no espaco do original: `setPosition` e o (width, height) do construtor",
+  "scrollx/scrolly": "o `scrollFactor.set(...)` (1 = acompanha a camera)",
+  "z": "zIndex",
+  "alpha": "alpha inicial",
+  "blend": "openfl.display.BlendMode (0 ADD, 10 NORMAL, 9 MULTIPLY, 12 SCREEN); o port usa o mesmo numero do StageData",
+  "tinta": "o `color` do sprite em 0xRRGGBB, ou null",
+  "tile": "1 = repete na horizontal (FlxTiledSprite), 0 = um quad so'",
+  "vel_x/vel_y": "px/s do `scroll` (FlxTiledSprite.scrollX ou FlxBackdrop), no espaco do original"
+ },
+ "palcos": {
+  "phillyBlazin": [
+   {
+    "nome": "scrollingSky",
+    "asset": "phillyBlazin/skyBlur",
+    "fonte": "preload/scripts/stages/phillyBlazin.hxc L79-86 (criacao) e L106 (scroll por quadro)",
+    "classe": "FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'), 4000, 495, true, false)",
+    "x": -700.0,
+    "y": -120.0,
+    "w": 4000.0,
+    "h": 495.0,
+    "src_w": 1387,
+    "src_h": 495,
+    "scrollx": 0.0,
+    "scrolly": 0.0,
+    "z": 10,
+    "alpha": 1.0,
+    "blend": 10,
+    "tinta": null,
+    "tile": 1,
+    "vel_x": -35.0,
+    "vel_y": 0.0
+   }
+  ]
+ }
+}

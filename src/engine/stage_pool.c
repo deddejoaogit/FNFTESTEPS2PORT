@@ -27,6 +27,23 @@ unsigned int sp_prop_bytes(int prop)
     return (b + (VC_ALINHAMENTO - 1u)) & ~(VC_ALINHAMENTO - 1u);
 }
 
+unsigned int sp_criado_bytes(int criado)
+{
+    unsigned int b;
+    if (criado < 0 || criado >= BS_CRIADO_COUNT) return 0;
+    b = bs_criado_vram_bytes[criado];
+    return (b + (VC_ALINHAMENTO - 1u)) & ~(VC_ALINHAMENTO - 1u);
+}
+
+int sp_criado(sp_t *p, int criado, unsigned int *endereco)
+{
+    unsigned int bytes = sp_criado_bytes(criado);
+    if (!p) return -1;
+    p->pedidos++;
+    if (!bytes) { p->falhas++; return -1; }
+    return sp_chave(p, SP_CHAVE_CRIADO(criado), bytes, endereco);
+}
+
 int sp_stage_demand(const char *stage, unsigned int *bytes)
 {
     int si = sl_stage_find(stage), i;
@@ -34,6 +51,10 @@ int sp_stage_demand(const char *stage, unsigned int *bytes)
     if (si < 0) return -1;
     for (i = 0; i < bs_stage_props[si].count; i++)
         total += sp_prop_bytes(bs_stage_props[si].first + i);
+    /* Os sprites do script do palco moram no mesmo pool: quem pergunta "quanto
+       este palco pede" precisa da soma dos dois, senao o numero mente. */
+    for (i = 0; i < bs_stage_criado_count[si]; i++)
+        total += sp_criado_bytes(bs_stage_criado_first[si] + i);
     if (bytes) *bytes = total;
     return 0;
 }

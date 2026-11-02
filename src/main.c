@@ -1458,6 +1458,10 @@ static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int
    ===================================================================== */
 static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
 #define PALCO_MAX_PROPS  32
+/* O maior numero de sprites de script num palco hoje e' 1 (phillyBlazin); o
+   inventario dos 18 scripts mede 5 `new Flx...` no total (2 palcos). 8 da'
+   folga, e o excesso e' contado no log em vez de estourar o vetor. */
+#define PALCO_MAX_CRIADOS 8
 #define PALCO_RAM_MAX    (4u*1024u*1024u)   /* TABELAS dos props abertos, na RAM */
 
 typedef struct {
@@ -1476,6 +1480,18 @@ typedef struct {
     int residente[PALCO_MAX_PROPS];     /* 1 = tem endereco no pool         */
     int quadro[PALCO_MAX_PROPS];        /* ultimo quadro enviado, -1 = nenhum */
     int tentou[PALCO_MAX_PROPS];        /* 1 = ja' tentou abrir o pacote    */
+    /* OS SPRITES DO SCRIPT DO PALCO (`bs_criados[]`): FlxTiledSprite/FlxBackdrop
+       que o .hxc do palco cria e que o JSON do palco nao tem. Cada um e' UMA
+       imagem, com o seu pacote e o seu lugar no pool. Sao poucos (1 no
+       phillyBlazin), por isso vetores proprios em vez de dividir
+       PALCO_MAX_PROPS com os props. */
+    int nc;                                  /* sprites do script no palco   */
+    int cfirst;                              /* primeiro em bs_criados[]     */
+    pst_pack_t cst[PALCO_MAX_CRIADOS];
+    texbuffer_t ctex[PALCO_MAX_CRIADOS];
+    int cresidente[PALCO_MAX_CRIADOS];
+    int ctentou[PALCO_MAX_CRIADOS];
+    int cdesenhos;                           /* quads de sprite de script    */
     unsigned int ram_bytes;
     unsigned int falhas;
     unsigned int uploads;
@@ -1492,6 +1508,10 @@ static int g_palco_cor_visto=0;
    do phillyStreets, as luzes do mainStageErect...): e' a prova de que a troca de
    ALPHA no meio do pacote chegou ao desenho. */
 static int g_palco_add_visto=0;
+/* E o mesmo para os SPRITES DO SCRIPT DO PALCO (`bs_criados[]`): um evento por
+   partida quando o primeiro pedaco deles vai para a tela. Antes desta build o
+   port nao desenhava nenhum -- o fundo do `blazin` faltava inteiro. */
+static int g_palco_criado_visto=0;
 
 static int g_palco_fds_ok = 0;   /* 0 = os fds do vetor ainda nao foram zerados */
 
@@ -1510,6 +1530,16 @@ static void palco_soltar(void)
         g_palco.quadro[i] = -1;
         g_palco.tentou[i] = 0;
     }
+    /* Os sprites do script tem fds proprios e a mesma regra do fd zero. */
+    for (i = 0; i < PALCO_MAX_CRIADOS; i++) {
+        if (g_palco_fds_ok) pst_fechar(&g_palco.cst[i]);
+        else g_palco.cst[i].fd = -1;
+        g_palco.cresidente[i] = 0;
+        g_palco.ctentou[i] = 0;
+    }
+    g_palco.nc = 0;
+    g_palco.cfirst = 0;
+    g_palco.cdesenhos = 0;
     g_palco_fds_ok = 1;
     g_palco.ram_bytes = 0;
     g_palco.desenhou = -1;
@@ -1526,21 +1556,34 @@ static void palco_soltar(void)
      -6 leitura  -7 bloco fora do arquivo  -8 LZ4
    O teto PALCO_RAM_MAX continua existindo, mas agora ele conta TABELAS: o
    pacote inteiro nao entra mais na conta. */
-static int palco_pack_abrir(const char *path, int r)
+/* O pacote do palco e o do sprite do script sao o MESMO formato e o mesmo
+   teto de RAM: o que muda e' onde o `pst_pack_t` mora. Esta e' a parte comum,
+   e existe para os dois nao divergirem (o teto de RAM ja' foi esquecido uma
+   vez num caminho paralelo). `tag` e' o evento de telemetria da falha. */
+static int palco_pack_abrir_em(const char *path, pst_pack_t *pk, int id,
+                               const char *tag)
 {
-    int rc;
-    pst_pack_t *pk = &g_palco.pst[r];
-    rc = pst_abrir(path, pk);
+    int rc = pst_abrir(path, pk);
     if (rc != PST_OK) {
-        telemetry_event("palco_pacote", r, rc);
+        telemetry_event(tag, id, rc);
         return rc;
     }
     if (g_palco.ram_bytes + pk->ram > PALCO_RAM_MAX) {
         pst_fechar(pk);
-        telemetry_event("palco_pacote", r, -9);
+        telemetry_event(tag, id, -9);
         return -9;
     }
     g_palco.ram_bytes += pk->ram;
+    telemetry_event("palco_ram", (int)g_palco.ram_bytes, (int)PALCO_RAM_MAX);
+    return 0;
+}
+
+static int palco_pack_abrir(const char *path, int r)
+{
+    int rc;
+    pst_pack_t *pk = &g_palco.pst[r];
+    rc = palco_pack_abrir_em(path, pk, r, "palco_pacote");
+    if (rc != 0) return rc;
     g_palco.bytes[r] = pk->bytes;
     g_palco.count[r] = pk->count;
     g_palco.frame_bytes[r] = pk->frame_bytes;
@@ -1550,8 +1593,9 @@ static int palco_pack_abrir(const char *path, int r)
        nao o pacote inteiro. O evento existia como razao (percentual do
        arquivo) e nao como numero absoluto; sem ele, "quanto o palco ocupa da
        RAM" so' tinha resposta na planilha. Agora tem resposta MEDIDA, e o
-       teto (PALCO_RAM_MAX) vem junto para o harness comparar. */
-    telemetry_event("palco_ram", (int)g_palco.ram_bytes, (int)PALCO_RAM_MAX);
+       teto (PALCO_RAM_MAX) vem junto para o harness comparar -- e sai do
+       `palco_pack_abrir_em`, que ja' cobrou o teto antes de chegar aqui.
+       O consumo dos sprites do script entra na MESMA soma. */
     return 0;
 }
 
@@ -1566,7 +1610,21 @@ static void palco_carregar(const char *stage)
     g_palco.first = bs_stage_props[si].first;
     if (g_palco.n > PALCO_MAX_PROPS) g_palco.n = PALCO_MAX_PROPS;
     for (i = 0; i < g_palco.n; i++) g_palco.quadro[i] = -1;
+    /* Os sprites do script do palco: a faixa em bs_criados[] que este palco
+       pede. O indice `si` e' o MESMO de bs_stage_props[] -- ha' um teste que
+       confere as duas tabelas lado a lado. */
+    g_palco.nc = bs_stage_criado_count[si];
+    g_palco.cfirst = bs_stage_criado_first[si];
+    if (g_palco.nc > PALCO_MAX_CRIADOS) {
+        telemetry_event("palco_criado_excesso", g_palco.nc, PALCO_MAX_CRIADOS);
+        g_palco.nc = PALCO_MAX_CRIADOS;
+    }
+    for (i = 0; i < g_palco.nc; i++) {
+        g_palco.cresidente[i] = 0;
+        g_palco.ctentou[i] = 0;
+    }
     telemetry_event("palco_entra", si, g_palco.n);
+    if (g_palco.nc) telemetry_event("palco_criados", g_palco.nc, si);
     /* PROPS QUE O JSON NAO MANDARIA ANIMAR: `danceEvery == 0` e sem
        `startingAnimation`, mas com mais de um quadro. No original eles NAO
        tocam nada por si: quem os anima e' um script de palco (phillyTraffic e'
@@ -1680,6 +1738,84 @@ static texbuffer_t *palco_prop_textura(int r, int q)
         g_palco.quadro[r] = q;
         g_palco.uploads++;
     }
+    return t;
+}
+
+/* ---- OS SPRITES DO SCRIPT DO PALCO ------------------------------------
+   `new FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'), 4000, 495, true,
+   false)` (phillyBlazin.hxc L79): o FUNDO da fase, que o JSON do palco nao tem.
+   Cada um e' UMA imagem, entao o caminho e' o mesmo do prop com tres
+   diferencas: o pacote tem um quadro so', o tamanho vem de `bs_criados[]` e a
+   chave no pool e' da faixa propria (SP_CHAVE_CRIADO) -- assim ele nao colide
+   com o prop de mesmo indice. */
+static int palco_criado_pronto(int k)
+{
+    char path[128];
+    const bs_criado_t *c;
+    int rc;
+    if (k < 0 || k >= g_palco.nc) return -1;
+    if (g_palco.cst[k].fd >= 0) return 0;
+    if (g_palco.ctentou[k]) return -2;
+    g_palco.ctentou[k] = 1;
+    c = &bs_criados[g_palco.cfirst + k];
+    snprintf(path, sizeof(path), "mass:/FNFPS2/assets/%s", c->tex);
+    rc = palco_pack_abrir_em(path, &g_palco.cst[k], g_palco.cfirst + k,
+                             "palco_criado_falha");
+    if (rc != 0) {
+        g_palco.falhas++;
+        return -3;
+    }
+    /* O pacote tem de ter UM quadro do tamanho que a tabela manda: um pacote de
+       outra imagem passaria despercebido ate' aparecer trocado na tela. */
+    if (g_palco.cst[k].count != 1 ||
+        g_palco.cst[k].frame_bytes !=
+            (unsigned int)c->sw * (unsigned int)c->sh * 2u) {
+        g_palco.falhas++;
+        telemetry_event("palco_criado_falha", g_palco.cfirst + k, -4);
+        g_palco.ram_bytes -= g_palco.cst[k].ram;
+        pst_fechar(&g_palco.cst[k]);
+        return -4;
+    }
+    telemetry_event("palco_criado", g_palco.cfirst + k, (int)g_palco.cst[k].bytes);
+    return 0;
+}
+
+/* Sobe a UNICA imagem do sprite para o pool (uma vez) e devolve o texbuffer. */
+static texbuffer_t *palco_criado_textura(int k)
+{
+    const bs_criado_t *c = &bs_criados[g_palco.cfirst + k];
+    texbuffer_t *t = &g_palco.ctex[k];
+    unsigned int addr = 0;
+    int rc;
+    if (g_palco.cresidente[k]) return t;
+    rc = sp_criado(&g_pool, g_palco.cfirst + k, &addr);
+    if (rc < 0) {
+        g_palco.falhas++;
+        telemetry_event("palco_criado_sem_vram", g_palco.cfirst + k,
+                        (int)sp_livre(&g_pool));
+        g_palco.ctentou[k] = 1;
+        return 0;
+    }
+    if (g_palco.cst[k].fd < 0) palco_criado_pronto(k);
+    if (g_palco.cst[k].fd < 0) return 0;
+    if (g_palco.cst[k].frame_bytes > g_palco_frame_cap) {
+        if (g_palco_frame) free(g_palco_frame);
+        g_palco_frame = (unsigned char *)memalign(128, g_palco.cst[k].frame_bytes);
+        g_palco_frame_cap = g_palco_frame ? g_palco.cst[k].frame_bytes : 0;
+        if (!g_palco_frame) { g_palco.falhas++; return 0; }
+    }
+    if (pst_quadro(&g_palco.cst[k], 0, g_palco_frame) != PST_OK) {
+        g_palco.falhas++;
+        telemetry_event("palco_criado_falha", g_palco.cfirst + k, -10);
+        return 0;
+    }
+    t->address = addr;
+    t->width = (c->sw + 63) & ~63;
+    t->psm = GS_PSM_16;
+    setup_texture_dims(t, c->sw, c->sh);
+    upload_raw_psm(t, g_palco_frame, c->sw, c->sh, GS_PSM_16);
+    g_palco.cresidente[k] = 1;
+    g_palco.uploads++;
     return t;
 }
 
@@ -3481,6 +3617,71 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
         texbuffer_t *tx;
         int r, quadro;
         if (L->it[i].z < zmin || L->it[i].z >= zmax) continue;
+        /* SPRITE DO SCRIPT DO PALCO (`bs_criados[]`): o `scrollingSky` do
+           phillyBlazin e' o caso de hoje. Repete na horizontal com o periodo
+           NATIVO da imagem (`FlxTiledSprite` com repeatX), e o `scroll` do
+           script desloca as emendas: `scrollX -= FlxG.elapsed * 35`
+           (phillyBlazin.hxc L106) ja' chegou aqui como `tile_off`.
+           O quad tem 4000 px de largura, entao so' os pedacos que caem na tela
+           viram quadrilatero -- no maximo dois por quadro. */
+        if (L->it[i].criado >= 0) {
+            const bs_criado_t *cr = &bs_criados[L->it[i].criado];
+            texbuffer_t *tx;
+            unsigned char a;
+            int k = L->it[i].criado - g_palco.cfirst;
+            if (k < 0 || k >= g_palco.nc) continue;
+            if (palco_criado_pronto(k) != 0) continue;
+            tx = palco_criado_textura(k);
+            if (!tx) continue;
+            a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+            if (a == 0) continue;
+            if (a > 0x80) a = 0x80;
+            q = bind_texture_filter(q, tx, 1);
+            if (L->it[i].blend == 1) q = gs_blend_add(q);
+            if (L->it[i].tile <= 0.0f) {
+                q = sprite_region_alpha(q, L->it[i].x0, L->it[i].y0,
+                                        L->it[i].w, L->it[i].h,
+                                        0.0f, 0.0f,
+                                        (float)cr->sw, (float)cr->sh, a);
+                g_palco.cdesenhos++;
+            } else {
+                /* Pixels de tela por unidade do original neste item. */
+                float scl = L->it[i].w / cr->w;
+                float per = L->it[i].tile * scl;      /* periodo na tela  */
+                float x = L->it[i].x0 + L->it[i].tile_off * scl;
+                float lim0 = L->it[i].x0, lim1 = L->it[i].x0 + L->it[i].w;
+                if (per > 0.5f) {
+                    while (x > lim0) x -= per;
+                    for (; x < lim1 && x < SL_VIEW_W; x += per) {
+                        float a0 = x < lim0 ? lim0 : x;
+                        float a1 = x + per > lim1 ? lim1 : x + per;
+                        float u0, u1;
+                        /* Corte na tela: o quad 4000x495 comeca fora dela
+                           (x = -700) e nao ha' por que mandar 200 px de tira
+                           invisivel. O `u` acompanha o corte, entao a emenda
+                           continua no mesmo pixel do mundo. */
+                        if (a0 < 0.0f) a0 = 0.0f;
+                        if (a1 > SL_VIEW_W) a1 = SL_VIEW_W;
+                        if (a1 <= a0) continue;
+                        u0 = (a0 - x) / per * (float)cr->sw;
+                        u1 = (a1 - x) / per * (float)cr->sw;
+                        q = sprite_region_alpha(q, a0, L->it[i].y0,
+                                                a1 - a0, L->it[i].h,
+                                                u0, 0.0f, u1 - u0,
+                                                (float)cr->sh, a);
+                        g_palco.cdesenhos++;
+                    }
+                }
+            }
+            if (L->it[i].blend == 1) q = gs_blend_normal(q);
+            if (!g_palco_criado_visto) {
+                g_palco_criado_visto = 1;
+                telemetry_event("palco_criado_desenho", L->it[i].criado,
+                                g_palco.cdesenhos);
+            }
+            L->desenhados++;
+            continue;
+        }
         /* PROP DE COR: um retangulo chapado, sem textura e sem pacote
            (Stage.hx L203-216). Custa 3 qwords e zero byte de VRAM, e entra na
            mesma fatia de z dos props texturizados -- que e' a ordem do

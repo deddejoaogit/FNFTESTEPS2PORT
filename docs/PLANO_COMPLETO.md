@@ -4328,15 +4328,108 @@ diferença é que agora o ponto de partida é o do original.
 |---|---|
 | original | **2**: `phillyForegroundCity` + o `scrollingSky` que o script CRIA |
 | port antes desta build | **5**: as 2 certas + `skyAdditive`, `lightning` e `foregroundMultiply` em alpha 1,0 |
-| port agora | **1**: só `phillyForegroundCity` |
+| port depois de esconder os props | **1**: só `phillyForegroundCity` |
+| port agora | **2**: `phillyForegroundCity` + o `scrollingSky` (seção abaixo) |
 
 O `scrollingSky` é um `new FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'),
 4000, 495)` em (-700,-120), `scrollFactor 0`, zIndex 10, rolando a 35 px/s — é
 o **fundo** do palco, e não está no JSON porque nasce no script. Ou seja: o port
 nunca teve o fundo do `blazin`; ele parecia ter porque as duas camadas de luz em
-alpha cheio preenchiam a tela. Agora a falta tem nome e tamanho — é o próximo
-item portável (categoria `create`: 5 sprites em 2 palcos), e o primeiro da fila
-porque é o fundo de uma das 27 músicas.
+alpha cheio preenchiam a tela. Agora esse item está **fechado** (seção "Fechado:
+o fundo que o script do palco cria", logo abaixo). Restam 4 dos 5 sprites da
+categoria `create`, todos em `phillyTrainErect`/`sserafim`.
+
+## Fechado: o fundo que o script do palco cria (o `scrollingSky` do `phillyBlazin`)
+
+O `phillyBlazin.hxc` (L79) faz o que nenhum JSON de palco faz:
+
+```haxe
+var sky = new FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'), 4000, 495, true, false);
+sky.setPosition(-700, -120);
+sky.scrollFactor.set(0, 0);
+sky.zIndex = 10;
+add(sky);
+// L106, no update:
+sky.scrollX -= FlxG.elapsed * 35;
+```
+
+É o **fundo** da música `blazin` — 4000×495 de mundo, repetindo a imagem de
+1387×495 na horizontal e rolando a 35 px/s. Não é prop: o JSON não o tem, o
+tamanho não vem de um quadro e o desenho **repete** a textura. O port não o
+tinha (medido: `palco_draw` = 1 onde o original desenha 2).
+
+**A lei do desenho veio da fonte, não do bom senso.** `FlxTiledSprite.hx`
+(`updateVerticesData`/`getDrawRect`, flixel-addons): o quadrilátero é
+**(0,0)-(width,height)** — não o `quad` do atlas —, e os UV vão de
+`(drawRect − scroll)/sourceSize` até `+drawRect.width/sourceSize`, ou seja
+podem **passar de 1,0**: é repetição por wrap, `u0 = −scrollX/1387`,
+`u1 = u0 + 4000/1387`. O GS não tem `GL_REPEAT`, então a repetição é feita
+**fatiada**: cada tira cobre exatamente um período (1387 px de mundo =
+`src_w * 0,5 * zoom * bop` na tela) com `u` de 0 a `src_w`. No `blazin` isso dá
+**2 tiras** por quadro, e não 4000 px de quadrilátero.
+
+**O dado, com a linha de onde saiu** (`assets-data/stage-criados.json`):
+
+| campo | valor | fonte |
+|---|---|---|
+| asset | `phillyBlazin/skyBlur` (PNG 1387×495) | L79 + medido no arquivo |
+| posição | −700, −120 | L80 |
+| tamanho | 4000 × 495 | L79 |
+| `scrollFactor` | 0, 0 | L81 |
+| `zIndex` | 10 | L82 |
+| repetição | só na horizontal (`repeatX = true`, `repeatY = false`) | L79 |
+| velocidade | `scrollX −= 35 px/s` | L106 |
+| `blend` | NORMAL | (o script não mexe) |
+
+`tools/gen_stage_criados.py` transcreve isso para `src/stage_criados_dados.h`
+(`bs_criados[]`, `bs_criado_vram_bytes[]`, `bs_stage_criado_first/count[]` na
+ordem alfabética de `bs_stage_props[]`) e o `--check` garante que o header não
+deriva do JSON. A VRAM é a conta do **hardware**, não a do empacotador:
+`((683+63)&~63) * 244 * 2` arredondado a 256 B = **343.552 B**. Reservar
+`sw*sh*2` puro deixaria a textura invadir o bloco seguinte do pool — é o mesmo
+erro que os props já tiveram (82 dos 157).
+
+**Onde cada pedaço entrou**
+
+- `tools/pacotar_palcos.py`: `criados_do_palco()` + `pack_stage(..., criados=)`
+  empacotam cada sprite do script como **uma imagem, um quadro, um CFZ4**, na
+  escala do palco, e gravam `"criados"` no plano. Testado com a arte real:
+  `scrollingSky 1387x495 -> 683x244`, **59.192 B** no pendrive.
+- `src/engine/stage_layout.c`: `sl_item_t` ganhou `criado`, `tile` e
+  `tile_off`; os sprites do script entram na **mesma** lista e na mesma
+  ordenação por `z` dos props (no original também são `add()`ados ao grupo).
+  `tile` é o período em unidades do original (`src_w`), `tile_off` é
+  `vel_x * t` — o `scrollX` do script já integrado.
+- `src/engine/stage_pool.c`: faixa de chaves própria (`SP_CHAVE_CRIADO`,
+  0x2000) para não colidir com `SP_CHAVE_PROP`, e `sp_stage_demand()` somando
+  props **e** criados (um número que só conta metade mente).
+- `src/main.c`: `palco_criado_pronto/_textura` reusam o caminho do prop
+  (`palco_pack_abrir_em`, mesmo teto de RAM, mesma conferência de tamanho de
+  quadro) e o desenho emite as tiras com `sprite_region_alpha`, repetindo `u`
+  a cada período e aplicando o deslocamento do scroll.
+
+**Medido no harness** (`sh tools/run_sweep_harness.sh 1200 blazin`):
+
+```
+E,...,palco_entra,7,4          palco 7 = phillyBlazin, 4 props vivos
+E,...,palco_criados,1,7        1 sprite de script
+E,...,palco_criado,0,6960      pacote abriu (6.960 B no pendrive sintético)
+E,...,palco_criado_desenho,0,2 2 tiras na tela
+E,...,palco_draw,2,0           2 itens desenhados -- o número do original
+```
+
+O pior caso de VRAM do jogo passa a ser o `phillyBlazin`: 1.662.208 B de props
++ 343.552 B do sky = **2.005.760 B** contra um pool de 2.383.872 B (sobra
+378.112). O `test/test_stage_pool.c` cobra esse número; o
+`test/test_stage_layout.c` cobra a geometria (x0 = −700·sc com
+`scrollFactor 0`, período 1387 e não 4000, `tile_off` = −70 px em t = 2 s,
+câmera não move o sprite, e nenhum dos outros 20 palcos ganha item a mais).
+
+**O que continua faltando neste palco**: o relâmpago (`lightning` +
+`skyAdditive` + `foregroundMultiply` acendendo por 1,5 s a cada 3,0 s +
+`FlxG.random.float(7,15)` s, com os sons `Lightning1..3`) e o
+`spookyMansionErect` (`Sequence` de 0,06/0,12 s). São eventos com timer, não
+sprites — a próxima seção da fila.
 
 ### O que os 18 scripts fazem, medido (`tools/analisa_scripts_palco.py`)
 

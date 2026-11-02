@@ -120,10 +120,16 @@ static int sl_escolhe_anim(const bs_prop_t *p, int step, float beat_s,
     return p->start;
 }
 
-/* Posicao do item na lista `props` do JSON do palco (ver bs_prop_t.ord). */
+/* Posicao do item na lista `props` do JSON do palco (ver bs_prop_t.ord).
+   Os sprites do script do palco vao DEPOIS de tudo com o mesmo z: no original
+   eles sao `add()`ados ao grupo no `buildStage`, que ja' chamou o
+   `super.buildStage()` (phillyBlazin.hxc L79-86), e a ordenacao do flixel e'
+   estavel por zIndex. */
+#define SL_ORD_CRIADO (1 << 20)
 static int sl_item_ord(const sl_item_t *it)
 {
     if (it->cor >= 0) return bs_cores[it->cor].ord;
+    if (it->criado >= 0) return SL_ORD_CRIADO;
     return bs_props[it->prop].ord;
 }
 
@@ -191,6 +197,9 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->z = p->z;
         it->alpha = p->alpha;
         it->blend = p->blend;
+        it->criado = -1;
+        it->tile = 0.0f;
+        it->tile_off = 0.0f;
         n++;
     }
 
@@ -219,6 +228,45 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->z = c->z;
         it->alpha = c->alpha;
         it->blend = c->blend;
+        it->criado = -1;
+        it->tile = 0.0f;
+        it->tile_off = 0.0f;
+        n++;
+     }
+    }
+
+    /* OS SPRITES DO SCRIPT DO PALCO (`bs_criados[]`).
+       Mesma conta de tela dos props, com a diferenca que o `w`/`h` vem do dado
+       (o `width`/`height` do `new FlxTiledSprite(...)`, nao de um quadro) e que
+       o `scroll` anda com o tempo. `tile` e' o tamanho NATIVO da imagem: e' o
+       periodo da repeticao no mundo, entao a repeticao na tela tem
+       `src_w * 0,5 * zoom * bop` px. Um `alpha` 0 nao entra, como nos props. */
+    {int cf = bs_stage_criado_first[si], cc = bs_stage_criado_count[si], k;
+     for (k = 0; k < cc && n < max; k++) {
+        const bs_criado_t *cr = &bs_criados[cf + k];
+        sl_item_t *it = &out[n];
+        float x0, y0, w, h;
+        if (cr->alpha <= 0.0f) continue;
+        x0 = SL_VIEW_W * 0.5f + (cr->x - cam_x * cr->scrollx + 640.0f * cr->scrollx - 640.0f) * sc;
+        y0 = SL_VIEW_H * 0.5f + (cr->y - cam_y * cr->scrolly + 360.0f * cr->scrolly - 360.0f) * sc;
+        w = cr->w * sc;
+        h = cr->h * sc;
+        /* A tela e' 640x360 e estes sprites nunca sao menores que ela -- mas
+           se um dia forem, o corte tem de ser o mesmo dos props. */
+        if (x0 + w <= 0.0f || x0 >= SL_VIEW_W) continue;
+        if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
+        it->prop = -1;
+        it->cor = -1;
+        it->criado = cf + k;
+        it->anim = 0;
+        it->frame = 0;
+        it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
+        it->tex_w = cr->sw; it->tex_h = cr->sh;
+        it->z = cr->z;
+        it->alpha = cr->alpha;
+        it->blend = cr->blend;
+        it->tile = cr->tile ? cr->src_w : 0.0f;
+        it->tile_off = cr->vel_x * t;
         n++;
      }
     }

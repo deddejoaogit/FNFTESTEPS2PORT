@@ -38,6 +38,10 @@
 
 #include "vram_cache.h"
 #include "stage_dados.h"
+/* `bs_criados[]` (os sprites que o SCRIPT do palco cria) e a tabela de
+   bytes deles: o pool guarda props E criados, entao quem pergunta o tamanho
+   precisa das duas. */
+#include "stage_criados_dados.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,6 +59,12 @@ extern "C" {
 /* Faixa de chaves reservada para texturas de TELA que tambem morem no pool
    (gftex, stagetex). Fica longe da faixa dos props, que hoje vai ate' 157. */
 #define SP_CHAVE_TELA_BASE 0x1000u
+
+/* Os SPRITES DO SCRIPT DO PALCO (`bs_criados[]`, src/stage_criados_dados.h) tem
+   a sua propria faixa: sao outra tabela de tamanhos e nao podem colidir com as
+   chaves dos props nem com as de tela. */
+#define SP_CHAVE_CRIADO_BASE 0x2000u
+#define SP_CHAVE_CRIADO(i) (SP_CHAVE_CRIADO_BASE + (unsigned int)(i) + 1u)
 
 typedef struct {
     vc_t cache;
@@ -74,6 +84,11 @@ unsigned int sp_prop_bytes(int prop);
 
 /* Quanto o palco inteiro pede, somando os props dele. -1 se o palco nao existe. */
 int sp_stage_demand(const char *stage, unsigned int *bytes);
+
+/* Idem para um sprite do script do palco: tamanho de `bs_criado_vram_bytes[]`
+   (o mesmo alinhamento do TBP0) e chave na faixa propria. */
+unsigned int sp_criado_bytes(int criado);
+int sp_criado(sp_t *p, int criado, unsigned int *endereco);
 
 /* Pede a textura do prop. Devolve 1 se ja' estava residente (NADA a enviar),
    0 se foi alocada agora (o chamador precisa enviar os pixels) e -1 se nao

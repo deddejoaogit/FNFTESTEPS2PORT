@@ -42,9 +42,28 @@ static const sl_item_t *item_por_nome(const sl_item_t *it, int n, const char *no
     int i;
     for (i = 0; i < n; i++) {
         if (it[i].cor >= 0) continue;      /* retangulo de cor: nao tem prop */
+        if (it[i].criado >= 0) continue;   /* sprite do script: idem */
         if (strcmp(bs_props[it[i].prop].name, nome) == 0) return &it[i];
     }
     return NULL;
+}
+
+/* z e ord de um item, seja ele prop, retangulo de cor ou sprite do script.
+ * O `ord` do sprite de script e' o proprio indice dele somado a uma faixa
+ * alta (SL_ORD_CRIADO, de stage_layout.c): no original ele entra no grupo
+ * depois de todos os props, e o sort do flixel e' estavel. */
+#define ORD_CRIADO 0x100000
+static int item_z(const sl_item_t *it)
+{
+    if (it->cor >= 0) return bs_cores[it->cor].z;
+    if (it->criado >= 0) return bs_criados[it->criado].z;
+    return bs_props[it->prop].z;
+}
+static int item_ord(const sl_item_t *it)
+{
+    if (it->cor >= 0) return bs_cores[it->cor].ord;
+    if (it->criado >= 0) return ORD_CRIADO + it->criado;
+    return bs_props[it->prop].ord;
 }
 
 /* Quantos itens da lista sao retangulos de cor. */
@@ -189,7 +208,9 @@ int main(void)
             n = sl_collect("school", a.cam_x, a.cam_y, 1.0f, 1.0f, 0, 0.5f, 0.0f, it, SL_MAX_ITENS);
             CHECK(n > 0);
             for (k2 = 0; k2 < n; k2++) {
-                const bs_prop_t *p = &bs_props[it[k2].prop];
+                const bs_prop_t *p;
+                if (it[k2].prop < 0) continue;   /* cor ou sprite de script */
+                p = &bs_props[it[k2].prop];
                 float esperado_w = (float)p->src_w * p->sx * 0.5f;
                 float esperado_h = (float)p->src_h * p->sy * 0.5f;
                 CHECK_NEAR(it[k2].w, esperado_w);
@@ -208,20 +229,12 @@ int main(void)
         int n = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f, 1.0f, it, SL_MAX_ITENS);
         CHECK(n >= 0);
         for (k = 1; k < n; k++) {
-            int za = it[k - 1].cor >= 0 ? bs_cores[it[k - 1].cor].z
-                                        : bs_props[it[k - 1].prop].z;
-            int zb = it[k].cor >= 0 ? bs_cores[it[k].cor].z
-                                    : bs_props[it[k].prop].z;
+            int za = item_z(&it[k - 1]);
+            int zb = item_z(&it[k]);
             CHECK(za <= zb);
             /* Para z igual, a ordem e' a do JSON (`ord`): o sort do flixel e'
                estavel e o grupo recebe os props na ordem do arquivo. */
-            if (za == zb) {
-                int oa = it[k - 1].cor >= 0 ? bs_cores[it[k - 1].cor].ord
-                                            : bs_props[it[k - 1].prop].ord;
-                int ob = it[k].cor >= 0 ? bs_cores[it[k].cor].ord
-                                        : bs_props[it[k].prop].ord;
-                CHECK(oa <= ob);
-            }
+            if (za == zb) CHECK(item_ord(&it[k - 1]) <= item_ord(&it[k]));
         }
     }
 
@@ -406,8 +419,7 @@ int main(void)
             for (j = 0; j < n; j++) {
                 /* o item carrega o z; conferir contra o DADO pega troca de
                    campo (o rectangulo de cor tem z no bs_cores[]) */
-                int z_dado = a[j].cor >= 0 ? bs_cores[a[j].cor].z
-                                           : bs_props[a[j].prop].z;
+                int z_dado = item_z(&a[j]);
                 CHECK_EQ(a[j].z, z_dado);
                 if (j) CHECK(a[j].z >= a[j - 1].z);
             }
@@ -551,7 +563,9 @@ int main(void)
                 if (n < 0) n = 0;
                 if (n >= SL_MAX_ITENS) cortados++;
                 for (i = 0; i < n; i++) {
-                    bytes += bs_prop_vram_bytes[a[i].prop];
+                    /* o sprite do script ocupa VRAM no MESMO pool */
+                    if (a[i].criado >= 0) bytes += bs_criado_vram_bytes[a[i].criado];
+                    else if (a[i].prop >= 0) bytes += bs_prop_vram_bytes[a[i].prop];
                 }
                 if (n > pior_itens) pior_itens = n;
                 if (bytes > pior_bytes) { pior_bytes = bytes; pior_palco = id; }
@@ -710,6 +724,167 @@ int main(void)
             /* E o que o script NAO esconde continua sendo desenhado: sem esta
                linha, "apagou tudo" tambem passaria. */
             CHECK(item_por_nome(it, n, "bgTrees") != NULL);
+        }
+    }
+
+    printf("== palcos: os sprites que o SCRIPT do palco cria (bs_criados[]) ==\n");
+    {
+        /* `phillyBlazin.hxc` L79 cria
+             new FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'), 4000, 495,
+                                true, false)
+           em (-700,-120), scrollFactor(0,0), zIndex 10, e L106 faz
+             scrollX -= FlxG.elapsed * 35.
+           O JSON do palco nao tem nada disso: sem esta tabela o fundo do
+           `blazin` simplesmente nao existe (o port desenhava 1 item onde o
+           original desenha 2). */
+        int soma = 0;
+        CHECK_EQ(BS_CRIADO_COUNT, 1);
+        for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
+            CHECK_EQ(bs_stage_criado_first[i], soma);
+            CHECK(bs_stage_criado_count[i] >= 0);
+            soma += bs_stage_criado_count[i];
+            for (k = 0; k < bs_stage_criado_count[i]; k++) {
+                CHECK(strcmp(bs_criados[bs_stage_criado_first[i] + k].stage,
+                             bs_stage_props[i].id) == 0);
+            }
+        }
+        /* A faixa tem de cobrir a tabela inteira: um sprite criado num palco e
+           nao indexado em nenhum lugar seria dado morto. */
+        CHECK_EQ(soma, BS_CRIADO_COUNT);
+        /* A ordem de bs_stage_props[] e' a alfabetica (a de gen_stage_dados.py),
+           e o `si` do sl_collect e' esse indice: phillyBlazin = 7. */
+        CHECK(strcmp(bs_stage_props[7].id, "phillyBlazin") == 0);
+
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                               0.5f, 0.0f, it, SL_MAX_ITENS);
+            const sl_item_t *sky = NULL;
+            int ncriados = 0;
+            CHECK(n > 0);
+            for (i = 0; i < n; i++) {
+                if (it[i].criado < 0) continue;
+                ncriados++;
+                sky = &it[i];
+                /* prop e cor e criado sao exclusivos: um item com os tres
+                   sentinelas trocados seria desenhado como outra coisa. */
+                CHECK_EQ(it[i].prop, -1);
+                CHECK_EQ(it[i].cor, -1);
+            }
+            CHECK_EQ(ncriados, 1);
+            if (sky) {
+                /* 4000x495 em (-700,-120), com a escala 0,492298 do palco e
+                   zoom 1: a tela e' 640x360 e o zoom reduz o mundo pela metade
+                   (o `sc` ja' inclui o 0,5 do zoom, como nos props).
+                   x0 = 320 + (-700)*sc, w = 4000*sc. */
+                float sc = 1.0f * 0.5f * 1.0f;
+                CHECK_EQ(sky->criado, 0);
+                /* scrollFactor(0,0) corta a camera dos DOIS lados da formula
+                   do port -- `x - cam*0 + 640*0 - 640` --, entao o sprite fica
+                   onde o script o pos, so' escalado: -700*0,5 = -350. */
+                CHECK_NEAR(sky->x0, (-700.0f - 640.0f) * sc + 320.0f);
+                CHECK_NEAR(sky->x0, -700.0f * sc);
+                CHECK_NEAR(sky->y0, -120.0f * sc);
+                CHECK_NEAR(sky->w, 4000.0f * sc);
+                CHECK_NEAR(sky->h, 495.0f * sc);
+                CHECK_EQ(sky->z, 10);
+                CHECK_NEAR(sky->alpha, 1.0f);
+                CHECK_EQ(sky->blend, 0);          /* NORMAL: nao e' aditivo */
+                /* O periodo da repeticao e' o da IMAGEM (1387 px), nao o do
+                   quad (4000): trocar um pelo outro muda o numero de emendas
+                   em 2,9x. */
+                CHECK_NEAR(sky->tile, 1387.0f);
+                /* tex_w/tex_h sao a TEXTURA (o pacote), nao o original: 1387
+                   vira 683 na escala 0,492298. O periodo continua 1387. */
+                CHECK_NEAR(sky->tex_w, 683.0f);
+                CHECK_NEAR(sky->tex_h, 244.0f);
+                CHECK_NEAR(sky->tile_off, 0.0f);   /* t = 0 */
+            }
+        }
+        /* O SCROLL: `scrollX -= FlxG.elapsed * 35` -> em t segundos o mundo
+           andou -35*t px, na horizontal apenas. */
+        {
+            sl_item_t a[SL_MAX_ITENS], b[SL_MAX_ITENS];
+            const sl_item_t *sa = NULL, *sb = NULL;
+            int na = sl_collect("phillyBlazin", 0, 0, 1.0f, 1.0f, 0, 0.5f, 2.0f,
+                                a, SL_MAX_ITENS);
+            int nb = sl_collect("phillyBlazin", 0, 0, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                                b, SL_MAX_ITENS);
+            for (i = 0; i < na; i++) if (a[i].criado >= 0) sa = &a[i];
+            for (i = 0; i < nb; i++) if (b[i].criado >= 0) sb = &b[i];
+            CHECK(sa != NULL && sb != NULL);
+            if (sa && sb) {
+                CHECK_NEAR(sa->tile_off, -70.0f);   /* -35 * 2 s */
+                CHECK_NEAR(sb->tile_off, 0.0f);
+                /* -70 px de mundo, e nao de tela (a conversao e' do desenho). */
+                CHECK_NEAR(sa->x0, sb->x0);
+            }
+        }
+        /* scrollFactor(0,0): a camera NAO move este sprite. E' o que separa um
+           fundo colado na tela de um prop do palco. */
+        {
+            sl_item_t a[SL_MAX_ITENS], b[SL_MAX_ITENS];
+            const sl_item_t *sa = NULL, *sb = NULL;
+            int na = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                                a, SL_MAX_ITENS);
+            int nb = sl_collect("phillyBlazin", 900.0f, 400.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                                b, SL_MAX_ITENS);
+            for (i = 0; i < na; i++) if (a[i].criado >= 0) sa = &a[i];
+            for (i = 0; i < nb; i++) if (b[i].criado >= 0) sb = &b[i];
+            CHECK(sa != NULL && sb != NULL);
+            if (sa && sb) {
+                CHECK_NEAR(sa->x0, sb->x0);
+                CHECK_NEAR(sa->y0, sb->y0);
+            }
+        }
+        /* zIndex 10 e' o MAIOR do phillyBlazin? Nao: o `phillyForegroundCity`
+           tem z 900 e fica na frente. O que importa e' a lista sair ordenada
+           com o criado no lugar do z dele -- o chart do `blazin` desenha 2
+           itens (o props ja' escondidos nao contam), e o criado e' o ULTIMO
+           por z 10 < 900. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                               it, SL_MAX_ITENS);
+            int ultimo = -1, pz = -1, pcriado = 0;
+            CHECK(n > 0);
+            for (i = 0; i < n; i++) {
+                if (it[i].z < pz) { printf("  FALHA: lista fora de ordem no z\n"); falhas++; }
+                pz = it[i].z;
+                ultimo = i;
+                if (it[i].criado >= 0) pcriado++;
+            }
+            CHECK_EQ(pcriado, 1);
+            CHECK(ultimo >= 0);
+            if (ultimo >= 0) CHECK(it[ultimo].criado < 0);  /* o da frente e' o prop */
+        }
+        /* VRAM: o sprite do script tem de caber na conta do palco. O numero do
+           header e' a conta do hardware (TBW de 64 em 64, TBP0 a 256 B). */
+        {
+            const bs_criado_t *c = &bs_criados[0];
+            CHECK_EQ(bs_criado_vram_bytes[0],
+                     (((((unsigned)683u + 63u) & ~63u) * 244u * 2u) + 255u) & ~255u);
+            CHECK_EQ(c->sw, 683);
+            CHECK_EQ(c->sh, 244);
+            CHECK(c->sw <= 1024);                 /* largura maxima do GS */
+        }
+        /* E so' o phillyBlazin tem sprite de script hoje: os outros 20 palcos
+           nao podem ganhar item a mais por causa disto. */
+        for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
+            if (bs_stage_criado_count[i] != 0) continue;
+            {
+                sl_item_t it[SL_MAX_ITENS];
+                int n = sl_collect(bs_stage_props[i].id, 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                                   0.5f, 0.0f, it, SL_MAX_ITENS);
+                int m;
+                if (n < 0) continue;
+                for (m = 0; m < n; m++) {
+                    if (it[m].criado >= 0) {
+                        printf("  FALHA: %s ganhou sprite de script\n", bs_stage_props[i].id);
+                        falhas++;
+                    }
+                }
+            }
         }
     }
 

@@ -37,12 +37,44 @@ int main(void)
 
     printf("== pool: a soma por palco bate com o array de props ==\n");
     for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
-        unsigned int soma = 0, d = 0;
+        unsigned int soma = 0, d = 0, cri = 0;
         for (k = 0; k < bs_stage_props[i].count; k++)
             soma += bs_prop_vram_bytes[bs_stage_props[i].first + k];
+        /* Os sprites do script do palco (`bs_criados[]`) moram no MESMO pool:
+           a demanda que o runtime pergunta tem de incluir os dois, senao o
+           numero mente e o palco "cabe" sem caber. */
+        for (k = 0; k < bs_stage_criado_count[i]; k++)
+            cri += bs_criado_vram_bytes[bs_stage_criado_first[i] + k];
         CHECK_EQ(soma, bs_stage_vram_bytes[i]);
         CHECK_EQ(sp_stage_demand(bs_stage_props[i].id, &d), 0);
-        CHECK_EQ(d, soma);
+        CHECK_EQ(d, soma + cri);
+    }
+    printf("== pool: os sprites do script tem tamanho e chave proprios ==\n");
+    for (i = 0; i < BS_CRIADO_COUNT; i++) {
+        /* Alinhado a 256 como os props, e a chave numa FAIXA separada: o
+           `sp_criado(0)` nao pode ser o mesmo bloco do `sp_prop(0)`. */
+        CHECK(bs_criado_vram_bytes[i] > 0);
+        CHECK_EQ(bs_criado_vram_bytes[i] % 256, 0);
+        CHECK_EQ(bs_criado_vram_bytes[i], sp_criado_bytes(i));
+        CHECK(SP_CHAVE_CRIADO(i) != SP_CHAVE_PROP(i));
+        CHECK(SP_CHAVE_CRIADO(i) != SP_CHAVE_PROP(BS_PROP_VRAM_COUNT - 1));
+        CHECK(SP_CHAVE_CRIADO(i) >= SP_CHAVE_CRIADO_BASE);
+    }
+    CHECK_EQ(sp_criado_bytes(-1), 0);
+    CHECK_EQ(sp_criado_bytes(BS_CRIADO_COUNT), 0);
+    CHECK(SP_CHAVE_CRIADO_BASE > SP_CHAVE_PROP(BS_PROP_VRAM_COUNT - 1));
+    {
+        /* Duas chaves diferentes para o mesmo pool: alocar os dois e conferir
+           que os enderecos nao se sobrepoem. */
+        unsigned int a1 = 0, a2 = 0;
+        sp_init(&pool, 452608u, SP_POOL_BYTES);
+        CHECK_EQ(sp_prop(&pool, 0, &a1), 0);
+        CHECK_EQ(sp_criado(&pool, 0, &a2), 0);
+        CHECK(a1 != a2);
+        if (a1 < a2)
+            CHECK((unsigned long long)a1 * 4u + sp_prop_bytes(0) <= (unsigned long long)a2 * 4u);
+        else
+            CHECK((unsigned long long)a2 * 4u + sp_criado_bytes(0) <= (unsigned long long)a1 * 4u);
     }
     CHECK_EQ(sp_stage_demand("naoExiste", NULL), -1);
 
@@ -79,15 +111,44 @@ int main(void)
                 CHECK((unsigned long long)addr * 4u + sp_prop_bytes(st->first + k)
                       <= (unsigned long long)452608u * 4u + SP_POOL_BYTES);
             }
+            /* e os sprites do script do mesmo palco, no mesmo pool */
+            for (k = 0; k < bs_stage_criado_count[i]; k++) {
+                unsigned int addr = 0;
+                int r = sp_criado(&pool, bs_stage_criado_first[i] + k, &addr);
+                if (r < 0) {
+                    printf("  FALHA: %s criado %d (%u bytes) nao coube\n",
+                           st->id, bs_stage_criado_first[i] + k,
+                           sp_criado_bytes(bs_stage_criado_first[i] + k));
+                    falhas++;
+                }
+                CHECK(addr >= 452608u);
+                CHECK((unsigned long long)addr * 4u
+                          + sp_criado_bytes(bs_stage_criado_first[i] + k)
+                      <= (unsigned long long)452608u * 4u + SP_POOL_BYTES);
+            }
             CHECK_EQ(pool.falhas, 0u);
             livre = sp_livre(&pool);
-            CHECK_EQ(livre, SP_POOL_BYTES - bs_stage_vram_bytes[i]);   /* bytes */
-            if (bs_stage_vram_bytes[i] > pior) { pior = bs_stage_vram_bytes[i]; pior_nome = st->id; }
+            /* o que sobrou = pool - props - sprites do script do palco */
+            {
+                unsigned int ocupado = bs_stage_vram_bytes[i];
+                for (k = 0; k < bs_stage_criado_count[i]; k++)
+                    ocupado += bs_criado_vram_bytes[bs_stage_criado_first[i] + k];
+                CHECK_EQ(livre, SP_POOL_BYTES - ocupado);   /* bytes */
+                if (ocupado > pior) { pior = ocupado; pior_nome = st->id; }
+            }
         }
         printf("  pior palco: %s com %u bytes de %u (sobra %u)\n",
                pior_nome, pior, SP_POOL_BYTES, SP_POOL_BYTES - pior);
         CHECK(pior_nome != NULL);
-        CHECK_EQ(pior, BS_STAGE_VRAM_MAX);
+        /* O pior caso agora inclui os sprites do script: 1.736.192 dos props do
+           sserafim, mas o `scrollingSky` do phillyBlazin soma 343.552 aos
+           1.661.972 daquele palco e vira o novo pior: 2.005.760. Continua
+           abaixo do pool (2.383.872) -- e' o numero que decide se o palco
+           cabe ANTES de os personagens entrarem, que e' a conta de
+           tools/orcamento_vram.py. */
+        CHECK_EQ(pior, 1662208u + 343552u);   /* props do phillyBlazin + sky */
+        CHECK(pior <= SP_POOL_BYTES);
+        CHECK_EQ(pior, 2005760u);
     }
 
     printf("== pool: residente nao custa nada, e o despejo funciona ==\n");
@@ -178,7 +239,8 @@ int main(void)
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
-    printf("\n  pool: 21 palcos, %d props, pior %u bytes de %u -- cabe\n",
-           BS_PROP_VRAM_COUNT, BS_STAGE_VRAM_MAX, SP_POOL_BYTES);
+    printf("\n  pool: 21 palcos, %d props + %d sprite(s) de script, "
+           "pior %u bytes de %u -- cabe\n",
+           BS_PROP_VRAM_COUNT, BS_CRIADO_COUNT, 2005760u, SP_POOL_BYTES);
     return 0;
 }

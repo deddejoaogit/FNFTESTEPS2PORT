@@ -1133,6 +1133,21 @@ def build(root, charts_src=None):
                 with open(destino, "wb") as f:
                     f.write(make_cfz4(p["frames"], p["sw"] * p["sh"] * 2, seed=11))
                 npalco += 1
+            # OS SPRITES DO SCRIPT DO PALCO (assets-data/stage-criados.json):
+            # um quadro cada, na escala do palco -- o mesmo tamanho que
+            # tools/gen_stage_criados.py poe no header. Sem eles o caminho
+            # pacote -> pool -> tela do `scrollingSky` do blazin nao teria
+            # como passar no harness.
+            cri = _json.load(open(os.path.join(
+                os.path.dirname(plan), "stage-criados.json")))
+            for c in cri.get("palcos", {}).get(st["id"], []):
+                sw = max(1, int(round(c["src_w"] * st["scale"])))
+                sh = max(1, int(round(c["src_h"] * st["scale"])))
+                destino = os.path.join(a, "stages", st["id"], c["nome"] + ".cfz4")
+                os.makedirs(os.path.dirname(destino), exist_ok=True)
+                with open(destino, "wb") as f:
+                    f.write(make_cfz4(1, sw * sh * 2, seed=13))
+                npalco += 1
 
     # PERSONAGENS: um pacote CHP4 por personagem, no caminho que o jogo le'
     # (assets/chars/<id>.chp4), com a tabela de animacoes junto dos quadros.

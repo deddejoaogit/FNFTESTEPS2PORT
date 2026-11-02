@@ -29,6 +29,7 @@
 #define FNF_STAGE_LAYOUT_H
 
 #include "stage_dados.h"
+#include "stage_criados_dados.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,8 +39,8 @@ extern "C" {
 #define SL_VIEW_W 640.0f
 #define SL_VIEW_H 360.0f
 
-/* Um palco tem no maximo 17 props texturizados + 2 cores hoje; 32 da' folga
-   para o proximo jogo. */
+/* Um palco tem no maximo 17 props texturizados + 2 cores + os sprites do
+   script hoje (1 no phillyBlazin); 32 da' folga para o proximo jogo. */
 #define SL_MAX_ITENS 32
 
 /* Um item da lista de desenho: ou um prop TEXTURIZADO (cor < 0, prop >= 0),
@@ -58,6 +59,12 @@ typedef struct {
     int z;          /* zIndex do prop: a ordem de desenho do Stage.hx  */
     float alpha;    /* alpha do dado (1.0 = opaco)                     */
     int blend;      /* 0 normal, 1 ADD, 2 MULTIPLY, 3 SCREEN           */
+    /* SPRITE DO SCRIPT DO PALCO (`new FlxTiledSprite`, `new FlxBackdrop`):
+       indice em bs_criados[], ou -1. Quando >= 0, `prop` e `cor` sao -1 e os
+       campos abaixo dizem como repetir a imagem. */
+    int criado;
+    float tile;     /* periodo da repeticao em px do original; 0 = sem repetir */
+    float tile_off; /* deslocamento do `scroll` no instante t, em px do original */
 } sl_item_t;
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */
@@ -90,7 +97,12 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t);
    Props com `alpha <= 0` NAO entram na lista: desenhar um prop invisivel e'
    desenhar o que o original nao desenha. As cores com alpha 0 tambem ficam de
    fora (o `additionalLighten` do phillyBlazin nasce `visible = false` no
-   script do palco, phillyBlazin.hxc L77). */
+   script do palco, phillyBlazin.hxc L77).
+
+   Os SPRITES DO SCRIPT (`bs_criados[]`, tabela de tools/gen_stage_criados.py)
+   entram na MESMA lista e na mesma ordenacao por z: no original eles tambem
+   sao `add()`ados ao grupo do palco. `tile_off` ja' vem com o scroll de `t` --
+   `vel_x * t` --, que e' o `scrollX -= FlxG.elapsed * 35` do script somado. */
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
                float bop, int step, float beat_s, float t, sl_item_t *out, int max);
 
