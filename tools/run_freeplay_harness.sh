@@ -17,14 +17,17 @@ set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO" || exit 1
 
-FRAMES=${1:-6000}
+FRAMES=${1:-7000}
 LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 
-# 200:CROSS titulo -> menu. 620:DOWN desce para FREEPLAY (item 1).
-# 660:CROSS abre a Freeplay. 700:RIGHT troca a dificuldade.
-# 760:CROSS toca a musica selecionada (a primeira da lista, o Tutorial).
-# 5600:CIRCLE sai do resultado: tem de voltar para a Freeplay.
-ENTRADA="200:CROSS,420:CROSS,640:DOWN,700:CROSS,840:RIGHT,900:CROSS,5600:CIRCLE"
+# 200:CROSS titulo -> menu. 420:CROSS menu (STORY) nao: 640:DOWN desce para
+# FREEPLAY (item 1). 700:CROSS abre a Freeplay. 840:RIGHT troca a dificuldade.
+# 900:CROSS toca a musica selecionada (a primeira da lista, o Tutorial).
+# 1200..1280: START abre a pausa, DOWN x3 e CROSS LIGAM o Practice Mode -- sem
+# ele o roteiro sem notas morre no meio da musica (game over) e o RESULTADO,
+# que e' o que faz o DJ fazer o fist pump, nunca apareceria. 1400:START volta
+# ao jogo. 5400:CIRCLE sai do resultado: tem de voltar para a Freeplay.
+ENTRADA="200:CROSS,420:CROSS,640:DOWN,700:CROSS,840:RIGHT,900:CROSS,1200:START,1260:DOWN,1264:DOWN,1268:DOWN,1280:CROSS,1400:START,5750:CIRCLE"
 
 rm -f "$LOG"
 echo "== freeplay: menu -> lista -> musica =="
@@ -47,6 +50,14 @@ CAPS=$(awk -F, '$1=="E" && $3=="freeplay_capsulas" {print $4; exit}' "$LOG")
 # decimos de px. Ele nasce em -width e chega a 0 em 700 ms com quintOut.
 FUNDO=$(awk -F, '$1=="E" && $3=="freeplay_fundo" {print $4","$5; exit}' "$LOG")
 FUNDOX=$(awk -F, '$1=="E" && $3=="freeplay_fundo_desenho" {print $4","$5; exit}' "$LOG")
+# O DJ da Freeplay (`AnimateAtlasFreeplayDJ`): abriu (1, bytes por quadro),
+# desenhou, e -- na VOLTA do resultado -- quais estados ele passou.
+DJ=$(awk -F, '$1=="E" && $3=="freeplay_dj" {print $4","$5; exit}' "$LOG")
+DJFALHA=$(awk -F, '$1=="E" && $3=="freeplay_dj_quadro_falhou" {print $4; exit}' "$LOG")
+DJTAM=$(awk -F, '$1=="E" && $3=="freeplay_dj_tamanho" {print $4","$5; exit}' "$LOG")
+DJDRW=$(awk -F, '$1=="E" && $3=="freeplay_dj_desenho" {n++} END{print n+0}' "$LOG")
+DJEST=$(awk -F, '$1=="E" && $3=="freeplay_dj_estado" {printf "%s ", $4}' "$LOG")
+DJVOLTA=$(awk -F, '$1=="E" && $3=="freeplay_dj_volta" {print $4","$5; exit}' "$LOG")
 
 echo
 echo "  musicas na lista ............ ${NSONGS:-?}"
@@ -62,6 +73,12 @@ echo "  titulos (bytes, falhas) ..... ${TIT:-?}"
 echo "  fundo (abriu, bytes) ........ ${FUNDO:-?}   (574x360 em 16 bpp = 413280 B)"
 echo "  fundo: x do 1. desenho ...... ${FUNDOX:-?}   (decimos de px e ms; entra de -574 a 0 em 700 ms)"
 echo "  capsulas desenhadas ......... ${CAPS:-?}"
+echo "  DJ (abriu, B por quadro) .... ${DJ:-?}   (370x375 em 16 bpp = 277500)"
+echo "  DJ: desenhos ................ ${DJDRW:-?}"
+echo "  DJ: estados ................. ${DJEST:-?}   (0=intro 1=idle 2=confirm 5=fist 7=fistLoop)"
+echo "  DJ: volta do resultado ...... ${DJVOLTA:-?}   (rank, estado)"
+echo "  DJ: quadro que falhou ....... ${DJFALHA:-nenhum}"
+echo "  DJ: tamanho recusado ........ ${DJTAM:-nao}"
 echo "  quadros de volta na freeplay  $VOLTOU"
 
 FALHA=0
@@ -87,6 +104,32 @@ else
     [ "$FX" -lt 0 ] || { echo "  FALHA: o fundo apareceu em x=$FX decimos (o original entra de -574)"; FALHA=1; }
     [ "$FX" -ge -5740 ] || { echo "  FALHA: o fundo comecou em x=$FX decimos, antes de -574 px"; FALHA=1; }
 fi
+# O DJ: pacote aberto com o tamanho do header (w*h*2), nenhum quadro recusado,
+# e pelo menos um desenho -- existir sem desenhar foi o defeito da 1a versao.
+[ "${DJ%%,*}" = "1" ] || { echo "  FALHA: o pacote do DJ nao abriu (${DJ:-sem evento})"; FALHA=1; }
+[ "${DJ##*,}" = "277500" ] || { echo "  FALHA: o DJ abriu com ${DJ##*,} B por quadro e o header manda 277500"; FALHA=1; }
+[ -z "${DJFALHA:-}" ] || { echo "  FALHA: o quadro $DJFALHA do DJ nao descomprimiu"; FALHA=1; }
+[ -z "${DJTAM:-}" ] || { echo "  FALHA: o pacote do DJ foi recusado por tamanho ($DJTAM)"; FALHA=1; }
+[ "${DJDRW:-0}" -ge 1 ] || { echo "  FALHA: o DJ nunca foi desenhado"; FALHA=1; }
+# Idle (1) tem de aparecer (o Intro termina) e o Confirm (2) tambem: sao os dois
+# estados que o caminho normal da tela atravessa.
+case " ${DJEST:-} " in *" 1 "*) ;; *) echo "  FALHA: o DJ nunca saiu do Intro"; FALHA=1;; esac
+case " ${DJEST:-} " in *" 2 "*) ;; *) echo "  FALHA: o DJ nao tocou o Confirm ao escolher a musica"; FALHA=1;; esac
+# A VOLTA DO RESULTADO (`FreeplayState.hx` L1084 + L1259, `BaseFreeplayDJ.hx`
+# L171-221): o DJ faz `fistPumpIntro()` -- estado 5 (`fistPump`) ou 6 (`loss`,
+# quando o rank e' SHIT) -- e 0,5 s depois `fistPump()`/`fistPumpLoss()`, que
+# sao os estados 7 e 8. Qual dos dois pares depende do RANK, entao o gate cobra
+# o par que corresponde ao rank que a volta registrou:
+#   rank 0 (SHIT)          -> 6 e 8   (a reacao de perda, com a animacao `loss`)
+#   rank 1..5              -> 5 e 7   (o fist pump, com a animacao `fistPump`)
+[ -n "${DJVOLTA:-}" ] || { echo "  FALHA: voltando do resultado o DJ nao recebeu o rank (sem fist pump)"; FALHA=1; }
+DJRANK=${DJVOLTA%%,*}
+if [ "$DJRANK" = "0" ]; then INI_ESP=6; LOOP_ESP=8; else INI_ESP=5; LOOP_ESP=7; fi
+case " ${DJEST:-} " in *" $INI_ESP "*) ;; *) echo "  FALHA: com rank $DJRANK o DJ devia entrar no estado $INI_ESP e nao entrou (${DJEST:-})"; FALHA=1;; esac
+case " ${DJEST:-} " in *" $LOOP_ESP "*) ;; *) echo "  FALHA: com rank $DJRANK o DJ devia passar ao estado $LOOP_ESP 0,5 s depois (${DJEST:-})"; FALHA=1;; esac
+# E o `fistPump`/`loss` tem de acabar no Idle: `onFinishAnim` L210-214 manda os
+# dois para o Idle, e o `loopEndFrame: -1` do JSON quer dizer "sem repetir".
+case " ${DJEST:-} " in *" $LOOP_ESP 1 "*) ;; *) echo "  FALHA: o DJ nao voltou ao Idle depois do fist pump (${DJEST:-})"; FALHA=1;; esac
 [ -n "${FPLAY:-}" ] || { echo "  FALHA: o CROSS nao tocou nenhuma musica"; FALHA=1; }
 [ "${FDIFF:-?}" -ge 1 ] || { echo "  FALHA: a troca de dificuldade nao aconteceu"; FALHA=1; }
 [ -n "${CHART:-}" ] && [ "${CHART:-0}" != "0" ] || { echo "  FALHA: o chart da musica escolhida nao carregou"; FALHA=1; }

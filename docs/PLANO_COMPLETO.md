@@ -3593,10 +3593,42 @@ trava ao rolar.
     freeplay_capsulas,9,5091        9 cápsulas desenhadas (a janela)
     freeplay_draw,16,27             16 quads no quadro da tela
 
-**O que ainda falta nesta tela, medido** (não é lógica, é arte/dado):
+**O FUNDO e o DJ: feitos depois desta medição.**
 
-- o **fundo** da Freeplay (`backingImage`, `freeplayBGweek1-{bf,pico}.png`,
-  821x516 no clone) e o **DJ** (`createFreeplayDJ`, `CUTOUT_WIDTH*0,44 + 640`);
+- **Fundo** (`backingImage`, `FreeplayState.hx` L340/L456/L529-531): arte
+  821×516 reduzida a **574×360 em 16 bpp = 413.280 B**, entra de `x = -width`
+  até 0 em 700 ms com `quintOut` (`fp_fundo_x`). Medido:
+  `freeplay_fundo,1,413280` e `freeplay_fundo_desenho,-5740,0` (o primeiro
+  desenho já fora da tela, em -574,0 px).
+- **DJ** (`AnimateAtlasFreeplayDJ`, `preload/images/freeplay/freeplay-boyfriend`):
+  o atlas achatado pelo `tools/achatar_animate.py --pack` com
+  `--scale 0.5 --bpp 16` dá **370×375, 678 quadros, 9 animações**; o pacote tem
+  **12.651.668 B** e vem em **duas partes** (`.chp4` + `.chp4.part1`, o corte de
+  8 MB do `write_packs`), lidas pelo `src/engine/pack_multi.c`. Na VRAM ele
+  custa **um quadro = 277.500 B**. Posição **(0,0)**: `resetPosition()` com
+  `useAnimatePosition: true` e `CUTOUT_WIDTH = 0`.
+- **A máquina de estados** (`AnimateAtlasFreeplayDJ.hx` L62-140 e
+  `BaseFreeplayDJ.hx` L74-221): `Intro` (17 quadros, sem loop) → `Idle`
+  (14, loop, e é no FIM DE CADA VOLTA que o `timeIdling` decide: 60 s →
+  `idleEasterEgg` 139 quadros, 120 s → `cartoon` 166); `onPlayerAction()` (todo
+  movimento da lista: L1764/1821/1844/1850/2548/2884) só zera `timeIdling`;
+  `onConfirm()` → `confirm` (28); e, na **volta do resultado**
+  (`FreeplayState.hx` L1084 e L1259), `fistPumpIntro()`/`fistPumpLossIntro()`
+  (estado 5/6, repetindo a janela `[introStart..introEnd-1]` do `fistPump` do
+  JSON) e 0,5 s depois `fistPump()`/`fistPumpLoss()` (estado 7/8; com
+  `loopEndFrame: -1` toca UMA vez, do `loopStart` ao fim, e o `onFinishAnim`
+  L210-214 devolve o `Idle`).
+- **Medido no harness** (`tools/run_freeplay_harness.sh 7000`, que agora liga o
+  Practice Mode para a música CHEGAR ao resultado em vez de morrer):
+  `freeplay_dj,1,277500` e, sem rank (`FNF_RANK` ausente ⇒ SHIT),
+  `freeplay_dj_volta,0,6` com estados `1 2 6 8 1` (Intro→Idle→Confirm→loss→
+  lossLoop→Idle); com `FNF_RANK=3`, `freeplay_dj_volta,3,5` e estados
+  `1 2 5 7 1` (fist pump → fist pump loop → Idle). Nenhum quadro recusado.
+- **VRAM da tela, medida**: disponível ao entrar `pool_cena,11,1269760`; usado
+  413.280 (fundo) + 2×80.784 (cápsulas) + 122.740 (27 títulos) + 277.500 (DJ) =
+  **975.088 B**, sobram **294.672 B**.
+
+**O que ainda falta nesta tela, medido** (não é lógica, é arte/dado):
 - o **cinza 0,8** das cápsulas não selecionadas (`Grayscale(1)` com
   `setAmount(0.8)`, L197/L792): decide-se no empacotador (pixels), não no GS;
 - o título **sem o brilho** quando não selecionado (`songText.blurredText` só é

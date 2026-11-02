@@ -646,6 +646,123 @@ def _soundsystem_file():
     return {d["tex"]: make_resultado_pack(d["w"], d["h"], d["quadros"])}
 
 
+def lz4_bloco_repetido(prefixo, total):
+    """Bloco LZ4 que decodifica em `prefixo` + repeticao do ultimo byte.
+
+    POR QUE NAO `lz4_literais`
+    O DJ da Freeplay tem 678 quadros de 370x375 a 16 bpp: 277.500 B por quadro.
+    Escritos como literais puros (o caminho do resto dos pacotes sinteticos) o
+    pacote passaria de 180 MB de harness -- o mesmo dado que o LZ4 do
+    empacotador guarda em 12,6 MB. Aqui o bloco e' um run de literais
+    (`prefixo`, que muda de quadro para quadro e e' o que prova que o jogo
+    mostrou o quadro certo) seguido de um MATCH de deslocamento 1 que enche o
+    resto com o ultimo byte do prefixo. O decodificador do jogo
+    (`src/engine/lz4_bloco.c`) copia byte a byte justamente para aceitar
+    match com deslocamento menor que o proprio match.
+    """
+    n = len(prefixo)
+    match = total - n - 4          # o `+4` e' implicito no formato
+    if match < 0:
+        raise ValueError("prefixo maior que o quadro")
+    # Uma sequencia LZ4 e' SEMPRE literais + match no MESMO token: o nibble de
+    # cima conta os literais, o de baixo o match (menos 4). Emitir o run de
+    # literais com o nibble de baixo zerado faz o decodificador ler os proprios
+    # literais como deslocamento -- foi o que estragou a primeira versao.
+    out = bytearray()
+    out.append(0xF0 | (0x0F if match >= 15 else match))
+    resta = n - 15
+    while resta >= 255:
+        out.append(255)
+        resta -= 255
+    out.append(resta)
+    out += prefixo
+    # A ordem e' a do decodificador (`src/engine/lz4_bloco.c`): literais, DEPOIS
+    # os 2 bytes de deslocamento, DEPOIS a extensao do match.
+    out.append(1)                  # deslocamento 1 (LE)
+    out.append(0)
+    if match >= 15:
+        resta = match - 15
+        while resta >= 255:
+            out.append(255)
+            resta -= 255
+        out.append(resta)
+    return bytes(out)
+
+
+def _freeplay_dj_partes(plano):
+    """De quantos quadros e' cada parte, na PROPORCAO do plano real.
+
+    O `write_packs` corta o pacote em arquivos de no maximo 8 MB, e o numero de
+    partes que sai depende do tamanho comprimido de cada quadro -- um numero que
+    o harness nao pode copiar sem os 13 MB da arte. O que ele copia e' a
+    PROPORCAO do plano commitado: o jogo abre `FP_DJ_PARTES_N` arquivos e
+    recusa o pacote se o total nao for `FP_DJ_QUADROS`, entao o que importa e'
+    a divisao existir e o total fechar.
+    """
+    partes = plano.get("partes") or []
+    total = plano["quadros"]
+    if len(partes) <= 1:
+        return [total]
+    pesos = [max(1, p.get("bytes") or 1) for p in partes]
+    soma = sum(pesos)
+    cortes = []
+    acumulado = 0
+    for i, w in enumerate(pesos):
+        if i == len(pesos) - 1:
+            cortes.append(total - acumulado)
+        else:
+            n = max(1, int(round(total * w / float(soma))))
+            cortes.append(n)
+            acumulado += n
+    return cortes
+
+
+def _freeplay_dj_files():
+    """O pacote do DJ da Freeplay (`freeplay/freeplay-boyfriend`), em PARTES.
+
+    Cada arquivo e' um CFZ4 (o mesmo formato que `pm_abrir`/`pst_abrir` leem) com
+    o canvas e os quadros do plano commitado; a soma tem de dar `FP_DJ_QUADROS`
+    e o `bytes_por_quadro` tem de ser `w*h*2`, senao o jogo recusa o pacote --
+    que e' exatamente o que o harness cobra.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "freeplay-dj-plan.json")
+    if not os.path.isfile(caminho):
+        return {}
+    plano = json.load(open(caminho, encoding="utf-8"))
+    fb = plano["quadros"], plano["w"] * plano["h"] * (plano["psm"] // 8)
+    nq, frame_bytes = fb
+    cortes = _freeplay_dj_partes(plano)
+    arquivos = [(pt.get("arquivo") or ("dj_bf.chp4" if i == 0 else
+                "dj_bf.chp4.part%d" % i)) for i, pt in enumerate(plano["partes"])]
+    out = {}
+    q0 = 0
+    for i, n in enumerate(cortes):
+        blocos = []
+        for k in range(n):
+            q = q0 + k
+            # Prefixo que muda por quadro: e' o que deixa o teste provar que o
+            # quadro certo subiu, e nao o primeiro.
+            pref = bytes(((q * 71 + j * 13 + 5) & 0xFF) for j in range(480))
+            blocos.append(lz4_bloco_repetido(pref, frame_bytes))
+        out["freeplay/" + arquivos[i]] = make_resultado_pack_de_blocos(blocos, n, frame_bytes)
+        q0 += n
+    return out
+
+
+def make_resultado_pack_de_blocos(blocos, quadros, frame_bytes):
+    """CFZ4 a partir de blocos LZ4 ja' comprimidos."""
+    cab = b"CFZ4" + struct.pack("<III", 1, quadros, frame_bytes)
+    tabela = bytearray()
+    blob = bytearray()
+    off = 16 + len(blocos) * 8
+    for b in blocos:
+        tabela += struct.pack("<II", off, len(b))
+        blob += b
+        off += len(b)
+    return cab + bytes(tabela) + bytes(blob)
+
+
 def _freeplay_files():
     plano = freeplay_plan()
     if plano is None:
@@ -749,6 +866,7 @@ def build(root, charts_src=None):
         # por musica com o titulo JA' renderizado (`CapsuleText` = FlxText com a
         # fonte 5by7; nao ha' bitmap de letra para compor no console).
         **_freeplay_files(),
+        **_freeplay_dj_files(),
         **_soundsystem_file(),
 
         "result/scroll_menu.pcm": pcm(48000 * 4 // 8, 342),

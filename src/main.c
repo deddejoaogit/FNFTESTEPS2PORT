@@ -40,6 +40,8 @@
 #include "engine/splash.h"
 #include "engine/resultado.h"
 #include "engine/freeplay.h"
+#include "engine/pack_multi.h"
+#include "engine/freeplay_dj_dados.h"
 #include "gameover_dados.h"
 #include "song_registry.h"
 #include "bs_dados.h"    /* bs_stages[]: o cameraZoom de cada palco */
@@ -1623,6 +1625,7 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
 #define FP_CHAVE_CAP (SP_CHAVE_TELA_BASE + 0x40u)   /* +0 selecionada, +1 nao */
 #define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* os 27 titulos (1 por musica) */
 #define FP_CHAVE_FUNDO (SP_CHAVE_TELA_BASE + 0x42u) /* o fundo (1 quadro, 16 bpp) */
+#define FP_CHAVE_DJ    (SP_CHAVE_TELA_BASE + 0x43u) /* o DJ (1 quadro, 16 bpp)    */
 #define FP_TIT_SLOTS 8
 #define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
 
@@ -1643,6 +1646,42 @@ static unsigned char *g_fpf_buf = 0;
 static unsigned int g_fpf_buf_bytes = 0, g_fpf_addr = 0;
 static int g_fpf_logado = 0;
 static texbuffer_t g_fpf_tex;
+/* O DJ da tela (`AnimateAtlasFreeplayDJ`). O pacote tem 678 quadros de 370x375
+   a 16 bpp em DOIS arquivos (o `write_packs` corta em 8 MB), lidos por
+   `pack_multi`: fica na RAM a tabela e um bloco por parte, e na VRAM UM quadro
+   por vez -- 277.500 B. A maquina de estados e' a da fonte (L62-140):
+     Intro -> Idle (loop) -> Confirm | IdleEasterEgg | Cartoon | FistPump
+   `timeIdling` conta so' no Idle e zera em qualquer acao do jogador
+   (`onPlayerAction` -> `resetAFKTimer`). */
+#define FP_DJ_INTRO    0
+#define FP_DJ_IDLE     1
+#define FP_DJ_CONFIRM  2
+#define FP_DJ_EGG      3
+#define FP_DJ_CARTOON  4
+#define FP_DJ_FIST     5      /* fistPumpIntro: repete [ini..introFim]  */
+#define FP_DJ_LOSS     6      /* fistPumpLossIntro                      */
+#define FP_DJ_LOOP_PUMP 7     /* fistPump: [loopIni..loopFim] uma vez   */
+#define FP_DJ_LOOP_LOSS 8     /* fistPumpLoss                           */
+#define FP_DJ_EGG_PERIODO_MS   60000    /* IDLE_EGG_PERIOD = 60 s     */
+#define FP_DJ_CARTOON_PERIODO_MS 120000 /* IDLE_CARTOON_PERIOD = 120 s */
+static pm_pack_t g_dj_pack;
+static int g_dj_ok = 0, g_dj_tentou = 0;
+static unsigned char *g_dj_buf = 0;
+static unsigned int g_dj_buf_bytes = 0, g_dj_addr = 0;
+static int g_dj_frame = -1;         /* quadro que esta' na VRAM */
+/* Os estados `FistPumpIntro`/`FistPump` nao usam `indice`: eles tocam uma
+   JANELA de quadros (`curFrame >= endFrame` -> recomeca). O quadro pedido por
+   eles vem aqui (-1 = "usa o indice normal"). */
+static int g_dj_forcado = -1;
+/* O rank da volta do resultado (`fromResultsParams?.newRank`), -1 = nenhum. */
+static int g_dj_volta_rank = -1;
+static texbuffer_t g_dj_tex;
+static int g_dj_estado = FP_DJ_INTRO;
+static unsigned long g_dj_t_estado = 0;   /* ms dentro do estado */
+static unsigned long g_dj_idle_ms = 0;    /* `timeIdling` */
+static int g_dj_viu_egg = 0;              /* `seenIdleEasterEgg` */
+static int g_dj_logado = 0;
+static int g_dj_desenhos = 0;
 static unsigned char g_fpt_buf[24576];
 /* Um slot POR MUSICA: os 27 titulos somam 122.740 B de VRAM (o maior,
    `spaghetti`, 20.672 B), e todos cabem no pool da tela -- entao eles sobem
@@ -1670,9 +1709,14 @@ static texbuffer_t g_fptex_sel, g_fptex_nao;
 static float fp_desenho_w(float s) { return FP_DESENHO_W * s; }
 static float fp_desenho_h(float s) { return FP_DESENHO_H * s; }
 
+static void freeplay_dj_soltar(void);
+static void freeplay_dj_carregar(texbuffer_t *tpl);
+static void freeplay_fundo_carregar(texbuffer_t *tpl);
+
 static void freeplay_capsula_soltar(void)
 {
     int i;
+    freeplay_dj_soltar();
     /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
     if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
     g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
@@ -1745,6 +1789,62 @@ static void freeplay_fundo_carregar(texbuffer_t *tpl)
     }
     g_fpf_ok = 1;
     telemetry_event("freeplay_fundo", 1, (int)bytes);
+}
+
+/* O DJ DA TELA. Abre as partes do pacote (CHP4 divide em 8 MB), reserva UM
+   quadro de 16 bpp na VRAM e deixa o estado no comeco (`Intro`, que toca a
+   animacao 'intro' uma vez e cai no `Idle`). Sem o pacote, a tela continua
+   legivel: o fundo, as capsulas e os titulos nao dependem dele. */
+static void freeplay_dj_soltar(void)
+{
+    if (g_dj_tentou) pm_fechar(&g_dj_pack);
+    g_dj_tentou = 0; g_dj_ok = 0; g_dj_logado = 0; g_dj_frame = -1;
+    if (g_dj_buf) { free(g_dj_buf); g_dj_buf = 0; g_dj_buf_bytes = 0; }
+    if (g_dj_addr) { sp_soltar(&g_pool, FP_CHAVE_DJ); g_dj_addr = 0; }
+    g_dj_estado = FP_DJ_INTRO;
+    g_dj_t_estado = 0; g_dj_idle_ms = 0; g_dj_viu_egg = 0; g_dj_desenhos = 0;
+    g_dj_forcado = -1;
+}
+
+static void freeplay_dj_carregar(texbuffer_t *tpl)
+{
+    char dir[64];
+    unsigned int bytes;
+    freeplay_dj_soltar();
+    snprintf(dir, sizeof(dir), FP_DIR "freeplay");
+    if (pm_abrir(dir, fp_dj_partes, FP_DJ_PARTES_N, &g_dj_pack) != 0) {
+        telemetry_event("freeplay_dj_falta", 0, (int)sp_livre(&g_pool));
+        return;
+    }
+    g_dj_tentou = 1;
+    bytes = g_dj_pack.frame_bytes;
+    if (bytes != (unsigned int)FP_DJ_W * (unsigned int)FP_DJ_H * 2u ||
+        g_dj_pack.total != (unsigned int)FP_DJ_QUADROS) {
+        telemetry_event("freeplay_dj_tamanho", (int)bytes, (int)g_dj_pack.total);
+        pm_fechar(&g_dj_pack); g_dj_tentou = 0;
+        return;
+    }
+    if (bytes > g_dj_buf_bytes) {
+        free(g_dj_buf);
+        g_dj_buf = (unsigned char *)memalign(64, (size_t)bytes);
+        g_dj_buf_bytes = g_dj_buf ? bytes : 0u;
+    }
+    if (!g_dj_buf) { pm_fechar(&g_dj_pack); g_dj_tentou = 0; return; }
+    if (sp_chave(&g_pool, FP_CHAVE_DJ, bytes, &g_dj_addr) < 0) {
+        telemetry_event("freeplay_dj_sem_vram", 0, (int)sp_livre(&g_pool));
+        pm_fechar(&g_dj_pack); g_dj_tentou = 0; g_dj_addr = 0;
+        return;
+    }
+    {
+        texbuffer_t t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_DJ_W;
+        t.psm = GS_PSM_16;
+        t.address = g_dj_addr;
+        setup_texture_dims(&t, FP_DJ_W, FP_DJ_H);
+        g_dj_tex = t;
+    }
+    g_dj_ok = 1;
+    telemetry_event("freeplay_dj", 1, (int)bytes);
 }
 
 static int freeplay_capsula_carregar(texbuffer_t *tpl)
@@ -1823,6 +1923,7 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
     }
     telemetry_event("freeplay_titulos", g_fpt_bytes, g_fpt_falhas);
     freeplay_fundo_carregar(tpl);
+    freeplay_dj_carregar(tpl);
     return g_fpc_ok;
 }
 
@@ -1849,6 +1950,256 @@ static int freeplay_capsula_quadro(texbuffer_t *tpl, int sel, int quadro)
     if (sel) g_fptex_sel = t; else g_fptex_nao = t;
     g_fpc_desenhos++;
     return 1;
+}
+
+/* ---- O DJ: a maquina de estados e o quadro da vez ----------------------
+ *
+ * `AnimateAtlasFreeplayDJ.update` (L62-140) escolhe a animacao por estado e o
+ * `onFinishAnim` (L172-230) decide para onde ir quando ela termina:
+ *
+ *   Intro      'intro'      sem loop -> ao terminar, Idle   (L174-185)
+ *   Idle       'idle'       LOOP     -> a cada volta olha `timeIdling`
+ *   Confirm    'confirm'    sem loop -> fica no ultimo quadro (L197-200)
+ *   IdleEasterEgg 'idleEasterEgg' -> ao terminar, Idle      (L205-209)
+ *   Cartoon    'cartoon'    sem loop -> fica (nao ha' branch no onFinish)
+ *   FistPump   'fistPump' / 'loss' com as janelas do `fistPump` do JSON
+ *
+ * `timeIdling` (BaseFreeplayDJ L84-127) so' cresce no Idle e zera em qualquer
+ * acao do jogador (`onPlayerAction` -> `resetAFKTimer`). No fim de uma volta do
+ * Idle: >= 60 s e ainda nao viu -> IdleEasterEgg; >= 120 s -> Cartoon.
+ */
+static const fp_dj_anim_t *freeplay_dj_anim(const char *nome)
+{
+    int i;
+    /* Compara so' os `strlen(nome)` primeiros bytes: a tabela do CHP4 vem do
+       pacote e pode trazer o nome preenchido com espacos. */
+    for (i = 0; i < (int)FP_DJ_ANIMS_N; i++)
+        if (strncmp(fp_dj_anims[i].nome, nome, strlen(nome)) == 0) {
+            const char *r = fp_dj_anims[i].nome + strlen(nome);
+            while (*r == ' ') r++;
+            if (*r == '\0') return &fp_dj_anims[i];
+        }
+    return 0;
+}
+
+/* Quadro da vez dentro da animacao `a`, com `ms` desde que ela comecou. */
+static int freeplay_dj_indice(const fp_dj_anim_t *a, unsigned long ms)
+{
+    unsigned long passo;
+    int k;
+    if (!a || a->quantos <= 0) return -1;
+    passo = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul; /* fps */
+    if (!passo) passo = 24ul;
+    k = (int)((ms * passo) / 1000ul);
+    if (a->looped) {
+        /* `addByPrefix(..., 24)` com `looped`: cicla. */
+        if (a->quantos > 0) k %= a->quantos;
+    } else if (k >= a->quantos) {
+        k = a->quantos - 1;   /* `looped = false` para no ULTIMO quadro */
+    }
+    return a->primeiro + k;
+}
+
+/* Duracao (ms) de uma passada da animacao. */
+static unsigned long freeplay_dj_dura(const fp_dj_anim_t *a)
+{
+    unsigned long fps;
+    if (!a || a->quantos <= 0) return 0ul;
+    fps = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul;
+    if (!fps) fps = 24ul;
+    return ((unsigned long)a->quantos * 1000ul + fps - 1ul) / fps;
+}
+
+/* Quadro DENTRO da animacao para uma janela [ini..fim] que se repete.
+   E' o que `playFlashAnimation(..., Frame)` + o `update` do estado fazem. */
+static int freeplay_dj_janela(const fp_dj_anim_t *a, unsigned long ms,
+                              int ini, int fim, int repete)
+{
+    unsigned long fps;
+    int k, n;
+    if (!a || a->quantos <= 0) return 0;
+    fps = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul;
+    if (!fps) fps = 24ul;
+    /* `curFrame >= endFrame` recomeca: o periodo visivel e' [ini .. fim-1]. */
+    n = fim - ini;
+    if (n <= 0) n = 1;
+    k = (int)((ms * fps) / 1000ul);
+    if (repete) k %= n;
+    if (k > n - 1) k = n - 1;
+    k += ini;
+    if (k >= a->quantos) k = a->quantos - 1;
+    if (k < 0) k = 0;
+    return k;
+}
+
+/* Duracao (ms) de uma janela [ini..fim] tocada uma vez. */
+static unsigned long freeplay_dj_dura_janela(const fp_dj_anim_t *a,
+                                             int ini, int fim)
+{
+    unsigned long fps;
+    if (!a) return 0ul;
+    fps = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul;
+    if (!fps) fps = 24ul;
+    if (fim < ini) return 0ul;
+    return ((unsigned long)(fim - ini + 1) * 1000ul + fps - 1ul) / fps;
+}
+
+/* O aniversario de uma acao do jogador: `dj.onPlayerAction()`, que e'
+   so' `resetAFKTimer()` (BaseFreeplayDJ.hx L68-72). Ele NAO troca de estado --
+   e' o que zera o `timeIdling` que conta para o Easter Egg e o Cartoon. */
+static void freeplay_dj_acao(void)
+{
+    g_dj_idle_ms = 0;
+    g_dj_viu_egg = 0;
+}
+
+/* Troca de estado do DJ, zerando o tempo da animacao (todo `playFlashAnimation`
+   da fonte comeca do quadro 0 da janela). */
+static void freeplay_dj_estado_novo(int estado, const char *porque)
+{
+    if (estado == g_dj_estado) { g_dj_t_estado = 0; return; }
+    g_dj_estado = estado;
+    g_dj_t_estado = 0;
+    g_dj_forcado = -1;
+    telemetry_event("freeplay_dj_estado", estado, (int)g_dj_idle_ms);
+    (void)porque;
+}
+
+/* `dj.onConfirm()` (BaseFreeplayDJ.hx L128-149): `Confirm`, a nao ser que haja
+   personagem novo (NewUnlock). O port nao guarda "personagem novo" no save --
+   o original so' marca isso quando um novo jogador e' desbloqueado
+   (`PlayerRegistry.hasNewCharacter()`); sem esse estado no save, o ramo
+   NewUnlock e' dado ausente e o Confirm e' o caminho. */
+static void freeplay_dj_confirmar(void)
+{
+    if (!g_dj_ok) return;
+    freeplay_dj_estado_novo(FP_DJ_CONFIRM, "onConfirm");
+}
+
+/* `fistPumpIntro()` / `fistPumpLossIntro()` (BaseFreeplayDJ.hx L171-190,
+   L202-221), chamados ao VOLTAR do resultado (`FreeplayState.hx` L1084) com o
+   rank da musica que acabou de ser jogada. */
+static void freeplay_dj_fist_pump(int rank)
+{
+    if (!g_dj_ok) return;
+    g_dj_idle_ms = 0; g_dj_viu_egg = 0;
+    if (rank == (int)FNF_RANK_SHIT) {
+        freeplay_dj_estado_novo(FP_DJ_LOSS, "fistPumpLossIntro");
+    } else {
+        freeplay_dj_estado_novo(FP_DJ_FIST, "fistPumpIntro");
+    }
+}
+
+/* Um passo por quadro: anda o tempo do estado e troca de estado quando a
+   animacao termina, exatamente como o `onFinishAnim` da fonte. */
+static void freeplay_dj_passo(void)
+{
+    const fp_dj_anim_t *a;
+    unsigned long dur;
+    if (!g_dj_ok) return;
+    if (g_dj_estado != FP_DJ_FIST && g_dj_estado != FP_DJ_LOSS &&
+        g_dj_estado != FP_DJ_LOOP_PUMP && g_dj_estado != FP_DJ_LOOP_LOSS)
+        g_dj_forcado = -1;
+    g_dj_t_estado += (unsigned long)(TUT_DT * 1000.0f);
+    if (g_dj_estado == FP_DJ_IDLE) g_dj_idle_ms += (unsigned long)(TUT_DT * 1000.0f);
+    switch (g_dj_estado) {
+    case FP_DJ_INTRO:
+        a = freeplay_dj_anim("intro");
+        if (g_dj_t_estado >= freeplay_dj_dura(a)) {
+            g_dj_estado = FP_DJ_IDLE; g_dj_t_estado = 0;
+            telemetry_event("freeplay_dj_estado", FP_DJ_IDLE, (int)g_dj_idle_ms);
+        }
+        break;
+    case FP_DJ_IDLE:
+        a = freeplay_dj_anim("idle");
+        dur = freeplay_dj_dura(a);
+        if (dur && g_dj_t_estado >= dur) {
+            /* Fim de UMA volta: e' aqui que o original olha o `timeIdling`. */
+            g_dj_t_estado = 0;
+            if (g_dj_idle_ms >= FP_DJ_EGG_PERIODO_MS && !g_dj_viu_egg) {
+                g_dj_estado = FP_DJ_EGG; g_dj_viu_egg = 1;
+                telemetry_event("freeplay_dj_estado", FP_DJ_EGG, (int)g_dj_idle_ms);
+            } else if (g_dj_idle_ms >= FP_DJ_CARTOON_PERIODO_MS) {
+                g_dj_estado = FP_DJ_CARTOON;
+                telemetry_event("freeplay_dj_estado", FP_DJ_CARTOON, (int)g_dj_idle_ms);
+            }
+        }
+        break;
+    case FP_DJ_EGG:
+        a = freeplay_dj_anim("idleEasterEgg");
+        if (g_dj_t_estado >= freeplay_dj_dura(a)) {
+            g_dj_estado = FP_DJ_IDLE; g_dj_t_estado = 0;
+            telemetry_event("freeplay_dj_estado", FP_DJ_IDLE, (int)g_dj_idle_ms);
+        }
+        break;
+    case FP_DJ_FIST:      /* `FistPumpIntro` com `fistPump`/`loss` */
+    case FP_DJ_LOSS:
+    {
+        /* `fistPumpIntro()` toca do `introStartFrame` SEM loop e o `update`
+           (L96-118) faz `playFlashAnimation(prefix, true, false, false,
+           introStartFrame)` de novo assim que `curFrame >= introEndFrame`: a
+           janela [ini .. introFim-1] se repete enquanto o estado durar, e ele
+           dura ate' o `fistPump()` do timer de 0,5 s.
+           `introEndFrame` -1 desliga a repeticao (`endFrame > -1` na fonte). */
+        int ini_f, fim_f;
+        a = freeplay_dj_anim(g_dj_estado == FP_DJ_FIST ? "fistPump" : "loss");
+        if (!a) { g_dj_estado = FP_DJ_IDLE; g_dj_t_estado = 0; break; }
+        if (g_dj_estado == FP_DJ_FIST) {
+            ini_f = FP_DJ_FIST_INI; fim_f = FP_DJ_FIST_INTRO_FIM;
+        } else {
+            ini_f = FP_DJ_FIST_INI_BAD; fim_f = FP_DJ_FIST_INTRO_FIM_BAD;
+        }
+        if (fim_f > -1 && fim_f <= ini_f) fim_f = ini_f + 1; /* 1 quadro */
+        g_dj_forcado = a->primeiro +
+            (fim_f > -1 ? freeplay_dj_janela(a, g_dj_t_estado, ini_f, fim_f, 1)
+                        : ini_f);
+        /* `new FlxTimer().start(0.5, ...) -> dj.fistPump()` (L1259). */
+        if (g_dj_t_estado >= 500ul) {
+            g_dj_estado = (g_dj_estado == FP_DJ_FIST) ? FP_DJ_LOOP_PUMP
+                                                      : FP_DJ_LOOP_LOSS;
+            g_dj_t_estado = 0; g_dj_forcado = -1;
+            telemetry_event("freeplay_dj_estado", g_dj_estado, 500);
+        }
+        return;
+    }
+    case FP_DJ_LOOP_PUMP: /* `FistPump`: [loopIni .. loopFim] */
+    case FP_DJ_LOOP_LOSS:
+    {
+        int ini_f, fim_f, k;
+        unsigned long fps;
+        a = freeplay_dj_anim(g_dj_estado == FP_DJ_LOOP_PUMP ? "fistPump" : "loss");
+        if (!a) { g_dj_estado = FP_DJ_IDLE; g_dj_t_estado = 0; break; }
+        if (g_dj_estado == FP_DJ_LOOP_PUMP) {
+            ini_f = FP_DJ_FIST_LOOP_INI; fim_f = FP_DJ_FIST_LOOP_FIM;
+        } else {
+            ini_f = FP_DJ_FIST_LOOP_INI_BAD; fim_f = FP_DJ_FIST_LOOP_FIM_BAD;
+        }
+        if (fim_f >= a->quantos) fim_f = a->quantos - 1;
+        if (fim_f > -1) {
+            /* `loopEndFrame` valido: recomeca em `loopStartFrame`, igual ao
+               intro -- [ini .. fim-1] em loop enquanto o estado durar. */
+            if (fim_f <= ini_f) fim_f = ini_f + 1;
+            g_dj_forcado = a->primeiro +
+                freeplay_dj_janela(a, g_dj_t_estado, ini_f, fim_f, 1);
+            return;
+        }
+        /* `loopEndFrame` -1: `endFrame > -1` e' falso, entao NUNCA recomeca --
+           toca de `loopStart` ate' o fim da animacao e o `onFinishAnim` manda
+           o Idle (L210-214). */
+        fps = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul;
+        if (!fps) fps = 24ul;
+        k = ini_f + (int)((g_dj_t_estado * fps) / 1000ul);
+        if (k >= a->quantos) {
+            g_dj_estado = FP_DJ_IDLE; g_dj_t_estado = 0; g_dj_forcado = -1;
+            telemetry_event("freeplay_dj_estado", FP_DJ_IDLE, (int)g_dj_idle_ms);
+            break;
+        }
+        g_dj_forcado = a->primeiro + k;
+        return;
+    }
+    default:
+        break;
+    }
 }
 
 /* O titulo da musica `si` da lista, na VRAM -- so' CONSULTA: quem sobe a arte
@@ -5443,7 +5794,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       pendrive usa FCH5, entao um numero aqui significa que o chart carregado
       nao era o do build. */
    if(chart_events_state()->bop_sem_parametros)telemetry_event("bop_sem_parametros",
-      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;/* a arte das capsulas e a contagem do tempo da tela (os timers do "initJumpIn" contam daqui) */freeplay_capsula_carregar(&stagetex);g_fp_t0=GetTimerSystemTime();g_fp_ms=0;g_fp_cap_logado=0;telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;/* a arte das capsulas e a contagem do tempo da tela (os timers do "initJumpIn" contam daqui) */freeplay_capsula_carregar(&stagetex);g_fp_t0=GetTimerSystemTime();g_fp_ms=0;g_fp_cap_logado=0;
+    /* O DJ: vindo do resultado com rank, o fist pump (ou a reacao de perda);
+       senao, o `Intro` que o `freeplay_dj_carregar` ja deixou armado. */
+    if(g_dj_volta_rank>=0){freeplay_dj_fist_pump(g_dj_volta_rank);
+     telemetry_event("freeplay_dj_volta",g_dj_volta_rank,g_dj_estado);g_dj_volta_rank=-1;}
+    else{g_dj_volta_rank=-1;}
+    telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -5459,13 +5816,18 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      capsules, a lista e' vertical (UP/DOWN) e LEFT/RIGHT troca a dificuldade
      entre as que a musica realmente tem. CROSS toca, CIRCLE volta ao menu. */
   if(transition_frame==0&&ui_state==11&&g_fp_n>0){
-   if(pressed&PAD_UP){g_fp_sel=(g_fp_sel+g_fp_n-1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
-   else if(pressed&PAD_DOWN){g_fp_sel=(g_fp_sel+1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
+   /* Todo movimento da lista e' um `dj.onPlayerAction()` no original (L1764
+      roda do mouse, L1821 das teclas, L1844/L1850 e L2548 das bordas e do
+      arrasto de dificuldade): zera o `timeIdling`, nao troca a animacao. */
+   if(pressed&PAD_UP){g_fp_sel=(g_fp_sel+g_fp_n-1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);freeplay_dj_acao();telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
+   else if(pressed&PAD_DOWN){g_fp_sel=(g_fp_sel+1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);freeplay_dj_acao();telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
    if(pressed&PAD_LEFT||pressed&PAD_RIGHT){int d=g_fp_diff,passo=(pressed&PAD_RIGHT)?1:2,n;
     for(n=0;n<3;n++){d=(d+passo)%3;if(g_fp[g_fp_sel]->difficulties&(1u<<d))break;}
-    g_fp_diff=d;telemetry_event("freeplay_diff",g_fp_diff,0);}
+    g_fp_diff=d;freeplay_dj_acao();telemetry_event("freeplay_diff",g_fp_diff,0);}
    if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
+    /* `FreeplayState.hx` L2765: `dj?.onConfirm()` antes de sair para o palco. */
+    freeplay_dj_confirmar();
     story_diff=g_fp_diff;g_fp_play_song=g_fp[g_fp_sel];g_fp_active=1;g_story_mode=0;
     g_practice_mode=0;fnf_play_set_practice(&g_play,0);
     g_tutorial_scene_attempted=0;g_tutorial_scene_ready=0;
@@ -5819,7 +6181,13 @@ else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&f
      telemetry_event("story_begin",story_level,g_playlist_n);
     }else telemetry_event("story_sem_musicas",story_level,0);}
   }else if(transition_frame==0 && (pressed&PAD_CIRCLE)){if(ui_state==0&&components_mode)components_mode=0;else if(ui_state==8){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}
-   else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;resmus_parar();}
+   else if(ui_state==9){g_result_wait=0;g_menu_cache_ready=0;story_assets_ready=0;
+    /* `FreeplayState.hx` L1084: ao voltar do resultado a Freeplay recebe
+       `fromResultsParams.newRank` e o DJ faz `fistPumpIntro()` (ou
+       `fistPumpLossIntro()` quando o rank e' SHIT). O rank aqui e' o MESMO que
+       a tela de resultado mostrou (`resultado_rank()`), nao um recalculo. */
+    g_dj_volta_rank=g_fp_active?resultado_rank():-1;
+    target_state=g_fp_active?11:7;transition_frame=1;transitions++;resmus_parar();}
    else if(ui_state==10){g_menu_cache_ready=0;story_assets_ready=0;target_state=g_fp_active?11:7;transition_frame=1;transitions++;}else if(ui_state==1){g_menu_cache_ready=0;story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else{target_state=0;transition_frame=1;transitions++;}}
   frame_mark("F.STATE",ui_state*100+transition_frame);
   if(audio_playing)visual_frame++;
@@ -6317,6 +6685,8 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      tudo na tela. */
   if(ui_state==11){
    char lb[96];int i,q0=g_frame_texture_quads,ini,ndes=0;
+   /* ===== O DJ (`AnimateAtlasFreeplayDJ`) ===== */
+   freeplay_dj_passo();
    static const char*dn[3]={"EASY","NORMAL","HARD"};
    int passo,qsel,qnao;
    texbuffer_t tsel=g_fptex_sel, tnao=g_fptex_nao;
@@ -6343,6 +6713,46 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      telemetry_event("freeplay_fundo_desenho",(int)(fp_fundo_x(ms)*10.0f),ms);}
    }else{
     q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,360.0f,8,8,16,255);
+   }
+   /* O DJ (`AnimateAtlasFreeplayDJ`), DEPOIS do fundo e ANTES das capsulas: e'
+      a ordem em que o `FreeplayState.create()` adiciona os dois (`add(backingImage)`
+      em L475, `add(dj)` em L423). A posicao vem de `resetPosition()`: com
+      `useAnimatePosition` (o bf) e' (0,0), porque `CUTOUT_WIDTH` e' 0 no PS2.
+      Um quadro por vez na VRAM, 16 bpp (277.500 B). */
+   if(g_dj_ok){
+    int qd=freeplay_dj_indice(freeplay_dj_anim(
+             g_dj_estado==FP_DJ_INTRO?"intro":
+             g_dj_estado==FP_DJ_CONFIRM?"confirm":
+             g_dj_estado==FP_DJ_EGG?"idleEasterEgg":
+             g_dj_estado==FP_DJ_CARTOON?"cartoon":
+             (g_dj_estado==FP_DJ_FIST||g_dj_estado==FP_DJ_LOOP_PUMP)?"fistPump":
+             (g_dj_estado==FP_DJ_LOSS||g_dj_estado==FP_DJ_LOOP_LOSS)?"loss":"idle"),
+             g_dj_t_estado);
+    /* Os estados de fist pump decidem o quadro por JANELA (`freeplay_dj_passo`). */
+    if(g_dj_forcado>=0)qd=g_dj_forcado;
+    if(qd>=0&&qd!=g_dj_frame){
+     int rcq=pm_quadro(&g_dj_pack,(unsigned int)qd,g_dj_buf);
+     if(rcq!=0){
+      /* Um quadro que nao descomprime nao pode ser silencio: sem este evento
+         o DJ simplesmente nao aparece e o log nao diz por que. */
+      if(!g_dj_logado){g_dj_logado=1;
+       telemetry_event("freeplay_dj_quadro_falhou",qd,rcq);}
+     }else{
+      g_dj_tex.width=FP_DJ_W;g_dj_tex.psm=GS_PSM_16;g_dj_tex.address=g_dj_addr;
+      setup_texture_dims(&g_dj_tex,FP_DJ_W,FP_DJ_H);
+      FlushCache(0);
+      upload_raw_psm(&g_dj_tex,g_dj_buf,FP_DJ_W,FP_DJ_H,GS_PSM_16);
+      g_dj_frame=qd;
+     }
+    }
+    if(g_dj_frame>=0){
+     q=bind_texture_filter(q,&g_dj_tex,1);
+     q=sprite_region(q,FP_DJ_X,FP_DJ_Y,(float)FP_DJ_W,(float)FP_DJ_H,
+                     0.0f,0.0f,(float)FP_DJ_W,(float)FP_DJ_H);
+     g_dj_desenhos++;
+     if(!g_dj_logado){g_dj_logado=1;
+      telemetry_event("freeplay_dj_desenho",g_dj_estado,g_dj_frame);}
+    }
    }
    /* OS DOIS QUADROS DE CAPSULA na VRAM. A animacao e' de 24 fps e e' loopada.
       Todas as capsulas andam JUNTAS: cada `updateSelected` reinicia a animacao

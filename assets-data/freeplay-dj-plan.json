@@ -1,0 +1,101 @@
+{
+ "dono": "bf",
+ "assetPath": "freeplay/freeplay-boyfriend",
+ "tex": "freeplay/dj_bf.chp4",
+ "w": 370,
+ "h": 375,
+ "psm": 16,
+ "escala": 0.5,
+ "quadros": 678,
+ "vram_bytes": 277500,
+ "bytes": 12651668,
+ "x": 0.0,
+ "y": 0.0,
+ "useAnimatePosition": true,
+ "anims": [
+  {
+   "nome": "intro",
+   "primeiro": 0,
+   "quantos": 17,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "idle",
+   "primeiro": 17,
+   "quantos": 14,
+   "fps100": 2400,
+   "looped": 1
+  },
+  {
+   "nome": "idleEasterEgg",
+   "primeiro": 31,
+   "quantos": 139,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "confirm",
+   "primeiro": 170,
+   "quantos": 28,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "fistPump",
+   "primeiro": 198,
+   "quantos": 42,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "loss",
+   "primeiro": 240,
+   "quantos": 168,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "charSelect",
+   "primeiro": 408,
+   "quantos": 43,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "cartoon",
+   "primeiro": 451,
+   "quantos": 166,
+   "fps100": 2400,
+   "looped": 0
+  },
+  {
+   "nome": "newUnlock",
+   "primeiro": 617,
+   "quantos": 61,
+   "fps100": 2400,
+   "looped": 0
+  }
+ ],
+ "fistPump": {
+  "introStartFrame": 0,
+  "introEndFrame": 4,
+  "loopStartFrame": 4,
+  "loopEndFrame": -1,
+  "introBadStartFrame": 0,
+  "introBadEndFrame": 4,
+  "loopBadStartFrame": 4,
+  "loopBadEndFrame": -1
+ },
+ "linha": "FreeplayState.hx L421-423; BaseFreeplayDJ.hx L232-246; AnimateAtlasFreeplayDJ.hx L62-140",
+ "partes": [
+  {
+   "arquivo": "dj_bf.chp4",
+   "bytes": 12651668
+  },
+  {
+   "arquivo": "dj_bf.chp4.part1",
+   "bytes": 4278906
+  }
+ ]
+}

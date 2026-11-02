@@ -411,6 +411,16 @@ $CC $FLAGS test/test_pack_stream.c src/engine/pack_stream.c src/engine/lz4_bloco
 /tmp/fnf_test_pack_stream || exit 1
 echo
 
+# O pacote em PARTES: o DJ da Freeplay tem 12,6 MB (678 quadros de 370x375 a
+# 16 bpp) e o empacotador corta em arquivos de no maximo 8 MB. Uma parte
+# faltando tem de ser erro nomeado, e o quadro na TRAVESSIA de uma parte para a
+# outra tem de sair igual ao empacotado.
+echo "== pack_multi: pacote CFZ4 em partes (o DJ da Freeplay) =="
+$CC $FLAGS test/test_pack_multi.c src/engine/pack_multi.c src/engine/pack_stream.c \
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_pack_multi
+/tmp/fnf_test_pack_multi || exit 1
+echo
+
 # A tela de FREEPLAY: a geometria das capsulas (intendedX/Y), os desvios das
 # pontas de `changeSelection`, o lerp de posicao, a entrada em 7 passos de 1/24 s
 # e o `textAppear`. Tudo funcao pura de src/engine/freeplay.c.
@@ -706,7 +716,7 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     # para a Freeplay depois do resultado.
     echo
     echo "== freeplay no harness (lista, dificuldade, tocar, voltar) =="
-    if ! sh tools/run_freeplay_harness.sh 6000 > /tmp/fnf_freeplay.log 2>&1; then
+    if ! sh tools/run_freeplay_harness.sh 7000 > /tmp/fnf_freeplay.log 2>&1; then
         tail -20 /tmp/fnf_freeplay.log
         echo "  FALHA: a freeplay nao passou"
         exit 1

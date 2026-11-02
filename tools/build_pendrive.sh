@@ -96,6 +96,22 @@ else
     echo "          (a tela de resultado fica no painel com o texto)" >&2
 fi
 
+# ARTE DA TELA DE FREEPLAY: a capsula selecionada, a nao selecionada (o mesmo
+# CFZ4 com os dois quadros), o FUNDO (`backingImage`) e os 27 titulos, mais o
+# pacote do DJ (`freeplay/freeplay-boyfriend`) que vem em DUAS partes de 8 MB.
+# Tudo em assets/freeplay/, que e' o `FP_DIR "freeplay"` do main.c -- sem esta
+# copia a tela abre so' com a lista de texto e a telemetria diz
+# `freeplay_fundo_falta` / `freeplay_dj_falta`.
+FP_SRC=${FP_SRC:-build/packs/freeplay}
+if [ -d "$FP_SRC" ]; then
+    mkdir -p "$OUT/FNFPS2/assets/freeplay"
+    cp "$FP_SRC"/* "$OUT/FNFPS2/assets/freeplay/"
+    echo "   freeplay/: $(ls "$FP_SRC" | wc -l) arquivo(s), $(cat "$FP_SRC"/* | wc -c) bytes"
+else
+    echo "   AVISO: $FP_SRC nao existe -- rode tools/empacotar_freeplay.py e" >&2
+    echo "          tools/empacotar_freeplay_dj.py (a Freeplay fica so' com texto)" >&2
+fi
+
 echo "== copiando o audio da tela de GAME OVER (assets/gameover/) =="
 # Os 13 PCMs (musica de game over nas 4 variantes de sufixo, o gameOverEnd de
 # cada uma, fnf_loss_sfx nas 4, fakeout_death) e o manifesto AUDIO.txt.
