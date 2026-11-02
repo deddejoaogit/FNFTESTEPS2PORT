@@ -93,6 +93,68 @@
   "y": 20.5,
   "linha": "SongMenuItem.hx L821-901 (FreeplayRank) e Scoring.hx L606-627"
  },
+ "cinematica": {
+  "sparks": {
+   "fonte": "freeplay/sparks",
+   "prefixo": "sparks",
+   "tex": "freeplay/sparks.cfz4",
+   "partes": [
+    "sparks.cfz4"
+   ],
+   "src_w": 522,
+   "src_h": 514,
+   "w": 130,
+   "h": 128,
+   "bpp": 16,
+   "quadros": 5,
+   "fps": 24,
+   "blend": "ADD",
+   "x": 258.5,
+   "y": 67.0,
+   "vram_bytes": 33280,
+   "linha": "FreeplayState.hx L1097-1104"
+  },
+  "sparksadd": {
+   "fonte": "freeplay/sparksadd",
+   "prefixo": "sparks add",
+   "tex": "freeplay/sparksadd.cfz4",
+   "partes": [
+    "sparksadd.cfz4"
+   ],
+   "src_w": 556,
+   "src_h": 548,
+   "w": 139,
+   "h": 137,
+   "bpp": 16,
+   "quadros": 5,
+   "fps": 24,
+   "blend": "ADD",
+   "x": 249.0,
+   "y": 58.0,
+   "vram_bytes": 38086,
+   "linha": "FreeplayState.hx L1106-1115"
+  },
+  "vinheta": {
+   "fonte": "freeplay/rankVignette",
+   "prefixo": null,
+   "tex": "freeplay/vinheta.cfz4",
+   "partes": [
+    "vinheta.cfz4"
+   ],
+   "src_w": 640,
+   "src_h": 360,
+   "w": 320,
+   "h": 180,
+   "bpp": 16,
+   "quadros": 1,
+   "fps": 24,
+   "blend": "ADD",
+   "x": 0.0,
+   "y": 0.0,
+   "vram_bytes": 115200,
+   "linha": "FreeplayState.hx L809-814 e L1268-1281"
+  }
+ },
  "titulos": {
   "tutorial": {
    "id": "tutorial",

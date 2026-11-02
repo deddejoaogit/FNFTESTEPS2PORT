@@ -157,6 +157,72 @@ RANKSELO = {
     "bpp": 16,
 }
 
+# A CINEMATICA DE RANK (`FreeplayState.hx` L1096-1115, L1268-1281)
+# ------------------------------------------------------------
+# Quando o jogador volta do resultado com um rank NOVO, a Freeplay roda
+# `rankAnimStart` -> `rankDisplayNew` -> `rankAnimSlam` e desenha tres coisas
+# que a tela normal nao tem:
+#
+#   sparks     = Paths.getSparrowAtlas('freeplay/sparks');
+#                sparks.animation.addByPrefix('sparks', 'sparks', 24, false);
+#                sparks.blend = BlendMode.ADD; sparks.setPosition(517, 134);
+#                sparks.scale.set(0.5, 0.5);                       // L1097-1104
+#
+#   sparksADD  = ... 'freeplay/sparksadd', prefixo 'sparks add', 24, false
+#                sparksADD.setPosition(498, 116); blend ADD;
+#                sparksADD.scale.set(0.5, 0.5);
+#                sparksADD.color = fromResults.oldRank
+#                                  .getRankingFreeplayColor();      // L1106-1115
+#
+#   rankVignette = new FlxSprite(0, 0).loadGraphic(Paths.image('freeplay/rankVignette'))
+#                rankVignette.scale.set(2 * wideScale.x, 2 * wideScale.y)
+#                rankVignette.blend = BlendMode.ADD;
+#                rankVignette.alpha = 0;
+#                rankVignette.alpha = 1 -> 0 em 0,6 s expoOut  // L809-814, L1279-1281
+#
+# As duas faiscas tem 5 quadros cada (medido no .xml: `sparks0000..0004` e
+# `sparks add0000..0004`), tocam UMA vez em 5/24 s = 208 ms e somem no
+# `onFinish` (L1185-1188). Como no DJ, so' UM quadro delas mora na VRAM por
+# vez -- 5 subidas de 33 KB em 208 ms custam menos VRAM que os 5 quadros
+# residentes e o mesmo numero de uploads que o DJ ja' faz por quadro.
+#
+# A vinheta e' 640x360 na arte e o original a desenha em 2x (cobre a tela
+# 1280x720 inteira). Aqui ela e' reduzida a 320x180 e desenhada em 2x: a
+# imagem cede (metade da resolucao), o evento nao -- e' um brilho radial que
+# o ADD espalha, sem detalhe de 1 px.
+CINEMATICA = {
+    "sparks": {
+        "fonte": "freeplay/sparks",
+        "prefixo": "sparks",
+        "escala": 0.5,             # sparks.scale.set(0.5, 0.5)      L1102
+        "pos": (517.0, 134.0),     # sparks.setPosition(517, 134)    L1101
+        "blend": "ADD",
+        "bpp": 16,
+        "saida": "sparks",
+    },
+    "sparksadd": {
+        "fonte": "freeplay/sparksadd",
+        "prefixo": "sparks add",
+        "escala": 0.5,             # sparksADD.scale.set(0.5, 0.5)   L1114
+        "pos": (498.0, 116.0),     # sparksADD.setPosition(498, 116) L1113
+        "blend": "ADD",
+        "bpp": 16,
+        "saida": "sparksadd",
+    },
+    "vinheta": {
+        "fonte": "freeplay/rankVignette",
+        "escala": 1.0,             # a arte ja' e' 640x360; o `scale.set(2,2)`
+                                   # do original vira o desenho em 640x360 aqui
+        "pos": (0.0, 0.0),
+        "blend": "ADD",
+        "bpp": 16,
+        "max_w": 320,              # reduzida a metade: 115.200 B em 16 bpp
+        "max_h": 180,
+        "sem_xml": True,           # `loadGraphic`: uma imagem, sem Sparrow
+        "saida": "vinheta",
+    },
+}
+
 # `SongMenuItem.update()` L670-700: o salto de entrada anda uma casa por 1/24 s
 # e escala a capsula por `xFrames` (x) e o inverso (y).
 XFRAMES = [1.7, 1.8, 0.85, 0.85, 0.97, 0.97, 1.0]
@@ -441,6 +507,83 @@ def empacotar(assets, out):
                              "Scoring.hx L606-627",
                 }
 
+    # ---- 3c. A CINEMATICA DE RANK ---------------------------------------
+    # Um pacote por sprite (as faiscas: 5 quadros, um na VRAM por vez; a
+    # vinheta: 1 quadro). O canvas e' o `frameWidth`x`frameHeight` do XML -- o
+    # mesmo retangulo que o flixel usa para posicionar o sprite -- reduzido
+    # pela escala do sprite e pela metade da tela.
+    dado_cine = {}
+    for nome, cfg in CINEMATICA.items():
+        png_c = os.path.join(base, cfg["fonte"] + ".png")
+        xml_c = os.path.join(base, cfg["fonte"] + ".xml")
+        if not os.path.isfile(png_c):
+            problemas.append("freeplay: falta %s" % png_c)
+            continue
+        if cfg.get("sem_xml"):
+            # `loadGraphic` (a vinheta): um quadro, o tamanho da imagem.
+            if not os.path.isfile(png_c):
+                continue
+            _im = Image.open(png_c)
+            q_c = {"unico": {"x": 0, "y": 0, "w": _im.width, "h": _im.height,
+                             "fx": 0, "fy": 0, "fw": _im.width, "fh": _im.height}}
+            nomes_c = ["unico"]
+        else:
+            if not os.path.isfile(xml_c):
+                problemas.append("freeplay: falta o .xml de %s (%s)"
+                                 % (cfg["fonte"], xml_c))
+                continue
+            q_c = ler_xml(xml_c)
+            nomes_c = quadros_da_folha(q_c, cfg["prefixo"]) if cfg.get("prefixo") else \
+                list(q_c.keys())
+            if not nomes_c:
+                problemas.append("freeplay: nenhum quadro em %s com o prefixo %r"
+                                 % (cfg["fonte"], cfg.get("prefixo")))
+                continue
+        cw_c = max(q_c[n]["fw"] or q_c[n]["w"] for n in nomes_c)
+        ch_c = max(q_c[n]["fh"] or q_c[n]["h"] for n in nomes_c)
+        esc = cfg["escala"] * HALF
+        w_c = max(1, int(round(cw_c * esc)))
+        h_c = max(1, int(round(ch_c * esc)))
+        if cfg.get("max_w"):
+            w_c = min(w_c, cfg["max_w"])
+        if cfg.get("max_h"):
+            h_c = min(h_c, cfg["max_h"])
+        if w_c > MAX_TEX or h_c > MAX_TEX:
+            problemas.append("freeplay: %s %dx%d passa do limite %d"
+                             % (nome, w_c, h_c, MAX_TEX))
+            continue
+        folha_c = Image.open(png_c).convert("RGBA")
+        blocos_c = []
+        for n in nomes_c:
+            qq = q_c[n]
+            pedaco = folha_c.crop((qq["x"], qq["y"],
+                                   qq["x"] + qq["w"], qq["y"] + qq["h"]))
+            tela = Image.new("RGBA", (cw_c, ch_c), (0, 0, 0, 0))
+            tela.paste(pedaco, (-qq["fx"], -qq["fy"]))
+            tela = tela.resize((w_c, h_c), Image.LANCZOS)
+            blocos_c.append(lz4.block.compress(
+                pp.to_ps2_bytes(tela, cfg["bpp"]), store_size=False))
+        base_c = os.path.join(out, cfg["saida"] + ".cfz4")
+        partes_c = pp.write_packs(blocos_c, w_c * h_c * (cfg["bpp"] // 8), base_c)
+        dado_cine[nome] = {
+            "fonte": cfg["fonte"],
+            "prefixo": cfg.get("prefixo"),
+            "tex": "freeplay/" + cfg["saida"] + ".cfz4",
+            "partes": [os.path.basename(p[0]) for p in partes_c],
+            "src_w": cw_c, "src_h": ch_c,
+            "w": w_c, "h": h_c,
+            "bpp": cfg["bpp"],
+            "quadros": len(blocos_c),
+            "fps": 24,
+            "blend": cfg["blend"],
+            "x": round(cfg["pos"][0] * HALF, 3),
+            "y": round(cfg["pos"][1] * HALF, 3),
+            "vram_bytes": w_c * h_c * (cfg["bpp"] // 8),
+            "linha": ("FreeplayState.hx L1097-1104" if nome == "sparks" else
+                      "FreeplayState.hx L1106-1115" if nome == "sparksadd" else
+                      "FreeplayState.hx L809-814 e L1268-1281"),
+        }
+
     # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
     # `capsule.height` do original e' o canvas SEM CORTE da CAPSULA (src_h), nao
@@ -458,6 +601,7 @@ def empacotar(assets, out):
         "capsula": dado_capsula,
         "fundo": dado_fundo,
         "selo": dado_selo,
+        "cinematica": dado_cine,
         "titulos": titulos_out,
         "escala": HALF,
         # `intendedX(index) = 270 + 60*fastSin(index)`; `intendedY(index) =
@@ -562,6 +706,28 @@ def escreve_header(dado):
             a("    {\"%s\", %d, %d, %.1ff},"
               % (an["nome"], an["ini"], an["n"], an["off_y"]))
         a("};")
+        a("")
+    cin = dado.get("cinematica") or {}
+    if cin:
+        a("/* A CINEMATICA DE RANK (`rankAnimStart`/`rankDisplayNew`/")
+        a(" * `rankAnimSlam`, `FreeplayState.hx` L1069-1292). `sparks` e")
+        a(" * `sparksadd` tem 5 quadros cada, 24 fps, UMA vez; a `vinheta` tem")
+        a(" * 1. Todas 16 bpp e ADD. As posicoes ja' na metade (640x360). */")
+        for nome in ("sparks", "sparksadd", "vinheta"):
+            c = cin.get(nome)
+            if not c:
+                continue
+            pre = "FP_RK_" + nome.upper()
+            a("#define %s_W           %d      /* %dx%d na arte */"
+              % (pre, c["w"], c["src_w"], c["src_h"]))
+            a("#define %s_H           %d" % (pre, c["h"]))
+            a("#define %s_BPP         %d" % (pre, c["bpp"]))
+            a("#define %s_QUADROS     %d" % (pre, c["quadros"]))
+            a("#define %s_FPS         %d" % (pre, c["fps"]))
+            a("#define %s_VRAM        %du" % (pre, c["vram_bytes"]))
+            a("#define %s_TEX         \"%s\"" % (pre, c["tex"]))
+            a("#define %s_X           %.3ff" % (pre, c["x"]))
+            a("#define %s_Y           %.3ff" % (pre, c["y"]))
         a("")
     a("#define FP_X_BASE           %.3ff   /* 270 * 0,5 */" % dado["x_base"])
     a("#define FP_X_AMP            %.3ff   /* 60 * 0,5  */" % dado["x_amp"])

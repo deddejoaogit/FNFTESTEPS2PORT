@@ -429,6 +429,17 @@ $CC $FLAGS test/test_freeplay.c src/engine/freeplay.c -o /tmp/fnf_test_freeplay 
 /tmp/fnf_test_freeplay || exit 1
 echo
 
+# A CINEMATICA DE RANK da Freeplay (volta do resultado com rank novo): os
+# quatro instantes dos timers, os zooms das duas cameras com o easing de cada
+# tween, o `rankBg`, o `fade`, a capsula no centro e o pouso em `originalPos`,
+# o selo 20 -> 0,9, as faiscas de 5 quadros, a vinheta, o `IntervalShake` dos
+# dois tremores e dos vizinhos, e o rastro do `fadeAnim`. Funcao pura de
+# src/engine/freeplay_rank.c.
+echo "== freeplay: a cinematica de rank (a volta do resultado)"
+$CC $FLAGS test/test_freeplay_rank.c src/engine/freeplay_rank.c src/engine/freeplay.c -o /tmp/fnf_test_freeplay_rank -lm
+/tmp/fnf_test_freeplay_rank || exit 1
+echo
+
 # A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
 # (res_flash_alpha / res_flash_alpha_tally / res_flash_cor / res_rank_pisca /
 # res_rank_scroll_*), o PLACAR

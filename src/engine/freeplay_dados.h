@@ -61,6 +61,38 @@ static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {
     {"PERFECTSICK", 71, 14, 0.0f},
 };
 
+/* A CINEMATICA DE RANK (`rankAnimStart`/`rankDisplayNew`/
+ * `rankAnimSlam`, `FreeplayState.hx` L1069-1292). `sparks` e
+ * `sparksadd` tem 5 quadros cada, 24 fps, UMA vez; a `vinheta` tem
+ * 1. Todas 16 bpp e ADD. As posicoes ja' na metade (640x360). */
+#define FP_RK_SPARKS_W           130      /* 522x514 na arte */
+#define FP_RK_SPARKS_H           128
+#define FP_RK_SPARKS_BPP         16
+#define FP_RK_SPARKS_QUADROS     5
+#define FP_RK_SPARKS_FPS         24
+#define FP_RK_SPARKS_VRAM        33280u
+#define FP_RK_SPARKS_TEX         "freeplay/sparks.cfz4"
+#define FP_RK_SPARKS_X           258.500f
+#define FP_RK_SPARKS_Y           67.000f
+#define FP_RK_SPARKSADD_W           139      /* 556x548 na arte */
+#define FP_RK_SPARKSADD_H           137
+#define FP_RK_SPARKSADD_BPP         16
+#define FP_RK_SPARKSADD_QUADROS     5
+#define FP_RK_SPARKSADD_FPS         24
+#define FP_RK_SPARKSADD_VRAM        38086u
+#define FP_RK_SPARKSADD_TEX         "freeplay/sparksadd.cfz4"
+#define FP_RK_SPARKSADD_X           249.000f
+#define FP_RK_SPARKSADD_Y           58.000f
+#define FP_RK_VINHETA_W           320      /* 640x360 na arte */
+#define FP_RK_VINHETA_H           180
+#define FP_RK_VINHETA_BPP         16
+#define FP_RK_VINHETA_QUADROS     1
+#define FP_RK_VINHETA_FPS         24
+#define FP_RK_VINHETA_VRAM        115200u
+#define FP_RK_VINHETA_TEX         "freeplay/vinheta.cfz4"
+#define FP_RK_VINHETA_X           0.000f
+#define FP_RK_VINHETA_Y           0.000f
+
 #define FP_X_BASE           135.000f   /* 270 * 0,5 */
 #define FP_X_AMP            30.000f   /* 60 * 0,5  */
 #define FP_Y_BASE           60.000f   /* 120 * 0,5 */
