@@ -57,6 +57,11 @@ typedef struct {
 #define CHART_B_ABSOLUTE    (1u<<20)
 #define CHART_B_REF_IS_STRING (1u<<21)
 #define CHART_B_REF_IS_BLOCK  (1u<<22)
+/* O nome do evento esta' no campo `a`, nao no `ref`. Vale para os eventos que
+   levam as listas de parametros num BLOCO (o `ref` fica com o bloco):
+   `sserafimPulseLights`. Sem isto o bloco chegava ao jogo sem dizer a que
+   evento pertencia. */
+#define CHART_B_NAME_IS_A     (1u<<23)
 
 /* Capacity of the v4 string and block tables. The real charts need 16 strings
    and 177 bytes at most (spaghetti-easy), so these are generous, and the

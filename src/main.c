@@ -680,7 +680,7 @@ static const char *pause_rotulo(int acao)
     g_chart_last_type=g_chart_last_value=g_chart_last_sample=0; \
     chart_events_reset(g_play_zoom, g_play_scroll); \
     g_hud_zoom=1.0f;g_hud_zoom_max=1.0f;g_hud_zoom_visto=0;g_hud_zoom_forte=0; \
-    g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0; \
+    g_ev_icone=g_ev_script=g_ev_sem_efeito=g_ev_avisou=0;g_ev_script_ok=0; \
     g_tut_cam_focus=0;g_tut_cam_ready=0;g_cam_papel=0;g_cam_seq=-1;g_cam_t=1.0f;g_cam_dur=0.0f; \
     g_cam_modo_visto[0]=g_cam_modo_visto[1]=g_cam_modo_visto[2]=0;g_tut_zoom=g_play_zoom; \
     g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f; \
@@ -710,12 +710,22 @@ static u32 g_chart_cursor=0,g_chart_seen=0,g_chart_last_type=0,g_chart_last_valu
                ("yunjin", "kazuha", "sakura", ...) e' uma ARTE que nao esta' no
                pacote de dados (assets-data nao tem HealthIcon); o port desenha
                os dois icones fixos do HUD.
-     script -> os eventos `sserafim*` (89 no mesmo chart, e sserafimPulseLights
-               fora do mesmo): eles tocam props do palco por um SCRIPT do
-               original, que nao esta' no repositorio.
+     script -> os eventos de script de PALCO que o `stage_script.c` nao
+               reconhece. Os `sserafim*` (89 no mesmo chart) SAO aplicados
+               desde que o nome chega no chart (v5, `B_REF_IS_STRING`) e o
+               script do palco existe no port; o que sobra aqui e' evento de
+               script de um palco cujo caso o port ainda nao tem, ou um chart
+               v3/v4 em que o nome nao viaja. Os dois numeros vao para o log em
+               `palco_ev_resumo` (aplicados, nao-reconhecidos).
    Contar e escrever no log e' o que a regra 4 pede: ausencia declarada, nunca
    efeito inventado. */
 static u32 g_ev_icone=0,g_ev_script=0,g_ev_sem_efeito=0,g_ev_avisou=0;
+/* Quantos eventos de script de palco foram APLICADOS. O `g_ev_script` conta o
+   contrario (o evento existia e o script nao o reconheceu), entao um resumo com
+   aplicados=0 e' a unica forma de o log provar que o `ss_evento` rodou de
+   verdade -- as linhas `palco_evento` somem na colheita do harness, que guarda
+   uma linha por (nome,parametros) e junta os 89 eventos em tres. */
+static u32 g_ev_script_ok=0;
 static int g_tutorial_note_asset_status=-1,g_tutorial_note_visible=-1,g_tutorial_note_feedback=0;
 /* NOTE SPLASH: o brilho do acerto SICK. O estado e a geometria vivem em
    engine/splash.c (que roda no PC); aqui ficam so' o pool, a flag de arte
@@ -1166,6 +1176,34 @@ static qword_t *barra_trapezio(qword_t*q,float x0,float x1,float ytop,
  g_frame_flat_quads++;
  return q;
 }
+/* UM QUADRILATERO DE COR SOLIDA, SEM TEXTURA. O `barra_trapezio` acima e' a
+   mesma coisa, presa ao preto e com os quatro y soltos; este aqui e' geral, e
+   existe pelo FLASH de tela do `sserafim` (`camGame.flash(0xFFFFFFFF, dur)`,
+   sserafim.hxc L279-282): um retangulo branco por cima do jogo, com o alpha
+   caindo ate' zero. Custo: 3 qwords, zero VRAM. */
+static qword_t *quad_cor(qword_t*q,float x0,float y0,float x1,float y1,
+                         unsigned char r,unsigned char g,unsigned char b,
+                         unsigned char a){
+ color_t cor;
+ cor.rgbaq=0;cor.r=r;cor.g=g;cor.b=b;cor.a=a;cor.q=1.0f;
+ q->dw[0]=GIF_SET_TAG(1,0,0,0,GIF_FLG_REGLIST,6);
+ q->dw[1]=((u64)GIF_REG_PRIM)<<0|((u64)GIF_REG_RGBAQ)<<4|
+          ((u64)GIF_REG_XYZ2)<<8|((u64)GIF_REG_XYZ2)<<12|
+          ((u64)GIF_REG_XYZ2)<<16|((u64)GIF_REG_XYZ2)<<20;
+ q++;
+ q->dw[0]=GIF_SET_PRIM(GS_PRIM_TRIANGLE_FAN,0,0,0,1,0,0,0,0);
+ q->dw[1]=cor.rgbaq;
+ q++;
+ q->dw[0]=GIF_SET_XYZ(ftoi4(x0+2047.5625f),ftoi4(vy(y0)+2047.5625f),0);
+ q->dw[1]=GIF_SET_XYZ(ftoi4(x1+2047.5625f),ftoi4(vy(y0)+2047.5625f),0);
+ q++;
+ q->dw[0]=GIF_SET_XYZ(ftoi4(x1+2048.5625f),ftoi4(vy(y1)+2048.5625f),0);
+ q->dw[1]=GIF_SET_XYZ(ftoi4(x0+2048.5625f),ftoi4(vy(y1)+2048.5625f),0);
+ q++;
+ g_frame_flat_quads++;
+ return q;
+}
+
 /* Dithering do GS: obrigatorio quando o framebuffer e' de 16 bits.
    draw_setup_environment() desliga (GS_SET_DTHE(GS_DISABLE)) a cada quadro,
    porque o padrao do ps2sdk assume framebuffer de 32 bits -- onde dither e'
@@ -3813,6 +3851,25 @@ static void palco_hair_toca(int pedido, long ms);
    (`char_sem_pacote`), nao um personagem inexistente. O Tutorial, por exemplo,
    nao tem `girlfriend` no dado e por isso NAO teria raio nenhum. */
 static int palco_tem_personagens(void);
+
+/* ---- O `sserafimPulseLights`: as tres listas vem num BLOCO de parametros ----
+   A DECODIFICACAO mora no `stage_script.c` (`ss_ssf_bloco`), onde o teste
+   alcanca: aqui fica so' a ponte com a tabela de strings do chart e o log. O
+   harness do PC nao serve para provar isto -- a primeira lista da `spaghetti`
+   entra em 38,5 s e o relogio do harness chega a ~9 s. */
+static void palco_ssf_bloco(const unsigned char *b, u32 len)
+{
+    int r = ss_ssf_bloco(&g_script, b, (unsigned int)len, chart_event_string);
+    if (r == -1) {
+        telemetry_event("palco_ssf_pulse_truncado", (int)len, 0);
+    } else if (r == -2) {
+        telemetry_event("palco_ssf_pulse_ruim", (int)g_script.ssf_n, 0);
+    } else if (r == 0) {
+        telemetry_event("palco_ssf_pulse", (int)g_script.ssf_n,
+                        (int)(g_script.ssf_durs[0] * 1000.0f) |
+                        ((int)(g_script.ssf_ints[0] * 1000.0f) << 10));
+    }
+}
 
 static void palco_script_anda(const char *stage, float t, int step)
 {
@@ -7391,8 +7448,37 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      g_ev_icone++;
      if(!(g_ev_avisou&1u)){g_ev_avisou|=1u;telemetry_event("evento_sem_icone",es->icon_char,(int)es->icon_ref);}
     }else if(event->type>=0x0100u){
-     g_ev_script++;
-     if(!(g_ev_avisou&2u)){g_ev_avisou|=2u;telemetry_event("evento_sem_script",(int)event->type,(int)event->sample);}
+     /* EVENTO DE SCRIPT DO PALCO (`sserafim*`). O NOME vai na tabela de
+        strings do chart com a flag `B_REF_IS_STRING` (CHART_B_REF_IS_STRING):
+        o id numerico e' atribuido por ordem de aparicao e nao vale entre
+        arquivos. Sem o nome, o port so' contava (89 eventos em spaghetti). */
+     const char *nome_ev = (event->b&CHART_B_REF_IS_STRING)?chart_event_string(event->ref)
+                         : (event->b&CHART_B_NAME_IS_A)?chart_event_string(event->a):NULL;
+     int aplicado=0;
+     if(nome_ev&&g_script.ativo){
+      ss_ev_t sev;
+      sev.p0=(int)event->p0; sev.p1=(int)event->p1; sev.p2=(int)event->p2;
+      sev.a=event->a; sev.b=event->b;
+      /* As LISTAS do `sserafimPulseLights` vem num BLOCO (`ref`), com o nome
+         em `a` (`CHART_B_NAME_IS_A`). Decodificar o bloco primeiro faz o
+         `ss_evento` so' ligar/desligar o pulse, com as listas ja' no lugar. */
+      if((event->b&CHART_B_REF_IS_BLOCK)&&event->ref!=0xFFFFFFFFu&&
+         (strcmp(nome_ev,"sserafimPulseLights")==0)){
+       u32 blen=0;
+       const unsigned char *blk=chart_event_block(event->ref,&blen);
+       palco_ssf_bloco(blk,blen);
+      }
+      aplicado=ss_evento(&g_script,nome_ev,&sev);
+      if(aplicado){
+       {u32 h=2166136261u;const char*q=nome_ev;g_ev_script_ok++;
+        while(*q){h^=(unsigned char)*q++;h*=16777619u;}
+        telemetry_event("palco_evento",(int)(h&0x7fffffffu),(int)event->type);}
+      }
+     }
+     if(!aplicado){
+      g_ev_script++;
+      if(!(g_ev_avisou&2u)){g_ev_avisou|=2u;telemetry_event("evento_sem_script",(int)event->type,(int)event->sample);}
+     }
     }else if(event->type==CHART_EV_CHANGE_CHARACTER||event->type==CHART_EV_ALT_IDLE_ANIM){
      g_ev_sem_efeito++;
      if(!(g_ev_avisou&4u)){g_ev_avisou|=4u;telemetry_event("evento_sem_efeito",(int)event->type,(int)event->sample);}
@@ -7431,6 +7517,12 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(ui_state==8&&audio_started&&!g_paused&&g_custo_frames>0&&!(g_custo_frames%300))
    telemetry_event("icone_desenho",(int)g_icone_desenhos,
       (g_icone_ativo[ICONE_JOGADOR]?1:0)|(g_icone_ativo[ICONE_OPONENTE]?2:0));
+  /* O RESUMO dos eventos de script do palco: aplicados e nao-reconhecidos. Sem
+     ele, os 89 eventos do `spaghetti` viram tres linhas na colheita (que junta
+     nomes iguais) e nao da' para dizer se o script rodou. */
+  if(ui_state==8&&audio_started&&!g_paused&&g_custo_frames>0&&!(g_custo_frames%300)&&
+     (g_ev_script_ok||g_ev_script))
+   telemetry_event("palco_ev_resumo",(int)g_ev_script_ok,(int)g_ev_script);
   if(ui_state==8&&audio_started&&!g_paused)tutorial_notes_update((u32)g_chart_clock,pressed,frame_no);
   /* MORTE -> GAME OVER.
      PlayState.hx:1255: `if (health <= Constants.HEALTH_MIN && !isPracticeMode
@@ -8729,6 +8821,18 @@ float x,y,w,h;
                    bt,(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)),cx,cy,sc);
    }
    }
+   }
+  }
+  /* O FLASH DE TELA DO sserafim (L279-282): `camGame.flash(0xFFFFFFFF, dur)`.
+     Fica por cima do palco e dos personagens e por baixo do HUD, que e' a
+     ordem das cameras do original (camGame antes da camHUD). */
+  if(ui_state==8){
+   float fa=ss_ssf_flash_alpha(&g_script);
+   if(fa>0.0f){
+    int av=(int)(fa*128.0f+0.5f);
+    if(av<0)av=0;
+    if(av>128)av=128;
+    q=quad_cor(q,0,0,SCREEN_W,SCREEN_H-1,0xFF,0xFF,0xFF,(unsigned char)av);
    }
   }
   if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=splash_draw(q,&tex2,(u32)g_chart_clock);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo

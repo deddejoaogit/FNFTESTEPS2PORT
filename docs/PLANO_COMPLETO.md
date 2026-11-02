@@ -1526,7 +1526,38 @@ grupos, e os dois **por falta de dado no repositório**, não por esquecimento:
 | evento | onde | quantos | o que falta |
 |---|---|---|---|
 | `SetHealthIcon` | `spaghetti` | 15 | a **arte** dos ícones (`yunjin`, `kazuha`, `sakura`, `chaewon`, `eunchae`); `assets-data` não tem `HealthIcon` — o HUD desenha os dois ícones fixos |
-| `sserafim*` | `spaghetti` | 89 | o **script** do palco que toca os props (`sserafimPulseLights`, `sserafimSing`, …) |
+| `sserafim*` | `spaghetti` | 86 | **fechado**: o nome viaja no chart e o `stage_script.c` aplica os 86 (ver a seção do `sserafim`). Um número aqui significa chart v3/v4 (sem nome) ou nome de outro palco |
+
+### Fechado: o evento de script que leva LISTAS (`sserafimPulseLights`)
+
+O `sserafimPulseLights` não cabe no registro fixo do FCH4/FCH5: ele leva três
+listas (`colors`, `durations`, `intensities`). O conversor põe essas listas num
+**bloco** e o `ref` do evento passa a ser o índice do bloco — mas o `ref` era o
+único lugar onde o NOME do evento viajava. Resultado medido: os **24** eventos de
+pulse do `spaghetti` chegavam ao jogo com `b = B_REF_IS_BLOCK`, sem nome, e eram
+contados como `evento_sem_script`; o bloco nunca era decodificado e o pulse do
+`onBeatHit` (L498-507) nunca ligava.
+
+**A correção.** Para os eventos de bloco o conversor agora põe o índice do nome
+no campo `a` e marca o bit novo **`B_NAME_IS_A` (1<<23)**, documentado em
+`src/chart.h` (`CHART_B_NAME_IS_A`) e em `tools/fnf_to_fch3.py`. O `main.c` lê o
+nome de `ref` (bit 21) **ou** de `a` (bit 23), e decodifica o bloco **antes** do
+`ss_evento` — a ordem importa: o evento só liga/desliga o pulse, as listas já têm
+de estar no `ss_t`.
+
+Medido, percorrendo os 468 eventos do `spaghetti` normal pelo `ss_evento`:
+**86 aplicados, 0 recusados** (antes: 62 aplicados e 24 recusados). O resumo do
+jogo (`palco_ev_resumo`, a cada 300 quadros) mostra **aplicados=2, sem=0** já no
+primeiro segundo e meio de música, e `evento_sem_script` desapareceu do log.
+
+**O decodificador saiu do `main.c`.** Ele mora em `stage_script.c`
+(`ss_ssf_bloco`), onde o teste alcança, porque **o harness do PC não alcança este
+caminho**: a primeira lista do `spaghetti` entra em **38,5 s** e o relógio da
+música no harness chega a ~9 s (o áudio é emulado e o relógio anda com ele; medido
+em 8.000 e 9.000 quadros). O `test_stage_script.c` monta o bloco no mesmo formato
+do conversor (`n=4`, 92 B, com os valores do JSON real: `#6D43FF`/`#FF43A1`,
+0,5/0,5 s, 0,7/0,9) e confere as três listas, o pulso por beat e as duas recusas
+(bloco truncado → `-1`, listas desalinhadas → `-2` e `ssf_n = 0`).
 
 Antes, os dois grupos caíam no `default` do `chart_events_apply` e o único
 registro era `tutorial_chart_event` com um tipo numérico — indistinguível de um
@@ -5162,68 +5193,40 @@ mais de 1 600 quads por quadro só para tremer o fundo. O GS do PS2 não tem
 shader de fragmento/vertice no pipeline fixo, e o custo da emulação exata é
 proibitivo; fica declarado como falta de plataforma, com a fórmula citada.
 
-## O que falta no `sserafim` (`spaghetti`) — o último dos 26 palcos jogáveis
+## O `sserafim` (`spaghetti`) — o que está feito e o que falta
 
-`sserafim.hxc` tem **997 linhas** e é o único palco das 26 músicas cujo script
-ainda não está portado. Ele não é "um efeito": é um palco com **quatro
+`sserafim.hxc` tem **997 linhas** e é o único palco das 27 músicas cujo efeito de
+script ainda não está inteiro. Ele não é "um efeito": é um palco com **quatro
 dançarinas**, quatro camadas de poeira, um piso em perspectiva, uma cutscene de
-entrada com texto e uma dúzia de eventos de música. Nada disso é inventável, e o
-trabalho está dividido no que segue — com a fonte e o dado de cada parte.
+entrada com texto e uma dúzia de eventos de música.
 
-### O que o DADO já tem (medido neste repositório)
+### Feito, com a fonte de cada parte
+
+| Peça | Fonte | Estado |
+|---|---|---|
+| o NOME dos 86 eventos viaja no chart | `tools/fnf_to_fch3.py`, `src/chart.h` (`CHART_B_NAME_IS_A`) | **fechado** — 86/86 aplicados (era 62) |
+| as luzes do caminhão (`sserafimLights`) | `sserafim.hxc` L422-434 | **fechado** — alpha `amount` em `truckLight1/2`, tween→0 em `duration`, `cubeInOut` |
+| a luz de fundo com COR (`sserafimLights`/`pulse`) | L466-497 | **fechado** — `amount*0,8` no `backLightColor` (com a cor do evento) e `amount*0,7` no `backLightWhite` |
+| o pulse por beat (`sserafimPulseLights`) | L498-507 | **fechado** — bloco decodificado (`ss_ssf_bloco`), listas cicladas por `beat % n` |
+| a cobertura (`sserafimCover`, `sserafimEnd`) | L284-287, L680-706 | **fechado** — `solidCover` é `#000000` sem textura: o alpha sai por `ss_cor_alpha`, não por prop |
+| o flash de tela (`sserafimFlash`) | L279-282 | **fechado** — branco cheio decaindo linear em `duration`, desenhado sobre palco/personagens e sob o HUD |
+| a escuridão (`sserafimDark`) | L413-421 | **declarada** — é shader (`SserafimShader`), fora do pipeline fixo |
+| as máscaras de `sserafimSing`/`sserafimShow` | L199-218 | **recebidas e guardadas** (`ssf_canta`, `ssf_mostra`); quem as desenha são as dançarinas, que faltam |
+| `sserafimKick` | L220-277 | **reconhecido** (`ssf_kick_pedido`, `ssf_kick_final`); a animação é da `yunjin` (slot OUTRO, falta) e o som `doorKick1/2` não está no pacote de arte |
+| `sserafimBeautiful`, `sserafimGuitarVibration` | — | **reconhecidos sem efeito**, como no original (`Beautiful` não tem `case`; a vibração é de haptica) |
+
+### O que falta (com o dado de cada parte)
 
 | Peça | Onde | Situação |
 |---|---|---|
-| 13 props do palco (`bg`, `fucker`, `backTables`, `burgerCutscene`, `backStools`, `backLightColor`, `backLightWhite`, `truck`, `truckDoor`, `truckLight1`, `truckLight2`, `backTablesCutscene`, `frontStool`) | `assets-data/stage-props.json` → `stage_dados.h` | **empacotados** (sserafim é o pior palco em VRAM do plano, 1 021 952 B) |
-| 3 dançarinas + `sserafim-gf` (cutscene) + `sserafim-sakura` (note kind) | `char_dados.h` L635-640 | **empacotados** (`sserafim-yunjin` 2,00/347,00 de `characterOrigin`, `chaewon` 0/330, `eunchae` 0/260) |
-| 468 eventos do chart, **com os parâmetros** | `assets-data/charts/spaghetti-chart.json` | **no dado**: `sserafimPulseLights` (24), `sserafimSing` (20), `sserafimDark` (14), `sserafimGuitarVibration` (7), `sserafimShow` (6), `sserafimCover` (5), `sserafimLights` (4), `sserafimKick` (2), `sserafimFlash` (1), `sserafimEnd` (1), `sserafimBeautiful` (2) |
-| `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` do palco | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente (`/tmp/fassets` só tem `preload/scripts` e `week4/sounds`). Regra 4: falta declarada, não arte inventada |
+| 13 props do palco | `assets-data/stage-props.json` → `stage_dados.h` | **empacotados** |
+| 3 dançarinas + `sserafim-gf` (cutscene) + `sserafim-sakura` (note kind) | `char_dados.h` L635-640 | **empacotados** (`characterOrigin` de cada uma conferido) |
+| **slot OUTRO** no desenho (as 3 dançarinas em `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97) | `sserafim.hxc` L160-164 | **falta código** — o `char_cena` desenha 3 papéis (bf/dad/gf); falta um quarto |
+| `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **falta o slot** (o pedido já chega ao `ss_t`) |
+| `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente |
 | `doorKick1`, `doorKick2`, som da cutscene | `Paths.sound(...)` | **FALTA** — mesma situação; entram no `tools/empacotar_audio.py` no dia em que a arte for buscada |
+| a cutscene (L567-930) e a poeira em `FlxBackdrop` | — | depende da arte e de um gerenciador de timers |
+| `SserafimShader` (personagem e palco) | — | shader, declarado no log como os outros 175 |
 
-### O que dá para fazer SEM arte nova (nesta ordem)
-
-1. **As luzes e a cobertura** (`sserafimLights` L422-434, `sserafimCover`
-   L284-287, `sserafimPulseLights` L456-497, `sserafimEnd` L680-700,
-   `sserafimFlash` L279-282, `sserafimDark` L413-421): tudo em cima de props
-   que **já estão empacotados** (`truckLight1/2`, `backLightColor`,
-   `backLightWhite`, `solidCover`). `flashTruckLights` é um `FlxTween` de alpha
-   de `amount` até 0 em `duration`; `flashBackLight` põe `amount*0,8` no
-   `backLightColor` (com a COR do evento) e `amount*0,7` no `backLightWhite`; o
-   `setLightState` do `onBeatHit` (L498-507) reacende a cada beat enquanto
-   `enabled`, ciclando `colors`/`durations`/`intensities` por `beat % length`.
-   **Isto é o que mais aparece na música** (24 + 4 + 5 + 1 = 34 eventos) e cabe
-   no `ss_prop_alpha`/`ss_prop_cor` que já existem.
-2. **Os eventos no chart**: hoje o `main.c` só CONTA os eventos `>= 0x0100`
-   (`evento_sem_script`, `g_ev_script`) porque o compilador de chart do port não
-   guarda o `kind` nem o `v` do evento — o JSON tem os dois. O primeiro passo é
-   estender o compilador/leitor de eventos para carregar `kind` + até 6
-   parâmetros numéricos (as listas viram `n` + valores), e só então ligar o
-   `ss_evento`.
-3. **As quatro dançarinas**: `yunjin`, `chaewon`, `eunchae` são personagens
-   (`CharacterType.OTHER`) com `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97 e
-   posição = `(x, y) - characterOrigin` (L160-164), mais `danceEvery 1` no
-   `yunjin` depois do `kick2`. O `char_layout` já sabe desenhar por id de
-   personagem; falta um **quarto slot** ("OUTRO") na ordem de desenho do palco e
-   as flags `visible`/`singing` que os eventos ligam (5 booleanos).
-4. **`sserafimKick`**: `yunjin.playAnimation('kick1'/'kick2', true, false)` +
-   `truckDoor.visible = true` no QUADRO 23 do `kick2` (L239-248) + o som
-   `doorKick1/2` (falta a arte do som).
-5. **A cutscene** (L567-930: `introCutscene`, `skipCutscene`, `endStuff`,
-   `playCutsceneFromRestart`, `resetClear`, a poeira em `FlxBackdrop`): depende
-   da arte que falta e de um gerenciador de timers (`cutsceneTimerManager`).
-   **É a última peça**, e a única que também precisa do `PerspectiveSprite`
-   (`setPositions(760, 1375, 790, 625)` com scroll factors diferentes por
-   vértice — isso o GS faz, é só geometria).
-6. **Shaders**: `SserafimShader` (character e stage), `DropShadowShader` do
-   erect, `WiggleEffectRuntime` do `schoolEvil` — fora do pipeline fixo, como
-   todos os outros 175/451 já declarados.
-
-### Ordem de trabalho (para a próxima sessão)
-
-`(2)` primeiro, porque sem evento no chart nada dos outros aparece; depois
-`(1)` com teste por evento; depois `(3)` (slot OUTRO + 5 booleanos); `(4)`;
-e `(5)` quando a arte for buscada (`git sparse-checkout add` de
-`weekend1/images` + `weekend1/sounds` no clone de arte).
-
-**Nenhuma música perde evento por causa disto**: os 34 eventos de luz/cobertura
-são os primeiros justamente porque são os que mais mudam a tela.
+**Nenhuma música perde evento por causa disto**: os 86 eventos de script do
+`spaghetti` chegam ao `ss_evento` e 86 são aplicados.

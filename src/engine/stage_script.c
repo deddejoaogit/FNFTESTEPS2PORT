@@ -163,6 +163,24 @@
 #define SS_TANK_VEL_MIN 5.0f
 #define SS_TANK_VEL_MAX 7.0f
 
+/* ---- sserafim.hxc (spaghetti): as luzes do caminhao e a cobertura ----
+     L422-434 flashTruckLights(amount, duration):
+                `alpha = amount` nos DOIS caminhoes e `FlxTween` ate' 0 em
+                `duration` com `FlxEase.cubeInOut`
+     L466-497 flashBackLight(amount, duration, color):
+                `backLightColor.color = color`, alpha `amount * 0.8`;
+                `backLightWhite.alpha = amount * 0.7`; os dois ate' 0 em
+                `duration`, `cubeInOut`
+     L284-287 setCoverVisible(v): `solidCover.alpha = v ? 1 : 0` (sem tween)
+     L498-507 onBeatHit: `if (lightsEnabled) flashBackLight(
+                intensities[beat % n], durations[beat % n], colors[beat % n])`
+     L279-282 flashScreen(duration): `camGame.flash(0xFFFFFFFF, duration)`
+     L413-421 setDarkenAmt(amount, duration): tween de `darkenAmount` nos DOIS
+                `SserafimShader` -- shader, nao portado (contado no log)
+     L680-706 endStuff(): `solidCover.alpha = 1` + a tela final (depende da arte)
+   Os cinco props TEM alpha 0 no JSON e o script so' os acende: os tweens abaixo
+   sao a unica fonte de alpha deles. */
+
 /* ---- limoRide.hxc (o carro veloz da semana 4: satin-panties, high e milf) ----
      L33-56   `buildStage`: o shader do ceu (nao portado) e o
               `carSequenceData` = [{1, haptics on}, {1.4, haptics off},
@@ -298,6 +316,7 @@ void ss_init(ss_t *ss, const char *palco_id)
     ss->i_luz = ss->i_car = ss->i_car2 = -1;
     ss->i_tank = -1;
     ss->i_fastcar = -1;
+    ss->i_ssf_tl1 = ss->i_ssf_tl2 = ss->i_ssf_blc = ss->i_ssf_blw = ss->i_ssf_cob = -1;
     ss->som_vol = 100;
     ss->i_freaks = -1;
     ss->sufixo_medo = 0;
@@ -433,6 +452,30 @@ void ss_init(ss_t *ss, const char *palco_id)
         return;
     }
 
+    /* ---- sserafim (spaghetti): as luzes e a cobertura ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "sserafim") == 0) {
+        ss->i_ssf_tl1 = acha_prop(ss->palco, "truckLight1");
+        ss->i_ssf_tl2 = acha_prop(ss->palco, "truckLight2");
+        ss->i_ssf_blc = acha_prop(ss->palco, "backLightColor");
+        ss->i_ssf_blw = acha_prop(ss->palco, "backLightWhite");
+        /* O `solidCover` NAO e' prop: o JSON dele e' `#000000` sem textura, e o
+           empacotador poe isso em `bs_cores[]` (retangulo de cor). Quem o
+           desenha e' o caminho de cor do palco, e o alpha vem de
+           `ss_cor_alpha`. */
+        ss->i_ssf_cob = acha_cor(ss->palco, "solidCover");
+        /* Sem os dois caminhoes e as duas luzes de fundo o script nao tem o que
+           acender. A cobertura e' opcional para o resto funcionar, mas o
+           `sserafimCover` sem ela nao faz nada (e' o dado que falta). */
+        ss->ssf_ativo = (ss->i_ssf_tl1 >= 0 && ss->i_ssf_tl2 >= 0 &&
+                         ss->i_ssf_blc >= 0 && ss->i_ssf_blw >= 0);
+        /* O script do sserafim tem `onBeatHit` (o pulse das luzes). */
+        ss->tem_beat = 1;
+        ss->ativo = ss->ssf_ativo;
+        if (!ss->ativo) return;
+        ss_reiniciar(ss);
+        return;
+    }
+
     /* Qualquer outro palco fica INATIVO: todas as consultas devolvem "o dado
        manda", entao nenhum palco ganha comportamento por acidente. */
 }
@@ -496,6 +539,22 @@ void ss_reiniciar(ss_t *ss)
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
+    /* O sserafim: o `onSongRetry` (L373-378) apaga as quatro luzes e a
+       cobertura, e o `buildStage` termina com `setLightState(false)`. */
+    if (ss->ssf_ativo) {
+        int k;
+        for (k = 0; k < 4; k++) {
+            ss->ssf_tw[k].ativo = 0;
+            ss->ssf_a[k] = 0.0f;
+        }
+        ss->ssf_cor_ligada = 0;
+        ss->ssf_luz = 0;
+        ss->ssf_n = 0;
+        /* L374: `getNamedProp('solidCover').alpha = 0.0`. */
+        ss->ssf_cob_visivel = 0;
+        ss->ssf_fim = 0;
+    }
+
     /* O CARRO VELOZ do limoRide: `buildStage` L55 e `onSongRetry` L147-151
        chamam `resetFastCar()`. */
     if (ss->i_fastcar >= 0) ss_fastcar_reset(ss);
@@ -654,6 +713,66 @@ static void ss_fastcar_seq(ss_t *ss, float elapsed)
                         ss_car_seq_t[ss->car_seq_fase - 1];
 }
 
+/* ---- sserafim: as luzes ------------------------------------------------- */
+
+/* Alvo dos tweens de alpha, na ordem dos campos `i_ssf_*`. */
+#define SSF_TL1 0
+#define SSF_TL2 1
+#define SSF_BLC 2
+#define SSF_BLW 3
+
+static int ssf_abs(const ss_t *ss, int alvo)
+{
+    switch (alvo) {
+    case SSF_TL1: return ss->i_ssf_tl1;
+    case SSF_TL2: return ss->i_ssf_tl2;
+    case SSF_BLC: return ss->i_ssf_blc;
+    default:      return ss->i_ssf_blw;
+    }
+}
+
+/* Comeca um tween de alpha do alvo `alvo`. `cancelTweensOf` do original = o
+   tween anterior morre no valor corrente (o `FlxTween.tween` de um campo que ja'
+   esta' em tween MATA o antigo; aqui o antigo e' simplesmente substituido, e o
+   alpha salta para `a0`, que e' o que as duas linhas do original escrevem antes
+   do tween: `alpha = amount`). */
+static void ssf_tween(ss_t *ss, int alvo, float a0, float dur)
+{
+    if (!ss->ssf_ativo || ssf_abs(ss, alvo) < 0) return;
+    if (dur <= 0.0f) {
+        /* `FlxTween` com duracao 0 aplica o fim na hora. */
+        ss->ssf_tw[alvo].ativo = 0;
+        ss->ssf_a[alvo] = 0.0f;
+        return;
+    }
+    ss->ssf_tw[alvo].ativo = 1;
+    ss->ssf_tw[alvo].a0 = a0;
+    ss->ssf_tw[alvo].a1 = 0.0f;
+    ss->ssf_tw[alvo].t0 = ss->t;
+    ss->ssf_tw[alvo].dur = dur;
+    ss->ssf_a[alvo] = a0;
+}
+
+/* L422-434. */
+static void ssf_luzes_caminhao(ss_t *ss, float amount, float dur)
+{
+    ssf_tween(ss, SSF_TL1, amount, dur);
+    ssf_tween(ss, SSF_TL2, amount, dur);
+}
+
+/* L466-497: a cor vai para o `backLightColor` e os dois alphas sao
+   `amount*0,8` e `amount*0,7`. */
+static void ssf_luz_fundo(ss_t *ss, float amount, float dur, unsigned int rgb)
+{
+    if (!ss->ssf_ativo) return;
+    ss->ssf_cor[0] = (unsigned char)((rgb >> 16) & 0xFF);
+    ss->ssf_cor[1] = (unsigned char)((rgb >> 8) & 0xFF);
+    ss->ssf_cor[2] = (unsigned char)(rgb & 0xFF);
+    ss->ssf_cor_ligada = 1;
+    ssf_tween(ss, SSF_BLC, amount * 0.8f, dur);
+    ssf_tween(ss, SSF_BLW, amount * 0.7f, dur);
+}
+
 /* ---- phillyStreets.hxc: as curvas do FlxEase ---------------------------- */
 static float ss_ease(int tipo, float u)
 {
@@ -666,6 +785,12 @@ static float ss_ease(int tipo, float u)
     }
     case SS_EASE_SINE_IN:               /* FlxEase.hx L137-140 */
         return 1.0f - (float)cos((double)u * 1.5707963267948966);
+    case SS_EASE_CUBE_IN_OUT:           /* FlxEase.hx L63-70 */
+        if (u < 0.5f) return 4.0f * u * u * u;
+        {
+            float w = -2.0f * u + 2.0f;
+            return 1.0f - (w * w * w) * 0.5f;
+        }
     case SS_EASE_SINE_OUT:              /* FlxEase.hx L142-145 */
         return (float)sin((double)u * 1.5707963267948966);
     default:
@@ -882,6 +1007,157 @@ static void ss_mansao_raio(ss_t *ss, int beat, int pede_som);
    2) o `int(1,2)` do som, dentro do strike com som;
    3) o `int(8,24)` do offset.
    O primeiro `if` (beat 4 na spookeez) NAO sorteia som. */
+void ss_ssf_pulsa_lista(ss_t *ss, int n, const unsigned int *cores,
+                        const float *durs, const float *ints)
+{
+    int k;
+    if (!ss->ssf_ativo) return;
+    /* Mais entradas que o teto: RECUSA (o chamador conta o evento). Truncar
+       mudaria o ciclo `beat % n` e a luz sairia na cor errada. */
+    if (n <= 0 || n > SS_SSF_MAX || !cores || !durs || !ints) {
+        ss->ssf_n = 0;
+        return;
+    }
+    for (k = 0; k < n; k++) {
+        ss->ssf_cores[k] = cores[k];
+        ss->ssf_durs[k] = durs[k];
+        ss->ssf_ints[k] = ints[k];
+    }
+    ss->ssf_n = n;
+}
+
+/* ---- O BLOCO de parametros do `sserafimPulseLights` ----
+   Formato (tools/fnf_to_fch3.py, `encode_block`): u32 quantidade de parametros;
+   para cada um, u32 id do NOME na tabela de strings, u32 quantidade de valores,
+   e entao `quantidade` pares (u32 tipo, u32 valor). Tipos: 0 = float x1000,
+   1 = inteiro, 2 = RGB 0x00RRGGBB, 3 = booleano.
+
+   A leitura ficava no `main.c`, onde nenhum teste a alcanca -- e o harness do PC
+   tambem nao: a primeira lista da `spaghetti` entra em 38,5 s e o relogio da
+   musica no harness so' chega a ~9 s (o audio e' emulado e o relogio anda com
+   ele). Com o decodificador aqui, o `test_stage_script.c` monta um bloco no
+   formato do conversor e verifica as listas e o pulso por beat.
+
+   `nome_de` devolve o texto de um id da tabela de strings do chart (no console
+   e' `chart_event_string`; no teste, uma tabela local).
+   Devolve 0 e aplica; -1 bloco truncado; -2 listas desalinhadas ou vazias. */
+int ss_ssf_bloco(ss_t *ss, const void *bloco, unsigned int len,
+                 const char *(*nome_de)(unsigned int))
+{
+    unsigned int cores[SS_SSF_MAX], n_cores = 0;
+    float durs[SS_SSF_MAX], ints[SS_SSF_MAX];
+    unsigned int n_durs = 0, n_ints = 0, n, i, k;
+    const unsigned char *b = (const unsigned char *)bloco;
+    unsigned int off = 0;
+    if (!ss || !ss->ssf_ativo || !b || !nome_de || len < 4) return -1;
+    memcpy(&n, b, 4); off = 4;
+    for (i = 0; i < n; i++) {
+        unsigned int nome_id, qtd;
+        const char *nome;
+        if (off + 8 > len) return -1;
+        memcpy(&nome_id, b + off, 4); off += 4;
+        memcpy(&qtd, b + off, 4); off += 4;
+        nome = nome_de(nome_id);
+        for (k = 0; k < qtd; k++) {
+            unsigned int tipo, valor;
+            if (off + 8 > len) return -1;
+            memcpy(&tipo, b + off, 4); off += 4;
+            memcpy(&valor, b + off, 4); off += 4;
+            if (!nome) continue;
+            if (strcmp(nome, "colors") == 0 && n_cores < SS_SSF_MAX)
+                cores[n_cores++] = valor;
+            else if (strcmp(nome, "durations") == 0 && n_durs < SS_SSF_MAX &&
+                     tipo == SSF_BLK_FLOAT)
+                durs[n_durs++] = (float)valor / 1000.0f;
+            else if (strcmp(nome, "intensities") == 0 && n_ints < SS_SSF_MAX &&
+                     tipo == SSF_BLK_FLOAT)
+                ints[n_ints++] = (float)valor / 1000.0f;
+        }
+    }
+    /* As tres listas do original sao cicladas pelo MESMO indice: se os tamanhos
+       nao batem, o `beat % n` de cada uma andaria em passo diferente e a cor
+       sairia no momento errado. O dado real tem 2/2/2 (spaghetti). Recusar e'
+       melhor que inventar um alinhamento. */
+    if (n_cores == 0 || n_cores != n_durs || n_cores != n_ints) {
+        ss->ssf_n = 0;
+        return -2;
+    }
+    ss_ssf_pulsa_lista(ss, (int)n_cores, cores, durs, ints);
+    return 0;
+}
+
+int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev)
+{
+    if (!ss->ativo || !ss->ssf_ativo || !nome || !ev) return 0;
+
+    /* `p` vem em milesimos (`fixed` do conversor): 0,7 -> 700. */
+    if (strcmp(nome, "sserafimLights") == 0) {
+        ssf_luzes_caminhao(ss, (float)ev->p0 / 1000.0f, (float)ev->p1 / 1000.0f);
+        return 1;
+    }
+    if (strcmp(nome, "sserafimDark") == 0) {
+        /* `setDarkenAmt` (L413-421) mexe no `darkenAmount` de dois
+           `SserafimShader`: sem shader nao ha' o que escurecer. O evento e'
+           RECONHECIDO (devolve 1) para o log nao dizer "evento sem script"; a
+           falta de shader ja' e' declarada no plano. */
+        return 1;
+    }
+    if (strcmp(nome, "sserafimCover") == 0) {
+        /* L284-287: `alpha = visible ? 1 : 0`, sem tween. */
+        if (ss->i_ssf_cob >= 0) {
+            ss->ssf_cob_visivel = ev->p0 != 0;
+        }
+        return 1;
+    }
+    if (strcmp(nome, "sserafimFlash") == 0) {
+        /* L279-282: `camGame.flash(0xFFFFFFFF, duration)`. Quem desenha o
+           flash e' o main.c, com o alpha de `ss_ssf_flash_alpha`. */
+        ss->ssf_flash_ms = ev->p0;
+        ss->ssf_flash_t0 = ss->t;
+        return 1;
+    }
+    if (strcmp(nome, "sserafimEnd") == 0) {
+        /* L680-706 `endStuff`: `solidCover.alpha = 1` imediato e a tela final
+           com a arte que falta. A cobertura entra; o resto e' declarado. */
+        if (ss->i_ssf_cob >= 0) ss->ssf_cob_visivel = 1;
+        ss->ssf_fim = 1;
+        return 1;
+    }
+    if (strcmp(nome, "sserafimKick") == 0) {
+        /* L220-277: `yunjin.playAnimation('kick1'/'kick2')` + o som do chute +
+           `truckDoor.visible` no quadro 23. A dancarina ainda nao esta' no
+           palco (falta o slot OUTRO); o evento e' reconhecido e o pedido fica
+           registrado para quando ela entrar. */
+        ss->ssf_kick_final = ev->p0 != 0;
+        ss->ssf_kick_pedido = 1;
+        return 1;
+    }
+    if (strcmp(nome, "sserafimSing") == 0) {
+        ss->ssf_canta = ev->a;      /* mascara de 5..6 booleanos */
+        return 1;
+    }
+    if (strcmp(nome, "sserafimShow") == 0) {
+        ss->ssf_mostra = ev->a;
+        return 1;
+    }
+    if (strcmp(nome, "sserafimPulseLights") == 0) {
+        /* `enabled` vai em `p0` do registro (ver o conversor) e as tres listas
+           vem no BLOCO, decodificadas pelo `main.c`. */
+        ss->ssf_luz = ev->p0 != 0;
+        return 1;
+    }
+    if (strcmp(nome, "sserafimBeautiful") == 0 ||
+        strcmp(nome, "sserafimGuitarVibration") == 0) {
+        /* `sserafimBeautiful` NAO tem handler no `.hxc`: e' um marcador que so'
+           existe no chart (o script nao tem `case` para ele). A vibracao e' do
+           controle, que o port nao aciona. Os dois sao reconhecidos para o log
+           distinguir "evento do palco" de "evento sem script" -- e o
+           `Beautiful` continua sem efeito, como no original. */
+        return 1;
+    }
+    return 0;
+}
+
 int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens,
             float elapsed)
 {
@@ -917,6 +1193,20 @@ int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens,
         /* L511: a troca do sinal. */
         if (beat == ss->luz_ultimo + ss->luz_intervalo) {
             ss_troca_luz(ss, beat);
+            disparou = 1;
+        }
+        return disparou;
+    }
+
+    /* ---- sserafim L498-507: o pulse das luzes de fundo ---- */
+    if (ss->ssf_ativo) {
+        /* `if (lightsEnabled) flashBackLight(intensities[beat % n], ...)` --
+           as tres listas sao cicladas pelo MESMO `beat`, cada uma no seu
+           proprio comprimento. */
+        if (ss->ssf_luz && ss->ssf_n > 0) {
+            int n = ss->ssf_n;
+            ssf_luz_fundo(ss, ss->ssf_ints[beat % n], ss->ssf_durs[beat % n],
+                          ss->ssf_cores[beat % n]);
             disparou = 1;
         }
         return disparou;
@@ -1083,6 +1373,24 @@ int ss_update(ss_t *ss, float elapsed)
         }
     }
 
+    /* ---- sserafim: os tweens de alpha das luzes (L422-497) ---- */
+    if (ss->ssf_ativo) {
+        int k;
+        for (k = 0; k < 4; k++) {
+            float u;
+            if (!ss->ssf_tw[k].ativo) continue;
+            u = (ss->t - ss->ssf_tw[k].t0) / ss->ssf_tw[k].dur;
+            if (u >= 1.0f) {
+                ss->ssf_a[k] = ss->ssf_tw[k].a1;
+                ss->ssf_tw[k].ativo = 0;
+                continue;
+            }
+            ss->ssf_a[k] = ss->ssf_tw[k].a0 +
+                           (ss->ssf_tw[k].a1 - ss->ssf_tw[k].a0) *
+                           ss_ease(SS_EASE_CUBE_IN_OUT, u);
+        }
+    }
+
     /* ---- O CARRO VELOZ DO limoRide (L60-67 + L97-110 + a Sequence) ---- */
     if (ss->i_fastcar >= 0) {
         /* O `FlxSprite.update` do flixel: `x += velocity.x * elapsed` -- so'
@@ -1188,7 +1496,33 @@ float ss_prop_alpha(const ss_t *ss, int prop_abs)
     if (prop_abs == ss->i_sky) return ss->raio_ativo ? ss->a_sky : 0.0f;
     if (prop_abs == ss->i_fg) return ss->raio_ativo ? ss->a_fg : 0.0f;
     if (prop_abs == ss->i_light) return ss->raio_ativo ? 1.0f : 0.0f;
+    /* sserafim: as quatro luzes so' existem pelo tween (alpha 0 no JSON). Com o
+       tween morto o alpha e' 0, que e' o fim dele e o do dado. */
+    if (ss->ssf_ativo) {
+        int k;
+        for (k = 0; k < 4; k++)
+            if (prop_abs == ssf_abs(ss, k))
+                return ss->ssf_tw[k].ativo ? ss->ssf_a[k] : 0.0f;
+    }
     return -1.0f;
+}
+
+float ss_ssf_flash_alpha(const ss_t *ss)
+{
+    float dur, u;
+    if (!ss->ativo || !ss->ssf_ativo || ss->ssf_flash_ms <= 0) return -1.0f;
+    dur = (float)ss->ssf_flash_ms / 1000.0f;
+    if (dur <= 0.0f) return -1.0f;
+    u = (ss->t - ss->ssf_flash_t0) / dur;
+    if (u >= 1.0f) return -1.0f;
+    if (u < 0.0f) u = 0.0f;
+    return 1.0f - u;
+}
+
+float ss_ssf_cob_alpha(const ss_t *ss)
+{
+    if (!ss->ativo || !ss->ssf_ativo || ss->i_ssf_cob < 0) return -1.0f;
+    return ss->ssf_cob_visivel ? 1.0f : 0.0f;
 }
 
 float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
@@ -1274,11 +1608,23 @@ float ss_cor_alpha(const ss_t *ss, int cor_abs)
 {
     if (!ss->ativo || cor_abs < 0) return -1.0f;
     if (cor_abs == ss->i_lighten) return ss->raio_ativo ? ss->a_lighten : 0.0f;
+    /* sserafim: a cobertura preta (`solidCover`, `#000000` 10000x10000, z 9999,
+       scroll 0) -- L284-287 e o `endStuff` L686. */
+    if (ss->ssf_ativo && cor_abs == ss->i_ssf_cob)
+        return ss->ssf_cob_visivel ? 1.0f : 0.0f;
     return -1.0f;
 }
 
 int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb)
 {
+    /* sserafim: `backLightColor.color = color` (L471). Vale a partir do primeiro
+       flash e fica: o original nunca a apaga, so' o alpha. */
+    if (ss->ssf_ativo && ss->ssf_cor_ligada && prop_abs == ss->i_ssf_blc && rgb) {
+        rgb[0] = ss->ssf_cor[0];
+        rgb[1] = ss->ssf_cor[1];
+        rgb[2] = ss->ssf_cor[2];
+        return 1;
+    }
     if (!ss->ativo || !rgb || prop_abs < 0) return 0;
     if (prop_abs != ss->i_lights || ss->luz_cor < 0 || ss->luz_cor >= SS_COR_LUZES)
         return 0;

@@ -118,6 +118,13 @@ B_FLIPX = 1 << 19
 B_ABSOLUTE = 1 << 20
 B_REF_IS_STRING = 1 << 21
 B_REF_IS_BLOCK = 1 << 22
+# O NOME DO EVENTO NO CAMPO `a`. Um evento que leva as listas de parametros no
+# bloco gasta o `ref` com o indice do bloco, e o nome nao cabe em mais lugar
+# nenhum do registro. Para esses (hoje so' o `sserafimPulseLights`) o conversor
+# poe o indice do nome em `a` e marca este bit. Sem ele o port nao sabia que
+# aquele bloco era o pulse das luzes -- os 24 eventos do `spaghetti` ficavam
+# contados como "evento sem script" e o bloco nunca era aplicado.
+B_NAME_IS_A = 1 << 23
 # Set when the chart carried NO `ease` field. The ease field in `b` is an index
 # into this file's string table, and index 0 is a real name, so "absent" cannot
 # be told from "CLASSIC" by the value -- and absent means the CLASS default
@@ -400,7 +407,8 @@ def encode_event_v4(name, v, tables):
             return None
         blob = encode_block(v, tables)
         enabled = 1 if _as_number(v.get("enabled", False)) else 0
-        return (enabled, 0, 0, 0, B_REF_IS_BLOCK, tables.block(blob))
+        return (enabled, 0, 0, tables.string(name),
+                B_REF_IS_BLOCK | B_NAME_IS_A, tables.block(blob))
 
     spec = EVENT_V4.get(name)
     if spec is None:
@@ -486,6 +494,18 @@ def encode_event_v4(name, v, tables):
         if key in d:
             b |= B_REF_IS_STRING
             ref = tables.string(d[key])
+
+    # SCRIPTED EVENTS CARRY THEIR NAME. `event_type_id` numbers the
+    # script-authored events in order of first appearance, so the number itself
+    # is not portable: `sserafimLights` can be 0x0100 in one chart and 0x0107 in
+    # another. Without the name in the file the port can only COUNT these
+    # events (it did exactly that, `evento_sem_script`, for 89 of them in
+    # spaghetti). The name rides in the string table with B_REF_IS_STRING, and
+    # the converter's fixed mappings (FocusCamera, PlayAnimation, ...) are
+    # untouched because they do not start with a script prefix.
+    if name.startswith("sserafim") and not (b & B_REF_IS_BLOCK):
+        b |= B_REF_IS_STRING
+        ref = tables.string(name)
 
     return p[0], p[1], p[2], a, b, ref
 

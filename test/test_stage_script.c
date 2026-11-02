@@ -64,6 +64,17 @@ static void ate_dt(ss_t *ss, float dt)
     for (i = 0; i < n; i++) ss_update(ss, PASSO);
 }
 
+/* A TABELA DE STRINGS do bloco de teste, na MESMA ordem em que o conversor a
+   cria para o `spaghetti`: 0 = colors, 1 = durations, 2 = intensities,
+   3 = enabled (no chart real os ids sao 18..21). */
+static const char *t_bloco_nomes[] = { "colors", "durations", "intensities",
+                                       "enabled" };
+static const char *nome_teste(unsigned int id)
+{
+    if (id >= sizeof t_bloco_nomes / sizeof t_bloco_nomes[0]) return 0;
+    return t_bloco_nomes[id];
+}
+
 int main(void)
 {
     ss_t ss;
@@ -94,7 +105,7 @@ int main(void)
            sairam: deixar um deles aqui faz o teste cobrar o contrario do
            codigo). */
         static const char *outros[] = { "mainStage", "mallXmas", "mallEvil",
-                                        "sserafim", "phillyTrainErect" };
+                                        "schoolEvil", "phillyTrainErect" };
         int i;
         for (i = 0; i < 5; i++) {
             ss_t o;
@@ -1045,6 +1056,204 @@ int main(void)
             CHECK_EQ(rgb[0], 7);
             CHECK_NEAR(ss_alpha_papel(&lc, SS_BF), -1.0f);
         }
+    }
+
+    printf("== script do palco: as LUZES do sserafim (sserafim.hxc L284-507) ==\n");
+    {
+        ss_t sf;
+        ss_ev_t e;
+        int k;
+        ss_init(&sf, "sserafim");
+        CHECK_EQ(sf.ativo, 1);
+        CHECK_EQ(sf.ssf_ativo, 1);
+        CHECK_EQ(sf.tem_beat, 1);
+        CHECK(sf.i_ssf_tl1 >= 0 && sf.i_ssf_tl2 >= 0);
+        CHECK(sf.i_ssf_blc >= 0 && sf.i_ssf_blw >= 0);
+        CHECK(sf.i_ssf_cob >= 0);
+        CHECK(strcmp(bs_props[sf.i_ssf_tl1].name, "truckLight1") == 0);
+        /* No repouso as quatro luzes estao em 0 (o JSON ja' as poe em 0 e o
+           `buildStage` termina com `setLightState(false)`). */
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.0f);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_blc), 0.0f);
+        CHECK_NEAR(ss_ssf_cob_alpha(&sf), 0.0f);
+        CHECK(ss_ssf_flash_alpha(&sf) < 0.0f);
+
+        /* L422-434 `flashTruckLights(0,7, 0,5)`: os dois caminhoes em 0,7 e
+           caindo com `cubeInOut` ate' 0 em 0,5 s. */
+        e.p0 = 700; e.p1 = 500; e.p2 = 0; e.a = 0; e.b = 0;
+        CHECK_EQ(ss_evento(&sf, "sserafimLights", &e), 1);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.7);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl2), 0.7);
+        /* em metade do tempo, cubeInOut(0,5) = 0,5 -> 0,35 */
+        ss_update(&sf, 0.25f);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.35);
+        ss_update(&sf, 0.25f);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.0);
+        ss_update(&sf, 0.1f);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.0);
+
+        /* L466-497 `flashBackLight`: `amount*0,8` no color e `amount*0,7` no
+           white, e a COR vai para o `backLightColor`. */
+        e.p0 = 500; e.p1 = 1000; e.p2 = 0; e.a = 0; e.b = 0;
+        CHECK_EQ(ss_evento(&sf, "sserafimDark", &e), 1);   /* shader: so' conta */
+        CHECK_EQ(ss_evento(&sf, "sserafimLights", &e), 1); /* 0,5 em 1 s */
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.5);
+        CHECK_EQ(ss_evento(&sf, "sserafimPulseLights", &e), 1);
+
+        /* L284-287 `setCoverVisible`: sem tween, 1 ou 0. */
+        e.p0 = 1;
+        CHECK_EQ(ss_evento(&sf, "sserafimCover", &e), 1);
+        CHECK_NEAR(ss_ssf_cob_alpha(&sf), 1.0);
+        CHECK_NEAR(ss_cor_alpha(&sf, sf.i_ssf_cob), 1.0);
+        e.p0 = 0;
+        CHECK_EQ(ss_evento(&sf, "sserafimCover", &e), 1);
+        CHECK_NEAR(ss_ssf_cob_alpha(&sf), 0.0);
+
+        /* L279-282 `flashScreen(1,6)`: branco cheio e caindo em 1,6 s. */
+        e.p0 = 1600;
+        CHECK_EQ(ss_evento(&sf, "sserafimFlash", &e), 1);
+        CHECK_NEAR(ss_ssf_flash_alpha(&sf), 1.0);
+        ss_update(&sf, 0.8f);
+        CHECK_NEAR(ss_ssf_flash_alpha(&sf), 0.5);
+        ss_update(&sf, 0.9f);
+        CHECK(ss_ssf_flash_alpha(&sf) < 0.0f);
+
+        /* Os eventos que o script CONHECE mas que nao tem efeito portavel
+           (shader, vibracao, o marcador sem `case`) sao reconhecidos: contam
+           como do palco, e nao como "sem script". */
+        CHECK_EQ(ss_evento(&sf, "sserafimBeautiful", &e), 1);
+        CHECK_EQ(ss_evento(&sf, "sserafimGuitarVibration", &e), 1);
+        CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
+        CHECK_EQ(sf.ssf_kick_pedido, 1);
+        /* Um nome desconhecido nao e' do palco: devolve 0 e o main.c conta. */
+        CHECK_EQ(ss_evento(&sf, "outroPalcoQualquer", &e), 0);
+        /* As mascaras de `sserafimSing`/`sserafimShow` chegam inteiras. */
+        e.a = 0x15;
+        CHECK_EQ(ss_evento(&sf, "sserafimSing", &e), 1);
+        CHECK_EQ(sf.ssf_canta, 0x15u);
+        CHECK_EQ(ss_evento(&sf, "sserafimShow", &e), 1);
+        CHECK_EQ(sf.ssf_mostra, 0x15u);
+
+        /* ---- O PULSE (L456-507): `beat % n` nas tres listas ---- */
+        {
+            unsigned int cores[2] = { 0x6D43FFu, 0xFF43A1u };
+            float durs[2] = { 0.5f, 1.0f }, ints[2] = { 0.7f, 0.9f };
+            ss_ssf_pulsa_lista(&sf, 2, cores, durs, ints);
+            CHECK_EQ(sf.ssf_n, 2);
+            /* `enabled = true` (o `p0` do evento bloqueado). */
+            e.p0 = 1; e.p1 = 0; e.a = 0;
+            CHECK_EQ(ss_evento(&sf, "sserafimPulseLights", &e), 1);
+            CHECK_EQ(sf.ssf_luz, 1);
+            /* beat 0 -> indice 0 (0,7 e 0,5 s), beat 1 -> indice 1 */
+            CHECK_EQ(ss_beat(&sf, 100, "spaghetti", 1, PASSO), 1);
+            CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_blc), 0.7 * 0.8);
+            CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_blw), 0.7 * 0.7);
+            {
+                unsigned char rgb[3] = { 0, 0, 0 };
+                CHECK_EQ(ss_prop_cor(&sf, sf.i_ssf_blc, rgb), 1);
+                CHECK_EQ(rgb[0], 0x6D);
+                CHECK_EQ(rgb[1], 0x43);
+                CHECK_EQ(rgb[2], 0xFF);
+            }
+            /* o beat seguinte, com o tween anterior ainda correndo: o indice
+               vira 1 e a intensidade tambem */
+            CHECK_EQ(ss_beat(&sf, 101, "spaghetti", 1, PASSO), 1);
+            CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_blc), 0.9 * 0.8);
+            /* o mesmo beat de novo nao dispara nada */
+            CHECK_EQ(ss_beat(&sf, 101, "spaghetti", 1, PASSO), 0);
+            /* desligado: o beat nao acende mais */
+            e.p0 = 0;
+            CHECK_EQ(ss_evento(&sf, "sserafimPulseLights", &e), 1);
+            CHECK_EQ(sf.ssf_luz, 0);
+            CHECK_EQ(ss_beat(&sf, 102, "spaghetti", 1, PASSO), 0);
+        }
+
+        /* ---- O BLOCO de parametros do `sserafimPulseLights` ----
+           Este caminho NAO tem prova possivel no harness do PC: a primeira
+           lista da `spaghetti` entra em 38,5 s e o relogio da musica do harness
+           so' chega a ~9 s (o audio e' emulado e o relogio anda com ele). Aqui
+           o bloco e' montado no MESMO formato do conversor (`encode_block`:
+           u32 n, e por parametro u32 nome_id + u32 qtd + qtd pares tipo/valor)
+           com os valores do JSON real: colors #6D43FF/#FF43A1, durations
+           0,5/0,5 s, intensities 0,7/0,9 e `enabled` true (n=4, 92 bytes --
+           o tamanho que o conversor escreve neste chart). */
+        {
+            unsigned char blk[92];
+            unsigned int off = 0, n4 = 4, id, q, v, k2;
+            /* (nome_id, qtd, tipo, valor) na ordem do arquivo real */
+            static const unsigned int campos[][5] = {
+                { 0, 2, 2, 0x6D43FFu, 0xFF43A1u },        /* colors      */
+                { 1, 2, 0, 500u, 500u },                  /* durations   */
+                { 3, 1, 3, 1u, 1u },                      /* enabled     */
+                { 2, 2, 0, 700u, 900u }                   /* intensities */
+            };
+            for (k2 = 0; k2 < 5; k2++) blk[k2] = 0;
+            memcpy(blk, &n4, 4); off = 4;
+            for (k2 = 0; k2 < 4; k2++) {
+                id = campos[k2][0]; q = campos[k2][1];
+                memcpy(blk + off, &id, 4); off += 4;
+                memcpy(blk + off, &q, 4); off += 4;
+                for (v = 0; v < q; v++) {
+                    unsigned int tipo = campos[k2][2], valor = campos[k2][3 + v];
+                    memcpy(blk + off, &tipo, 4); off += 4;
+                    memcpy(blk + off, &valor, 4); off += 4;
+                }
+            }
+            CHECK_EQ((int)off, 92);
+            CHECK_EQ(ss_ssf_bloco(&sf, blk, off, nome_teste), 0);
+            CHECK_EQ(sf.ssf_n, 2);
+            CHECK_EQ(sf.ssf_cores[0], 0x6D43FFu);
+            CHECK_EQ(sf.ssf_cores[1], 0xFF43A1u);
+            CHECK_NEAR(sf.ssf_durs[0], 0.5);
+            CHECK_NEAR(sf.ssf_durs[1], 0.5);
+            CHECK_NEAR(sf.ssf_ints[0], 0.7);
+            CHECK_NEAR(sf.ssf_ints[1], 0.9);
+            /* As listas do bloco valem no beat: o indice e' `beat % n`. */
+            e.p0 = 1;
+            CHECK_EQ(ss_evento(&sf, "sserafimPulseLights", &e), 1);
+            CHECK_EQ(ss_beat(&sf, 200, "spaghetti", 1, PASSO), 1);
+            CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_blc), 0.7 * 0.8);
+            /* bloco TRUNCADO: recusa, nao aplica meio conjunto de listas */
+            CHECK_EQ(ss_ssf_bloco(&sf, blk, 20, nome_teste), -1);
+            /* listas de tamanhos diferentes: recusa e zera (o `beat % n` das
+               tres andaria em passo diferente) */
+            {
+                unsigned char ruim[44];
+                unsigned int n2 = 2, rid = 0, rq = 2, rt = 2, rv = 0x112233u;
+                unsigned int id2 = 1, q2 = 1, t2 = 0, v2 = 500u;
+                off = 0;
+                memcpy(ruim, &n2, 4); off = 4;
+                memcpy(ruim + off, &rid, 4); off += 4;
+                memcpy(ruim + off, &rq, 4); off += 4;
+                memcpy(ruim + off, &rt, 4); off += 4;
+                memcpy(ruim + off, &rv, 4); off += 4;
+                memcpy(ruim + off, &rt, 4); off += 4;
+                memcpy(ruim + off, &rv, 4); off += 4;
+                memcpy(ruim + off, &id2, 4); off += 4;
+                memcpy(ruim + off, &q2, 4); off += 4;
+                memcpy(ruim + off, &t2, 4); off += 4;
+                memcpy(ruim + off, &v2, 4); off += 4;
+                CHECK_EQ((int)off, 44);
+                CHECK_EQ(ss_ssf_bloco(&sf, ruim, off, nome_teste), -2);
+                CHECK_EQ(sf.ssf_n, 0);
+            }
+        }
+
+        /* `sserafimEnd` (L680): a cobertura entra e o fim fica marcado. */
+        e.p0 = 0;
+        CHECK_EQ(ss_evento(&sf, "sserafimEnd", &e), 1);
+        CHECK_EQ(sf.ssf_fim, 1);
+        CHECK_NEAR(ss_ssf_cob_alpha(&sf), 1.0);
+
+        /* O retry (`onSongRetry` L373-378) apaga as quatro luzes e a cobertura
+           e desliga o pulse. */
+        ss_reiniciar(&sf);
+        for (k = 0; k < 4; k++) CHECK_NEAR(sf.ssf_a[k], 0.0f);
+        CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_tl1), 0.0);
+        CHECK_NEAR(ss_ssf_cob_alpha(&sf), 0.0);
+        CHECK_EQ(sf.ssf_luz, 0);
+        CHECK_EQ(sf.ssf_n, 0);
+        CHECK_NEAR(ss_ssf_flash_alpha(&sf), 1.0);   /* o flash nao e' resetado */
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

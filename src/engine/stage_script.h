@@ -77,6 +77,11 @@
 extern "C" {
 #endif
 
+/* Quantas cores/durations/intensidades o `sserafimPulseLights` guarda. O dado
+   real tem 2 (spaghetti), e o evento nao tem limite: 4 e' o teto do port, e um
+   evento com mais e' RECUSADO (contado), nunca truncado em silencio. */
+#define SS_SSF_MAX 4
+
 /* Papeis de personagem, na ordem de `char_layout.h` (CH_PAPEL_*). */
 #define SS_BF  0
 #define SS_DAD 1
@@ -265,6 +270,43 @@ typedef struct {
     int car_haptics;    /* `doCarHaptics` -- so' o vibra do controle, sem
                            efeito visivel; guardado para o teste            */
 
+    /* ---- sserafim (spaghetti): as luzes do caminhao, a luz de fundo e a
+       cobertura preta (sserafim.hxc L284-287, L422-500) ----
+       Os quatro props ja' existem no palco, TODOS com alpha 0 no JSON: o script
+       os acende com `FlxTween` de alpha e os apaga de volta em 0.
+         flashTruckLights(amount, duration)  -> truckLight1/2 de `amount` a 0,
+                                                `FlxEase.cubeInOut`
+         flashBackLight(amount, dur, color)  -> `backLightColor.color` = color,
+                                                alpha `amount*0,8`, e
+                                                `backLightWhite` `amount*0,7`,
+                                                os dois a 0 em `duration`
+         setCoverVisible(v)                  -> `solidCover.alpha` = v ? 1 : 0
+         setLightState(enabled, ...)         -> em TODO beat, enquanto ligado,
+                                                `flashBackLight` com
+                                                cores/dur/intensidades ciclados
+                                                por `beat % length` */
+    int i_ssf_tl1, i_ssf_tl2;   /* `truckLight1`, `truckLight2`            */
+    int i_ssf_blc, i_ssf_blw;   /* `backLightColor`, `backLightWhite`      */
+    int i_ssf_cob;              /* `solidCover`                           */
+    int ssf_ativo;              /* 1 = o script do sserafim esta' instalado */
+    struct { int ativo; float a0, a1, t0, dur; } ssf_tw[4];  /* 0..3 na ordem
+                                   tl1, tl2, blc, blw */
+    float ssf_a[4];             /* alpha corrente de cada alvo             */
+    unsigned char ssf_cor[3];   /* a cor do `backLightColor.color`         */
+    int ssf_cor_ligada;
+    int ssf_luz;                /* lightsEnabled                           */
+    int ssf_n;                  /* quantas entradas o pulse tem (0 = nenhum) */
+    unsigned int ssf_cores[SS_SSF_MAX];
+    float ssf_durs[SS_SSF_MAX], ssf_ints[SS_SSF_MAX];
+    int ssf_cob_visivel;        /* `solidCover.alpha` = 1 enquanto 1        */
+    int ssf_flash_ms;           /* `camGame.flash(0xFFFFFFFF, ms)` pedido   */
+    float ssf_flash_t0;         /* instante em que o flash foi pedido       */
+    int ssf_fim;                /* `endStuff` chegou (L680)                 */
+    int ssf_kick_pedido;        /* `sserafimKick`: 1 = ha' um pedido novo    */
+    int ssf_kick_final;         /* o `final` do evento (kick1 ou kick2)     */
+    unsigned int ssf_canta;     /* mascara de `sserafimSing`               */
+    unsigned int ssf_mostra;    /* mascara de `sserafimShow`               */
+
     /* O delta do QUADRO corrente, em segundos: e' o `FlxG.elapsed` que o
        `fastCarDrive` (limoRide L106) usa como divisor da velocidade. Quem
        escreve e' o proprio `ss_beat` (recebe o delta junto com o beat, porque
@@ -326,6 +368,16 @@ float ss_cor_alpha(const ss_t *ss, int cor_abs);
 int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens,
             float elapsed);
 
+/* Alpha do FLASH de tela do sserafim (`camGame.flash(0xFFFFFFFF, duration)`,
+ * L279-282): 1 no instante do evento e caindo em linha reta ate' 0 no fim da
+ * duracao (o `FlxCamera.flash` do flixel usa `_fxFlashDuration` e um decaimento
+ * linear). -1 = nao ha' flash agora. */
+float ss_ssf_flash_alpha(const ss_t *ss);
+
+/* Alpha da COBERTURA preta do sserafim (`solidCover`, L284-287 e o `endStuff`
+ * L686), ou -1 quando o palco nao tem cobertura. 1 = a tela inteira coberta. */
+float ss_ssf_cob_alpha(const ss_t *ss);
+
 /* Alpha do personagem do papel `papel` (SS_BF/SS_DAD/SS_GF), ou -1 quando o
  * palco nao mexe no alpha dos personagens (o desenho sai como sempre). */
 float ss_alpha_papel(const ss_t *ss, int papel);
@@ -360,15 +412,52 @@ const char *ss_prop_sufixo(const ss_t *ss, int prop_abs);
    sprite e escreve `*graus`; 0 quando o prop nao e' girado por ele. */
 int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus);
 
+/* ---- O `sserafim` (spaghetti): os eventos de musica ----
+ * O chart do spaghetti tem 468 eventos, 89 deles dirigidos por ESTE script.
+ * Cada um chega aqui pelo NOME (o conversor poe o nome na tabela de strings do
+ * chart: os ids numericos dos eventos de script sao atribuidos por ordem de
+ * aparicao e nao valem entre arquivos).
+ * Devolve 1 quando o evento foi aplicado, 0 quando nao e' deste palco (o
+ * chamador conta e registra).
+ * Os parametros chegam em `ev`: p0..p2 em milesimos (o `fixed` do conversor),
+ * `a` com as mascaras de booleanos, `b` com as flags do formato.
+ */
+typedef struct {
+    int p0, p1, p2;
+    unsigned int a, b;
+} ss_ev_t;
+int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev);
+
+/* O `sserafimPulseLights` (bloco de parametros): as tres listas ja' decodificadas
+ * pelo chamador. `cores` em 0x00RRGGBB. */
+void ss_ssf_pulsa_lista(ss_t *ss, int n, const unsigned int *cores,
+                        const float *durs, const float *ints);
+
+/* Os tipos do bloco (`encode_block` em tools/fnf_to_fch3.py). */
+#define SSF_BLK_FLOAT 0u
+#define SSF_BLK_INT   1u
+#define SSF_BLK_RGB   2u
+#define SSF_BLK_BOOL  3u
+
+/* Decodifica o bloco de parametros do `sserafimPulseLights` (formato do
+ * conversor: u32 n, e por parametro u32 nome_id + u32 qtd + qtd pares
+ * tipo/valor) e aplica as listas. `nome_de` resolve um id da tabela de strings.
+ * 0 = aplicado, -1 = truncado, -2 = listas desalinhadas (recusa, nao inventa). */
+int ss_ssf_bloco(ss_t *ss, const void *bloco, unsigned int len,
+                 const char *(*nome_de)(unsigned int));
+
 /* As curvas do `FlxEase` que os scripts usam, com a formula da fonte
  * (`FlxEase.hx` L61-64 e L137-145):
  *   cubeOut(t) = 1 + (--t)*t*t        (1 - (1-t)^3)
  *   sineIn(t)  = -cos(PI/2 * t) + 1
- *   sineOut(t) = sin(PI/2 * t) */
+ *   sineOut(t) = sin(PI/2 * t)
+ *   cubeInOut(t) = 4*t^3 se t <= 0,5 ; 1 - ((-2t+2)^3)/2 no resto
+ *                  (FlxEase.hx L63-70, o `cubeInOut` do flixel) */
 #define SS_EASE_LINEAR 0
 #define SS_EASE_CUBE_OUT 1
 #define SS_EASE_SINE_IN 2
 #define SS_EASE_SINE_OUT 3
+#define SS_EASE_CUBE_IN_OUT 4
 
 /* Os bancos de som de `palco_som_toca`, e o numero dentro do banco vai em
  * `ss->som`. */
