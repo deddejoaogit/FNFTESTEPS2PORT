@@ -5161,3 +5161,69 @@ exige um quadrilátero por texel de coluna — ~400 por prop, 4 props, por quadr
 mais de 1 600 quads por quadro só para tremer o fundo. O GS do PS2 não tem
 shader de fragmento/vertice no pipeline fixo, e o custo da emulação exata é
 proibitivo; fica declarado como falta de plataforma, com a fórmula citada.
+
+## O que falta no `sserafim` (`spaghetti`) — o último dos 26 palcos jogáveis
+
+`sserafim.hxc` tem **997 linhas** e é o único palco das 26 músicas cujo script
+ainda não está portado. Ele não é "um efeito": é um palco com **quatro
+dançarinas**, quatro camadas de poeira, um piso em perspectiva, uma cutscene de
+entrada com texto e uma dúzia de eventos de música. Nada disso é inventável, e o
+trabalho está dividido no que segue — com a fonte e o dado de cada parte.
+
+### O que o DADO já tem (medido neste repositório)
+
+| Peça | Onde | Situação |
+|---|---|---|
+| 13 props do palco (`bg`, `fucker`, `backTables`, `burgerCutscene`, `backStools`, `backLightColor`, `backLightWhite`, `truck`, `truckDoor`, `truckLight1`, `truckLight2`, `backTablesCutscene`, `frontStool`) | `assets-data/stage-props.json` → `stage_dados.h` | **empacotados** (sserafim é o pior palco em VRAM do plano, 1 021 952 B) |
+| 3 dançarinas + `sserafim-gf` (cutscene) + `sserafim-sakura` (note kind) | `char_dados.h` L635-640 | **empacotados** (`sserafim-yunjin` 2,00/347,00 de `characterOrigin`, `chaewon` 0/330, `eunchae` 0/260) |
+| 468 eventos do chart, **com os parâmetros** | `assets-data/charts/spaghetti-chart.json` | **no dado**: `sserafimPulseLights` (24), `sserafimSing` (20), `sserafimDark` (14), `sserafimGuitarVibration` (7), `sserafimShow` (6), `sserafimCover` (5), `sserafimLights` (4), `sserafimKick` (2), `sserafimFlash` (1), `sserafimEnd` (1), `sserafimBeautiful` (2) |
+| `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` do palco | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente (`/tmp/fassets` só tem `preload/scripts` e `week4/sounds`). Regra 4: falta declarada, não arte inventada |
+| `doorKick1`, `doorKick2`, som da cutscene | `Paths.sound(...)` | **FALTA** — mesma situação; entram no `tools/empacotar_audio.py` no dia em que a arte for buscada |
+
+### O que dá para fazer SEM arte nova (nesta ordem)
+
+1. **As luzes e a cobertura** (`sserafimLights` L422-434, `sserafimCover`
+   L284-287, `sserafimPulseLights` L456-497, `sserafimEnd` L680-700,
+   `sserafimFlash` L279-282, `sserafimDark` L413-421): tudo em cima de props
+   que **já estão empacotados** (`truckLight1/2`, `backLightColor`,
+   `backLightWhite`, `solidCover`). `flashTruckLights` é um `FlxTween` de alpha
+   de `amount` até 0 em `duration`; `flashBackLight` põe `amount*0,8` no
+   `backLightColor` (com a COR do evento) e `amount*0,7` no `backLightWhite`; o
+   `setLightState` do `onBeatHit` (L498-507) reacende a cada beat enquanto
+   `enabled`, ciclando `colors`/`durations`/`intensities` por `beat % length`.
+   **Isto é o que mais aparece na música** (24 + 4 + 5 + 1 = 34 eventos) e cabe
+   no `ss_prop_alpha`/`ss_prop_cor` que já existem.
+2. **Os eventos no chart**: hoje o `main.c` só CONTA os eventos `>= 0x0100`
+   (`evento_sem_script`, `g_ev_script`) porque o compilador de chart do port não
+   guarda o `kind` nem o `v` do evento — o JSON tem os dois. O primeiro passo é
+   estender o compilador/leitor de eventos para carregar `kind` + até 6
+   parâmetros numéricos (as listas viram `n` + valores), e só então ligar o
+   `ss_evento`.
+3. **As quatro dançarinas**: `yunjin`, `chaewon`, `eunchae` são personagens
+   (`CharacterType.OTHER`) com `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97 e
+   posição = `(x, y) - characterOrigin` (L160-164), mais `danceEvery 1` no
+   `yunjin` depois do `kick2`. O `char_layout` já sabe desenhar por id de
+   personagem; falta um **quarto slot** ("OUTRO") na ordem de desenho do palco e
+   as flags `visible`/`singing` que os eventos ligam (5 booleanos).
+4. **`sserafimKick`**: `yunjin.playAnimation('kick1'/'kick2', true, false)` +
+   `truckDoor.visible = true` no QUADRO 23 do `kick2` (L239-248) + o som
+   `doorKick1/2` (falta a arte do som).
+5. **A cutscene** (L567-930: `introCutscene`, `skipCutscene`, `endStuff`,
+   `playCutsceneFromRestart`, `resetClear`, a poeira em `FlxBackdrop`): depende
+   da arte que falta e de um gerenciador de timers (`cutsceneTimerManager`).
+   **É a última peça**, e a única que também precisa do `PerspectiveSprite`
+   (`setPositions(760, 1375, 790, 625)` com scroll factors diferentes por
+   vértice — isso o GS faz, é só geometria).
+6. **Shaders**: `SserafimShader` (character e stage), `DropShadowShader` do
+   erect, `WiggleEffectRuntime` do `schoolEvil` — fora do pipeline fixo, como
+   todos os outros 175/451 já declarados.
+
+### Ordem de trabalho (para a próxima sessão)
+
+`(2)` primeiro, porque sem evento no chart nada dos outros aparece; depois
+`(1)` com teste por evento; depois `(3)` (slot OUTRO + 5 booleanos); `(4)`;
+e `(5)` quando a arte for buscada (`git sparse-checkout add` de
+`weekend1/images` + `weekend1/sounds` no clone de arte).
+
+**Nenhuma música perde evento por causa disto**: os 34 eventos de luz/cobertura
+são os primeiros justamente porque são os que mais mudam a tela.
