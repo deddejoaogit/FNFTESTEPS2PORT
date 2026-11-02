@@ -138,6 +138,32 @@ int main(void)
         CHECK(t->vram_bytes <= 24576u);
     }
 
+    printf("== freeplay: o fundo (backingImage) e a entrada de 0,7 s\n");
+    {
+        /* `FreeplayState.hx` L529-531: x nasce em `-backingImage.width` (574 em
+           640x360) e vai para 0 em 700 ms com `FlxEase.quintOut`.
+           quintOut(t) = 1 - (1-t)^5. */
+        float x0 = fp_fundo_x(0), xf = fp_fundo_x(700), xn = fp_fundo_x(100000);
+        CHECK_PX(x0, -574.0f);
+        CHECK_PX(xf, 0.0f);
+        CHECK_PX(xn, 0.0f);
+        /* Em metade do tempo o quintOut ja' passou de 96% do caminho: o valor
+           em 350 ms tem de estar entre -574*0,03125 e 0, e mais perto de 0. */
+        {
+            float xm = fp_fundo_x(350);
+            CHECK(xm > -574.0f * 0.04f);
+            CHECK(xm < -0.5f);
+        }
+        /* Monotonico: nunca volta para tras. */
+        CHECK(fp_fundo_x(100) < fp_fundo_x(200));
+        CHECK(fp_fundo_x(200) < fp_fundo_x(400));
+        CHECK(fp_fundo_x(400) < fp_fundo_x(699));
+        /* O dado do pacote tem de bater com o que o empacotador escreveu. */
+        CHECK(FP_FUNDO_BPP == 16);
+        CHECK(FP_FUNDO_W > 0 && FP_FUNDO_H == 360);
+        CHECK(FP_FUNDO_VRAM == (unsigned)FP_FUNDO_W * 360u * 2u);
+    }
+
     if (falhas)
     {
         printf("FREEPLAY: %d FALHA(S)\n", falhas);

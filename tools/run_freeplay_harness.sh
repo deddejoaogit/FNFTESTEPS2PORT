@@ -43,6 +43,10 @@ VOLTOU=$(awk -F, '$1=="S" && $3==11 {n++} END{print n+0}' "$LOG")
 CAP=$(awk -F, '$1=="E" && $3=="freeplay_capsula" {print $4","$5; exit}' "$LOG")
 TIT=$(awk -F, '$1=="E" && $3=="freeplay_titulos" {print $4","$5; exit}' "$LOG")
 CAPS=$(awk -F, '$1=="E" && $3=="freeplay_capsulas" {print $4; exit}' "$LOG")
+# O FUNDO da tela (`backingImage`): abriu (1) e o x do primeiro desenho, em
+# decimos de px. Ele nasce em -width e chega a 0 em 700 ms com quintOut.
+FUNDO=$(awk -F, '$1=="E" && $3=="freeplay_fundo" {print $4","$5; exit}' "$LOG")
+FUNDOX=$(awk -F, '$1=="E" && $3=="freeplay_fundo_desenho" {print $4","$5; exit}' "$LOG")
 
 echo
 echo "  musicas na lista ............ ${NSONGS:-?}"
@@ -55,6 +59,8 @@ echo "  notas do chart .............. ${NOTAS:-?}"
 echo "  vezes que a musica comecou .. $AUDIO"
 echo "  capsula (abriu, bytes) ...... ${CAP:-?}"
 echo "  titulos (bytes, falhas) ..... ${TIT:-?}"
+echo "  fundo (abriu, bytes) ........ ${FUNDO:-?}   (574x360 em 16 bpp = 413280 B)"
+echo "  fundo: x do 1. desenho ...... ${FUNDOX:-?}   (decimos de px e ms; entra de -574 a 0 em 700 ms)"
 echo "  capsulas desenhadas ......... ${CAPS:-?}"
 echo "  quadros de volta na freeplay  $VOLTOU"
 
@@ -69,6 +75,18 @@ FALHA=0
 [ "${TIT##*,}" = "0" ] || { echo "  FALHA: titulo da Freeplay faltando (${TIT:-sem evento})"; FALHA=1; }
 [ "${TIT%%,*}" -ge 100000 ] 2>/dev/null || { echo "  FALHA: os titulos somam menos de 100.000 B (${TIT:-?})"; FALHA=1; }
 [ "${CAPS:-0}" -ge 5 ] || { echo "  FALHA: menos de 5 capsulas desenhadas (${CAPS:-0})"; FALHA=1; }
+# O FUNDO: o pacote tem de abrir com o tamanho do header (w*h*2) e o desenho tem
+# de comecar FORA da tela (x negativo), senao o tween de entrada do original
+# (`x = -width` -> 0 em 0,7 s) nao esta' acontecendo.
+[ "${FUNDO%%,*}" = "1" ] || { echo "  FALHA: o fundo da Freeplay nao abriu (${FUNDO:-sem evento})"; FALHA=1; }
+[ "${FUNDO##*,}" = "413280" ] || { echo "  FALHA: o fundo abriu com ${FUNDO##*,} B e o header manda 413280"; FALHA=1; }
+if [ -z "${FUNDOX:-}" ]; then
+    echo "  FALHA: o fundo nunca chegou a ser desenhado"; FALHA=1
+else
+    FX=${FUNDOX%%,*}
+    [ "$FX" -lt 0 ] || { echo "  FALHA: o fundo apareceu em x=$FX decimos (o original entra de -574)"; FALHA=1; }
+    [ "$FX" -ge -5740 ] || { echo "  FALHA: o fundo comecou em x=$FX decimos, antes de -574 px"; FALHA=1; }
+fi
 [ -n "${FPLAY:-}" ] || { echo "  FALHA: o CROSS nao tocou nenhuma musica"; FALHA=1; }
 [ "${FDIFF:-?}" -ge 1 ] || { echo "  FALHA: a troca de dificuldade nao aconteceu"; FALHA=1; }
 [ -n "${CHART:-}" ] && [ "${CHART:-0}" != "0" ] || { echo "  FALHA: o chart da musica escolhida nao carregou"; FALHA=1; }

@@ -97,4 +97,10 @@ int fp_passo_salto(unsigned long desde_ms);
 /* O titulo de uma musica pelo id (NULL quando o id nao esta' no pacote). */
 const fp_titulo_t *fp_titulo(const char *id);
 
+/* O x do FUNDO da tela (`backingImage`) em 640x360, `desde_ms` milissegundos
+ * depois de a tela abrir. Ele nasce em `-width` e vai para 0 em 700 ms com
+ * `FlxEase.quintOut` (`FreeplayState.hx` L529-531); o y e' sempre 0 e a altura
+ * e' a da tela -- `setGraphicSize(0, FlxG.height + 1)` (L456). */
+float fp_fundo_x(unsigned long desde_ms);
+
 #endif /* FREEPLAY_H */

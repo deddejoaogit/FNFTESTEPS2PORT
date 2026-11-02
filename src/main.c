@@ -1621,7 +1621,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
    quando a lista rola. */
 #define FP_DIR "mass:/FNFPS2/assets/"
 #define FP_CHAVE_CAP (SP_CHAVE_TELA_BASE + 0x40u)   /* +0 selecionada, +1 nao */
-#define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* 8 slots de titulo      */
+#define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* os 27 titulos (1 por musica) */
+#define FP_CHAVE_FUNDO (SP_CHAVE_TELA_BASE + 0x42u) /* o fundo (1 quadro, 16 bpp) */
 #define FP_TIT_SLOTS 8
 #define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
 
@@ -1633,6 +1634,15 @@ static unsigned int g_fpc_addr[2] = {0, 0};
 static int g_fpc_addr_ok[2] = {0, 0};
 static int g_fpc_frame[2] = {-1, -1};
 static int g_fpc_desenhos = 0;
+/* O FUNDO (`backingImage`): um CFZ4 de UM quadro em 16 bpp (PSMCT16), carregado
+   uma vez ao entrar na tela. 574x360 = 413.280 B -- em 32 bpp seriam 826.560,
+   metade do pool da Freeplay, e a regra do projeto e' imagem ceder. */
+static pst_pack_t g_fpf_pack;
+static int g_fpf_ok = 0, g_fpf_tentou = 0;
+static unsigned char *g_fpf_buf = 0;
+static unsigned int g_fpf_buf_bytes = 0, g_fpf_addr = 0;
+static int g_fpf_logado = 0;
+static texbuffer_t g_fpf_tex;
 static unsigned char g_fpt_buf[24576];
 /* Um slot POR MUSICA: os 27 titulos somam 122.740 B de VRAM (o maior,
    `spaghetti`, 20.672 B), e todos cabem no pool da tela -- entao eles sobem
@@ -1663,6 +1673,11 @@ static float fp_desenho_h(float s) { return FP_DESENHO_H * s; }
 static void freeplay_capsula_soltar(void)
 {
     int i;
+    /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
+    if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
+    g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
+    if (g_fpf_buf) { free(g_fpf_buf); g_fpf_buf = 0; g_fpf_buf_bytes = 0; }
+    if (g_fpf_addr) { sp_soltar(&g_pool, FP_CHAVE_FUNDO); g_fpf_addr = 0; }
     if (g_fpc_tentou) pst_fechar(&g_fpc_pack);
     g_fpc_ok = 0; g_fpc_tentou = 0;
     if (g_fpc_buf) { free(g_fpc_buf); g_fpc_buf = 0; g_fpc_buf_bytes = 0; }
@@ -1678,6 +1693,58 @@ static void freeplay_capsula_soltar(void)
     for (i = 0; i < FREEPLAY_MAX; i++) {
         g_fpcs[i].vivo = 0; g_fpcs[i].sel = 0; g_fpcs[i].t_anim = 0;
     }
+}
+
+/* O FUNDO da tela de Freeplay (`backingImage`). Um quadro so', em 16 bpp: ele
+   sobe uma vez por entrada e fica ate' a tela sair. Sem o arquivo, o desenho
+   cai no retangulo escuro (a tela nao quebra, e a telemetria diz o motivo). */
+static void freeplay_fundo_carregar(texbuffer_t *tpl)
+{
+    char caminho[128];
+    unsigned int bytes;
+    g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
+    snprintf(caminho, sizeof(caminho), FP_DIR "%s", FP_FUNDO_TEX);
+    if (pst_abrir(caminho, &g_fpf_pack) != PST_OK) {
+        telemetry_event("freeplay_fundo_falta", 0, (int)sp_livre(&g_pool));
+        return;
+    }
+    g_fpf_tentou = 1;
+    bytes = g_fpf_pack.frame_bytes;
+    if (bytes != (unsigned int)FP_FUNDO_W * (unsigned int)FP_FUNDO_H * 2u) {
+        telemetry_event("freeplay_fundo_tamanho", (int)bytes,
+                        FP_FUNDO_W * FP_FUNDO_H * 2);
+        pst_fechar(&g_fpf_pack); g_fpf_tentou = 0;
+        return;
+    }
+    if (bytes > g_fpf_buf_bytes) {
+        free(g_fpf_buf);
+        g_fpf_buf = (unsigned char *)memalign(64, (size_t)bytes);
+        g_fpf_buf_bytes = g_fpf_buf ? bytes : 0u;
+    }
+    if (!g_fpf_buf) { pst_fechar(&g_fpf_pack); g_fpf_tentou = 0; return; }
+    if (sp_chave(&g_pool, FP_CHAVE_FUNDO, bytes, &g_fpf_addr) < 0) {
+        telemetry_event("freeplay_fundo_sem_vram", 0, (int)sp_livre(&g_pool));
+        pst_fechar(&g_fpf_pack); g_fpf_tentou = 0; g_fpf_addr = 0;
+        return;
+    }
+    if (pst_quadro(&g_fpf_pack, 0, g_fpf_buf) != PST_OK) {
+        telemetry_event("freeplay_fundo_quadro", 0, 0);
+        sp_soltar(&g_pool, FP_CHAVE_FUNDO); g_fpf_addr = 0;
+        pst_fechar(&g_fpf_pack); g_fpf_tentou = 0;
+        return;
+    }
+    {
+        texbuffer_t t = tpl ? *tpl : g_fpc_tpl;
+        t.width = FP_FUNDO_W;
+        t.psm = GS_PSM_16;
+        t.address = g_fpf_addr;
+        setup_texture_dims(&t, FP_FUNDO_W, FP_FUNDO_H);
+        FlushCache(0);
+        upload_raw_psm(&t, g_fpf_buf, FP_FUNDO_W, FP_FUNDO_H, GS_PSM_16);
+        g_fpf_tex = t;
+    }
+    g_fpf_ok = 1;
+    telemetry_event("freeplay_fundo", 1, (int)bytes);
 }
 
 static int freeplay_capsula_carregar(texbuffer_t *tpl)
@@ -1755,6 +1822,7 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
         g_fpt_bytes += b;
     }
     telemetry_event("freeplay_titulos", g_fpt_bytes, g_fpt_falhas);
+    freeplay_fundo_carregar(tpl);
     return g_fpc_ok;
 }
 
@@ -6259,11 +6327,23 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    if(g_fp_sel>=g_fp_n)g_fp_sel=g_fp_n?g_fp_n-1:0;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
-   /* O FUNDO da Freeplay (`backingImage`, `freeplayBGweek1-bf`) ainda nao esta'
-      portado -- ver docs/PLANO_COMPLETO.md. O que esta' nesta build sao as
-      CAPSULAS, que sao o que identifica a tela. O retangulo e' em 640x360, como
-      todo o resto da tela (o `vy` leva para 448 linhas quando precisa). */
-   q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,360.0f,8,8,16,255);
+   /* O FUNDO da Freeplay (`backingImage`, `freeplayBGweek1-bf`). Ele NASCE fora
+      da tela, em `x = -width`, e entra ate' 0 em 700 ms com `quintOut`
+      (`FreeplayState.hx` L529-531); a altura e' a da tela
+      (`setGraphicSize(0, FlxG.height + 1)`, L456), o que da' 574x360 aqui --
+      821x516 na arte, com a largura vindo da proporcao. Fica atras de tudo.
+      Sem o arquivo (ou sem VRAM), o retangulo escuro mantem a tela legivel e a
+      telemetria diz qual dos dois faltou. */
+   if(g_fpf_ok){
+    q=bind_texture_filter(q,&g_fpf_tex,0);
+    q=sprite_region(q,fp_fundo_x(ms),FP_FUNDO_Y,
+                    (float)FP_FUNDO_W,(float)FP_FUNDO_H,
+                    0.0f,0.0f,(float)FP_FUNDO_W,(float)FP_FUNDO_H);
+    if(!g_fpf_logado){g_fpf_logado=1;
+     telemetry_event("freeplay_fundo_desenho",(int)(fp_fundo_x(ms)*10.0f),ms);}
+   }else{
+    q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,360.0f,8,8,16,255);
+   }
    /* OS DOIS QUADROS DE CAPSULA na VRAM. A animacao e' de 24 fps e e' loopada.
       Todas as capsulas andam JUNTAS: cada `updateSelected` reinicia a animacao
       de todas, entao a fase e' uma so' (e a VRAM guarda um quadro de cada). */

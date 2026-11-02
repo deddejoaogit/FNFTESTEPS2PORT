@@ -355,7 +355,7 @@ def resultado_folhas():
              ("score", 356, 72, 30, 24, "resultado/score.cfz4")], 16, 360)
 
 
-def make_resultado_pack(w, h, quadros):
+def make_resultado_pack(w, h, quadros, bytes_por_pixel=4):
     """CFZ4 sintetico com `quadros` quadros de w*h*4 bytes.
 
     Cada quadro e' um padrao que depende do NUMERO do quadro -- e' o que deixa
@@ -363,7 +363,7 @@ def make_resultado_pack(w, h, quadros):
     sao LZ4 de literais puros (o mesmo caminho que o empacotador usa quando o
     dado e' incompressivel), entao o decodificador do jogo e' exercitado.
     """
-    fb = w * h * 4
+    fb = w * h * bytes_por_pixel
     blocos = []
     for q in range(quadros):
         cru = bytes(((q * 53 + i * 11 + 7) & 0xFF) for i in range(fb))
@@ -652,6 +652,13 @@ def _freeplay_files():
         return {}
     cap = plano["capsula"]
     out = {cap["tex"]: make_resultado_pack(cap["w"], cap["h"], cap["quadros"])}
+    # O FUNDO da Freeplay: um quadro em 16 bpp (`FP_FUNDO_BPP`), com o tamanho
+    # que o header manda -- o jogo recusa o pacote se o `frame_bytes` nao for
+    # exatamente `w*h*2`, entao o sintetico tem de respeitar isso.
+    fun = plano.get("fundo")
+    if fun:
+        out[fun["tex"]] = make_resultado_pack(fun["w"], fun["h"], fun["quadros"],
+                                              bytes_por_pixel=fun["bpp"] // 8)
     for i, (sid, t) in enumerate(sorted(plano["titulos"].items())):
         out[t["arquivo"]] = rgba_pattern(t["w"], t["h"], i + 1)
     return out

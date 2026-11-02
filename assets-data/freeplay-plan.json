@@ -19,6 +19,24 @@
   "vram_bytes": 80784,
   "linha": "SongMenuItem.hx L84-87 (capsula) e L619 (realScaled)"
  },
+ "fundo": {
+  "fonte": "freeplay/freeplayBGweek1-bf",
+  "src_w": 821,
+  "src_h": 516,
+  "tex": "freeplay/fundo.cfz4",
+  "partes": [
+   "fundo.cfz4"
+  ],
+  "w": 574,
+  "h": 360,
+  "bpp": 16,
+  "quadros": 1,
+  "vram_bytes": 413280,
+  "x": 0.0,
+  "y": 0.0,
+  "entrada_ms": 700,
+  "linha": "FreeplayState.hx L340, L456, L529 e BackingCard.hx L53-62"
+ },
  "titulos": {
   "tutorial": {
    "id": "tutorial",

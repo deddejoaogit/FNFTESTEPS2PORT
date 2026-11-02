@@ -83,6 +83,35 @@ CAPSULA = {
     },
 }
 
+# O FUNDO DA TELA (`FreeplayState.hx` L340, L456 e `BackingCard.hx` L53-62):
+#
+#     backingImage = FunkinSprite.create(backingCard.pinkBack.width * 0.74, 0,
+#                                       styleData.getBgAssetKey());
+#     backingImage.setGraphicSize(0, FlxG.height + 1);      // altura 721
+#     ...
+#     backingImage.x = -backingImage.width;                 // entra da esquerda
+#     FlxTween.tween(backingImage, {x: 0}, 0.7, {ease: quintOut});
+#
+# E o `pinkBack` e' `BitmapUtil.scalePartByWidth(..., CUTOUT_WIDTH)` com
+# `CUTOUT_WIDTH = gameCutoutSize.x / 1.5` = **0** no PS2 (nao ha' recorte de
+# tela de aparelho), entao `pinkBack.width` e' 0 e o `create` sai em x = 0.
+# Com `setGraphicSize(0, 721)` o flixel calcula a largura pela proporcao:
+#
+#     821 x 516  ->  altura 721  ->  largura 821 * 721 / 516 = 1147,11
+#
+# Em 640x360 (metade) isso e' 573,55 x 360, desenhado em (0,0). Nao ha'
+# escolha de posicao a fazer: o x e' 0 e a altura e' a da tela.
+FUNDO = {
+    "fonte": "freeplay/freeplayBGweek1-bf",     # `getBgAssetKey()` do estilo "bf"
+    "fonte_pico": "freeplay/freeplayBGweek1-pico",
+    # `setGraphicSize(0, FlxG.height + 1)`: 720 + 1 na fonte, 360 aqui.
+    "altura_src": 721.0,
+    # 16 bpp (PSMCT16): o fundo ocupa a tela inteira e em 32 bpp seriam 826.560
+    # B -- metade do pool da Freeplay. A regra do projeto e' imagem cede, jogo
+    # nao; o caminho de upload de 16 bpp ja' e' o dos personagens.
+    "bpp": 16,
+}
+
 # `SongMenuItem.update()` L670-700: o salto de entrada anda uma casa por 1/24 s
 # e escala a capsula por `xFrames` (x) e o inverso (y).
 XFRAMES = [1.7, 1.8, 0.85, 0.85, 0.97, 0.97, 1.0]
@@ -251,12 +280,51 @@ def empacotar(assets, out):
             "vram_bytes": im.width * im.height * 4,
         }
 
-    # ---- 3. O DADO -----------------------------------------------------
+    # ---- 3. O FUNDO -----------------------------------------------------
+    fundo_png = os.path.join(base, FUNDO["fonte"] + ".png")
+    dado_fundo = None
+    if not os.path.isfile(fundo_png):
+        problemas.append("freeplay: falta o fundo %s" % fundo_png)
+    else:
+        src = Image.open(fundo_png).convert("RGBA")
+        # `setGraphicSize(0, 721)` -> a altura manda e a largura vem da
+        # proporcao; aqui tudo na metade.
+        esc = (FUNDO["altura_src"] / float(src.height)) * HALF
+        fw = max(1, int(round(src.width * esc)))
+        fh = max(1, int(round(FUNDO["altura_src"] * HALF)))
+        if fw > MAX_TEX or fh > MAX_TEX:
+            problemas.append("freeplay: o fundo %dx%d passa do limite %d"
+                             % (fw, fh, MAX_TEX))
+        else:
+            im = src.resize((fw, fh), Image.LANCZOS)
+            bpp = FUNDO["bpp"]
+            cru = pp.to_ps2_bytes(im, bpp)
+            blocos = [lz4.block.compress(cru, store_size=False)]
+            partes = pp.write_packs(blocos, fw * fh * (bpp // 8),
+                                    os.path.join(out, "fundo.cfz4"))
+            dado_fundo = {
+                "fonte": FUNDO["fonte"],
+                "src_w": src.width, "src_h": src.height,
+                "tex": "freeplay/fundo.cfz4",
+                "partes": [os.path.basename(p[0]) for p in partes],
+                "w": fw, "h": fh,
+                "bpp": bpp,
+                "quadros": 1,
+                "vram_bytes": fw * fh * (bpp // 8),
+                # `backingImage` entra da esquerda: nasce em -width e vai para 0
+                # em 7/10 s com quintOut (`FreeplayState.hx` L529).
+                "x": 0.0, "y": 0.0,
+                "entrada_ms": 700,
+                "linha": "FreeplayState.hx L340, L456, L529 e BackingCard.hx L53-62",
+            }
+
+    # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
     # `capsule.height` do original e' o canvas SEM CORTE (ch), nao o pedaco.
     cap_h_src = ch * CAPSULA["real_scaled"]
     dado = {
         "capsula": dado_capsula,
+        "fundo": dado_fundo,
         "titulos": titulos_out,
         "escala": HALF,
         # `intendedX(index) = 270 + 60*fastSin(index)`; `intendedY(index) =
@@ -313,6 +381,20 @@ def escreve_header(dado):
     a("#define FP_CAP_TEX          \"%s\"    /* %s */"
       % (c["tex"], " + ".join(c["partes"])))
     a("")
+    f = dado.get("fundo")
+    if f:
+        a("/* O FUNDO (`backingImage`): `freeplayBGweek1-bf` a altura da tela")
+        a(" * (720+1 na fonte) e em 16 bpp, desenhado em (0,0). */")
+        a("#define FP_FUNDO_W          %d      /* %dx%d na arte */"
+          % (f["w"], f["src_w"], f["src_h"]))
+        a("#define FP_FUNDO_H          %d" % f["h"])
+        a("#define FP_FUNDO_BPP        %d" % f["bpp"])
+        a("#define FP_FUNDO_VRAM       %du" % f["vram_bytes"])
+        a("#define FP_FUNDO_TEX        \"%s\"" % f["tex"])
+        a("#define FP_FUNDO_ENTRADA_MS %d" % f["entrada_ms"])
+        a("#define FP_FUNDO_X          %.3ff" % f["x"])
+        a("#define FP_FUNDO_Y          %.3ff" % f["y"])
+        a("")
     a("#define FP_X_BASE           %.3ff   /* 270 * 0,5 */" % dado["x_base"])
     a("#define FP_X_AMP            %.3ff   /* 60 * 0,5  */" % dado["x_amp"])
     a("#define FP_Y_BASE           %.3ff   /* 120 * 0,5 */" % dado["y_base"])
@@ -416,6 +498,13 @@ def main():
     escreve_header(dado)
 
     c = dado["capsula"]
+    fundo = dado.get("fundo")
+    if fundo:
+        print("freeplay: fundo %dx%d (%dx%d na arte, %d bpp), %d B"
+              % (fundo["w"], fundo["h"], fundo["src_w"], fundo["src_h"],
+                 fundo["bpp"], fundo["vram_bytes"]))
+    else:
+        print("freeplay: SEM FUNDO (ver os avisos)")
     print("freeplay: capsula %dx%d (%dx%d na arte), %d quadros, %d B por quadro"
           % (c["w"], c["h"], c["src_w"], c["src_h"], c["quadros"], c["vram_bytes"]))
     print("  %d titulos (%.1f px de fonte), o maior %d B"

@@ -116,3 +116,21 @@ const fp_titulo_t *fp_titulo(const char *id)
         if (strcmp(fp_titulos[i].id, id) == 0) return &fp_titulos[i];
     return 0;
 }
+
+float fp_fundo_x(unsigned long desde_ms)
+{
+    /* `FreeplayState.hx` L529-531:
+     *
+     *     backingImage.x = -backingImage.width;
+     *     FlxTween.tween(backingImage, {x: 0}, 0.7, {ease: FlxEase.quintOut});
+     *
+     * `FlxEase.quintOut(t) = 1 - (1 - t)^5`, e o tween e' LINEAR no tempo (sem
+     * `startDelay`): em 700 ms o fundo esta' parado em x = 0. O valor devolvido
+     * e' o x em 640x360 (negativo enquanto entra). */
+    unsigned long dur = (unsigned long)FP_FUNDO_ENTRADA_MS;
+    float t, e;
+    if (!dur || desde_ms >= dur) return FP_FUNDO_X;
+    t = (float)desde_ms / (float)dur;
+    e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t) * (1.0f - t) * (1.0f - t);
+    return FP_FUNDO_X - (float)FP_FUNDO_W * (1.0f - e);
+}

@@ -19,6 +19,17 @@
 #define FP_CAP_VRAM         80784u     /* 80784 B por quadro */
 #define FP_CAP_TEX          "freeplay/capsula.cfz4"    /* capsula.cfz4 */
 
+/* O FUNDO (`backingImage`): `freeplayBGweek1-bf` a altura da tela
+ * (720+1 na fonte) e em 16 bpp, desenhado em (0,0). */
+#define FP_FUNDO_W          574      /* 821x516 na arte */
+#define FP_FUNDO_H          360
+#define FP_FUNDO_BPP        16
+#define FP_FUNDO_VRAM       413280u
+#define FP_FUNDO_TEX        "freeplay/fundo.cfz4"
+#define FP_FUNDO_ENTRADA_MS 700
+#define FP_FUNDO_X          0.000f
+#define FP_FUNDO_Y          0.000f
+
 #define FP_X_BASE           135.000f   /* 270 * 0,5 */
 #define FP_X_AMP            30.000f   /* 60 * 0,5  */
 #define FP_Y_BASE           60.000f   /* 120 * 0,5 */
