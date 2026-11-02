@@ -69,37 +69,39 @@ void save_aplicar(save_t *sv, int musica, int dif, const save_score_t *novo)
 {
     save_score_t *atual;
     int rank_novo, rank_atual;
-    if (!sv || !novo || !indices_ok(musica, dif)) return;
+    if (!sv || !indices_ok(musica, dif)) return;
+    /* `if (newScoreData == null || newRank == null) return;` (L538). Sem rank nao
+     * ha' o que aplicar -- e' o caso de `totalNotes == 0`. */
+    rank_novo = save_rank(novo);
+    if (!novo || !novo->valido || rank_novo < 0) return;
     atual = &sv->s[musica][dif];
-    if (!atual->valido) {
-        /* Save.hx L547-551: sem registro anterior, grava direto. */
+    rank_atual = save_rank(atual);
+    if (!atual->valido || rank_atual < 0) {
+        /* L546-551 (`previousScoreData == null || previousRank == null`):
+         * sem registro anterior, grava direto. */
         *atual = *novo;
         atual->valido = 1;
         sv->sujo = 1;
         return;
     }
-    rank_novo = save_rank(novo);
-    rank_atual = save_rank(atual);
-    /* Save.hx L538-543: o placar e' o MAIOR dos dois; os tallies sao os do
-     * melhor rank e, no empate, os do maior `tallyCompletion`. */
+    /* L552-561, copiado na ordem da fonte:
+     *   score:   o MAIOR dos dois;
+     *   tallies: os ANTERIORES quando
+     *            `previousRank > newRank ||
+     *             tallyCompletion(previous) > tallyCompletion(new)`,
+     *            senao os novos. Isto NAO e' "melhor rank, empate pelo
+     *            completion": rank e completion sao duas condicoes do mesmo
+     *            OU, entao um rank maior com completion menor FICA com os
+     *            tallies anteriores. */
     {
         unsigned int melhor = atual->score > novo->score ? atual->score
                                                          : novo->score;
-        int usa_novo = (rank_atual < 0) || (rank_novo > rank_atual) ||
-                       (rank_novo == rank_atual &&
-                        tally_completion(novo) > tally_completion(atual));
-        save_score_t tmp;
-        if (usa_novo) {
-            tmp = *novo;
-            tmp.score = melhor;
-        } else {
-            tmp = *atual;
-            tmp.score = melhor;
-        }
+        int fica_com_anterior = (rank_atual > rank_novo) ||
+            (tally_completion(atual) > tally_completion(novo));
+        save_score_t tmp = fica_com_anterior ? *atual : *novo;
+        tmp.score = melhor;
         tmp.valido = 1;
-        if (tmp.score != atual->score ||
-            memcmp(&tmp.sick, &atual->sick, sizeof(tmp) - offsetof(save_score_t, sick)) != 0)
-            sv->sujo = 1;
+        if (memcmp(&tmp, atual, sizeof(tmp)) != 0) sv->sujo = 1;
         *atual = tmp;
     }
 }

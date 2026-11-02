@@ -6082,7 +6082,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       vez (`PlayState.hx` L3503-3512): PERGUNTA se o placar e' recorde
       (`Save.isSongHighScore`) e GRAVA o melhor (`Save.applySongRank`). A ordem
       importa -- perguntar depois de gravar daria "recorde" em toda partida.
-      Practice Mode nao conta (`if (!isPracticeMode && !isBotPlayMode)`). */
+      Practice Mode nao conta (`if (!isPracticeMode && !isBotPlayMode)`). O
+      `isBotPlayMode` nao tem porta aqui: na v0.8.6 ele so' liga por
+      `FlxG.keys.pressed.SHIFT` com `FEATURE_DEBUG_FUNCTIONS` (FreeplayState.hx
+      L2818) ou pelo playtest do editor de chart -- nao ha' como o jogador
+      chegar nele, entao o unico caminho real e' o de practice. */
    g_res_hs_novo=0;
    {int mi=g_play_song?sr_song_index(g_play_song):-1;
     if(mi>=0&&mi<SAVE_MUSICAS&&!g_play.practice&&g_play.total_notes>0){

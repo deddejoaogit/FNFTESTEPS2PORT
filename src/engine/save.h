@@ -13,11 +13,15 @@
  *   `engine/gameplay.c` ja' conta durante a musica -- o save nao recalcula
  *   nada, ele guarda.
  *
- *   `isSongHighScore` (Save.hx L568-582): sem registro anterior -> `true`;
+ *   `isSongHighScore` (Save.hx L568-584): sem registro anterior -> `true`;
  *   senao `score > anterior.score`.
- *   `applySongRank` (Save.hx L531-556): sem registro anterior -> grava; senao
- *   grava o MAIOR placar e os tallies do MELHOR rank (ou, no empate de rank, os
- *   do maior `tallyCompletion`).
+ *   `applySongRank` (Save.hx L533-566): sem registro anterior (ou sem rank) ->
+ *   grava direto; senao grava o MAIOR placar e os tallies que a condicao da
+ *   fonte escolhe -- os ANTERIORES quando
+ *   `previousRank > newRank || tallyCompletion(previous) > tallyCompletion(new)`,
+ *   senao os novos. Nao e' "melhor rank, empate pelo completion": sao duas
+ *   condicoes do mesmo OU, e um rank maior com completion menor FICA com os
+ *   tallies anteriores.
  *   O rank sai de `Scoring.calculateRank`, que ja' esta' em `fnf_play_rank`
  *   (mesma formula: SICK em tudo = PERFECT_GOLD, senao o percentual).
  *

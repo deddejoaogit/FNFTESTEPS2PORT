@@ -5,8 +5,10 @@
  *  1. `Save.isSongHighScore` (Save.hx L568-582): sem registro -> verdadeiro
  *     (o original devolve `true`, nao `false`), e depois disso so' um placar
  *     MAIOR conta;
- *  2. `Save.applySongRank` (L531-556): guarda o maior placar e os tallies do
- *     melhor rank; no empate de rank, os do maior `tallyCompletion`;
+ *  2. `Save.applySongRank` (L531-566): guarda o MAIOR placar e os tallies que a
+ *     condicao da fonte escolhe -- os anteriores quando
+ *     `previousRank > newRank || tallyCompletion(previous) > tallyCompletion(new)`,
+ *     senao os novos; e um registro sem rank (totalNotes 0) nao entra;
  *  3. o rank do registro sai de `fnf_play_rank` (a MESMA funcao que julgou a
  *     musica durante o jogo) -- sem formula paralela;
  *  4. o formato: ida e volta exata, e recusa INTEIRA de arquivo curto, com
@@ -108,6 +110,49 @@ int main(void)
         CHECK_EQ(save_obter(&sv, 3, 1)->sick, 34);       /* o rank nao caiu */
         CHECK_EQ(save_rank(save_obter(&sv, 3, 1)), 5);
     }
+    /* ---- 2b. o empate EXATO cai para os tallies NOVOS ---------------- */
+    /* A condicao da fonte (L554-556) e' um OU de duas comparacoes:
+     *   previousRank > newRank  ||  tallyCompletion(previous) > tallyCompletion(new)
+     * Empatados rank E completion, o OU e' falso e o original fica com os
+     * tallies NOVOS -- nao com os anteriores. Os dois registros abaixo tem o
+     * MESMO rank e a MESMA completion (0,80) e tallies diferentes, entao este
+     * caso distingue as duas leituras. */
+    {
+        save_t t;
+        /* completion = (sick + good - missed) / total: as duas linhas dao
+           0,80 por caminhos diferentes. 18 de 20 (e nao 10 de 10) para nao
+           cair no PERFECT_GOLD, que e' `sick == totalNotes`. */
+        save_score_t prev = registro(1000u, 18, 0, 0, 0, 2, 20);  /* 0,80 */
+        save_score_t novo = registro(1000u, 17, 1, 0, 0, 2, 20);  /* 0,80 */
+        save_init(&t);
+        save_aplicar(&t, 5, 2, &prev);
+        CHECK_EQ(save_rank(&prev), 2);
+        CHECK_EQ(save_rank(&novo), 2);
+        save_aplicar(&t, 5, 2, &novo);
+        CHECK_EQ(save_obter(&t, 5, 2)->sick, 17);  /* os NOVOS */
+        CHECK_EQ(save_obter(&t, 5, 2)->good, 1);
+        CHECK_EQ(save_obter(&t, 5, 2)->score, 1000);
+        printf("  empate de rank e de completion: os tallies sao os NOVOS\n");
+    }
+
+    /* ---- 2c. registro novo SEM rank (totalNotes == 0) nao entra ------ */
+    /* `if (newScoreData == null || newRank == null) return;` (L536):
+     * `Scoring.calculateRank` devolve null sem notas, e o applySongRank sai
+     * sem tocar no save -- nem no placar. */
+    {
+        save_t t;
+        save_score_t prev = registro(1000u, 8, 0, 0, 0, 2, 10);
+        save_score_t vazio = registro(999999u, 0, 0, 0, 0, 0, 0);
+        save_init(&t);
+        save_aplicar(&t, 6, 0, &prev);
+        t.sujo = 0;
+        save_aplicar(&t, 6, 0, &vazio);
+        CHECK_EQ(save_obter(&t, 6, 0)->score, 1000);
+        CHECK(!t.sujo);
+        CHECK_EQ(save_rank(&vazio), -1);
+        printf("  registro sem notas (rank null) nao entra no save\n");
+    }
+
     printf("  placar pior + rank melhor: guarda o maior placar e o melhor"
            " rank\n");
 
