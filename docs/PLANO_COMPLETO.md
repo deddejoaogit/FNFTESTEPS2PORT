@@ -3145,6 +3145,49 @@ erro. O evento `gameover_sem_audio` — que declarava "esta tela não tem som" �
   foi desenhado (e o sweep reprovava por isso). Agora ele sai também a cada 300
   quadros de gameplay, e os harnesses leem o **último** valor.
 
+## Próximo passo planejado: a CINEMÁTICA DE RANK da Freeplay (planejado, medido)
+
+Quando o jogador termina uma música e volta para a Freeplay com um rank **novo**,
+o original não entra direto na lista: roda `rankAnimStart` (`FreeplayState.hx`
+L1069-1145), `rankDisplayNew` (L1147-1225) e `rankAnimSlam` (L1230-1292), com o
+`fadeAnim` da cápsula (`SongMenuItem.hx` L400-437). O port hoje faz só o
+`dj.fistPumpIntro()` e entra na lista. É a última peça de interface que falta, e
+o que ela precisa está **todo medido**:
+
+| elemento | fonte | número medido |
+|---|---|---|
+| `rankBg` | L480-482 | cor sólida `0xD3000000`, tela inteira (sem textura), alpha 1 → 0 em 0,5 s `expoIn` (L1230) |
+| `rankCamera` | L324, L1131-1132 | zoom 1,85 → 1,8 em 0,6 s `sineIn`; **+0,1 s**: 1,3 → 1,5 em 0,3 s `backInOut`; **+0,4 s**: → 1,2 em 0,8 s `backIn`; **slam+0,5**: 0,8 → 1 em 1 s `elasticOut` |
+| `funnyCam` | L325, L1134-1135 | 1,15 → 1,1 em 0,6 s `sineIn`; +0,1 s: → 1,05 em 0,3 s `elasticOut`; +0,4 s: → 1 em 0,8 s `sineIn`; slam+0,5: `shake(0,0045; 0,35)` e 0,8 → 1 em 0,8 s `elasticOut` |
+| `fakeRanking`/`fakeBlurredRanking` | L1081-1082, L1091-1093, L1180-1181 | mostram o rank ANTIGO (alpha 1 só quando `oldRank != null`) e somem em +0,1 s |
+| `sparks` | L1096-1104 | Sparrow `freeplay/sparks`, **5 quadros** (o maior 522×361 na folha 2048×1024), escala 0,5, `BlendMode.ADD`, pos (517, 134), toca uma vez |
+| `sparksADD` | L1106-1115 | Sparrow `freeplay/sparksadd`, **5 quadros** (maior 556×395), escala 0,5, ADD, pos (498, 116), cor = `oldRank.getRankingFreeplayColor()` |
+| `rankVignette` | L332, L809-814, L1280 | imagem 640×360 escalada 2×, ADD, alpha 0 → 1 → 0 em 0,6 s `expoOut`, cor = a do trail |
+| `fadeAnim` | `SongMenuItem.hx` L400-437 | `impactThing` = o quadro da cápsula, escala → 2,5 em 0,5 s; `FlxTrail` (15 amostras, 0,03/0,01/0,069) ADD, alpha → 0 em 0,6 s `quadOut` |
+| cápsula | L1137-1144, L1183-1215, L1262-1264 | `ranking.scale` 20 → 0,9 em 0,1 s; x−10, y−20; `angle` −3 → 0 em 0,5 s `backOut`; `IntervalShake` 0,3 s a 1/30; tween para (orig−7, orig−80) em 1,3 s `quartIn`; e `targetPos` de volta em 0,5 s `expoOut` |
+| sons | L1190-1197, L1232-1246 | `ranks/rankinbad` \| `rankinperfect` \| `rankinnormal` em +0,1 s (pelo rank novo); `ranks/loss|good|great|excellent|perfect` no slam |
+| DJ | L1084, L1251 | `fistPumpLossIntro`/`fistPumpIntro` no começo; `fistPump`/`fistPumpLoss` no slam |
+| ordem dos timers | L1146, L1176, L1219, L1223 | 0,5 s → `rankDisplayNew`; dentro dele +0,1 s e +0,4 s; +0,6 s → `rankAnimSlam`; dentro dele +0,5 s |
+
+Dado que falta **não é arte nem som**: os dois Sparrows, a vinheta, o
+`sparkle` (256×256, 10 quadros) e os 5 `.ogg` de `preload/sounds/ranks/` estão
+todos no clone. O que falta é o **encanamento** de três coisas:
+
+1. os parâmetros que o Resultado passa para a Freeplay —
+   `fromResults {songId, difficultyId, oldRank, newRank, playRankAnim}`
+   (`ResultState.hx` → `FreeplayState` L287-288, L367, L780-782). O port já lê o
+   save depois de gravar; o `oldRank` tem de ser capturado **antes** da gravação;
+2. a pilha de easeings que o port não tem (`backIn`, `backOut`, `backInOut`,
+   `elasticOut`, `expoIn/Out`, `quartIn`, `sineIn`) — todas do `FlxEase`, com
+   fórmula fechada, sem estado;
+3. as duas câmeras (`rankCamera`/`funnyCam`) desenhando a MESMA cena com zooms
+   diferentes em volta da cápsula — no port o desenho é um passe só, então isto é
+   uma mudança no caminho de desenho da Freeplay, não um sprite novo.
+
+Ordem de implementação sugerida, uma causa por build: (a) `fromResults` + o
+`rankBg` + as duas câmeras sem zoom; (b) os zooms e os easeings; (c) `sparks`,
+`sparksADD`, `rankVignette` e o `fadeAnim`; (d) os sons.
+
 ## O que ainda falta, com o motivo medido (estado nesta build)
 
 Tudo o que está abaixo é **dado ausente ou espaço de VRAM**, não lógica que
