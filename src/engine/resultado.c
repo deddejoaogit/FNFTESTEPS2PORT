@@ -182,7 +182,18 @@ int res_hs_quadro(unsigned long ms, unsigned int inicio_ms)
     primeiro = RES_HS_LOOP;
     if (primeiro >= RES_HS_QUADROS) return (int)(RES_HS_QUADROS - 1u);
     /* Depois da primeira passada, `play("new", true, false, 16)`: recomeca no
-     * quadro 16 e vai ate' o fim, para sempre. */
+     * quadro 16 e vai ate' o fim, para sempre.
+     *
+     * POR QUE E' 16..28 E NAO 0..28 (conferido no flixel do projeto,
+     * FunkinCrew/flixel 141f23c4):
+     *   `addByPrefix("new", "highscoreAnim0", 24, false)` cria a animacao com
+     *   `looped = false`, e `FlxAnimation.play(Force, Reversed, Frame)` NAO muda
+     *   `looped` nem `loopPoint` -- o 3o argumento e' so' o quadro inicial. Ou
+     *   seja: a primeira passada (0..28) termina, dispara `onFinish`; o
+     *   `onFinish` faz `play(..., 16)`, que roda 16..28 e termina DE NOVO,
+     *   disparando o mesmo `onFinish`. O ciclo 16..28 e' essa corrente, nao um
+     *   `looped` do flixel (se fosse `looped` de verdade, o `loopPoint` 0 faria
+     *   voltar ao quadro 0). */
     return (int)(primeiro + (unsigned int)((k - (unsigned long)RES_HS_QUADROS) %
                 (unsigned long)(RES_HS_QUADROS - primeiro)));
 #else

@@ -3179,9 +3179,22 @@ ausente e o selo nunca aparecia. Agora:
 * **O selo** (`highscoreNew`) entrou como arte: Sparrow de **29 quadros** a
   24 fps, canvas de 844x99 no original -> **422x50 a 16 bpp = 42.200 B** de
   VRAM (cabe nos 175.616 B que sobram no pior rank). Ele entra no
-  `rank.getHighscoreDelay()` (8625 ms no SHIT, 5375 no GREAT, ...) e, depois da
-  primeira passada, repete do quadro 16 (`play("new", true, false, 16)`), como
-  a fonte. zIndex 1200: e' o ultimo grupo da tela.
+  `rank.getHighscoreDelay()` (8625 ms no SHIT, 5292 no GOOD, 5375 no GREAT,
+  5833 no EXCELLENT/PERFECT -- `Scoring.hx` L587-604: 207, 127, 129 e 140 /24) e,
+  depois da primeira passada, repete do quadro 16. O porque do 16..28, conferido
+  no flixel do projeto (`FunkinCrew/flixel` 141f23c4): `addByPrefix(..., 24,
+  false)` deixa `looped = false` e `FlxAnimation.play(Force, Reversed, Frame)`
+  nao mexe em `looped` nem em `loopPoint` -- o terceiro argumento e' so' o quadro
+  inicial. Entao a passada 0..28 termina, dispara `onFinish`, o `onFinish` faz
+  `play(..., 16)`, essa roda 16..28 e termina de novo, disparando o mesmo
+  `onFinish`. O ciclo e' essa corrente, nao um `looped` do flixel (com `looped`
+  de verdade o `loopPoint` 0 faria voltar ao quadro 0). zIndex 1200: e' o
+  ultimo grupo da tela.
+
+  Obtido por medicao, nao por leitura do XML: o canvas de cada quadro do
+  `highscoreNew` **nao** e' uniforme -- o primeiro tem `frameY = -25`, e o
+  empacotador une os 29 num canvas unico de 844x99 e reescreve os offsets. Sem
+  isso o selo "pula" ao longo da animacao.
 
 Medido no harness (sem cartao, entao save vazio): `save_estado,0,-1`,
 `save_resultado,1,1` (musica 0/dificuldade 1, e' recorde), `resultado_highscore,1,5375`
