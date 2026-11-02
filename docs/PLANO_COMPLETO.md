@@ -3083,15 +3083,15 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| Animacao do personagem por rank | `players/{bf,pico}.json` -> `results[rank]`: animacoes Animate/Sparrow com `delay`, `loopFrame`, `scale`, `sound` | leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
 | `highscoreNew` (o selo de recorde) | **e' do jogo, mas o DADO nao existe**: `ResultState.hx` L415-426 so' o desenha se `params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)` | o port nao tem save nenhum (nem memory card), entao o valor e' dado ausente: o desenho NAO acontece (e' o `else` da fonte) e o caso vai para o log |
-| leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
-| `highscoreNew` | 524.928 B a 0,5, 75x a sobra do orcamento | degradacao severa ou liberar outra peca |
 
 #### A tela de Resultado: a arte entrou
 
 `ResultState.hx` (v0.8.6) monta a cena com folhas Sparrow animadas. Tres delas
-estao empacotadas e desenhadas (ver abaixo); as demais seguem medidas na tabela.
+sao as folhas do `resultsAnim`/`ratingsPopin`/`scorePopin` e estao empacotadas e
+desenhadas (ver abaixo); o resto da cena -- placar, percentual, contadores, barra
+do topo, nome da musica, a arte do rank e as animacoes do personagem por rank --
+entrou depois, e cada um tem a sua secao com o custo e o instante medidos.
 
 O que roda hoje (`tools/run_gameplay_harness.sh`, 5600 quadros):
 `resultado_arte` = 3 folhas abertas, `resultado_fundo` = 1, e as folhas entram
@@ -3138,6 +3138,57 @@ vertical (250 ms alternando a cada 83 ms) e as 12 linhas horizontais em
 `y = 60 + 67,5*i` com `vel.x = -/+3,5` e espaco de 5 px tambem sao os da
 fonte, com as formulas isoladas em `engine/resultado.c` (funcoes puras, com a
 linha do original no comentario) e testadas em `test/test_resultado.c`.
+
+#### A tela de Resultado: o PERSONAGEM DO RANK se move
+
+O que faltava depois do rank em si: as animacoes do proprio personagem por rank
+(`ResultState.hx` L201-330 monta, L704-740 dispara). Cada rank tem uma ou duas
+entradas em `players/<dono>.json` -> `results[rank]`, com `zIndex` 499..501,
+`delay`, `startFrameLabel`, `loopFrameLabel` ou `loopFrame`, e uma escala e um
+posicao que vem do JSON. O empacotador (`tools/empacotar_resultado_rank.py`)
+resolve o `scriptClass` lendo o `.hxc` de `preload/scripts/players/results/bf/`,
+descarta o filtro `safe` (o jogo usa `naughtyness = true`) e escreve um CFZ4 por
+entrada. Numeros MEDIDOS do empacotamento (16 bpp):
+
+| rank | VRAM | entradas |
+|---|---|---|
+| PERFECT_GOLD / PERFECT | 194.744 B | 300x319/149q (`bed`) + 44x38/116q (`hearts`) |
+| EXCELLENT | 308.320 B | 376x410/260q |
+| GREAT | 122.240 B | 144x170/44q (`gf`) + 229x160/39q (`bf`) |
+| GOOD | 224.540 B | 328x262/74q (`bf`) + 126x209/52q (`gf`) |
+| SHIT | 271.440 B | 360x377/319q (`resultsSHIT`) |
+
+O `PERFECT` e o `PERFECT_GOLD` usam a MESMA arte, e o empacotador reaproveita o
+pacote (nao ha' dois arquivos iguais no pendrive). O `SHIT` cru dava **374.778
+B** e NAO cabia nos 350.208 B livres (depois de o atlas do placar ir para 16
+bpp): o empacotador degrada em passos de 0,85 **so' o pacote**, nunca o tamanho
+na tela -- `escala_na_tela = w * escala_JSON * 0,5/s_pack` -- e a escala que
+sobrou (1,177) mantem os 423 px de largura do original.
+
+No binario, `engine/resultado_rank.c` guarda a regra do tempo como funcao pura
+(`res_rr_quadro`): invisivel antes de `getBFDelay() + delay`, comeca no rotulo
+inicial, recomeca no rotulo/quadro do loop com periodo `quadros - loop_ini` e,
+sem loop, PARA no ultimo quadro. O pacote e' lido pelo `pack_multi` (tabela na
+RAM, um bloco do pendrive por quadro) e so' sobe para a VRAM quando o quadro
+MUDA.
+
+Provado no harness com os seis ranks forcados (`FNF_RANK`):
+
+```
+rank 0 SHIT          entradas=1 VRAM=271440 livre=217856  entra em 3967 ms
+rank 1 GOOD          entradas=2 VRAM=224540 livre=264704  3967 / 4884 ms
+rank 2 GREAT         entradas=2 VRAM=122240 livre=358912  4217 / 3967 ms
+rank 3 EXCELLENT     entradas=1 VRAM=308320 livre=139520  4051 ms
+rank 4 PERFECT       entradas=2 VRAM=194744 livre=269824  3967 / 8384 ms
+rank 5 PERFECT_GOLD  entradas=2 VRAM=194744 livre=269824  3967 / 8384 ms
+```
+
+Os instantes batem com o plano (3958 / 4208 / 4868 / 8368 ms) dentro de dois
+quadros de video -- e' o `getBFDelay()` do rank mais o `delay` da entrada, que
+e' como o `hearts` do PERFECT entra 4,41 s depois do `bed`. O harness cobra
+entrada a entrada (`resultado_rrf_entra`) e cobra que o pior rank caiba nos
+350.208 B; `test/test_resultado_rank.c` prova as quatro regras de tempo no PC,
+sem console.
 
 #### A tela de Resultado: o PLACAR entrou (os digitos do original)
 

@@ -34,9 +34,15 @@ def dec_alpha(src, pixels):
         else: return -4
     return 0 if (si==len(src) and di==pixels) else -5
 
-def dec_lz4(src, dst_size):
+def dec_lz4(src, dst_size, dst=None):
+    """Descomprime em `dst` (ou num buffer novo). Devolve 0 ou um erro negativo.
+
+    O `dst` opcional existe para quem precisa LER o resultado (a conferencia das
+    animacoes do personagem por rank compara o primeiro byte de cada quadro).
+    """
     ip=0; iend=len(src); op=0
-    dst=bytearray(dst_size)
+    if dst is None:
+        dst=bytearray(dst_size)
     while ip<iend:
         token=src[ip]; ip+=1
         lit=token>>4
@@ -125,17 +131,77 @@ for _a, _w, _h in g.resultado_ranks():
     nrank += 1
 ok &= (nrank >= 10)
 
+# A ANIMACAO DO PERSONAGEM POR RANK: um CFZ4 por entrada do plano, com o numero
+# de quadros e o bytes-por-quadro do plano (o jogo RECUSA o pacote se a contagem
+# nao bater). De quebra, o prefixo sintetico muda por quadro, entao o primeiro
+# byte de cada quadro decodificado tem de mudar -- e' o que prova que o quadro
+# lido e' o pedido, e nao o primeiro.
+def marcas_do_pacote(pk, cnt, fbytes):
+    tab = pk[16:16 + cnt * 8]
+    vistas = set()
+    for i in range(cnt):
+        off, size = struct.unpack("<II", tab[i * 8:i * 8 + 8])
+        d = bytearray(fbytes)
+        if dec_lz4(pk[off:off + size], fbytes, d) != 0:
+            return False
+        vistas.add(bytes(d[:4]))
+    return len(vistas) > 1
+
+_plano_rank = None
+_rp = "assets-data/resultado-rank-plan.json"
+import json as _json
+if __import__("os").path.isfile(_rp):
+    _plano_rank = _json.load(open(_rp, encoding="utf-8"))
+nrk = 0
+if _plano_rank:
+    _arquivos = g._resultado_rank_files()
+    _vistos_arq = set()
+    for _r in _plano_rank.get("ranks", []):
+        for _e in _r.get("entradas", []):
+            _parts = _e.get("partes") or [{"arquivo": _e["arquivo"]}]
+            _fbytes = _e["w"] * _e["h"] * (_e["psm"] // 8)
+            _tot = 0
+            _bom = True
+            for _pt in _parts:
+                _pk = _arquivos.get("resultado/" + _pt["arquivo"])
+                if not _pk:
+                    _bom = False
+                    continue
+                _ver, _cnt, _fb = struct.unpack("<III", _pk[4:16])
+                _tot += _cnt
+                _bom &= (_pk[:4] == b"CFZ4" and _ver == 1 and _fb == _fbytes
+                         and marcas_do_pacote(_pk, _cnt, _fb))
+            if _e["arquivo"] in _vistos_arq:
+                # O PERFECT reusa o pacote do PERFECT_GOLD: nao ha' arquivo novo.
+                continue
+            _vistos_arq.add(_e["arquivo"])
+            print(f"  RESULTADO   {_e['arquivo']:36s} {_e['w']}x{_e['h']} "
+                  f"quadros={_tot} frame_bytes={_fbytes} integro={bool(_bom)}")
+            ok &= (bool(_bom) and _tot == _e["quadros"])
+            nrk += 1
+ok &= (nrk >= 8)
+
 # O atlas do PLACAR: 52 quadros, o tamanho do plano, e cada um pintado na sua
 # celula (so' o quadro desenhado tem pixel).
 _rs = g.resultado_score()
 if _rs:
-    _a, _w, _h, _fr = _rs
-    _at = g.make_score_atlas(_w, _h, _fr)
-    _pintados = sum(1 for i in range(3, len(_at), 4) if _at[i])
+    # O PLANO diz a PROFUNDIDADE do atlas (`bpp`): o placar foi para 16 bpp
+    # para liberar 254.240 B de VRAM, entao o tamanho esperado e' w*h*bpp/8 --
+    # conferir com o 4 fixo daria "erro" num atlas que esta' certo.
+    _a, _w, _h, _fr, _bpp = _rs
+    _at = g.make_score_atlas(_w, _h, _fr, _bpp)
+    # EM 16 BPP NAO HA' ALFA NO BYTE 3: o pixel e' uma palavra de 16 bits
+    # (RGB555 + 1 bit de alfa). Contar o byte 3 daria um numero sem sentido, e
+    # foi o que aconteceu quando o atlas foi para 16 bpp. O que se conta aqui e'
+    # a palavra diferente de zero, que e' "tem cor" nos dois formatos.
+    if _bpp == 16:
+        _pintados = sum(1 for i in range(0, len(_at), 2) if _at[i] or _at[i + 1])
+    else:
+        _pintados = sum(1 for i in range(3, len(_at), 4) if _at[i])
     _cel = sum(f["aw"] * f["ah"] for f in _fr)
     print(f"  RESULTADO   {_a:22s} {_w}x{_h} arquivo={len(_at):>9,} "
-          f"quadros={len(_fr)} pintados={_pintados} (celulas={_cel})")
-    ok &= (len(_at) == _w * _h * 4 and len(_fr) == 52 and _pintados == _cel
+          f"quadros={len(_fr)} bpp={_bpp} pintados={_pintados} (celulas={_cel})")
+    ok &= (len(_at) == _w * _h * (_bpp // 8) and len(_fr) == 52 and _pintados == _cel
            and all(0 <= f["ax"] and f["ax"] + f["aw"] <= _w and
                    0 <= f["ay"] and f["ay"] + f["ah"] <= _h for f in _fr))
 else:
