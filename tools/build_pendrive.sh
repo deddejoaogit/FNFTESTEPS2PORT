@@ -112,8 +112,20 @@ fi
 FP_SRC=${FP_SRC:-build/packs/freeplay}
 if [ -d "$FP_SRC" ]; then
     mkdir -p "$OUT/FNFPS2/assets/freeplay"
-    cp "$FP_SRC"/* "$OUT/FNFPS2/assets/freeplay/"
-    echo "   freeplay/: $(ls "$FP_SRC" | wc -l) arquivo(s), $(cat "$FP_SRC"/* | wc -c) bytes"
+    # O `.chp4` do DJ NAO vai para o pendrive: ele e' o mesmo pacote MAIS a
+    # tabela de animacoes, e o jogo le' a tabela do `src/engine/freeplay_dj_dados.h`
+    # (gerado pelo mesmo empacotador, dos mesmos grupos) e os quadros das PARTES
+    # `dj_*.cfz4`. Copiar o `.chp4` seria 12,6 MB de dado morto no pendrive.
+    FPB=0
+    for f in "$FP_SRC"/*; do
+        [ -f "$f" ] || continue
+        case "$(basename "$f")" in
+            dj_*.chp4) continue ;;
+        esac
+        cp "$f" "$OUT/FNFPS2/assets/freeplay/"
+        FPB=$((FPB + $(wc -c < "$f")))
+    done
+    echo "   freeplay/: $(ls "$OUT/FNFPS2/assets/freeplay" | wc -l) arquivo(s), $FPB bytes (sem o .chp4 do DJ)"
 else
     echo "   AVISO: $FP_SRC nao existe -- rode tools/empacotar_freeplay.py e" >&2
     echo "          tools/empacotar_freeplay_dj.py (a Freeplay fica so' com texto)" >&2

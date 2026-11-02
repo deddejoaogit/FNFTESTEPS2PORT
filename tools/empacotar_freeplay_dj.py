@@ -201,6 +201,11 @@ def empacotar(assets, dono, escala, bpp, out):
         if faltando else []
 
     os.makedirs(out, exist_ok=True)
+    # ORFAOS: um pacote antigo com outro nome de parte (era `dj_bf.chp4.part1`)
+    # ficaria na pasta e iria para o pendrive para sempre, sem ninguem abrir.
+    import glob
+    for velho in glob.glob(os.path.join(out, "dj_%s.*" % dono)):
+        os.remove(velho)
     # O `--pack` escreve as PARTES em CFZ4 (que e' o que `pm_abrir`/`pst_abrir`
     # leem no console) e, ao lado, um CHP4 com a mesma coisa mais a tabela.
     # Os dois NAO podem ter o mesmo nome: antes o CHP4 era escrito por cima da
@@ -208,8 +213,12 @@ def empacotar(assets, dono, escala, bpp, out):
     # lugar do "CFZ4" -- `pm_abrir` o recusaria e o DJ nunca apareceria no
     # console. Os nomes agora sao distintos e as partes sao CONFERIDAS.
     destino = os.path.join(out, "dj_%s.cfz4" % dono)
+    # `--char-dir`: o JSON do DJ nao mora em `assets-data/characters/` (aquele
+    # diretorio e' a lista de personagens do jogo), e sem isto o
+    # `achatar_animate` procura o arquivo la' e estoura com FileNotFoundError.
     cmd = [sys.executable, os.path.join(HERE, "achatar_animate.py"),
-           "--assets", assets, "--character", "freeplay-dj-%s" % dono,
+           "--assets", assets, "--char-dir", CHARS,
+           "--character", "freeplay-dj-%s" % dono,
            "--pack", destino, "--scale", str(escala), "--bpp", str(bpp)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     sys.stdout.write(r.stdout)

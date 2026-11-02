@@ -19,8 +19,8 @@
 #define FP_DJ_Y          0.000f
 /* Os arquivos do pacote, na ordem: `write_packs` corta em 8 MB. */
 static const char *const fp_dj_partes[FP_DJ_PARTES_N] = {
-    "dj_bf.chp4",
-    "dj_bf.chp4.part1",
+    "dj_bf.cfz4",
+    "dj_bf.cfz4.part1",
 };
 
 /* As janelas do `fistPump` do `players/<dono>.json`: `fistPumpIntro`

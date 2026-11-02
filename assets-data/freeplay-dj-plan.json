@@ -12,6 +12,16 @@
  "x": 0.0,
  "y": 0.0,
  "useAnimatePosition": true,
+ "partes": [
+  {
+   "arquivo": "dj_bf.cfz4",
+   "bytes": 8372398
+  },
+  {
+   "arquivo": "dj_bf.cfz4.part1",
+   "bytes": 4278906
+  }
+ ],
  "anims": [
   {
    "nome": "intro",
@@ -87,15 +97,5 @@
   "loopBadStartFrame": 4,
   "loopBadEndFrame": -1
  },
- "linha": "FreeplayState.hx L421-423; BaseFreeplayDJ.hx L232-246; AnimateAtlasFreeplayDJ.hx L62-140",
- "partes": [
-  {
-   "arquivo": "dj_bf.chp4",
-   "bytes": 12651668
-  },
-  {
-   "arquivo": "dj_bf.chp4.part1",
-   "bytes": 4278906
-  }
- ]
+ "linha": "FreeplayState.hx L421-423; BaseFreeplayDJ.hx L232-246; AnimateAtlasFreeplayDJ.hx L62-140"
 }
