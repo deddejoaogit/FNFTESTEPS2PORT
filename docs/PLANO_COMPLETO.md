@@ -4269,3 +4269,26 @@ estes números.
   `favoriteSong()`. Os dois sons vêm junto com a função, não antes dela.
 - os sons do menu de **opções** (`OffsetMenu.hx` L418/L422): a tela de ajustes do
   port é um stub sem lista de itens, então não há evento para somar.
+
+## Próximo passo planejado: o `sparkle` do selo PERFECT_GOLD (medido antes do código)
+
+O efeito que falta na cápsula da Freeplay é o único que a fonte liga **só** para
+o rank `PERFECT_GOLD` — não é um brilho genérico:
+
+| peça | fonte | medido |
+|---|---|---|
+| atlas | `Paths.getSparrowAtlas('freeplay/sparkle')`, `SongMenuItem.hx` L157 | `preload/images/freeplay/sparkle.png` + `.xml`: **10 quadros**, `sparkle Export0000..0009` |
+| tamanhos | o mesmo `.xml` | 31×31, 47×47, 59×59, 63×63, 64×63 — o último quadro é **1×1** (vazio) |
+| animação | `addByPrefix('sparkle', 'sparkle Export0', 24, false)` L158 | 24 fps, **sem laço**: 9 quadros úteis = 0,375 s |
+| desenho | L160-164 | `scale 0,8`, `blend = ADD`, `alpha = 0,7` |
+| quando aparece | `updateScoringRank` L493-504 | só com `newRank == PERFECT_GOLD`: `sparkle.visible = true` e o primeiro `sparkleEffect` em **1 s** |
+| posição | `sparkleEffect` L230 | `x = ranking.x - 20 .. +3`, `y = ranking.y - 29 .. +4` (aleatório), a cada **1,2 a 4,5 s** |
+| durante a cinemática | `FreeplayState.hx` L1073 e L1291 | `alpha = 0` no começo do `rankAnimStart` e `0,7` no fim do tremor |
+
+Custo estimado de VRAM: os 10 quadros somam ~28 mil pixels; a 16 bpp, **~56 KB**
+para todos de uma vez (o pool da Freeplay tem 1,2 MB livres), e a posição/timer
+são função do tempo, então cabem em `engine/freeplay.c` como função pura com o
+teste no PC. O `favHeart` (`favHeart.png/.xml`, 1 quadro) e a função de
+**favorito** (L208-218, L3084-3130: `toggleFavorite`, dois sons, o tween de
+±5 px em 0,1 s e o campo no save) são o passo seguinte, e dependem de um campo
+novo no save — por isso não entram junto com o `sparkle`.
