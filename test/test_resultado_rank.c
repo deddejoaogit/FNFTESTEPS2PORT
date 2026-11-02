@@ -137,6 +137,29 @@ int main(void)
             if (soma > pior) pior = soma;
         }
     }
+    /* O TIMER DO SELO DE RECORDE (`getHighscoreDelay`, Scoring.hx L587-604):
+     * 140/24 s no PERFECT/PERFECT_GOLD/EXCELLENT, 129/24 no GREAT, 127/24 no
+     * GOOD e 207/24 no SHIT. Em ms inteiros, truncando como o resto da tela.
+     * O SELO nao e' desenhado (o dado que ele testa e' ausente no port), mas o
+     * timer tem de existir e ter o valor da fonte -- e' o que o harness cobra
+     * no evento `resultado_highscore`. */
+    {
+        static const struct { int rank; unsigned int ms; } hs[] = {
+            { 0, 8625u }, { 1, 5292u }, { 2, 5375u }, { 3, 5833u },
+            { 4, 5833u }, { 5, 5833u },
+        };
+        int k;
+        for (k = 0; k < 6; k++) {
+            int idx = res_rr_indice(hs[k].rank);
+            CHECK(idx >= 0);
+            if (idx < 0) continue;
+            CHECK_EQ(res_rr_highscore_ms(idx), hs[k].ms);
+        }
+        CHECK_EQ(res_rr_highscore_ms(-1), 0);
+        CHECK_EQ(res_rr_highscore_ms(RES_RR_RANKS), 0);
+        printf("  timer do selo de recorde: 8625/5292/5375/5833 ms, conforme"
+               " Scoring.hx\n");
+    }
     printf("  pior rank: %u B de VRAM contra %u B medidos livres na tela\n",
            pior, VRAM_LIVRE);
     CHECK(pior > 0);

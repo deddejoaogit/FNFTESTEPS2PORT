@@ -332,6 +332,7 @@ static int g_res_rrf_rank=-1;
 static int g_res_rrf_desenho=-1;            /* mascara do ultimo conjunto    */
 static int g_res_rrf_logado=0;
 static int g_res_rrf_visto=0;              /* mascara: entrada ja' apareceu  */
+static int g_res_hs_logado=0;              /* o timer do selo de recorde     */
 static unsigned int g_res_rrf_ram=0;
 /* O PLACAR: os 52 quadros dos dez digitos num UNICO atlas (os dez aparecem ao
    mesmo tempo e durante o shuffle qualquer valor pode estar em qualquer
@@ -7280,6 +7281,21 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      }
      if(!g_res_cp_small_logado){g_res_cp_small_logado=1;
       telemetry_event("resultado_clear_small",pct,(int)(sx*10.0f));}
+    }
+    /* O SELO DE RECORDE (`highscoreNew`, zIndex 1200 -- ResultState.hx L409-427).
+       O TIMER e' real: `rank.getHighscoreDelay()` depois da abertura da tela. O
+       que NAO existe e' o dado que ele testa, `params.isNewHighscore`, que vem
+       de `Save.instance.isNewHighscore(...)` -- e o port nao tem save (nem
+       memory card). Entao o caminho tomado e' o `else` da fonte: o selo fica
+       invisivel. Isso e' DADO AUSENTE, nao decisao de projeto, e por isso sai
+       no log com o instante do timer: `resultado_highscore,0,<ms>`. Um dia, com
+       save, o primeiro campo vira 1 e o desenho entra no mesmo lugar. */
+    if(g_res_rrf_ok&&!g_res_hs_logado){
+     unsigned int hs=res_rr_highscore_ms(g_res_rrf_rank);
+     if(hs&&(unsigned long)g_res_ms>=hs){
+      g_res_hs_logado=1;
+      telemetry_event("resultado_highscore",0,(int)hs);
+     }
     }
     /* AS ANIMACOES DO PERSONAGEM DO RANK (zIndex 499..501). Entram entre os
        percentuais (450) e a faixa vertical (990) -- a ordem das `zIndex` do

@@ -212,6 +212,12 @@ rrf_entra() {
 RESRRF0=$(rrf_entra 0)
 RESRRF1=$(rrf_entra 1)
 RESRRFDES=$(awk -F, '$1=="E" && $3=="resultado_rrf_desenho" {v=$4} END{print v}' "$LOG")
+# O SELO DE RECORDE (`highscoreNew`): o VALOR nao existe -- o port nao tem save,
+# entao `params.isNewHighscore` e' dado ausente e o selo fica invisivel (o `else`
+# da fonte). O que se cobra aqui e' o TIMER: `rank.getHighscoreDelay()` depois da
+# abertura da tela (Scoring.hx L587-604), e o log dizendo que nao desenhou.
+RESHS=$(awk -F, '$1=="E" && $3=="resultado_highscore" {print $4; exit}' "$LOG")
+RESHSMS=$(awk -F, '$1=="E" && $3=="resultado_highscore" {print $5; exit}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
 CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
@@ -241,6 +247,7 @@ echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (e
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 echo "  personagem do rank .......... entradas=${RESRRF:-?} VRAM=${RESRRFVRAM:-?} B (livre depois=${RESRRLIVRE:-?} B) desenhadas=${RESRRFDES:-?}"
 echo "  personagem do rank: entrada 0 em ${RESRRF0:-?} ms, entrada 1 em ${RESRRF1:-?} ms (so' nos ranks de duas)"
+echo "  selo de recorde ............. desenhado=${RESHS:-?} no timer de ${RESHSMS:-?} ms (dado ausente: sem save)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
@@ -375,6 +382,21 @@ if [ "$ESP_RRF_N" = 2 ]; then
 fi
 [ "${RESRRFDES:-0}" = "$ESP_RRF_N" ] || {
     echo "  FALHA: desenhou ${RESRRFDES:-0} entrada(s) do rank e o rank tem $ESP_RRF_N"; FALHA=1; }
+
+# O SELO DE RECORDE. Nao se cobra o DESENHO (o dado nao existe no port: sem
+# save nao ha' "e' recorde?"), cobra-se o TIMER certo e o log declarando o caso:
+#   PERFECT/PERFECT_GOLD/EXCELLENT 140/24 = 5833 ms, GREAT 129/24 = 5375,
+#   GOOD 127/24 = 5292, SHIT 207/24 = 8625.
+case "$ESP_RANK_ANIM" in
+    0) ESP_HS=8625 ;;  1) ESP_HS=5292 ;;  2) ESP_HS=5375 ;;
+    3) ESP_HS=5833 ;;  *) ESP_HS=5833 ;;
+esac
+if [ -z "${RESHS:-}" ]; then
+    echo "  FALHA: o timer do selo de recorde nunca disparou (esperado em $ESP_HS ms)"; FALHA=1
+else
+    [ "$RESHS" = 0 ] || { echo "  FALHA: o selo de recorde foi desenhado ($RESHS) e o port nao tem save"; FALHA=1; }
+    [ "$RESHSMS" = "$ESP_HS" ] || { echo "  FALHA: o timer do selo e' $RESHSMS ms e a fonte diz $ESP_HS ms"; FALHA=1; }
+fi
 
 # ARTE DO RANK. Tres exigencias:
 #   * o par carregou (sem ele o rank fica so' no texto);

@@ -41,6 +41,7 @@ typedef struct {
 typedef struct {
     const char         *rank;
     unsigned char       n;
+    unsigned short      highscore_ms;  /* getHighscoreDelay() */
     const res_rr_entrada_t *entradas;
 } res_rr_rank_t;
 
@@ -170,13 +171,17 @@ static const res_rr_entrada_t res_rr_entradas_SHIT[1] = {
       res_rr_anims_SHIT_0 },
 };
 
+/* O `getHighscoreDelay()` do rank, em ms -- o timer do selo de recorde
+ * (`ResultState.hx` L416). O selo em si NAO e' desenhado: o port nao tem
+ * save, entao `params.isNewHighscore` e' DADO AUSENTE, nunca um palpite.
+ * Ver `res_rr_highscore_ms` e o evento `resultado_highscore` no log. */
 static const res_rr_rank_t g_res_rr[RES_RR_RANKS] = {
-    { "PERFECT_GOLD", 2, res_rr_entradas_PERFECT_GOLD },
-    { "PERFECT", 2, res_rr_entradas_PERFECT },
-    { "EXCELLENT", 1, res_rr_entradas_EXCELLENT },
-    { "GREAT", 2, res_rr_entradas_GREAT },
-    { "GOOD", 2, res_rr_entradas_GOOD },
-    { "SHIT", 1, res_rr_entradas_SHIT },
+    { "PERFECT_GOLD", 2, 5833u, res_rr_entradas_PERFECT_GOLD },
+    { "PERFECT", 2, 5833u, res_rr_entradas_PERFECT },
+    { "EXCELLENT", 1, 5833u, res_rr_entradas_EXCELLENT },
+    { "GREAT", 2, 5375u, res_rr_entradas_GREAT },
+    { "GOOD", 2, 5292u, res_rr_entradas_GOOD },
+    { "SHIT", 1, 8625u, res_rr_entradas_SHIT },
 };
 
 #endif /* RESULTADO_RANK_DADOS_H */

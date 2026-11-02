@@ -71,6 +71,13 @@ int res_rr_indice(int rank);
 /* Tabela do rank `idx` (0..RES_RR_RANKS-1) ou NULL. */
 const res_rr_rank_t *res_rr_rank(int idx);
 
+/* O `getHighscoreDelay()` do rank, em ms -- o timer que dispara o selo de
+ * recorde (`ResultState.hx` L416). O SELO nao e' desenhado no port: o que ele
+ * testa (`params.isNewHighscore`, que vem do `Save`) e' DADO AUSENTE, e a
+ * regra do projeto e' reportar dado ausente, nunca inventar. Devolve 0 se o
+ * indice nao existir. */
+unsigned int res_rr_highscore_ms(int idx);
+
 #ifdef __cplusplus
 }
 #endif

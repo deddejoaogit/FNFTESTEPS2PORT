@@ -79,6 +79,18 @@ VRAM_LIVRE = 350208
 BF_MS = {"SHIT": 3958, "GOOD": 3958, "GREAT": 3958, "EXCELLENT": 4042,
          "PERFECT": 3958, "PERFECT_GOLD": 3958}
 
+# `getHighscoreDelay()` por rank, em ms (`Scoring.hx` L587-604): 140/24 no
+# PERFECT_GOLD/PERFECT/EXCELLENT, 129/24 no GREAT, 127/24 no GOOD e 207/24 no
+# SHIT. Em ms inteiros, truncando -- 140/24 = 5833,33 -> 5833, o mesmo criterio
+# do `getFlashDelay` (107/24 = 4458,33 -> 4458 em `resultado_dados.h`).
+#
+# O TIMER e' do jogo; o que nao existe e' o DADO que ele testa
+# (`params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)`) e o
+# port nao tem save: o desenho do selo NAO acontece (e' o `else` da fonte, L424)
+# e o caso vai para o log como dado ausente.
+HS_MS = {"SHIT": 8625, "GOOD": 5292, "GREAT": 5375, "EXCELLENT": 5833,
+         "PERFECT": 5833, "PERFECT_GOLD": 5833}
+
 
 def ler_player(assets, dono):
     caminho = os.path.join(assets, "preload", "data", "players", dono + ".json")
@@ -446,6 +458,7 @@ def escreve_header(plano):
     a("typedef struct {")
     a("    const char         *rank;")
     a("    unsigned char       n;")
+    a("    unsigned short      highscore_ms;  /* getHighscoreDelay() */")
     a("    const res_rr_entrada_t *entradas;")
     a("} res_rr_rank_t;")
     a("")
@@ -488,10 +501,14 @@ def escreve_header(plano):
             a("    { \"\", 0, 0, 0, 0, 0, 0, 0u, 0.0f, 0.0f, 1.0f, 0, 0, 0, -1, 0, 0 },")
         a("};")
         a("")
+    a("/* O `getHighscoreDelay()` do rank, em ms -- o timer do selo de recorde")
+    a(" * (`ResultState.hx` L416). O selo em si NAO e' desenhado: o port nao tem")
+    a(" * save, entao `params.isNewHighscore` e' DADO AUSENTE, nunca um palpite.")
+    a(" * Ver `res_rr_highscore_ms` e o evento `resultado_highscore` no log. */")
     a("static const res_rr_rank_t g_res_rr[RES_RR_RANKS] = {")
     for r in plano["ranks"]:
-        a("    { \"%s\", %d, res_rr_entradas_%s },"
-          % (r["rank"], len(r["entradas"]), r["rank"]))
+        a("    { \"%s\", %d, %du, res_rr_entradas_%s },"
+          % (r["rank"], len(r["entradas"]), HS_MS[r["rank"]], r["rank"]))
     a("};")
     a("")
     a("#endif /* RESULTADO_RANK_DADOS_H */")

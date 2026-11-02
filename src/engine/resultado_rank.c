@@ -99,6 +99,12 @@ const res_rr_rank_t *res_rr_rank(int idx)
     return &g_res_rr[idx];
 }
 
+unsigned int res_rr_highscore_ms(int idx)
+{
+    const res_rr_rank_t *rk = res_rr_rank(idx);
+    return rk ? (unsigned int)rk->highscore_ms : 0u;
+}
+
 int res_rr_indice(int rank)
 {
     int i;

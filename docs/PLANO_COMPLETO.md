@@ -3083,7 +3083,7 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| `highscoreNew` (o selo de recorde) | **e' do jogo, mas o DADO nao existe**: `ResultState.hx` L415-426 so' o desenha se `params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)` | o port nao tem save nenhum (nem memory card), entao o valor e' dado ausente: o desenho NAO acontece (e' o `else` da fonte) e o caso vai para o log |
+| `highscoreNew` (o selo de recorde) | **e' do jogo, mas o DADO nao existe**: `ResultState.hx` L415-426 so' o desenha se `params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)` | o TIMER do original ja' roda (`rank.getHighscoreDelay()`: 5833 ms no PERFECT/EXCELLENT, 5375 no GREAT, 5292 no GOOD, 8625 no SHIT) e o desenho NAO acontece -- e' o `else` da fonte, e o log diz `resultado_highscore,0,<ms>`. Falta o SAVE (memory card) para esse campo ter valor; enquanto nao houver, o caso e' reportado, nunca inventado |
 
 #### A tela de Resultado: a arte entrou
 
