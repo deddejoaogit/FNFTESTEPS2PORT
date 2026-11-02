@@ -3237,6 +3237,42 @@ um quadro por vez na VRAM (5 subidas de 33 KB em 208 ms). Somando a cápsula
 21 palcos (pior 1.736.192 B) não convivem com ela, e não precisam: a Freeplay
 roda com o palco solto.
 
+## Próximo passo planejado: o ÁUDIO DA FREEPLAY (o preview e os jingles do rank)
+
+Medido antes de escrever código (regra 2), porque o estado 11 hoje é **mudo**
+debaixo da música do menu: o laço do consumidor (`src/main.c` L6029) inclui
+`ui_state==11`, mas quem toca ali é o `freakyMenu_48000.pcm` que veio do menu.
+
+**1. O preview da música** (`playCurSongPreview`, `FreeplayState.hx` L2967-3046),
+chamado em `changeSelection` e no fim do `rankAnimSlam` (L1289):
+
+| peça | número medido | linha |
+|---|---|---|
+| volume do preview | `0,7 * dj.getMusicPreviewMult()` | L2971-2972 |
+| instrumento | `pathsFunction: INST` — só o inst, sem as vozes | L3015 |
+| trecho | `start = previewStartTime`, `end = previewEndTime`, carregados como **fração** do arquivo (`loadPartial`) | L3017-3022 |
+| frações padrão | `DEFAULT_PREVIEW_START_TIME = 0` e `DEFAULT_PREVIEW_END_TIME = 0,2` (`util/Constants.hx` L306/L311) | — |
+| correção das frações | se `start >= end` ou o valor passa de 1, volta ao padrão | L3414-3418, L3430-3434 |
+| fade | `fadeIn(2, 0, previewVolume)` na carga e `fadeOut(2, 0)` nos últimos 2 s | L3025-3033 |
+| repetição | um `FlxTimer` do tamanho do trecho chama `playCurSongPreview()` de novo | L3035-3038 |
+| `curSelected == 0` | toca `freeplayRandom` em vez do instrumento | L2978-2986 |
+
+Então o preview é **o primeiro 20 % do instrumental**, em laço infinito, com 2 s
+de entrada e 2 s de saída. O port tem o `stems.pcm` por música (4 canais:
+instL, instR, vozesL, vozesR) e `amix_somar(..., vozes=0)` já entrega só o
+instrumento — o caminho de leitura existe; falta a janela e o fade.
+
+**2. Os jingles do rank** (`FreeplayState.hx` L1190-1197 e L1232-1246), 8 sons de
+`preload/sounds/ranks/` (`rankinbad`, `rankinnormal`, `rankinperfect`,
+`loss`, `good`, `great`, `excellent`, `perfect`): o primeiro par toca em +0,1 s
+pelo rank NOVO e o segundo no slam, pelo mesmo rank. São one-shots curtos: o
+caminho mais barato é o que a tela de game over já usa (`audio_ring`
+overlay + `amix_somar_estereo`), sem RAM residente.
+
+**3. O `getMusicPreviewMult()`** (`BaseFreeplayDJ.hx` L84-127): o DJ baixa o
+volume do preview conforme o tempo parado (`timeIdling`) — mais um motivo para
+o estado do DJ já estar no port antes do áudio.
+
 ## O que ainda falta, com o motivo medido (estado nesta build)
 
 Tudo o que está abaixo é **dado ausente ou espaço de VRAM**, não lógica que
