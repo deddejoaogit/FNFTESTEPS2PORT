@@ -138,6 +138,36 @@ int main(void)
         CHECK_EQ(rgb[0], 0x88); CHECK_EQ(rgb[1], 0x88); CHECK_EQ(rgb[2], 0x88);
     }
 
+    printf("== script do palco: so' o blazin pinta personagem (regressao) ==\n");
+    {
+        /* O `cor[]` de repouso e' do BLAZIN. Um palco com script que nao tem
+           cor de personagem (`phillyTrain`, `spookyMansionErect`) devolvia 1 com
+           0xDE/0x88 -- e o desenho pintava os tres personagens com um tom que
+           nenhuma linha do `.hxc` deles escreve. Medido: `char_cor` aparecia no
+           log do pico ANTES desta correcao? Nao: o `main.c` converte 0xDE para
+           0x6F e so' loga uma vez por personagem, entao a prova aqui e' o
+           RETORNO da consulta, nao o log. */
+        unsigned char rgb[3];
+        int i;
+        static const char *sem_cor[] = { "phillyTrain", "spookyMansionErect" };
+        for (i = 0; i < 2; i++) {
+            ss_t t;
+            int papel;
+            ss_init(&t, sem_cor[i]);
+            CHECK_EQ(t.ativo, 1);                 /* o script do palco esta' ativo */
+            CHECK_EQ(t.cor_ligada, 0);
+            for (papel = 0; papel < 3; papel++) {
+                rgb[0] = rgb[1] = rgb[2] = 9;
+                CHECK_EQ(ss_cor_papel(&t, papel, rgb), 0);
+                CHECK_EQ(rgb[0], 9);
+                CHECK_EQ(rgb[1], 9);
+                CHECK_EQ(rgb[2], 9);
+            }
+        }
+        ss_init(&ss, "phillyBlazin");
+        CHECK_EQ(ss.cor_ligada, 1);               /* e o blazin continua pintando */
+    }
+
     printf("== script do palco: nada acontece antes de 3,0 s (L93) ==\n");
     {
         int i;

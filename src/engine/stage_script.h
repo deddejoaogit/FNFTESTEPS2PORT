@@ -88,7 +88,13 @@ typedef struct {
     /* --- alpha dos tres props de luz, ja' interpolado --- */
     float a_sky, a_fg, a_lighten;
 
-    /* --- cor dos personagens (0..255, como o `color` do flixel) --- */
+    /* --- cor dos personagens (0..255, como o `color` do flixel) ---
+       SO' o `phillyBlazin` mexe nisso (L114-117 e L180-184). `cor_ligada` diz
+       exatamente isso: nos outros palcos com script a cor fica DESLIGADA,
+       porque um `ss_cor_papel` devolvendo 1 com a cor de repouso do blazin
+       pintaria os personagens do trem e da mansao com um tom que nenhuma linha
+       do `.hxc` deles escreve. */
+    int cor_ligada;             /* 1 = este palco tem cor de personagem */
     unsigned char cor[3][3];    /* [papel][r,g,b] */
     float cor_t0;               /* instante do ultimo escurecimento */
     int cor_ativa;

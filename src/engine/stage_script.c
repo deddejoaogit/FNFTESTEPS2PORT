@@ -186,6 +186,7 @@ void ss_init(ss_t *ss, const char *palco_id)
            dado daqui e' o JSON do palco (conferido por gen_stage_dados.py). */
         if (ss->i_sky < 0 || ss->i_light < 0 || ss->i_fg < 0 || ss->i_lighten < 0)
             return;
+        ss->cor_ligada = 1;      /* L114-117: so' ESTE palco pinta personagem */
         ss->ativo = 1;
         ss_reiniciar(ss);
         return;
@@ -237,10 +238,17 @@ void ss_reiniciar(ss_t *ss)
     ss->som_banco = SS_SOM_LIGHTNING;
     ss->cor_ativa = 0;
     ss->cor_t0 = 0.0f;
-    /* L114-117: a cor de REPOUSO dos personagens neste palco nao e' branca. */
-    ss->cor[SS_BF][0] = ss->cor[SS_BF][1] = ss->cor[SS_BF][2] = SS_BF_DAD_CLARO;
-    ss->cor[SS_DAD][0] = ss->cor[SS_DAD][1] = ss->cor[SS_DAD][2] = SS_BF_DAD_CLARO;
-    ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_GF_CLARO;
+    /* L114-117: a cor de REPOUSO dos personagens neste palco nao e' branca --
+       e so' existe nos palcos que tem cor de personagem (`cor_ligada`). */
+    if (ss->cor_ligada) {
+        ss->cor[SS_BF][0] = ss->cor[SS_BF][1] = ss->cor[SS_BF][2] = SS_BF_DAD_CLARO;
+        ss->cor[SS_DAD][0] = ss->cor[SS_DAD][1] = ss->cor[SS_DAD][2] = SS_BF_DAD_CLARO;
+        ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_GF_CLARO;
+    } else {
+        ss->cor[SS_BF][0] = ss->cor[SS_BF][1] = ss->cor[SS_BF][2] = 0xFF;
+        ss->cor[SS_DAD][0] = ss->cor[SS_DAD][1] = ss->cor[SS_DAD][2] = 0xFF;
+        ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = 0xFF;
+    }
     /* O flash do spookyMansionErect: luzes no alpha do buildStage (0,0001 vem
        do JSON) e personagens em 1. */
     ss->flash = 0;
@@ -590,7 +598,7 @@ int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb)
 
 int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)
 {
-    if (!ss->ativo || !rgb || papel < 0 || papel > SS_GF) return 0;
+    if (!ss->ativo || !ss->cor_ligada || !rgb || papel < 0 || papel > SS_GF) return 0;
     rgb[0] = ss->cor[papel][0];
     rgb[1] = ss->cor[papel][1];
     rgb[2] = ss->cor[papel][2];
