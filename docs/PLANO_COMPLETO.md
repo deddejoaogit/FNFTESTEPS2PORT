@@ -1420,6 +1420,47 @@ do `mallXmas` é 243/244/245 no z 59; `solidCover` e `additionalLighten` **não*
 entram (alpha 0); `clouds2` não entra mas `mountains` do mesmo palco entra;
 `grey1` chega com 0,3.
 
+#### Fechado: a MESCLAGEM dos props (ADD) e de onde ela vem
+
+O `StageData` não tem `blend`: medido, **0 dos 169 props** carrega a chave. Quem
+põe a mistura é o **script do palco**, com o número do
+`openfl.display.BlendMode` (0 = ADD, 9 = MULTIPLY, 12 = SCREEN).
+`tools/extrair_blend_palcos.py` lê os 19 `.hxc` e copia para
+`assets-data/stage-script.json` o **estado inicial** de cada prop, com arquivo e
+linha, reconhecendo só quatro formas de statement (nome literal, variável vinda
+de `getNamedProp`, `StringTools.endsWith(name, ...)` e `name == ...` dentro de
+`addProp`, e `case 'X':` de um `switch (name)`). O que não casa com essas formas
+sai como `NAO RESOLVIDO` — nada é adivinhado.
+
+Medido: **16 props em 5 palcos**, 13 com ADD e 3 com MULTIPLY/SCREEN.
+
+| palco | props | mistura | fonte |
+|---|---|---|---|
+| `mainStageErect` | `brightLightSmall`, `orangeLight`, `lightgreen`, `lightred`, `lightAbove` | ADD | `mainStageErect.hxc` L49-53 |
+| `limoRideErect` | `shootingStar` | ADD | `limoRideErect.hxc` L117 |
+| `phillyBlazin` | `skyAdditive`, `additionalLighten` (ADD); `foregroundMultiply` (MULTIPLY) | ADD / MULTIPLY | `phillyBlazin.hxc` L65, L72, L76 |
+| `phillyStreets` | os `*_lightmap` | ADD **e alpha 0,6** | `phillyStreets.hxc` L517-524 |
+| `phillyStreetsErect` | os `*_lightmap` (ADD, 0,6), `grey1` (ADD), `grey2` (MULTIPLY) | ADD / MULTIPLY | `phillyStreetsErect.hxc` L641-652 |
+| `sserafim` | `truckLight1`, `backLightColor` (SCREEN), `backLightWhite` (ADD) | SCREEN / ADD | `sserafim.hxc` L393-405 |
+
+O detalhe que muda a imagem: os `_lightmap` do `phillyStreets` são `alpha = 1,0`
+no JSON e o `addProp` do script roda **depois** do `buildStage`, então o 0,6 do
+script vence — antes o port desenhava esses dois mapas de luz opacos e sem ADD.
+
+No desenho (`src/main.c`), ADD é uma troca do registrador `ALPHA` do GS em volta
+do sprite: `GS_SET_ALPHA(0,2,2,1,0x80)` dá `(Cs - 0)*1 + Cd`, que é `src + dst`;
+o normal volta com `GS_SET_ALPHA(0,1,0,1,0x80)`. Custa 4 qwords por sprite e
+nenhum byte de VRAM. O GS **não** faz MULTIPLY nem SCREEN na pipeline fixa, e o
+port não finge que faz: esses 3 props saem normais e o caso é contado no log
+(`palco_blend,aditivos,sem_gs`, uma vez por palco).
+
+Medido com os pacotes reais (`darnell`, phillyStreets): `palco_blend,2,0` e
+`palco_add,4,77` — o prop de índice 4 desenhou com ADD e alpha 77 (0,6×128), e
+`palco_draw` passou de 9 para 13 props na tela sem nenhum estouro de pacote.
+No harness dos 81 pares, `sserafim` reporta `palco_blend,1,2` (1 ADD + 2 SCREEN)
+e não desenha nenhum deles, porque os três nascem com `alpha = 0` — que é o
+estado do original no instante zero.
+
 #### Fechado: o passo da textura no orçamento de VRAM (TBW de 64 px)
 
 O pool reservava `sw*sh*2` para cada prop (16 bpp, arredondado a 256 bytes) e o
@@ -3156,7 +3197,9 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 |---|---|---|
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
-| mesclagem ADITIVA (`BlendMode.ADD`) | a fonte usa em três lugares da interface: o selo de rank da capsula (`FreeplayRank`), o coração de favorito e o `sparksADD` do rank. O port não tem mesclagem aditiva por sprite -- esses elementos saem com alpha, que é a diferença visual conhecida | não é dado ausente: é um caminho de desenho que falta no port (registrar um `alpha` de ADD no pacote do quadro) |
+| `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
+| o `sparkle` da capsula e o coração de favorito | `SongMenuItem.hx` L156-166 (`sparkle`, 10 quadros, escala 0,8, `BlendMode.ADD`, alpha 0,7, invisível ate' um `FlxTimer` de 1,2-4,5 s o sortear em volta do selo) e L208/L218 (`favIcon`/`favIconBlurred`) | arte empacotada (10 quadros de 31 a 59 px) + o sorteio do `sparkleEffect`. E' efeito decorativo; o selo em si ja' esta' com ADD, alpha e cinza do original |
+| o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
 
 #### A tela de Resultado: a arte entrou
 
@@ -3328,6 +3371,8 @@ do jogo que o save alimenta de volta na interface.
 | animacao | 13 a 17 quadros a 24 fps, **uma vez** (`looped = false`), para no ultimo |
 | posicao | `FreeplayRank(420, 41)` no espaco do item -> (210, 20,5) em 640x360 |
 | alpha | `ranking.alpha = isSelected ? 1 : 0,7` (`updateSelected`) |
+| cor | `ranking.color = isSelected ? 0xFFFFFFFF : 0xFFAAAAAA` (`updateSelected`) |
+| blend | `ranking.blend = BlendMode.ADD` (`set_rank`, L830) |
 
 Quem escolhe a animacao e' `ScoringRank.getFreeplayRankIconAsset()`
 (Scoring.hx L606-627): PERFECT_GOLD usa a arte dourada (`PERFECTSICK`), SHIT usa
@@ -3338,9 +3383,18 @@ de um `case` e' opcional, entao os `case` com so' comentario dentro sao no-op.
 
 Trocar de dificuldade refaz a conta para todas as musicas
 (`freeplay_selo_ranks`, telemetria com quantas tem rank e em que dificuldade).
-O `blend = BlendMode.ADD` da fonte **nao** esta' reproduzido: o port nao tem
-mesclagem aditiva por sprite (o mesmo limite do resto da interface), entao o
-selo e' desenhado com alpha. Esta' na lista de pendencias do console.
+
+**O `blend = BlendMode.ADD` do selo entrou nesta build**, com o cinza do
+nao-selecionado junto. O GS faz ADD mexendo no registrador `ALPHA` no meio do
+pacote (`GS_SET_ALPHA(0,2,2,1,0x80)`) e restaurando o normal
+(`GS_SET_ALPHA(0,1,0,1,0x80)`) logo depois do sprite: 4 qwords por selo, zero
+VRAM. Os valores do port: selecionado `alpha = 0x80` e cor `0x80` (branco);
+nao-selecionado `alpha = 0x5A` (0,7) e cor `0x55` (o `0xAA` do flixel dividido
+por 2, que e' a convencao do port para o `color` do sprite). O harness do save
+continua vendo o selo desenhar (`selo desenhado: rank 2 em 1 quadro(s)`).
+
+Fica de fora, e esta' na tabela de pendencias: o `sparkle` (10 quadros, escala
+0,8, ADD, alpha 0,7, sorteado por `FlxTimer` em volta do selo).
 
 #### A tela de Resultado: o PERSONAGEM DO RANK se move
 

@@ -358,8 +358,24 @@ for par in "1:250:${RESF1:-}" "2:875:${RESF2:-}" "3:1500:${RESF3:-}"; do
     n=${par%%:*}; resto=${par#*:}; quer=${resto%%:*}; tem=${resto#*:}
     if [ -z "$tem" ]; then echo "  FALHA: a folha $n nunca apareceu"; FALHA=1; continue; fi
     d=$((tem - quer)); [ "$d" -lt 0 ] && d=$((-d))
-    [ "$d" -le 40 ] || { echo "  FALHA: a folha $n entrou em ${tem} ms, e o timer do original diz $quer"; FALHA=1; }
+    # TOLERANCIA DE 200 ms NA PRIMEIRA FOLHA, e o motivo e' medido: o relogio do
+    # port avanca pelo tempo REAL decorrido (como o `FlxG.elapsed` da fonte), e
+    # no PC o primeiro quadro da tela de resultado carrega pacote do pendrive --
+    # quando a suite inteira esta' rodando, esse unico quadro ja' chegou a 381 ms
+    # (medido), deslocando todas as folhas juntas. No console um quadro e' 16,7
+    # ms. Por isso o que se cobra de verdade e' o INTERVALO entre as folhas
+    # (625 e 1250 ms, os timers 21/24 e 36/24 menos 6/24), que nao depende de
+    # quando o primeiro quadro saiu; a posicao absoluta fica com folga.
+    [ "$d" -le 200 ] || { echo "  FALHA: a folha $n entrou em ${tem} ms, e o timer do original diz $quer"; FALHA=1; }
 done
+if [ -n "${RESF1:-}" ] && [ -n "${RESF2:-}" ] && [ -n "${RESF3:-}" ]; then
+    d12=$((RESF2 - RESF1)); [ "$d12" -lt 0 ] && d12=$((-d12))
+    d13=$((RESF3 - RESF1)); [ "$d13" -lt 0 ] && d13=$((-d13))
+    [ "$((d12 - 625))" -le 40 ] && [ "$((d12 - 625))" -ge -40 ] || {
+        echo "  FALHA: a folha 2 entrou $d12 ms depois da 1, e o original diz 625"; FALHA=1; }
+    [ "$((d13 - 1250))" -le 40 ] && [ "$((d13 - 1250))" -ge -40 ] || {
+        echo "  FALHA: a folha 3 entrou $d13 ms depois da 1, e o original diz 1250"; FALHA=1; }
+fi
 
 # A ANIMACAO DO PERSONAGEM DO RANK. O que se cobra:
 #   * TODAS as entradas do rank abriram e tem VRAM (1 no SHIT/EXCELLENT, 2 nos

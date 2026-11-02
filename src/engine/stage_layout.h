@@ -57,6 +57,7 @@ typedef struct {
     int tex_w, tex_h; /* resolucao do quadro no pacote CFZ4 (sw/sh)    */
     int z;          /* zIndex do prop: a ordem de desenho do Stage.hx  */
     float alpha;    /* alpha do dado (1.0 = opaco)                     */
+    int blend;      /* 0 normal, 1 ADD, 2 MULTIPLY, 3 SCREEN           */
 } sl_item_t;
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */

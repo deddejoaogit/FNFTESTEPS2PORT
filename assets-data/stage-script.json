@@ -1,0 +1,186 @@
+{
+ "blend_nomes": {
+  "0": "ADD",
+  "1": "ALPHA",
+  "10": "NORMAL",
+  "11": "OVERLAY",
+  "12": "SCREEN",
+  "13": "SHADER",
+  "14": "SUBTRACT",
+  "2": "DARKEN",
+  "3": "DIFFERENCE",
+  "4": "ERASE",
+  "5": "HARDLIGHT",
+  "6": "INVERT",
+  "7": "LAYER",
+  "8": "LIGHTEN",
+  "9": "MULTIPLY"
+ },
+ "linhas_fora_do_inicial": {
+  "limoRideErect": 10,
+  "phillyBlazin": 3,
+  "phillyStreets": 1,
+  "phillyStreetsErect": 15,
+  "phillyTrainErect": 1,
+  "spookyMansionErect": 22,
+  "sserafim": 22
+ },
+ "nao_resolvido": [
+  "limoRideErect.hxc linha 58: mist1.blend = 0 (variavel sem getNamedProp)",
+  "limoRideErect.hxc linha 70: mist2.blend = 0 (variavel sem getNamedProp)",
+  "limoRideErect.hxc linha 82: mist3.blend = 0 (variavel sem getNamedProp)",
+  "limoRideErect.hxc linha 95: mist4.blend = 0 (variavel sem getNamedProp)",
+  "limoRideErect.hxc linha 108: mist5.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 189: mist0.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 200: mist1.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 211: mist2.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 222: mist3.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 234: mist4.blend = 0 (variavel sem getNamedProp)",
+  "phillyStreetsErect.hxc linha 246: mist5.blend = 0 (variavel sem getNamedProp)"
+ ],
+ "nota": "Estado INICIAL dos props, extraido dos scripts de palco do jogo por tools/extrair_blend_palcos.py. Nao e' o comportamento em jogo: ver os .hxc.",
+ "palcos": {
+  "limoRideErect": {
+   "fonte": "preload/scripts/stages/limoRideErect.hxc",
+   "props": [
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 117,
+     "nome": "shootingStar",
+     "regra": "nome"
+    }
+   ]
+  },
+  "mainStageErect": {
+   "fonte": "preload/scripts/stages/mainStageErect.hxc",
+   "props": [
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 49,
+     "nome": "brightLightSmall",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 50,
+     "nome": "orangeLight",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 51,
+     "nome": "lightgreen",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 52,
+     "nome": "lightred",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 53,
+     "nome": "lightAbove",
+     "regra": "nome"
+    }
+   ]
+  },
+  "phillyBlazin": {
+   "fonte": "preload/scripts/stages/phillyBlazin.hxc",
+   "props": [
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 65,
+     "nome": "skyAdditive",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 9,
+     "linha": 72,
+     "nome": "foregroundMultiply",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 76,
+     "nome": "additionalLighten",
+     "regra": "nome"
+    }
+   ]
+  },
+  "phillyStreets": {
+   "fonte": "preload/scripts/stages/phillyStreets.hxc",
+   "props": [
+    {
+     "alpha": 0.6,
+     "blend": 0,
+     "linha": 521,
+     "nome": "_lightmap",
+     "regra": "sufixo"
+    }
+   ]
+  },
+  "phillyStreetsErect": {
+   "fonte": "preload/scripts/stages/phillyStreetsErect.hxc",
+   "props": [
+    {
+     "alpha": 0.6,
+     "blend": 0,
+     "linha": 641,
+     "nome": "_lightmap",
+     "regra": "sufixo"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 647,
+     "nome": "grey1",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 9,
+     "linha": 652,
+     "nome": "grey2",
+     "regra": "nome"
+    }
+   ]
+  },
+  "sserafim": {
+   "fonte": "preload/scripts/stages/sserafim.hxc",
+   "props": [
+    {
+     "alpha": null,
+     "blend": 12,
+     "linha": 393,
+     "nome": "truckLight1",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 12,
+     "linha": 400,
+     "nome": "backLightColor",
+     "regra": "nome"
+    },
+    {
+     "alpha": null,
+     "blend": 0,
+     "linha": 405,
+     "nome": "backLightWhite",
+     "regra": "nome"
+    }
+   ]
+  }
+ }
+}

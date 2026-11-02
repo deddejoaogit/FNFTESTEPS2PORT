@@ -43,6 +43,12 @@ if [ ! -x "$BIN" ]; then
     echo "SKIP: harness nao construido (precisa do clone do ps2sdk)."
     exit 0
 fi
+# RECOMPILA antes de testar. O binario e' o mesmo do run_harness.sh, e sem esta
+# chamada as 81 combinacoes rodavam o jogo de uma build anterior -- o teste
+# passava sem ter compilado o codigo novo (aconteceu com o `palco_add`).
+echo "== recompilando o harness (para nao testar binario velho) =="
+PS2H_BUILD_ONLY=1 sh tools/run_harness.sh >/dev/null 2>&1 || {
+    echo "FALHA: nao consegui recompilar o harness"; exit 1; }
 if [ ! -d build/harness_assets/FNFPS2/assets ]; then
     echo "SKIP: build/harness_assets nao existe (rode tools/run_harness.sh uma vez)."
     exit 0

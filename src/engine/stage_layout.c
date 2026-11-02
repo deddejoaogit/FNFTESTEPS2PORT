@@ -190,6 +190,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->tex_w = p->sw; it->tex_h = p->sh;
         it->z = p->z;
         it->alpha = p->alpha;
+        it->blend = p->blend;
         n++;
     }
 
@@ -217,6 +218,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->tex_w = 0; it->tex_h = 0;
         it->z = c->z;
         it->alpha = c->alpha;
+        it->blend = c->blend;
         n++;
      }
     }

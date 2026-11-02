@@ -169,6 +169,47 @@ def parse_cor(s):
         raise ValueError("cor %r: nao e' hexadecimal" % (s,))
 
 
+# O blend/alpha INICIAL que o script do palco poe em alguns props, extraido por
+# tools/extrair_blend_palcos.py. Sem isto o dado nao diz nada: nao ha' campo
+# `blend` em prop nenhum dos 169 (medido).
+SCRIPT = os.path.join(PROJECT, "assets-data", "stage-script.json")
+
+# openfl.display.BlendMode -> o enum do port. 0 = normal, 1 = ADD, 2 = MULTIPLY,
+# 3 = SCREEN. O GS faz NORMAL e ADD por hardware; MULTIPLY e SCREEN nao existem
+# na pipeline fixa dele (ver src/main.c, onde sao contados e relatados).
+BLEND_PORT = {0: 1, 9: 2, 12: 3}
+
+
+def load_script():
+    """-> {palco: (por_nome, [por_sufixo])}, dados crus."""
+    if not os.path.isfile(SCRIPT):
+        sys.exit("missing %s -- run tools/extrair_blend_palcos.py --scripts "
+                 "<clone>/preload/scripts/stages" % os.path.relpath(SCRIPT, PROJECT))
+    d = json.load(open(SCRIPT, encoding="utf-8"))
+    regras = {}
+    for sid, v in d.get("palcos", {}).items():
+        nomes = {}
+        sufixos = []
+        for f in v.get("props") or []:
+            if f.get("regra") == "sufixo":
+                sufixos.append(f)
+            else:
+                nomes[f["nome"]] = f
+        regras[sid] = (nomes, sufixos)
+    return regras, d
+
+
+def script_para(regras, sid, nome):
+    """A ficha do script para este prop, ou None. Nome exato antes de sufixo."""
+    nomes, sufixos = regras.get(sid, ({}, []))
+    if nome in nomes:
+        return nomes[nome]
+    if nome:
+        for f in sufixos:
+            if nome.endswith(f["nome"]):
+                return f
+    return None
+
 PLAN = os.path.join(PROJECT, "assets-data", "stage-props.json")
 
 
@@ -240,6 +281,13 @@ def render(plan):
     w.append("     dois props de mesmo z poderiam trocar de lugar e o desenho mudaria")
     w.append("     sem nenhum dado ter mudado. */")
     w.append("  int ord;")
+    w.append("")
+    w.append("  /* Modo de mesclagem com que o prop NASCE: 0 normal, 1 ADD,")
+    w.append("     2 MULTIPLY, 3 SCREEN. O dado do jogo nao tem esse campo -- quem")
+    w.append("     poe blend e' o script do palco (tools/extrair_blend_palcos.py, com")
+    w.append("     a linha da fonte em cada ficha). O GS so' faz normal e ADD; os")
+    w.append("     outros dois sao desenhados como normal e CONTADOS no log. */")
+    w.append("  int blend;")
     w.append("}bs_prop_t;")
     w.append("")
 
@@ -249,6 +297,7 @@ def render(plan):
     cores = []
     cor_first = []
     cor_count = []
+    regras, script_dados = load_script()
     for st in plan["stages"]:
         sid = st["id"]
         first = len(rows)
@@ -273,6 +322,16 @@ def render(plan):
             nomes = [a["name"] for a in p["anims"]]
             sa = inicio.get(p["name"])
             start = nomes.index(sa) if sa in nomes else -1
+            ficha = script_para(regras, sid, p["name"])
+            alfa = alpha.get(p["name"], 1.0)
+            blend = 0
+            if ficha is not None:
+                blend = BLEND_PORT.get(int(ficha.get("blend", 0)), 0)
+                # O `addProp` do script roda DEPOIS do buildStage, entao o alpha
+                # dele vence o do JSON (medido: os `_lightmap` do phillyStreets
+                # sao 1,0 no JSON e 0,6 no script).
+                if ficha.get("alpha") is not None:
+                    alfa = float(ficha["alpha"])
             rows.append({
                 "stage": sid, "name": p["name"], "tex": p["tex"],
                 "x": p["x"], "y": p["y"], "sx": p["sx"], "sy": p["sy"],
@@ -282,7 +341,8 @@ def render(plan):
                 "sw": p["sw"], "sh": p["sh"],
                 "src_w": p["src_w"], "src_h": p["src_h"],
                 "af": afirst, "ac": len(p["anims"]),
-                "alpha": alpha.get(p["name"], 1.0),
+                "alpha": alfa,
+                "blend": blend,
                 "ord": ordem.get(p["name"], 0),
             })
         per_stage.append((sid, st["zoom"], st["scale"], first, len(rows) - first))
@@ -310,6 +370,11 @@ def render(plan):
                 sw, sh = float(scl[0]), float(scl[1])
             scr = sp.get("scroll") or [1.0, 1.0]
             blend, alfa = BLEND_INICIAL.get((sid, sp.get("name")), (0, 1.0))
+            ficha = script_para(regras, sid, sp.get("name"))
+            if ficha is not None:
+                blend = BLEND_PORT.get(int(ficha.get("blend", 0)), 0)
+                if ficha.get("alpha") is not None:
+                    alfa = float(ficha["alpha"])
             if "alpha" in sp:
                 alfa = float(sp["alpha"])
             r, g, b = parse_cor(ap)
@@ -336,14 +401,14 @@ def render(plan):
     w.append("/* Todos os props, agrupados por palco. */")
     w.append("static const bs_prop_t bs_props[]={")
     for r in rows:
-        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d},'
+        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d},'
                  % (c_str(r["stage"]), c_str(r["name"]), c_str(r["tex"]),
                     c_float(r["x"]), c_float(r["y"]),
                     c_float(r["sx"]), c_float(r["sy"]),
                     c_float(r["scrollx"]), c_float(r["scrolly"]),
                     r["z"], r["dance"], r["start"], r["frames"], r["sw"], r["sh"],
                     r["src_w"], r["src_h"],
-                    r["af"], r["ac"], c_float(r["alpha"]), r["ord"]))
+                    r["af"], r["ac"], c_float(r["alpha"]), r["ord"], r["blend"]))
     w.append("};")
     w.append("#define BS_PROP_COUNT %d" % len(rows))
     w.append("")

@@ -1145,6 +1145,21 @@ static qword_t *gs_dither16(qword_t*q){
     q->dw[0]=GS_SET_DTHE(GS_ENABLE);q->dw[1]=GS_REG_DTHE;q++;
     return q;
 }
+/* MESCLAGEM ADITIVA (BlendMode.ADD do openfl, o numero 0 nos scripts de palco).
+   O ambiente do ps2sdk monta o ALPHA uma vez por quadro para o blend normal,
+   `(Cs-Cd)*As + Cd`; aqui ele e' trocado no MEIO do pacote, em volta do sprite,
+   e restaurado logo depois. `GS_SET_ALPHA(a,b,c,d,fix)`:
+     RGB = (FGa - BGb) * C + BGd
+   ADD = (Cs - 0) * 1 + Cd  -> a=Cs(0), b=0(2), c=fix(2), d=Cd(1), fix=0x80.
+   Custo: 2 qwords por troca, 4 por sprite somado. Nenhuma VRAM. */
+static qword_t *gs_alpha(qword_t*q,unsigned long v){
+    q->dw[0]=GIF_SET_TAG(1,0,0,0,GIF_FLG_PACKED,1);q->dw[1]=GIF_REG_AD;q++;
+    q->dw[0]=v;q->dw[1]=GS_REG_ALPHA;q++;
+    return q;
+}
+static qword_t *gs_blend_add(qword_t*q){return gs_alpha(q,GS_SET_ALPHA(0,2,2,1,0x80));}
+static qword_t *gs_blend_normal(qword_t*q){return gs_alpha(q,GS_SET_ALPHA(0,1,0,1,0x80));}
+
 static u32 g_frame_texture_quads;
 
 #define QUAD_NREG 10
@@ -1360,6 +1375,16 @@ static qword_t *sprite_region_cor(qword_t*q,float x,float y,float w,float h,floa
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
  r.color=rgba(cr,cg,cb,0x80);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
+/* Alpha E cor no vertice, ao mesmo tempo: e' o que o `ranking` da Freeplay
+   precisa (`ranking.alpha = isSelected ? 1 : 0,7` e
+   `ranking.color = isSelected ? 0xFFFFFFFF : 0xFFAAAAAA`, updateSelected
+   L800-808). `a` vai em 0x80 = 1,0; a cor em 0..0xFF do flixel dividida por 2
+   (o branco 0xFF vira 0x80 e nao apaga nada). */
+static qword_t *sprite_region_alpha_cor(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh,unsigned char a,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t r;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
+ band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
+ r.color=rgba(cr,cg,cb,a);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh,unsigned char a){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
@@ -1423,6 +1448,10 @@ static int g_palco_ok=0;                /* 1 = o palco desenha por props */
 /* Um evento por partida quando o primeiro retangulo de cor do palco vai para a
    tela: e' a prova de que os 12 props de cor do dado chegaram ao desenho. */
 static int g_palco_cor_visto=0;
+/* O mesmo, para o primeiro sprite desenhado com MESCLAGEM ADITIVA (os `_lightmap`
+   do phillyStreets, as luzes do mainStageErect...): e' a prova de que a troca de
+   ALPHA no meio do pacote chegou ao desenho. */
+static int g_palco_add_visto=0;
 
 static int g_palco_fds_ok = 0;   /* 0 = os fds do vetor ainda nao foram zerados */
 
@@ -1514,6 +1543,25 @@ static void palco_carregar(const char *stage)
          }
      }
      if (congelados) telemetry_event("palco_props_sem_inicio", congelados, si);
+    }
+    /* MESCLAGEM: quantos props do palco pedem ADD (o GS faz) e quantos pedem
+       MULTIPLY/SCREEN (o GS nao faz). O numero sai do script do palco, via
+       tools/extrair_blend_palcos.py; sem ele, "o palco parece diferente" nao
+       teria numero nenhum no log. */
+    {int aditivos = 0, sem_gs = 0, j, cf, cc;
+     for (j = 0; j < g_palco.n; j++) {
+         int b = bs_props[g_palco.first + j].blend;
+         if (b == 1) aditivos++;
+         else if (b >= 2) sem_gs++;
+     }
+     cf = bs_stage_cor_first[si];
+     cc = bs_stage_cor_count[si];
+     for (j = 0; j < cc; j++) {
+         int b = bs_cores[cf + j].blend;
+         if (b == 1) aditivos++;
+         else if (b >= 2) sem_gs++;
+     }
+     if (aditivos || sem_gs) telemetry_event("palco_blend", aditivos, sem_gs);
     }
 }
 
@@ -2699,11 +2747,15 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
         if (L->it[i].cor >= 0) {
             const bs_cor_t *c = &bs_cores[L->it[i].cor];
             unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+            int add;
             if (a == 0) continue;
             if (a > 0x80) a = 0x80;
+            add = L->it[i].blend == 1;
+            if (add) q = gs_blend_add(q);
             q = rect_alpha(q, L->it[i].x0, L->it[i].y0,
                            L->it[i].x0 + L->it[i].w, L->it[i].y0 + L->it[i].h,
                            c->r, c->g, c->b, a);
+            if (add) q = gs_blend_normal(q);
             if (!g_palco_cor_visto) {
                 g_palco_cor_visto = 1;
                 telemetry_event("palco_cor", (int)(L->it[i].x0 * 10.0f),
@@ -2727,10 +2779,24 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
         /* O `alpha` do prop no JSON (1,0 em 128 dos 169). O GS mistura pelo
            alpha do vertice (`Cs*As + Cd*(1-As)`), entao 0,3 vira 0x26. */
         {unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+         int add;
          if (a == 0) continue;
          if (a > 0x80) a = 0x80;
+         /* MULTIPLY (2) e SCREEN (3) nao existem na pipeline fixa do GS: o
+            prop e' desenhado normal e o caso e' CONTADO no log, uma vez por
+            palco (`palco_blend_sem_gs`). Fingir que foi desenhado igual ao
+            original seria pior que dizer que falta. */
+         add = L->it[i].blend == 1;
+         if (add) q = gs_blend_add(q);
          q = sprite_dims_alpha(q, L->it[i].x0, L->it[i].y0, L->it[i].w,
-                               L->it[i].h, L->it[i].tex_w, L->it[i].tex_h, a);}
+                               L->it[i].h, L->it[i].tex_w, L->it[i].tex_h, a);
+         if (add) {
+             q = gs_blend_normal(q);
+             if (!g_palco_add_visto) {
+                 g_palco_add_visto = 1;
+                 telemetry_event("palco_add", L->it[i].prop - g_palco.first, a);
+             }
+         }}
         L->desenhados++;
     }
     return q;
@@ -7339,11 +7405,21 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       rt.width=FP_RB_W;rt.psm=GS_PSM_16;rt.address=g_rb_addr[rb];
       setup_texture_dims(&rt,FP_RB_W,FP_RB_H);
       q=bind_texture_filter(q,&rt,1);
-      q=sprite_region_alpha(q,st->x+FP_RB_X,
+      /* O SELO E' `BlendMode.ADD` (SongMenuItem.hx L830, no `set_rank`), e o
+         nao-selecionado vai a alpha 0,7 E cinza 0xAA (L800-808). Faltavam as
+         tres coisas: o port desenhava opaco, sem ADD e sem o cinza. O alpha do
+         vertice vive em 0x80 = 1,0; a cor do flixel (0..255) entra dividida por
+         2, como em todo o resto do port. */
+      q=gs_blend_add(q);
+      q=sprite_region_alpha_cor(q,st->x+FP_RB_X,
                             st->y+FP_RB_Y+fp_rb_anims[rb].off_y,
                             (float)FP_RB_W,(float)FP_RB_H,
                             0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
-                            (unsigned char)((sel?1.0f:0.7f)*255.0f+0.5f));
+                            (unsigned char)(sel?0x80:0x5A),
+                            (unsigned char)(sel?0x80:0x55),
+                            (unsigned char)(sel?0x80:0x55),
+                            (unsigned char)(sel?0x80:0x55));
+      q=gs_blend_normal(q);
       g_rb_desenhos++;
       if(!g_rb_logado){g_rb_logado=1;
        telemetry_event("freeplay_selo_desenho",rb,(int)(st->x*10.0f));}

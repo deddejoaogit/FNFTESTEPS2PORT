@@ -144,6 +144,16 @@ fi
 nwarn=$(grep -c "warning:" build/harness_cc.log)
 echo "  compilou: $(wc -c < build/fnf_harness) bytes, $nwarn avisos"
 
+# SO' COMPILAR (`PS2H_BUILD_ONLY=1`): o tools/run_realpacks_harness.sh usa isto
+# para recompilar o binario antes de rodar as 81 combinacoes. Sem essa chamada
+# ele rodava o binario da ULTIMA vez que alguem rodou este script -- ou seja, o
+# harness dos pacotes reais podia estar testando codigo velho (aconteceu: o
+# evento `palco_add` nao aparecia porque o binario era anterior a ele).
+if [ "${PS2H_BUILD_ONLY:-0}" = "1" ]; then
+    echo "  (PS2H_BUILD_ONLY=1: parando aqui, sem rodar quadros)"
+    exit 0
+fi
+
 echo
 echo "== gerando a raiz de assets (o jogo le tudo de mass:/FNFPS2/assets) =="
 # Os charts do tutorial sao os DE VERDADE, convertidos pelo conversor do
