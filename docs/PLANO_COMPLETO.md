@@ -5221,7 +5221,8 @@ entrada com texto e uma dúzia de eventos de música.
 | o flash de tela (`sserafimFlash`) | L279-282 | **fechado** — branco cheio decaindo linear em `duration`, desenhado sobre palco/personagens e sob o HUD |
 | a escuridão (`sserafimDark`) | L413-421 | **declarada** — é shader (`SserafimShader`), fora do pipeline fixo |
 | as máscaras de `sserafimSing`/`sserafimShow` | L199-218 | **recebidas e guardadas** (`ssf_canta`, `ssf_mostra`); quem as desenha são as dançarinas, que faltam |
-| `sserafimKick` | L220-277 | **reconhecido** (`ssf_kick_pedido`, `ssf_kick_final`); a animação é da `yunjin` (slot OUTRO, falta) e o som `doorKick1/2` não está no pacote de arte |
+| `sserafimKick` | L220-277 | **o SOM é portado** (`doorKick1` no chute simples, `doorKick2` no final, banco 4 `doorkick`, volume do `playOnce(...,1.0)`), tocado no instante do EVENTO e não no beat. Medido no harness: `palco_som,41,7` (1,08 s) e `palco_som,42,6` (2,49 s). O que falta é a animação `kick1`/`kick2` da `yunjin` e o `truckDoor.visible` no quadro 23 — os dois dependem do slot OUTRO |
+| o `setGirlsVisible` de DAD e BF (`sserafimShow`) | L205-206, L289-303 | **fechado**: `baseVisible` deixa só a `yunjin` em cena, então DAD e BF ficam **fora** até o primeiro `Show` (13,2 s). O `ss_alpha_papel` devolve 0 para o papel escondido |
 | `sserafimBeautiful`, `sserafimGuitarVibration` | — | **reconhecidos sem efeito**, como no original (`Beautiful` não tem `case`; a vibração é de haptica) |
 
 ### O que falta (com o dado de cada parte)
@@ -5233,7 +5234,8 @@ entrada com texto e uma dúzia de eventos de música.
 | **slot OUTRO** no desenho (as 3 dançarinas em `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97) | `sserafim.hxc` L160-164 | **falta código** — o `char_cena` desenha 3 papéis (bf/dad/gf); falta um quarto |
 | `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **falta o slot** (o pedido já chega ao `ss_t`) |
 | `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente |
-| `doorKick1`, `doorKick2`, som da cutscene | `Paths.sound(...)` | **FALTA** — mesma situação; entram no `tools/empacotar_audio.py` no dia em que a arte for buscada |
+| `doorKick1`, `doorKick2` | `sserafim/sounds/` no clone de arte | **JÁ EMPACOTADOS** (`tools/empacotar_audio.py`, `SONS_PALCO`). O plano dizia que faltavam e estava errado: medidos 1,389 s e 3,120 s a 44,1 kHz (145.152 B e 326.016 B a 48 kHz) |
+| som da cutscene | `Paths.sound(...)` | **FALTA** — a cutscene inteira depende da arte |
 | a cutscene (L567-930) e a poeira em `FlxBackdrop` | — | depende da arte e de um gerenciador de timers |
 | `SserafimShader` (personagem e palco) | — | shader, declarado no log como os outros 175 |
 

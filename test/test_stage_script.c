@@ -1123,8 +1123,20 @@ int main(void)
            como do palco, e nao como "sem script". */
         CHECK_EQ(ss_evento(&sf, "sserafimBeautiful", &e), 1);
         CHECK_EQ(ss_evento(&sf, "sserafimGuitarVibration", &e), 1);
+        e.p0 = 0;
         CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
         CHECK_EQ(sf.ssf_kick_pedido, 1);
+        CHECK_EQ(sf.ssf_kick_final, 0);
+        /* O SOM do chute (L222/L226): `doorKick1` no simples, `doorKick2` no
+           final, no banco `doorkick`, volume do `playOnce(..., 1.0)`. */
+        CHECK_EQ(sf.som, 1);
+        CHECK_EQ(sf.som_banco, SS_SOM_DOORKICK);
+        CHECK_EQ(sf.som_vol, 100);
+        e.p0 = 1;
+        CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
+        CHECK_EQ(sf.ssf_kick_final, 1);
+        CHECK_EQ(sf.som, 2);
+        e.p0 = 0;
         /* Um nome desconhecido nao e' do palco: devolve 0 e o main.c conta. */
         CHECK_EQ(ss_evento(&sf, "outroPalcoQualquer", &e), 0);
         /* As mascaras de `sserafimSing`/`sserafimShow` chegam inteiras. */

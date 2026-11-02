@@ -164,6 +164,13 @@ SONS_PALCO = [
     # `carpass1` = `carPass0`, `carpass2` = `carPass1`.
     ("week4/sounds/carPass0", "carpass1", False),
     ("week4/sounds/carPass1", "carpass2", False),
+    # `sserafim.hxc` L222/L226: `FunkinSound.playOnce(Paths.sound('doorKick1'))`
+    # no chute simples e `doorKick2` no chute final (que abre a porta do
+    # caminhao). Os arquivos ESTAO no clone de arte (`sserafim/sounds/`): o
+    # plano dizia que faltavam, e estava errado. Medido: 1,389 s e 3,120 s a
+    # 44,1 kHz -> 1,512 s (145.152 B) e 3,396 s (326.016 B) a 48 kHz.
+    ("sserafim/sounds/doorKick1", "doorkick1", False),
+    ("sserafim/sounds/doorKick2", "doorkick2", False),
 ]
 
 

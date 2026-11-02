@@ -974,6 +974,12 @@ def build(root, charts_src=None):
         # apareceria num teste que nao e' sobre o pacote e sim sobre o evento.
         "stage/carpass1.pcm": pcm(1 * 48000 * 4, 190),
         "stage/carpass2.pcm": pcm(1 * 48000 * 4, 200),
+        # Os chutes do sserafim (`sserafim.hxc` L222/L226: `doorKick1` no chute
+        # simples e `doorKick2` no final). Na arte real sao 1,512 s e 3,396 s;
+        # aqui 1 s basta para o `palco_som` do harness provar que o evento
+        # tocou o banco certo no instante do EVENTO (nao no beat).
+        "stage/doorkick1.pcm": pcm(1 * 48000 * 4, 205),
+        "stage/doorkick2.pcm": pcm(1 * 48000 * 4, 215),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),

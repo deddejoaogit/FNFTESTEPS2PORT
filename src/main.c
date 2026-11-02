@@ -3786,14 +3786,15 @@ static void palco_som_toca(int banco, int n, int vol)
 {
     char caminho[192];
     /* O BANCO, na ordem de SS_SOM_*: o relampago do ceu, o trovao da mansao, a
-       passagem do trem e o carro veloz do limoRide. O nome do arquivo e' o
+       passagem do trem, o carro veloz do limoRide e os chutes do sserafim. O nome do arquivo e' o
        prefixo do banco + o numero (1..3): `lightning3`, `thunder2`, `train1` e
        `carpass1`/`carpass2` (o `carPass0`/`carPass1` do clone de arte; o port
        comeca em 1 para o nome do arquivo bater com o resto do pacote). */
-    static const char *prefixo[4] = { "lightning", "thunder", "train", "carpass" };
+    static const char *prefixo[5] = { "lightning", "thunder", "train", "carpass",
+                                      "doorkick" };
     int k = n - 1, fd, slot;
     if (!g_audio_ok || k < 0 || k > 2) return;
-    if (banco < 0 || banco > 3) return;
+    if (banco < 0 || banco > SS_SOM_DOORKICK) return;
     /* O BANCO escolhe o arquivo: o relampago do ceu (`Lightning1..3`,
        phillyBlazin L187), o trovao da mansao (`thunder_1..2`,
        spookyMansionErect L106) e a passagem do trem (`train_passes`
@@ -3814,7 +3815,7 @@ static void palco_som_toca(int banco, int n, int vol)
         }
         g_palco_som_fd[k] = fd;
         g_palco_trem_slot = slot;
-        telemetry_event("palco_som", n, slot);
+        telemetry_event("palco_som", banco * 10 + n, slot);
         return;
     }
     /* O volume do `playOnce(..., 0.7)` do limoRide (L99): `vol` em %, 100 =
@@ -3826,7 +3827,10 @@ static void palco_som_toca(int banco, int n, int vol)
         return;
     }
     g_palco_som_fd[k] = fd;
-    telemetry_event("palco_som", n, slot);
+    /* O `palco_som` leva o BANCO junto (`banco*10 + n`): o slot do anel nao diz
+       de onde veio o som, e sem isso o log nao distingue o chute do sserafim
+       (`doorkick2`) do carro do limoRide (`carpass2`). */
+    telemetry_event("palco_som", banco * 10 + n, slot);
 }
 
 /* O `FlxG.maxElapsed` do flixel: um quadro perdido (carregando pacote) nao pode
@@ -7469,6 +7473,14 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        palco_ssf_bloco(blk,blen);
       }
       aplicado=ss_evento(&g_script,nome_ev,&sev);
+      /* SOM PEDIDO PELO EVENTO, tocado na hora do evento. O `sserafimKick`
+         (L222/L226) pede `doorKick1`/`doorKick2` e o `beat` nao tem nada a ver
+         com isso -- o som sairia um beat depois se so' o caminho do `ss_beat`
+         olhasse o campo. */
+      if(aplicado&&g_script.som>0){
+       palco_som_toca(g_script.som_banco,g_script.som,g_script.som_vol);
+       g_script.som=0;
+      }
       if(aplicado){
        {u32 h=2166136261u;const char*q=nome_ev;g_ev_script_ok++;
         while(*q){h^=(unsigned char)*q++;h*=16777619u;}

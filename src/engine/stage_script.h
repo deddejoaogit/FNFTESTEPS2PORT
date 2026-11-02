@@ -465,6 +465,10 @@ int ss_ssf_bloco(ss_t *ss, const void *bloco, unsigned int len,
 #define SS_SOM_TROVAO    1   /* `thunder_1..2` (spookyMansionErect L106)   */
 #define SS_SOM_TREM      2   /* `train_passes` (phillyTrain L100, so' o 1) */
 #define SS_SOM_CARPASS   3   /* `carPass0..1` (limoRide L99)               */
+/* `sserafim.hxc` L222 e L226: `FunkinSound.playOnce(Paths.sound('doorKick1'))`
+   no chute simples e `doorKick2` no chute final. Os dois arquivos ESTAO no
+   clone de arte (`sserafim/sounds/`), ao contrario do que o plano dizia. */
+#define SS_SOM_DOORKICK  4   /* `doorKick1..2` (sserafim L222/L226)        */
 
 /* Quantos props o script deste palco mexe -- usado pelos testes e pelo log. */
 #define SS_TREM_CARROS 8     /* L95 `trainCars:Int = 8` */

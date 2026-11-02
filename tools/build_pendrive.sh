@@ -171,7 +171,7 @@ for f in "$GO_SRC"/*.pcm; do
         # phillyBlazin.hxc L187). Vao para assets/stage/, que e' onde o
         # `palco_som_toca` do main.c procura -- pasta nova porque nao sao som de
         # tela nenhuma, sao evento de palco.
-        lightning*|thunder*|train*) cp "$f" "$OUT/FNFPS2/assets/stage/"; NPALCO=$((NPALCO+1)) ;;
+        lightning*|thunder*|train*|doorkick*) cp "$f" "$OUT/FNFPS2/assets/stage/"; NPALCO=$((NPALCO+1)) ;;
         res_*|scroll_menu*|confirm_menu*|cancel_menu*|fav.pcm|unfav.pcm|tickle_fight*)
             cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;

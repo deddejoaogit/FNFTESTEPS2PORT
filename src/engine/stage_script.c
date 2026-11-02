@@ -472,7 +472,12 @@ void ss_init(ss_t *ss, const char *palco_id)
         ss->tem_beat = 1;
         ss->ativo = ss->ssf_ativo;
         if (!ss->ativo) return;
+        /* `baseVisible` (L28-29): so' a `yunjin` nasce visivel -- DAD e BF
+           ficam FORA de cena ate' o primeiro `sserafimShow` (13,2 s na
+           `spaghetti`). Os bits sao os do `setGirlsVisible` L289-303. */
+        ss->ssf_mostra = 1u;
         ss_reiniciar(ss);
+        ss->ssf_mostra = 1u;
         return;
     }
 
@@ -1125,11 +1130,15 @@ int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev)
     }
     if (strcmp(nome, "sserafimKick") == 0) {
         /* L220-277: `yunjin.playAnimation('kick1'/'kick2')` + o som do chute +
-           `truckDoor.visible` no quadro 23. A dancarina ainda nao esta' no
-           palco (falta o slot OUTRO); o evento e' reconhecido e o pedido fica
-           registrado para quando ela entrar. */
+           `truckDoor.visible` no quadro 23. O SOM sai agora: `doorKick1`
+           (L222, chute simples) ou `doorKick2` (L226, o final, com a porta do
+           caminhao). A animacao e a `truckDoor` dependem da dancarina, que
+           ainda nao tem slot (ver o plano); o pedido fica registrado. */
         ss->ssf_kick_final = ev->p0 != 0;
         ss->ssf_kick_pedido = 1;
+        ss->som = ss->ssf_kick_final ? 2 : 1;
+        ss->som_banco = SS_SOM_DOORKICK;
+        ss->som_vol = 100;
         return 1;
     }
     if (strcmp(nome, "sserafimSing") == 0) {
@@ -1137,7 +1146,10 @@ int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev)
         return 1;
     }
     if (strcmp(nome, "sserafimShow") == 0) {
-        ss->ssf_mostra = ev->a;
+        /* L205-206 `setGirlsVisible(visible)`: 5 booleanos (yunjin, dad,
+           chaewon, eunchae, bf). Do port interessam o DAD (bit 1) e o BF
+           (bit 4); as tres dancarinas ainda nao tem slot (ver o plano). */
+        ss->ssf_mostra = ev->a & 0x1Fu;
         return 1;
     }
     if (strcmp(nome, "sserafimPulseLights") == 0) {
@@ -1667,6 +1679,15 @@ int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)
 float ss_alpha_papel(const ss_t *ss, int papel)
 {
     if (!ss->ativo || papel < 0 || papel > SS_GF) return -1.0f;
+    /* sserafim L289-303 `setGirlsVisible`: o DAD (bit 1) e o BF (bit 4) da
+       mascara. Antes do primeiro `sserafimShow` da `spaghetti` (13,2 s) os dois
+       estao FORA de cena no original, e o port os desenhava desde o quadro 0.
+       O alpha 0 e' o mesmo caminho que o `spookyMansionErect` usa no flash. */
+    if (ss->ssf_ativo) {
+        if (papel == SS_DAD && !(ss->ssf_mostra & 0x02u)) return 0.0f;
+        if (papel == SS_BF && !(ss->ssf_mostra & 0x10u)) return 0.0f;
+        return -1.0f;
+    }
     if (ss->i_bgl < 0) return -1.0f;          /* so' o spooky mexe nisso */
     return ss->a_char[papel];
 }
