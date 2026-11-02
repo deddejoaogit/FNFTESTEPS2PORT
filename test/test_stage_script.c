@@ -745,11 +745,131 @@ int main(void)
         CHECK_EQ(sp.trem_movendo, 0);
     }
 
+    printf("== script do palco: o SINAL e os CARROS do phillyStreets (L34-70, L189-395) ==\n");
+    {
+        ss_t ps;
+        int a = -1, f = -1;
+        ss_init(&ps, "phillyStreets");
+        CHECK_EQ(ps.ativo, 1);
+        CHECK(ps.i_luz >= 0 && strcmp(bs_props[ps.i_luz].name, "phillyTraffic") == 0);
+        CHECK(ps.i_car >= 0 && strcmp(bs_props[ps.i_car].name, "phillyCars") == 0);
+        CHECK(ps.i_car2 >= 0 && strcmp(bs_props[ps.i_car2].name, "phillyCars2") == 0);
+        /* L402-415 `resetStageValues`: verde, intervalo 8, `lastChange` 0; e
+           L85-100 `resetCar`: (1200, 818) com angulo 0. */
+        CHECK_EQ(ps.luz_parado, 0);
+        CHECK_EQ(ps.luz_anim, 0);
+        CHECK_EQ(ps.luz_intervalo, 8);
+        CHECK_EQ(ps.luz_ultimo, 0);
+        CHECK_EQ(ps.car_livre, 1);
+        CHECK_EQ(ps.car2_livre, 1);
+        CHECK_EQ(ps.car_esperando, 0);
+        CHECK_NEAR(ps.carro[0].x, 1200.0f);
+        CHECK_NEAR(ps.carro[0].y, 818.0f);
+        CHECK_NEAR(ps.carro[0].ang, 0.0f);
+        CHECK_NEAR(ss_prop_x(&ps, ps.i_car, 0.0f), 1200.0f);
+        CHECK_NEAR(ss_prop_y(&ps, ps.i_car, 0.0f), 818.0f);
+        /* parado no dado: o `carro[].anim` e' 0 e o script nao manda no quadro */
+        CHECK_EQ(ss_prop_frame(&ps, ps.i_car, &a, &f), 0);
+        /* o sinal comeca no `togreen` (anim 0 do prop, 77 quadros em loop) */
+        CHECK_EQ(ss_prop_frame(&ps, ps.i_luz, &a, &f), 1);
+        CHECK_EQ(a, 0);
+
+        /* L511: a troca em `beat == lastChange + changeInterval` = 8. Antes
+           disso, nada muda de estado (os carros podem sair, mas o sinal nao). */
+        {
+            int b;
+            for (b = 1; b < 8; b++) {
+                ss_beat(&ps, b, "2hot", 1);
+                CHECK_EQ(ps.luz_ultimo, 0);
+            }
+            CHECK_EQ(ps.luz_parado, 0);
+        }
+        ss_beat(&ps, 8, "2hot", 1);
+        CHECK_EQ(ps.luz_parado, 1);          /* L56 inverte */
+        CHECK_EQ(ps.luz_anim, 1);            /* L60 `tored`   */
+        CHECK_EQ(ps.luz_intervalo, 20);      /* L61           */
+        CHECK_EQ(ps.luz_ultimo, 8);
+        CHECK_EQ(ss_prop_frame(&ps, ps.i_luz, &a, &f), 1);
+        CHECK_EQ(a, 1);
+        /* a proxima troca so' em 8 + 20 = 28: em 27 ainda esta' vermelho */
+        {
+            int b;
+            for (b = 9; b < 28; b++) ss_beat(&ps, b, "2hot", 1);
+            CHECK_EQ(ps.luz_parado, 1);
+        }
+        ss_beat(&ps, 28, "2hot", 1);
+        CHECK_EQ(ps.luz_parado, 0);          /* volta ao verde */
+        CHECK_EQ(ps.luz_anim, 0);
+        CHECK_EQ(ps.luz_intervalo, 30);
+
+        /* Os carros: `bool(10)` por beat. Roda beats ate' um sair, e cobra o
+           que a fonte garante -- animacao `car1..car4`, angulo inicial da
+           variante, duracao dentro da faixa e o carro parando no fim. */
+        {
+            ss_t c;
+            int b, saiu = -1, tentativas = 0;
+            ss_init(&c, "phillyStreets");
+            for (b = 1; b < 200; b++) {
+                ss_beat(&c, b, "2hot", 1);
+                tentativas++;
+                if (c.carro[0].ativo) { saiu = b; break; }
+            }
+            CHECK(saiu > 0);
+            CHECK(tentativas < 200);
+            CHECK(c.carro[0].anim >= 1 && c.carro[0].anim <= 4);
+            /* a duracao e o `extraOffset` sao por variante (L225-238) */
+            switch (c.carro[0].anim) {
+            case 1: CHECK(c.carro[0].dur >= 0.99f && c.carro[0].dur <= 1.71f); break;
+            case 2: CHECK(c.carro[0].dur >= 0.59f && c.carro[0].dur <= 1.21f);
+                    CHECK_NEAR(c.carro[0].offx, 20.0f); CHECK_NEAR(c.carro[0].offy, -15.0f); break;
+            case 3: CHECK(c.carro[0].dur >= 1.49f && c.carro[0].dur <= 2.51f);
+                    CHECK_NEAR(c.carro[0].offx, 30.0f); CHECK_NEAR(c.carro[0].offy, 50.0f); break;
+            default: CHECK(c.carro[0].dur >= 1.49f && c.carro[0].dur <= 2.51f);
+                    CHECK_NEAR(c.carro[0].offx, 10.0f); CHECK_NEAR(c.carro[0].offy, 60.0f); break;
+            }
+            /* o angulo comeca no `from` do `FlxTween.angle` */
+            if (c.luz_parado) CHECK_NEAR(c.carro[0].ang, -7.0f);
+            else CHECK_NEAR(c.carro[0].ang, -8.0f);
+            CHECK_EQ(c.car_livre, 0);
+            /* o quadro da animacao do carro tem de vir do script */
+            CHECK_EQ(ss_prop_frame(&c, c.i_car, &a, &f), 1);
+            CHECK_EQ(a, c.carro[0].anim - 1);
+            CHECK(f >= 0 && f < 4);
+            /* a curva anda em direcao ao fim (x cresce nos tres caminhos) */
+            {
+                float x0 = c.carro[0].x;
+                avanca(&c, c.carro[0].dur * 0.5f);
+                CHECK(c.carro[0].x > x0);
+            }
+            /* e no fim o carro volta a ser interruptavel (o `onComplete`) */
+            avanca(&c, c.carro[0].dur + 1.0f);
+            CHECK_EQ(c.car_livre, 1);
+            CHECK_EQ(c.carro[0].ativo, 0);
+        }
+
+        /* `resetCar` + `resetStageValues` no retry (L459-472) */
+        {
+            ss_t r;
+            ss_init(&r, "phillyStreets");
+            ss_beat(&r, 8, "2hot", 1);
+            CHECK_EQ(r.luz_parado, 1);
+            ss_reiniciar(&r);
+            CHECK_EQ(r.luz_parado, 0);
+            CHECK_EQ(r.luz_ultimo, 0);
+            CHECK_EQ(r.luz_intervalo, 8);
+            CHECK_NEAR(r.carro[0].x, 1200.0f);
+            CHECK_NEAR(r.carro[1].y, 818.0f);
+            CHECK_NEAR(r.carro[0].ang, 0.0f);
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  script do palco: conferidos o relampago do phillyBlazin (3,0 s /\n"
            "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens), o flash\n"
            "  do spookyMansionErect (0,06 s / 0,12 s / 1,5 s / 10%% / offset 8..24)\n"
            "  e o trem do phillyTrain (1/24 s, -400, -2000 -> -1150, -4000 -> 1480,\n"
-           "  8 vagoes, 4,7 s de som, `beat %% 8 == 4` + bool(30), 5 cores)\n");
+           "  8 vagoes, 4,7 s de som, `beat %% 8 == 4` + bool(30), 5 cores), o\n"
+           "  sinal e os dois carros do phillyStreets (verde/vermelho 8/20/30,\n"
+           "  `bool(10)`, car1..car4, curvas de Bezier, angulo e offset)\n");
     return 0;
 }

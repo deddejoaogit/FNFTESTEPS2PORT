@@ -82,9 +82,34 @@ extern "C" {
 #define SS_DAD 1
 #define SS_GF  2
 
+/* UM CARRO DO `phillyStreets` em movimento: o estado de dois tweens do flixel
+   rodando no mesmo sprite (a posicao pela curva de Bezier e o angulo), mais a
+   animacao `car1..car4` e o `offset` da variante.
+   `u` e' a fracao de tempo JA com o ease aplicado; com `delay > 0` o carro fica
+   parado onde estava ate' o tween comecar (`startDelay` do FlxTween). */
+typedef struct {
+    int ativo;          /* 1 = um tween esta' rodando neste carro           */
+    float t0;           /* instante do gatilho (t do script)                */
+    float delay;        /* `startDelay` (so' o `finishCarLights` usa)       */
+    float dur;
+    int ease_pos;       /* SS_EASE_* da curva                               */
+    int ease_ang;       /* SS_EASE_* do angulo                              */
+    float p0x, p0y, p1x, p1y, p2x, p2y;   /* a Bezier quadratica           */
+    float a0, a1;       /* angulo inicial e final                           */
+    int anim;           /* 1..4 = `car<N>`                                  */
+    int parou;          /* 1 = este tween foi o `driveCarLights` (parou no sinal) */
+    float offx, offy;   /* `sprite.offset` da variante                      */
+    float x, y, ang;    /* estado corrente (x/y JA com o offset aplicado)   */
+} ss_carro_t;
+
 /* Os props que o script do phillyBlazin mexe. -1 quando o palco nao os tem. */
 typedef struct {
     int ativo;          /* 1 = este palco tem script portado */
+    /* 1 = o script deste palco tem `onBeatHit` portado. E' o portao do
+       `ss_beat`: sem ele o main.c teria de listar os palcos um a um, e foi
+       assim que o `phillyStreets` ficou uma build inteira sem sinal e sem
+       carros -- nenhum dos indices antigos (`i_bgl`/`i_bg`/`i_train`) e' dele. */
+    int tem_beat;
     int palco;          /* indice em bs_stage_props[] */
     int i_sky;          /* `skyAdditive`, indice ABSOLUTO em bs_props[] */
     int i_light;        /* `lightning` (textura com a animacao `strike`) */
@@ -144,6 +169,26 @@ typedef struct {
     float bg_fps;       /* fps dela (do JSON/pacote)                          */
     float bg_t0;        /* instante do ultimo raio; < 0 = nenhum ainda         */
     int scared_pedido;  /* 1 = bf/gf devem tocar `scared`; o main.c consome    */
+
+    /* ---- O SINAL E OS DOIS CARROS DO `phillyStreets` (darnell, lit-up,
+       2hot) -- phillyStreets.hxc L34-70, L189-260, L275-395 ----
+       O script e' um mini-tween: cada carro recebe uma curva de Bezier
+       quadratica (`FlxTween.quadPath`), um angulo (`FlxTween.angle`) e uma
+       animacao `car1..car4`, com a duracao e o `offset` sorteados por variante.
+       O sinal troca a cada `changeInterval` batidas e o carro que estava
+       esperando sai quando abre o verde. */
+    int i_luz;          /* prop `phillyTraffic` (ABS em bs_props[]), -1 = sem */
+    int i_car;          /* prop `phillyCars`                                 */
+    int i_car2;         /* prop `phillyCars2`                                */
+    int luz_parado;     /* lightsStop (L34)                                  */
+    int luz_ultimo;     /* lastChange (L35)                                  */
+    int luz_intervalo;  /* changeInterval (L36): 8 / 20 / 30                 */
+    int luz_anim;       /* 0 = `togreen`, 1 = `tored`                        */
+    float luz_t0;       /* instante do ultimo `animation.play` do sinal      */
+    int car_livre;      /* carInterruptable (L39)                            */
+    int car_esperando;  /* carWaiting (L38)                                  */
+    int car2_livre;     /* car2Interruptable (L40)                           */
+    ss_carro_t carro[2];/* [0] = `phillyCars`, [1] = `phillyCars2`           */
 
     /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L23-24) --- */
     int strike_beat;
@@ -245,6 +290,16 @@ float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado);
 /* Angulo do prop em GRAUS (o `sprite.angle`). Devolve 1 quando o script gira o
    sprite e escreve `*graus`; 0 quando o prop nao e' girado por ele. */
 int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus);
+
+/* As curvas do `FlxEase` que os scripts usam, com a formula da fonte
+ * (`FlxEase.hx` L61-64 e L137-145):
+ *   cubeOut(t) = 1 + (--t)*t*t        (1 - (1-t)^3)
+ *   sineIn(t)  = -cos(PI/2 * t) + 1
+ *   sineOut(t) = sin(PI/2 * t) */
+#define SS_EASE_LINEAR 0
+#define SS_EASE_CUBE_OUT 1
+#define SS_EASE_SINE_IN 2
+#define SS_EASE_SINE_OUT 3
 
 /* Os bancos de som de `palco_som_toca`, e o numero dentro do banco vai em
  * `ss->som`. */

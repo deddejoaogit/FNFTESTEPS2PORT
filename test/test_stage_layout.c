@@ -88,6 +88,12 @@ static float ov_cor(int cor_abs) { return ss_cor_alpha(&g_tss, cor_abs); }
 static int ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_tss, prop_abs, rgb); }
 static float ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_tss, prop_abs, y_dado); }
 static int ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_tss, prop_abs, graus); }
+/* Avanca o `ss_t` de teste em passos de 1/60 s. */
+static void avanca_tss(float segundos)
+{
+    int i, n = (int)(segundos * 60.0f + 0.5f);
+    for (i = 0; i < n; i++) ss_update(&g_tss, 1.0f / 60.0f);
+}
 
 int main(void)
 {
@@ -1082,6 +1088,53 @@ int main(void)
             }
         }
         CHECK_EQ(achou_trem, 1);
+        sl_set_script(NULL);
+    }
+
+    printf("== layout: os CARROS do phillyStreets (angulo e y do script) ==\n");
+    {
+        /* O `phillyStreets` e' o primeiro palco que GIRA um prop e que move em
+           x E y: os dois carros andam numa Bezier com `angle` do `FlxTween`.
+           Aqui o `ss_t` e' de verdade -- e' o mesmo que o main.c registra -- e o
+           que se cobra e' que o ITEM do layout saia com o angulo e o y do
+           script, e nao com os do JSON. */
+        static const sl_script_t hook3 = { ov_alpha, ov_x, ov_frame, ov_cor,
+                                           ov_prop_cor, ov_y, ov_ang };
+        sl_item_t it[SL_MAX_ITENS];
+        int n, b, saiu = 0;
+        ss_init(&g_tss, "phillyStreets");
+        sl_set_script(&hook3);
+        /* roda beats ate' um carro sair (o `bool(10)` do L493) */
+        for (b = 1; b < 200 && !saiu; b++) {
+            ss_beat(&g_tss, b, "2hot", 1);
+            saiu = g_tss.carro[0].ativo;
+        }
+        CHECK_EQ(saiu, 1);
+        /* meio do tween: x, y e angulo longe dos do JSON */
+        avanca_tss(g_tss.carro[0].dur * 0.5f);
+        /* A camera do palco: os personagens do `phillyStreets` ficam em
+           x ~ 1800 e y ~ 900 no espaco do original, e e' por volta dai' que a
+           camera do jogo para. Com a camera do canto (0,0) o carro nem entra na
+           lista -- o corte de tela o descarta, e o teste cobraria o vazio. */
+        n = sl_collect("phillyStreets", 1800.0f, 500.0f, 1.0f, 1.0f, 8, 0.5f,
+                       g_tss.t, it, SL_MAX_ITENS);
+        {
+            const sl_item_t *c = item_por_nome(it, n, "phillyCars");
+            CHECK(c != NULL);
+            if (c) {
+                CHECK_NEAR(c->ang, g_tss.carro[0].ang);
+                CHECK(c->ang != 0.0f);
+                /* y do script: a mesma formula de tela dos outros props */
+                CHECK_NEAR(c->y0, 180.0f + (g_tss.carro[0].y - 500.0f) * 0.5f);
+            }
+        }
+        /* e um prop que o script NAO gira fica em 0 -- nao ha' angulo vazando
+           de um prop para o outro */
+        {
+            const sl_item_t *h = item_por_nome(it, n, "phillyHighway");
+            CHECK(h != NULL);
+            if (h) CHECK_NEAR(h->ang, 0.0f);
+        }
         sl_set_script(NULL);
     }
 

@@ -1,5 +1,6 @@
 #include "stage_script.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "stage_dados.h"
@@ -105,6 +106,40 @@
 #define SS_TREM_CD_SORTE   (-4)     /* L119 `int(-4, 0)`                  */
 #define SS_COR_LUZES       5        /* L28-34 `lightColors.length`        */
 
+/* ---- phillyStreets.hxc (o sinal e os dois carros; as tres musicas que usam
+        este palco sao `darnell`, `lit-up` e `2hot`) ----
+     L34-41   estado: `lightsStop` falso, `lastChange` 0, `changeInterval` 8,
+              os carros "interruptaveis"
+     L53-70   changeLights: inverte `lightsStop`; vermelho -> `tored` e
+              intervalo 20; verde -> `togreen`, intervalo 30 e, se um carro
+              estava esperando, ele sai (`finishCarLights`)
+     L75-103  resetCar: x 1200, y 818, angulo 0 (left/right)
+     L189-207 finishCarLights: `duration = float(1.8, 3)`,
+              `startdelay = float(0.2, 1.2)`, a curva de 3 pontos e o angulo
+              -5 -> 18 com `sineIn`
+     L214-273 driveCarLights: variante `int(1,4)`, duracao e `extraOffset` por
+              variante, angulo -7 -> -5 e `cubeOut`, para no ponto perto do sinal
+     L278-332 driveCar: idem, atravessa a tela, angulo -8 -> 18, `ease: null`
+     L337-395 driveCarBack: a mesma coisa no sentido contrario (carro 2)
+     L402-415 resetStageValues: `lastChange` 0, intervalo 8, `togreen`
+     L453-484 onUpdate: `scrollingSky.scrollX -= elapsed * 22` (o ceu do script
+              e' um sprite criado -- ver a falta declarada) e o shader de chuva
+     L486-511 onBeatHit: `bool(10)` para cada carro, com o portao do intervalo,
+              e a troca do sinal quando `beat == lastChange + changeInterval` */
+#define SS_PHILLY_INT_INICIAL 8
+#define SS_PHILLY_INT_VERMELHO 20
+#define SS_PHILLY_INT_VERDE 30
+#define SS_PHILLY_CAR_CHANCE 10.0f
+#define SS_PHILLY_CAR_X 1200.0f     /* L85 `cars.x = 1200`   */
+#define SS_PHILLY_CAR_Y 818.0f      /* L86 `cars.y = 818`    */
+#define SS_PHILLY_LUZ_FPS 24.0f
+/* Os pontos das tres curvas, em unidades do ORIGINAL (L197-198, L242-243,
+   L246-247, L297-298, L342-343). O `- offset` do script ja' esta' embutido nos
+   numeros da fonte: aqui ficam como o `FlxPoint.get(...)` os monta, e o
+   `offset` da variante entra depois, no desenho. */
+#define SS_PHILLY_OFFX 306.6f       /* L195 `offset = [306.6, 168.3]` */
+#define SS_PHILLY_OFFY 168.3f
+
 /* `phillyTrain.hxc` L28-34 `lightColors`: as cinco cores das `lights`, em
    0xAARRGGBB como no original. */
 static const unsigned char ss_cores_luzes[SS_COR_LUZES][3] = {
@@ -209,6 +244,7 @@ void ss_init(ss_t *ss, const char *palco_id)
        spooky "encontrava" o prop 0 e o flash mexia no prop errado. */
     ss->i_bgl = ss->i_stl = -1;
     ss->i_train = ss->i_lights = -1;
+    ss->i_luz = ss->i_car = ss->i_car2 = -1;
     ss->i_bg = ss->bg_anim = -1;
     ss->bg_t0 = -1.0f;
     ss->bg_quadros = 0;
@@ -235,6 +271,7 @@ void ss_init(ss_t *ss, const char *palco_id)
 
     /* ---- phillyTrain (o trem que passa e as luzes) ---- */
     if (strcmp(bs_stage_props[ss->palco].id, "phillyTrain") == 0) {
+        ss->tem_beat = 1;               /* L112-149 `onBeatHit` */
         ss->i_train = acha_prop(ss->palco, "train");
         ss->i_lights = acha_prop(ss->palco, "lights");
         /* Sem o `train` nao ha' trem. As `lights` sao opcionais para o
@@ -251,8 +288,24 @@ void ss_init(ss_t *ss, const char *palco_id)
         return;
     }
 
+    /* ---- phillyStreets (o sinal e os dois carros) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "phillyStreets") == 0) {
+        ss->tem_beat = 1;               /* L486-511 `onBeatHit` */
+        ss->i_luz = acha_prop(ss->palco, "phillyTraffic");
+        ss->i_car = acha_prop(ss->palco, "phillyCars");
+        ss->i_car2 = acha_prop(ss->palco, "phillyCars2");
+        /* Sem o sinal ou sem UM dos carros nao ha' script: o que o `.hxc` faz
+           depende dos tres (`getNamedProp` devolveria null e o original
+           estouraria). E' dado ausente, e o palco fica sem script. */
+        if (ss->i_luz < 0 || ss->i_car < 0 || ss->i_car2 < 0) return;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
+        return;
+    }
+
     /* ---- spookyMansion (a animacao `lightning` do halloweenBG) ---- */
     if (strcmp(bs_stage_props[ss->palco].id, "spookyMansion") == 0) {
+        ss->tem_beat = 1;               /* L72-91 `onBeatHit` */
         ss->i_bg = acha_prop(ss->palco, "halloweenBG");
         if (ss->i_bg < 0) return;
         ss->bg_anim = acha_anim(ss->i_bg, "lightning");
@@ -271,6 +324,7 @@ void ss_init(ss_t *ss, const char *palco_id)
 
     /* ---- spookyMansionErect (flash de interior) ---- */
     if (strcmp(bs_stage_props[ss->palco].id, "spookyMansionErect") == 0) {
+        ss->tem_beat = 1;               /* L155-174 `onBeatHit` */
         ss->i_bgl = acha_prop(ss->palco, "bgLight");
         ss->i_stl = acha_prop(ss->palco, "stairsLight");
         if (ss->i_bgl < 0 || ss->i_stl < 0) return;
@@ -281,6 +335,8 @@ void ss_init(ss_t *ss, const char *palco_id)
     /* Qualquer outro palco fica INATIVO: todas as consultas devolvem "o dado
        manda", entao nenhum palco ganha comportamento por acidente. */
 }
+
+static void ss_carro_reset(ss_carro_t *c);
 
 void ss_reiniciar(ss_t *ss)
 {
@@ -319,6 +375,20 @@ void ss_reiniciar(ss_t *ss)
        para no ultimo quadro -- criterio do `sl_prop_frame`). */
     ss->bg_t0 = -1.0f;
     ss->scared_pedido = 0;
+    /* O `onCreate` do phillyStreets (L111-155) chama `resetCar(true, true)` e
+       `resetStageValues()`: o sinal no verde com intervalo 8, e os dois carros
+       parados em (1200, 818) com angulo 0. */
+    ss->luz_parado = 0;                  /* L34 `lightsStop = false`  */
+    ss->luz_ultimo = 0;                  /* L35 `lastChange = 0`      */
+    ss->luz_intervalo = SS_PHILLY_INT_INICIAL;   /* L36 = 8            */
+    ss->luz_anim = 0;                    /* L408 `traffic.play('togreen')` */
+    ss->luz_t0 = 0.0f;
+    ss->car_livre = 1;                   /* L39 `carInterruptable = true` */
+    ss->car_esperando = 0;               /* L38 `carWaiting = false`  */
+    ss->car2_livre = 1;                  /* L40 `car2Interruptable = true` */
+    /* `resetCar` (L85-100): x 1200, y 818, angulo 0, sem tween. */
+    ss_carro_reset(&ss->carro[0]);
+    ss_carro_reset(&ss->carro[1]);
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
@@ -380,6 +450,185 @@ static void ss_raio(ss_t *ss)
     ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_ESCURO;
 }
 
+/* ---- phillyStreets.hxc: as curvas do FlxEase ---------------------------- */
+static float ss_ease(int tipo, float u)
+{
+    if (u <= 0.0f) return 0.0f;
+    if (u >= 1.0f) return 1.0f;
+    switch (tipo) {
+    case SS_EASE_CUBE_OUT: {            /* FlxEase.hx L61-64 */
+        float t = u - 1.0f;
+        return 1.0f + t * t * t;
+    }
+    case SS_EASE_SINE_IN:               /* FlxEase.hx L137-140 */
+        return 1.0f - (float)cos((double)u * 1.5707963267948966);
+    case SS_EASE_SINE_OUT:              /* FlxEase.hx L142-145 */
+        return (float)sin((double)u * 1.5707963267948966);
+    default:
+        return u;                       /* `ease: null` do flixel = linear */
+    }
+}
+
+/* O ponto da Bezier quadratica e o angulo da `AngleTween`, no instante `t`.
+   `FlxTween.tween` do flixel so' comeca a mexer no sprite depois do
+   `startDelay`, entao com u <= 0 o carro fica onde estava. */
+static void ss_carro_anda(ss_carro_t *c, float t)
+{
+    float u;
+    if (!c->ativo) return;
+    u = t - c->t0 - c->delay;
+    if (u <= 0.0f) return;              /* ainda no `startDelay`            */
+    u /= c->dur > 0.0f ? c->dur : 1.0f;
+    if (u > 1.0f) u = 1.0f;
+    {
+        float e = ss_ease(c->ease_pos, u);
+        float m = 1.0f - e;
+        c->x = c->p0x * m * m + c->p1x * 2.0f * m * e + c->p2x * e * e;
+        c->y = c->p0y * m * m + c->p1y * 2.0f * m * e + c->p2y * e * e;
+        /* `sprite.offset` desloca o DESENHO: no flixel o canto sai em
+           `x - offset.x` (FlxSprite.hx L1007). O main.c desenha pelo canto, e
+           girar em volta do centro do quadro e' o mesmo que girar em volta do
+           centro depois do offset, entao o offset entra aqui. */
+        c->x -= c->offx;
+        c->y -= c->offy;
+    }
+    c->ang = c->a0 + (c->a1 - c->a0) * ss_ease(c->ease_ang, u);
+}
+
+/* `resetCar` (L75-103). */
+static void ss_carro_reset(ss_carro_t *c)
+{
+    c->ativo = 0;
+    c->t0 = c->delay = c->dur = 0.0f;
+    c->anim = 0;
+    c->offx = c->offy = 0.0f;
+    c->x = SS_PHILLY_CAR_X;
+    c->y = SS_PHILLY_CAR_Y;
+    c->ang = 0.0f;
+}
+
+static void ss_carro_dirige(ss_t *ss, int canal, int parando);
+/* `finishCarLights` (L189-207): o carro que estava no sinal arranca e sai da
+   tela. O `carWaiting` do L191 e' a PRIMEIRA linha da funcao. */
+static void ss_carro_solta(ss_t *ss)
+{
+    ss_carro_t *c = &ss->carro[0];
+    float dur = ss_rnd_float(ss, 1.8f, 3.0f);       /* L192 */
+    float delay = ss_rnd_float(ss, 0.2f, 1.2f);     /* L195 */
+    ss->car_esperando = 0;
+    c->ativo = 1;
+    c->parou = 1;
+    c->t0 = ss->t;
+    c->delay = delay;
+    c->dur = dur;
+    c->anim = 0;                /* finishCarLights nao troca a animacao */
+    c->ease_pos = SS_EASE_SINE_IN;
+    c->ease_ang = SS_EASE_SINE_IN;
+    c->p0x = 1950.0f - SS_PHILLY_OFFX - 80.0f;
+    c->p0y = 980.0f - SS_PHILLY_OFFY + 15.0f;
+    c->p1x = 2400.0f - SS_PHILLY_OFFX;
+    c->p1y = 980.0f - SS_PHILLY_OFFY - 50.0f;
+    c->p2x = 3102.0f - SS_PHILLY_OFFX;
+    c->p2y = 1187.0f - SS_PHILLY_OFFY + 40.0f;
+    c->a0 = -5.0f;              /* L193 `rotations = [-5, 18]` */
+    c->a1 = 18.0f;
+    c->ang = -5.0f;             /* o AngleTween poe o `from` na hora */
+}
+
+/* `changeLights` (L53-70). A ORDEM e' a da fonte: `lastChange`, inverte,
+   escolhe a animacao/intervalo e, no verde, solta o carro que esperava. */
+static void ss_troca_luz(ss_t *ss, int beat)
+{
+    ss->luz_ultimo = beat;
+    ss->luz_parado = !ss->luz_parado;
+    ss->luz_t0 = ss->t;                 /* `animation.play` reinicia */
+    if (ss->luz_parado) {
+        ss->luz_anim = 1;               /* L60 `play('tored')`  */
+        ss->luz_intervalo = SS_PHILLY_INT_VERMELHO;
+    } else {
+        ss->luz_anim = 0;               /* L65 `play('togreen')` */
+        ss->luz_intervalo = SS_PHILLY_INT_VERDE;
+        /* L68: `if (carWaiting == true) finishCarLights(phillyCars)` */
+        if (ss->car_esperando) ss_carro_solta(ss);
+    }
+}
+
+/* `driveCarLights` (L214-273), `driveCar` (L278-332) e `driveCarBack`
+   (L337-395). `modo`: 0 = driveCar (atravessa), 1 = driveCarLights (para no
+   sinal), 2 = driveCarBack (o carro da direita, sentido contrario).
+   A ORDEM dos sorteios e' a da fonte: a variante, depois a duracao. */
+static void ss_carro_dirige(ss_t *ss, int canal, int modo)
+{
+    ss_carro_t *c = &ss->carro[canal];
+    int variante = ss_rnd_int(ss, 1, 4);
+    float ox = 0.0f, oy = 0.0f, dur = 2.0f;
+
+    if (canal == 0) ss->car_livre = 0; else ss->car2_livre = 0;
+    c->parou = (modo == 1);
+
+    switch (variante) {
+    case 1:
+        dur = modo == 1 ? ss_rnd_float(ss, 1.0f, 1.7f) : ss_rnd_float(ss, 1.0f, 1.7f);
+        break;
+    case 2:
+        ox = 20.0f; oy = -15.0f;
+        dur = modo == 1 ? ss_rnd_float(ss, 0.9f, 1.5f) : ss_rnd_float(ss, 0.6f, 1.2f);
+        break;
+    case 3:
+        ox = 30.0f; oy = 50.0f;
+        dur = ss_rnd_float(ss, 1.5f, 2.5f);
+        break;
+    default:
+        ox = 10.0f; oy = 60.0f;
+        dur = ss_rnd_float(ss, 1.5f, 2.5f);
+        break;
+    }
+
+    c->ativo = 1;
+    c->t0 = ss->t;
+    c->delay = 0.0f;
+    c->dur = dur;
+    c->anim = variante;
+    c->offx = ox;
+    c->offy = oy;
+
+    if (modo == 0) {
+        /* driveCar: `rotations = [-8, 18]`, `ease: null` nos dois. */
+        c->ease_pos = SS_EASE_LINEAR;
+        c->ease_ang = SS_EASE_LINEAR;
+        c->p0x = 1570.0f - SS_PHILLY_OFFX;
+        c->p0y = 1049.0f - SS_PHILLY_OFFY - 30.0f;
+        c->p1x = 2400.0f - SS_PHILLY_OFFX;
+        c->p1y = 980.0f - SS_PHILLY_OFFY - 50.0f;
+        c->p2x = 3102.0f - SS_PHILLY_OFFX;
+        c->p2y = 1187.0f - SS_PHILLY_OFFY + 40.0f;
+        c->a0 = -8.0f; c->a1 = 18.0f;
+    } else if (modo == 1) {
+        /* driveCarLights: `rotations = [-7, -5]`, `cubeOut`. */
+        c->ease_pos = SS_EASE_CUBE_OUT;
+        c->ease_ang = SS_EASE_CUBE_OUT;
+        c->p0x = 1500.0f - SS_PHILLY_OFFX - 20.0f;
+        c->p0y = 1049.0f - SS_PHILLY_OFFY - 20.0f;
+        c->p1x = 1770.0f - SS_PHILLY_OFFX - 80.0f;
+        c->p1y = 994.0f - SS_PHILLY_OFFY + 10.0f;
+        c->p2x = 1950.0f - SS_PHILLY_OFFX - 80.0f;
+        c->p2y = 980.0f - SS_PHILLY_OFFY + 15.0f;
+        c->a0 = -7.0f; c->a1 = -5.0f;
+    } else {
+        /* driveCarBack: `rotations = [18, -8]`, caminho invertido. */
+        c->ease_pos = SS_EASE_LINEAR;
+        c->ease_ang = SS_EASE_LINEAR;
+        c->p0x = 3102.0f - SS_PHILLY_OFFX;
+        c->p0y = 1127.0f - SS_PHILLY_OFFY + 60.0f;
+        c->p1x = 2400.0f - SS_PHILLY_OFFX;
+        c->p1y = 980.0f - SS_PHILLY_OFFY - 30.0f;
+        c->p2x = 1570.0f - SS_PHILLY_OFFX;
+        c->p2y = 1049.0f - SS_PHILLY_OFFY - 10.0f;
+        c->a0 = 18.0f; c->a1 = -8.0f;
+    }
+    c->ang = c->a0;                     /* o AngleTween poe o `from` na hora */
+}
+
 /* `doLightningStrike` (spookyMansion.hxc L26-49), na ordem da fonte: som,
    animacao, `strikeBeat`, `strikeOffset` sorteado, e os `scared` do bf e da gf.
    `pede_som` = 0 no raio sincronizado da `spookeez` (L82 `false`). */
@@ -437,6 +686,32 @@ int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
        repetir em varios quadros. */
     if (beat == ss->ultimo_beat) return 0;
     ss->ultimo_beat = beat;
+
+    /* ---- phillyStreets L486-511 ---- */
+    if (ss->i_luz >= 0) {
+        int r10;
+        /* L493-494: `bool(10) && beat != lastChange + changeInterval &&
+           carInterruptable`. O `bool` e' o PRIMEIRO operando, entao ele e'
+           sorteado em todo beat, mesmo quando o resto e' falso. */
+        r10 = ss_rnd_bool(ss, SS_PHILLY_CAR_CHANCE);
+        if (r10 && beat != ss->luz_ultimo + ss->luz_intervalo && ss->car_livre) {
+            ss_carro_dirige(ss, 0, ss->luz_parado ? 1 : 0);
+            disparou = 1;
+        }
+        /* L506-508: o carro da direita, so' no verde. */
+        r10 = ss_rnd_bool(ss, SS_PHILLY_CAR_CHANCE);
+        if (r10 && beat != ss->luz_ultimo + ss->luz_intervalo &&
+            ss->car2_livre && !ss->luz_parado) {
+            ss_carro_dirige(ss, 1, 2);
+            disparou = 1;
+        }
+        /* L511: a troca do sinal. */
+        if (beat == ss->luz_ultimo + ss->luz_intervalo) {
+            ss_troca_luz(ss, beat);
+            disparou = 1;
+        }
+        return disparou;
+    }
 
     /* ---- phillyTrain L112-149 ---- */
     if (ss->i_train >= 0) {
@@ -587,6 +862,33 @@ int ss_update(ss_t *ss, float elapsed)
         }
     }
 
+    /* ---- OS DOIS CARROS DO phillyStreets ---- */
+    if (ss->i_luz >= 0) {
+        int k;
+        for (k = 0; k < 2; k++) {
+            ss_carro_t *c = &ss->carro[k];
+            if (!c->ativo) continue;
+            ss_carro_anda(c, ss->t);
+            /* O `onComplete` do tween: o carro volta a ser "interruptavel" e,
+               no `driveCarLights`, avisa que esta' esperando no sinal (L253-257
+               e L200-208). */
+            if (ss->t - c->t0 - c->delay >= c->dur) {
+                c->ativo = 0;
+                if (k == 0) {
+                    ss->car_livre = 1;
+                    if (c->parou) {
+                        /* L253-257: `carWaiting = true; if (lightsStop == false)
+                           finishCarLights(...)`. */
+                        ss->car_esperando = 1;
+                        if (!ss->luz_parado) ss_carro_solta(ss);
+                    }
+                } else {
+                    ss->car2_livre = 1;
+                }
+            }
+        }
+    }
+
     /* ---- O FLASH DO spookyMansionErect (L51-79) ---- */
     if (ss->i_bgl >= 0 && ss->flash) {
         float dt = ss->t - ss->flash_t0;
@@ -660,6 +962,10 @@ float ss_prop_alpha(const ss_t *ss, int prop_abs)
 float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
 {
     if (!ss->ativo || prop_abs < 0) return x_dado;
+    /* Os carros do phillyStreets: o x vem do tween (e o `offset` da variante
+       ja' esta' embutido em `carro[].x`, como no desenho do flixel). */
+    if (prop_abs == ss->i_car) return ss->carro[0].x;
+    if (prop_abs == ss->i_car2) return ss->carro[1].x;
     /* O trem: quem escreve o x e' o `updateTrainPos` (L127-134), e o primeiro
        valor e' o do dado. */
     if (prop_abs == ss->i_train) return ss->trem_x >= 0.0f ? ss->trem_x : x_dado;
@@ -685,6 +991,37 @@ int ss_prop_frame(const ss_t *ss, int prop_abs, int *anim, int *frame)
         if (frame) *frame = q;
         return 1;
     }
+    /* phillyStreets: a animacao `car1..car4` de cada carro e a `togreen`/
+       `tored` do sinal. As duas rodam em loop a 24 fps desde o instante em que
+       foram tocadas (`animation.play` reinicia do quadro 0). */
+    if (ss->ativo && (prop_abs == ss->i_car || prop_abs == ss->i_car2 ||
+                      prop_abs == ss->i_luz)) {
+        const bs_prop_t *p = &bs_props[prop_abs];
+        int quais = -1, q, qn, fps = 24;
+        float t0;
+        if (prop_abs == ss->i_luz) {
+            quais = ss->luz_anim;               /* 0 = togreen, 1 = tored */
+            t0 = ss->luz_t0;
+        } else {
+            const ss_carro_t *c = &ss->carro[prop_abs == ss->i_car ? 0 : 1];
+            if (!c->ativo && c->anim == 0) return 0;   /* parado no dado */
+            quais = c->anim > 0 ? c->anim - 1 : 0;     /* `car<N>` -> N-1 */
+            t0 = c->t0;
+        }
+        if (quais < 0 || quais >= p->anim_count) return 0;
+        {
+            const bs_prop_anim_t *a = &bs_prop_anims[p->anim_first + quais];
+            qn = a->count > 0 ? a->count : 1;
+            if (a->fps > 0.0f) fps = (int)(a->fps + 0.5f);
+        }
+        q = (int)((ss->t - t0) * (float)fps);
+        if (q < 0) q = 0;
+        q %= qn;
+        if (anim) *anim = quais;
+        if (frame) *frame = q;
+        return 1;
+    }
+
     if (!ss->ativo || prop_abs != ss->i_light || !ss->raio_ativo) return 0;
     /* `animation.play('strike')` reinicia do quadro 0 a cada raio, 24 fps, e a
        animacao do dado e' em loop (30 quadros). Em 1,5 s de raio o flixel passa
@@ -717,16 +1054,17 @@ int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb)
 
 float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado)
 {
-    (void)ss;
-    (void)prop_abs;
+    if (!ss->ativo || prop_abs < 0) return y_dado;
+    if (prop_abs == ss->i_car) return ss->carro[0].y;
+    if (prop_abs == ss->i_car2) return ss->carro[1].y;
     return y_dado;
 }
 
 int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus)
 {
-    (void)ss;
-    (void)prop_abs;
-    (void)graus;
+    if (!ss->ativo || prop_abs < 0 || !graus) return 0;
+    if (prop_abs == ss->i_car) { *graus = ss->carro[0].ang; return 1; }
+    if (prop_abs == ss->i_car2) { *graus = ss->carro[1].ang; return 1; }
     return 0;
 }
 

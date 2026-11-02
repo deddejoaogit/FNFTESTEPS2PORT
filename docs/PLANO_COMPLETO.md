@@ -4939,3 +4939,95 @@ retry voltando a `beat 0`/`offset 8`).
 do PS2 não tem rumble acionado pelo jogo neste port) e a pré-carga dos dois
 trovões (`FunkinMemory.cacheSound`, L19-20) — os dois PCM já vão no pendrive e
 são abertos na hora de tocar.
+
+## Fechado: o sinal e os dois carros do `phillyStreets` (o primeiro script com tween e `angle`)
+
+`phillyStreets` é o palco de **três** músicas jogáveis (`darnell`, `lit-up`,
+`2hot`), e o script dele (`preload/scripts/stages/phillyStreets.hxc`) não é
+relâmpago nem susto: é **movimento**. O sinal de trânsito troca de estado a
+cada intervalo de batidas, dois carros atravessam a rua em curvas de Bézier
+com ângulo, e o carro que chega no vermelho **para** e sai no verde. Até esta
+build o port desenhava o palco parado: o `phillyTraffic` congelado no quadro 0
+e os dois carros fora da tela em `x = 1200`.
+
+**O que o script manda** (`phillyStreets.hxc`):
+
+| Linha | O que faz | No port |
+|---|---|---|
+| L34-41 | `lightsStop` falso, `lastChange` 0, `changeInterval` **8**, os carros "interruptáveis" | `ss_reiniciar` |
+| L53-70 | `changeLights`: inverte o estado; vermelho → `tored` e intervalo **20**; verde → `togreen`, intervalo **30** e solta o carro que esperava | `ss_troca_luz` |
+| L75-103 | `resetCar`: x 1200, y 818, ângulo 0 | `ss_carro_reset` |
+| L189-207 | `finishCarLights`: `float(1.8,3)` de duração, `float(0.2,1.2)` de atraso, ângulo −5 → 18 com `sineIn` | `ss_carro_solta` |
+| L214-273 | `driveCarLights`: variante `int(1,4)`, duração e `extraOffset` por variante, ângulo −7 → −5 com `cubeOut` | `ss_carro_dirige` modo 1 |
+| L278-332 | `driveCar`: atravessa a tela, ângulo −8 → 18, `ease: null` | modo 0 |
+| L337-395 | `driveCarBack`: o carro da direita, sentido contrário, 18 → −8 | modo 2 |
+| L486-511 | `onBeatHit`: **dois** `bool(10)` por batida (um por carro), com o portão `beat != lastChange + changeInterval`, e a troca do sinal | `ss_beat` |
+
+**Três coisas que só apareceram lendo o `FlxTween` do flixel** (clonado em
+`/tmp/flx`, 5.x):
+
+1. `FlxTween.quadPath` **não** gira o sprite. A rotação vem só do
+   `FlxTween.angle` que roda em paralelo; os dois mexem em propriedades
+   diferentes (`x`/`y` e `angle`) e por isso convivem.
+2. Com **3 pontos** o `QuadPath` cai no caso degenerado da normalização por
+   comprimento de arco (`_curveT = [0,1]`), ou seja é uma Bézier quadrática
+   pura com `t` = progresso. Não há reamostragem a fazer.
+3. O `sprite.offset.set(extraOffset)` das variantes desloca o **desenho**, não
+   a posição (`FlxSprite.hx` L1007: `getScreenPosition().subtract(offset)`), e o
+   `AngleTween` escreve `sprite.angle = FromAngle` **na hora**, antes do
+   `startDelay` começar a contar.
+
+**O que o port ganhou de infraestrutura**: `sl_item_t.ang` (o `angle` do
+sprite em graus) e dois callbacks novos no `sl_script_t` — `y(prop, y_dado)` e
+`ang(prop, *graus)` —, mais o desenho do prop **girado** no `main.c`
+(`palco_sprite_girado`, um quadrilátero em volta do centro do quadro, que é o
+`centerOrigin` do `FlxSprite`). Até aqui o layout só sabia mover em x.
+
+**Um bug de arquitetura que a build pagou**: o `onBeatHit` do `main.c` era
+ligado por uma **lista de índices de prop** (`i_bgl`, `i_bg`, `i_train`). O
+`phillyStreets` não tem nenhum dos três, então `ss_beat` nunca era chamado —
+o sinal não trocava e os carros não saíam, **sem nenhum erro**. Agora quem diz
+se o palco tem beat é o próprio script (`ss_beat` só roda com `tem_beat`), e
+essa é a segunda vez que a lista de índices custou uma build (a primeira foi o
+trem, que ficou parado a música inteira).
+
+**Medido no harness** (`FNF_START_SONG=2hot FNF_START_DIFF=1`, 4 000 quadros,
+`PS2H_STRICT=1`): `PASSOU`, 4 002 quadros, 2 139 pacotes, nenhum estouro, todo
+asset abriu. Telemetria:
+
+```
+E,37011456,palco_script,1,8
+E,481837056,palco_sinal,4,0     <- carro sai no verde (anim 0 = togreen)
+E,481837056,palco_giro,60,-77   <- o carro girou -7,7 graus (prop 60 = phillyCars)
+E,675987456,palco_sinal,8,1     <- beat 8 = lastChange(0) + changeInterval(8): TORED
+```
+
+O `palco_sinal,8,1` é a prova exata do L511: o primeiro `beat` em que
+`beat == lastChange + changeInterval` (0 + 8) é o 8, e o estado vai para
+`tored` (anim 1). O `palco_giro` com `-77` é o ângulo −7,7° do
+`driveCarLights` (ângulo −7 → −5, `cubeOut`, meio do caminho ≈ −6,9°… −7,7°
+no primeiro terço), que é o único caminho que gira **negativo**.
+
+**Teste de PC** (`test/test_stage_script.c` e `test/test_stage_layout.c`): o
+sinal verde→vermelho em 8, vermelho→verde em 28, intervalos 8/20/30; o carro
+com `anim` 1..4 e a duração/`extraOffset` de cada variante; o ângulo inicial
+(−7 no `driveCarLights`, −8 nos outros dois); o carro voltando a ser
+interruptável no fim; o `retry` voltando para (1200, 818) e verde; e no layout
+o item do carro saindo com o **ângulo** e o **y** do script (e um prop vizinho
+com ângulo 0, para pegar vazamento de um prop para o outro).
+
+**O que NÃO está portado neste palco, e por quê**:
+
+- o `scrollingSky` do `phillyStreets` (L161-168: `FlxTiledSprite` de
+  `phillyStreets/phillySkybox`, 2922×718 em (−650, −375), `scrollFactor` 0,1,
+  z 10, escala 0,65, `scrollX -= elapsed * 22` por quadro). É um sprite
+  **criado pelo script** e o empacotador só cria o que está na tabela
+  `assets-data/stage-criados.json` — hoje só o `scrollingSky` do
+  `phillyBlazin`. Falta a entrada **e** o PNG no clone de arte; a lógica do
+  scroll é uma linha e entra junto;
+- o `RuntimeRainShader` (L23, L124-150, L453-470) e o `BlurFilter`: o GS de
+  pipeline fixa não tem fragment shader;
+- `HapticUtil.vibrate` das outras cenas do mesmo arquivo.
+
+**Ainda falta neste palco**: nada de lógica que o dado permita. A chuva e o céu
+são shader e arte.

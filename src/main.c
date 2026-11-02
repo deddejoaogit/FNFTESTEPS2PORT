@@ -3830,12 +3830,13 @@ static void palco_script_anda(const char *stage, float t, int step)
     /* O `onBeatHit` (spookyMansionErect L155-174): QUATRO passos por beat
        (`Constants.STEPS_PER_BEAT`), e o `ss_beat` ignora beat repetido -- quem
        chama ve o mesmo `step` em varios quadros. */
-    /* Quem tem `onBeatHit` portado: o spooky (o flash da mansao erect), a
-       mansao NAO-erect (a animacao `lightning` do ceu) e o trem (as luzes e a
-       passagem). A guarda tem de listar OS TRES -- com so' o `i_bgl` o trem
-       nunca recebia beat nenhum, e o palco ficava parado a musica inteira. */
-    if (step >= 0 &&
-        (g_script.i_bgl >= 0 || g_script.i_bg >= 0 || g_script.i_train >= 0)) {
+    /* Quem tem `onBeatHit` portado diz isso no proprio `ss_t` (`tem_beat`):
+       o flash da mansao erect, a `lightning` do ceu da mansao nao-erect, o trem
+       e o sinal/carros do `phillyStreets`. A guarda era uma lista de indices no
+       main.c e ja' custou duas builds: com so' o `i_bgl` o trem ficou parado a
+       musica inteira, e o `phillyStreets` (que nao tem nenhum dos tres) ficou
+       sem sinal e sem carro. */
+    if (step >= 0 && g_script.tem_beat) {
         int beat = step / 4;
         if (ss_beat(&g_script, beat, g_play_song ? g_play_song->id : "",
                     palco_tem_personagens())) {
@@ -3845,6 +3846,8 @@ static void palco_script_anda(const char *stage, float t, int step)
                leva o som pendente. */
             if (g_script.i_train >= 0)
                 telemetry_event("palco_trem", beat, g_script.trem_carros);
+            else if (g_script.i_luz >= 0)
+                telemetry_event("palco_sinal", beat, g_script.luz_anim);
             else if (g_script.i_bg >= 0)
                 telemetry_event("palco_trovao", beat, (int)g_script.som);
             else
