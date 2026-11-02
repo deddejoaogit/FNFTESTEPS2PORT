@@ -256,8 +256,34 @@ int ps2h_semana_inicial(void);
 int ps2h_rank_forcado(void);
 int ps2h_rank_anim_forcado(void);
 int ps2h_rank_antigo_forcado(void);
+const char *ps2h_palco_forcado(void);
 #endif
+/* O PALCO DESTA SESSAO. No jogo e' o `stage` do registro da musica -- o mesmo
+   dado do `PlayState.currentSong.stage`; quando nao ha' musica (o tutorial por
+   caminho legado) e' o `mainStage`.
+   No binario do HARNESS, `FNF_STAGE=<id>` troca o palco SEM trocar a musica: e'
+   a unica forma de exercitar os nove palcos `Erect`, que existem no dado (props,
+   slots, script) mas que nenhum dos 81 charts do pacote referencia -- as
+   variacoes `SR_VAR_ERECT` do registro sao bandeira de dado, e os charts delas
+   nao vem no pacote. Sem esta porta, o flash do `spookyMansionErect` so' seria
+   conferido pelo teste de unidade. Um id que nao existe no dado e' ignorado
+   (fica o do registro), entao a porta nunca inventa um palco. */
 static const sr_song_t *g_play_song=0;
+
+static const char *palco_atual(void)
+{
+#ifdef PS2H
+    static const char *forcado = 0;
+    static int visto = 0;
+    if (!visto) {
+        visto = 1;
+        forcado = ps2h_palco_forcado();
+        if (forcado && sl_stage_find(forcado) < 0) forcado = 0;
+    }
+    if (forcado) return forcado;
+#endif
+    return g_play_song ? g_play_song->stage : "mainStage";
+}
 static unsigned g_play_level=0,g_play_song_index=0;
 /* CAMPANHA DO STORY MODE (PlayStatePlaylist.hx).
    O original NAO toca uma musica por semana: `selectLevel()` monta
@@ -1385,6 +1411,15 @@ static qword_t *sprite_dims_flip_cor(qword_t*q,float x,float y,float w,float h,i
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
  v.color=rgba(cr,cg,cb,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
+/* COR e ALPHA no mesmo vertice: e' o que o `spookyMansionErect` precisa (o
+   flash apaga os personagens por 0,06 s e depois os traz de volta em 1,5 s) e o
+   `phillyBlazin` tambem (cor de repouso + escurecimento de 0,3 s). */
+static qword_t *sprite_dims_alpha_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb,unsigned char a,unsigned char bandeira){texrect_t v;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
+ band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(bandeira,tw,&v.t0.u,&v.t1.u);
+ v.color=rgba(cr,cg,cb,a);dl_sprite(x,y,w,h,bandeira?(float)tw:0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
+
 static qword_t *sprite_region(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
@@ -1491,6 +1526,12 @@ typedef struct {
        era lido para a RAM e mantido, e por isso existia o teto
        PALCO_RAM_MAX 4 MB -- com a arte real, oito dos 21 palcos nao abriam. */
     pst_pack_t pst[PALCO_MAX_PROPS];
+    /* O ULTIMO alpha (em centesimos) desenhado de cada prop, para o log so'
+       falar quando ele MUDA. E' o que prova, no harness, que o script chegou no
+       desenho: no `spookyMansionErect` as duas luzes nascem em 0,0001 e vao a 1
+       -- o `palco_draw` NAO muda (os dois ja' contavam como desenhados), mas o
+       alpha sim. */
+    short alpha100[PALCO_MAX_PROPS];
     unsigned int bytes[PALCO_MAX_PROPS];
     unsigned int count[PALCO_MAX_PROPS];      /* quadros no pacote          */
     unsigned int frame_bytes[PALCO_MAX_PROPS];
@@ -1644,7 +1685,7 @@ static void palco_carregar(const char *stage)
     g_palco.n = bs_stage_props[si].count;
     g_palco.first = bs_stage_props[si].first;
     if (g_palco.n > PALCO_MAX_PROPS) g_palco.n = PALCO_MAX_PROPS;
-    for (i = 0; i < g_palco.n; i++) g_palco.quadro[i] = -1;
+    for (i = 0; i < g_palco.n; i++) { g_palco.quadro[i] = -1; g_palco.alpha100[i] = -1; }
     /* Os sprites do script do palco: a faixa em bs_criados[] que este palco
        pede. O indice `si` e' o MESMO de bs_stage_props[] -- ha' um teste que
        confere as duas tabelas lado a lado. */
@@ -3645,13 +3686,16 @@ typedef struct {
    musica (tres fds, e o mesmo numero que a Freeplay guarda). */
 static int g_palco_som_fd[3] = { -1, -1, -1 };
 
-static void palco_som_toca(int n)
+static void palco_som_toca(int n, int trovao)
 {
     char caminho[192];
     int k = n - 1, fd, slot;
     if (!g_audio_ok || k < 0 || k > 2) return;
-    snprintf(caminho, sizeof(caminho), "%s/stage/lightning%d.pcm",
-             FNF_ASSET_ROOT, n);
+    /* `trovao` escolhe o banco: o relampago do ceu (`Lightning1..3`,
+       phillyBlazin) ou o trovao da mansao (`thunder_1..2`,
+       spookyMansionErect L106). Os dois vao para assets/stage/. */
+    snprintf(caminho, sizeof(caminho), "%s/stage/%s%d.pcm",
+             FNF_ASSET_ROOT, trovao ? "thunder" : "lightning", n);
     fd = open(caminho, O_RDONLY);
     if (fd < 0) { telemetry_event("palco_som_falta", n, 0); return; }
     slot = audio_ring_overlay(fd);
@@ -3672,7 +3716,19 @@ static void palco_som_toca(int n)
 /* Anda o script ate' o tempo de musica `t`. O relogio e' o da MUSICA, e nao o
    do quadro: pausa nao adianta o relampago, e no retry (t volta a zero) o
    script volta ao comeco. */
-static void palco_script_anda(const char *stage, float t)
+/* `doLightningStrike` L112-117: o bf e a gf tocam `scared`. Fica declarado
+   aqui porque o estado da cena (`g_cena`) e' definido mais abaixo -- mas quem
+   chama e' o `onBeatHit`, no bloco do beat de `palco_script_anda`. */
+static void palco_scared_toca(long ms);
+/* `doLightningStrike` L102: `if (bf == null || gf == null || dad == null)
+   return;` -- o raio so' existe quando os TRES papeis existem na musica. No
+   port isso e' "o plano da cena achou o personagem" (`ci >= 0`), que e' o dado
+   do `playData`; um pacote que falte e' dado faltando reportado
+   (`char_sem_pacote`), nao um personagem inexistente. O Tutorial, por exemplo,
+   nao tem `girlfriend` no dado e por isso NAO teria raio nenhum. */
+static int palco_tem_personagens(void);
+
+static void palco_script_anda(const char *stage, float t, int step)
 {
     float dt;
     if (!g_script.ativo) return;
@@ -3691,6 +3747,19 @@ static void palco_script_anda(const char *stage, float t)
         t >= (float)g_chart_info.song_end_sample / 48000.0f) {
         ss_song_end(&g_script);
     }
+    /* O `onBeatHit` (spookyMansionErect L155-174): QUATRO passos por beat
+       (`Constants.STEPS_PER_BEAT`), e o `ss_beat` ignora beat repetido -- quem
+       chama ve o mesmo `step` em varios quadros. */
+    if (step >= 0 && g_script.i_bgl >= 0) {
+        int beat = step / 4;
+        if (ss_beat(&g_script, beat, g_play_song ? g_play_song->id : "",
+                    palco_tem_personagens())) {
+            telemetry_event("palco_flash", beat, (int)g_script.som);
+            if (g_script.som > 0) palco_som_toca(g_script.som, 1);
+            g_script.som = 0;
+            if (t > 0.0f) palco_scared_toca((long)(t * 1000.0f));
+        }
+    }
     dt = t - g_script.t;
     if (dt <= 0.0f) return;
     if (dt > PALCO_ELAPSED_MAX) dt = PALCO_ELAPSED_MAX;
@@ -3700,7 +3769,7 @@ static void palco_script_anda(const char *stage, float t)
            e o que falta e' o pipeline de som one-shot dos `Lightning1..3`. */
         telemetry_event("palco_raio", g_script.raios, (int)g_script.raio_x);
         telemetry_event("palco_raio_som", g_script.som, 0);
-        palco_som_toca(g_script.som);
+        palco_som_toca(g_script.som, 0);
     }
 }
 
@@ -3715,7 +3784,7 @@ static void palco_abre(palco_lista_t *L, const char *stage, float cam_x,
     if (!g_palco.stage) return;
     /* O script do palco anda ANTES do layout: e' ele que diz quais props do
        relampago estao acesos neste quadro. */
-    palco_script_anda(stage, t);
+    palco_script_anda(stage, t, step);
     L->n = sl_collect(stage, cam_x, cam_y, zoom, bop, step, beat_s, t,
                       L->it, SL_MAX_ITENS);
     if (L->n < 0) L->n = 0;
@@ -3836,6 +3905,11 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
            alpha do vertice (`Cs*As + Cd*(1-As)`), entao 0,3 vira 0x26. */
         {unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
          int add;
+         {int c100 = (int)(L->it[i].alpha * 100.0f + 0.5f);
+          if (c100 != g_palco.alpha100[r]) {
+              g_palco.alpha100[r] = (short)c100;
+              telemetry_event("palco_alpha", L->it[i].prop, c100);
+          }}
          if (a == 0) continue;
          if (a > 0x80) a = 0x80;
          /* MULTIPLY (2) e SCREEN (3) nao existem na pipeline fixa do GS: o
@@ -3968,6 +4042,7 @@ static int g_cena_desenhos[CH_CENA_PAPEIS];
    o log poder provar que o personagem nao esta' nem 2x menor nem 6x menor. */
 static int g_cena_tam_visto[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
+static int g_cena_scared_visto[CH_CENA_PAPEIS]; /* o `char_scared` ja' saiu no log */
 static int g_cena_hold_visto[CH_CENA_PAPEIS];
 static int g_cena_pulos_visto[CH_CENA_PAPEIS];
 /* Um aviso por papel: a primeira animacao com `offsets` proprio aplicada (ver
@@ -3982,7 +4057,54 @@ static int g_cena_dad_ci=-1;         /* personagem do slot dad        */
 /* Uma vez por papel: prova no log que o personagem saiu com a cor do palco (o
    `phillyBlazin` escurece os tres). Mesma politica do `g_cena_off_visto`. */
 static int g_cena_cor_visto[CH_CENA_PAPEIS];
+/* E o mesmo para o ALPHA do personagem (o flash do spookyMansionErect). */
+static int g_cena_alpha_visto[CH_CENA_PAPEIS];
 static int g_cena_bf_ci=-1,g_cena_gf_ci=-1;   /* jogador e namorada     */
+
+/* `spookyMansionErect.hxc` L112-117, dentro do `doLightningStrike`:
+     if (bf.hasAnimation('scared') && bf.animation.name != 'cheer')
+         bf.playAnimation('scared', true, true);
+     if (gf.hasAnimation('scared')) gf.playAnimation('scared', true, true);
+   O `dad` NAO entra: o original nao toca nada nele. `hasAnimation` e' o
+   `ch_anim_i(...) >= 0` (o pacote e' o mesmo dado do JSON), e a guarda do
+   `cheer` existe porque no original o `cheer` e' a animacao de comemoracao e
+   nao pode ser interrompida por um raio.
+   O modo e' o `cc_toca`: animacao NOMEADA (nao e' canto), que segura o
+   personagem ate' ela acabar e depois devolve o `dance()` -- e' isso que o
+   `Bopper.dance()` do original faz no beat seguinte, entao a duracao visivel
+   e' a mesma. `forced`/`restart` do original: `cc_toca` so' reinicia quando a
+   animacao pedida nao e' a atual, que e' o caso aqui (o dano do raio troca de
+   `idle`/`sing*` para `scared`). */
+static int palco_tem_personagens(void)
+{
+    return g_cena_bf_ci >= 0 && g_cena_gf_ci >= 0 && g_cena_dad_ci >= 0;
+}
+
+static void palco_scared_toca(long ms)
+{
+    int ci = g_cena_bf_ci;
+    if (ci >= 0 && ch_anim_i(ci, "scared") >= 0) {
+        int a = cc_anim(&g_cena, CH_PAPEL_BF);
+        int eh_cheer = 0;
+        if (a >= 0 && a < g_cena.p[CH_PAPEL_BF].pacote.n_anims)
+            eh_cheer = strcmp(g_cena.p[CH_PAPEL_BF].pacote.anim[a].nome, "cheer") == 0;
+        if (!eh_cheer && cc_toca(&g_cena, CH_PAPEL_BF, "scared", ms)) {
+            if (!g_cena_scared_visto[CH_PAPEL_BF]) {
+                g_cena_scared_visto[CH_PAPEL_BF] = 1;
+                telemetry_event("char_scared", CH_PAPEL_BF, 0);
+            }
+        }
+    }
+    ci = g_cena_gf_ci;
+    if (ci >= 0 && ch_anim_i(ci, "scared") >= 0) {
+        if (cc_toca(&g_cena, CH_PAPEL_GF, "scared", ms)) {
+            if (!g_cena_scared_visto[CH_PAPEL_GF]) {
+                g_cena_scared_visto[CH_PAPEL_GF] = 1;
+                telemetry_event("char_scared", CH_PAPEL_GF, 0);
+            }
+        }
+    }
+}
 /* 1 = BF e GF desenhados pelo caminho generico; 0 = caminho do tutorial.
    O TUTORIAL continua no caminho antigo de proposito: e' a unica musica cujas
    posicoes e a camera foram conferidas numa captura do console, e trocar isso
@@ -4341,7 +4463,7 @@ static int cena_canvas_mundo(int papel,const bs_slot_t *slot,float *w,float *h)
    existe. */
 static int go_foco_bf(float *fx,float *fy)
 {
- const char *stg=g_play_song?g_play_song->stage:"mainStage";
+ const char *stg=palco_atual();
  const bs_slot_t *sl;
  ch_anchor_t an;
  float cw=0.0f,chh=0.0f;
@@ -4430,20 +4552,32 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
    int spi=papel==CH_PAPEL_BF?SS_BF:(papel==CH_PAPEL_DAD?SS_DAD:SS_GF);
    unsigned char rgb[3];
    int temcor=ss_cor_papel(&g_script,spi,rgb);
+   /* O ALPHA do personagem: `spookyMansionErect` L112-114 poe os tres em 0 no
+     flash (e a sequencia de 0,06/0,12 s pisca). -1 = o palco nao mexe. */
+   float alp=ss_alpha_papel(&g_script,spi);
+   unsigned char a=0x80;
    int desenhou=0;
+   unsigned char cr=0x80,cg=0x80,cb=0x80;
    if(temcor){
-    unsigned char cr=(unsigned char)((rgb[0]*0x80u+127u)/255u),
-                  cg=(unsigned char)((rgb[1]*0x80u+127u)/255u),
-                  cb=(unsigned char)((rgb[2]*0x80u+127u)/255u);
+    cr=(unsigned char)((rgb[0]*0x80u+127u)/255u);
+    cg=(unsigned char)((rgb[1]*0x80u+127u)/255u);
+    cb=(unsigned char)((rgb[2]*0x80u+127u)/255u);
     if(cr!=0x80||cg!=0x80||cb!=0x80){
-     if(ci>=0&&ch_chars[ci].flipx)
-      q=sprite_dims_flip_cor(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel],cr,cg,cb);
-     else
-      q=sprite_dims_cor(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel],cr,cg,cb);
-     desenhou=1;
      if(!g_cena_cor_visto[papel]){g_cena_cor_visto[papel]=1;
       telemetry_event("char_cor",papel,(int)rgb[0]);}
-    }
+    } else { temcor=0; }
+   }
+   if(alp>=0.0f){
+    if(alp<=0.0f){a=0;}
+    else{a=(unsigned char)(alp*128.0f+0.5f);if(a>0x80)a=0x80;}
+    if(!g_cena_alpha_visto[papel]){g_cena_alpha_visto[papel]=1;
+     telemetry_event("char_alpha",papel,(int)a);}
+   }
+   if(a==0){/* invisivel: o original mantem o sprite, mas nada aparece */desenhou=1;}
+   else if(temcor||a!=0x80){
+    int flip=(ci>=0&&ch_chars[ci].flipx)?1:0;
+    q=sprite_dims_alpha_cor(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel],cr,cg,cb,a,(unsigned char)flip);
+    desenhou=1;
    }
    if(!desenhou){
     if(ci>=0&&ch_chars[ci].flipx)
@@ -6024,7 +6158,11 @@ static const float g_official_mainstage_camera_zoom=1.1f;
 static float cena_zoom_do_palco(const sr_song_t *song)
 {
     int i;
-    const char *st = song && song->stage ? song->stage : "mainStage";
+    /* `palco_atual()` e nao `song->stage`: no console sao o mesmo dado (o
+       registro da musica), mas no harness `FNF_STAGE` troca o palco e o zoom
+       tem de acompanhar -- senao a camera usaria o `cameraZoom` de outro palco. */
+    const char *st = palco_atual();
+    (void)song;
     for (i = 0; i < BS_STAGE_COUNT; i++)
         if (bs_stages[i].id && strcmp(bs_stages[i].id, st) == 0)
             return bs_stages[i].zoom;
@@ -7695,7 +7833,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       `hasStartedAnimation` de GameOverSubState.hx L230-262) -- o substate e'
       criado no meio do quadro da morte e so' age no seguinte. */
    if(!g_go_iniciado){
-    const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    const char *stg=palco_atual();
     const bs_slot_t *slb=ch_slot(stg,"bf");
     int ci=g_cena_bf_ci,tem_fake=0;
     g_go_iniciado=1;
@@ -8228,9 +8366,9 @@ float gf_cam_x=g_official_mainstage_chars[0].x+GF_OFFSET_X+GF_CAMOFF_X+g_officia
     (position + offsets + cameraOffsets do personagem + do slot), que e' a do
     BaseCharacter.resetCameraFocusPoint e ja' reproduz o BF do mainStage digito
     a digito. No tutorial nada muda: continua o caminho conferido no console. */
-{const bs_slot_t*slb=ch_slot(g_play_song?g_play_song->stage:"mainStage","bf");
- const bs_slot_t*slg=ch_slot(g_play_song?g_play_song->stage:"mainStage","gf");
- const bs_slot_t*sld=ch_slot(g_play_song?g_play_song->stage:"mainStage","dad");
+{const bs_slot_t*slb=ch_slot(palco_atual(),"bf");
+ const bs_slot_t*slg=ch_slot(palco_atual(),"gf");
+ const bs_slot_t*sld=ch_slot(palco_atual(),"dad");
  dad_cam_x=bf_cam_x;dad_cam_y=bf_cam_y;
  if(g_cena_modo&&slb){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_BF,slb,&cw,&chh);ch_anchor(&ch_chars[g_cena_bf_ci],slb,cw,chh,0.0f,1,&an);bf_cam_x=an.cam_x;bf_cam_y=an.cam_y;}
  if(g_cena_modo&&slg&&g_cena.p[CH_PAPEL_GF].ativo){ch_anchor_t an;float cw=0.0f,chh=0.0f;cena_canvas_mundo(CH_PAPEL_GF,slg,&cw,&chh);ch_anchor(&ch_chars[g_cena_gf_ci],slg,cw,chh,0.0f,1,&an);gf_cam_x=an.cam_x;gf_cam_y=an.cam_y;}
@@ -8355,7 +8493,7 @@ float x,y,w,h;
     /* GF, BF e o oponente pelo mesmo caminho: quadro de `cc_quadro`, posicao
        do `ch_anchor` no slot do palco. O upload so' acontece quando o quadro
        MUDA -- e' o custo real (LZ4 + VRAM). */
-    const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    const char *stg=palco_atual();
     int bt2=cena_passo();     /* o passo do chart: e' ele que decide quando dancar */
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
     int zz[3],ord[3]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD},ai,bi,limite;
@@ -8397,13 +8535,13 @@ float x,y,w,h;
    }else{
     /* Tutorial: o mesmo caminho de antes, agora com a lista por z do palco --
        props, e so' depois o oponente e os dois sprites do BF/GF. */
-    const char *stg0=g_play_song?g_play_song->stage:"mainStage";
+    const char *stg0=palco_atual();
     palco_lista_t pl;
     palco_abre(&pl,stg0,cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st);
     if(palco_reserva(&pl,stg0)){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}
     q=palco_fatia(q,&pl,-PALCO_Z_FIM,PALCO_Z_FIM);
     palco_fecha(&pl);
-    q=cena_desenha(q,CH_PAPEL_DAD,ch_slot(g_play_song?g_play_song->stage:"mainStage","dad"),
+    q=cena_desenha(q,CH_PAPEL_DAD,ch_slot(palco_atual(),"dad"),
                    bt,(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48)),cx,cy,sc);
    }
    }
@@ -9017,7 +9155,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       `passo` vai 0 de proposito: no substate nao existe batida, e quem manda
       na animacao e' o cc_especial_fixo (o personagem esta' morto). */
    if(g_cena_modo&&g_cena.p[CH_PAPEL_BF].ativo&&g_cena_texde_w[CH_PAPEL_BF]>0){
-    const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    const char *stg=palco_atual();
     const bs_slot_t *slb=ch_slot(stg,"bf");
     int qa=g_frame_texture_quads;
     if(slb)q=cena_desenha(q,CH_PAPEL_BF,slb,0,(long)g_go_ms,g_go_cam_x,g_go_cam_y,0.5f*g_go_zoom);
@@ -9047,7 +9185,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
        bits (1 = cena generica, 2 = papel ativo, 4 = textura com largura,
        8 = slot `bf` do palco achado); campo 2 = largura da textura. Sem isto,
        "a tela desenhou so' o fundo" nao diz QUAL das quatro falhou. */
-    {const char *stg=g_play_song?g_play_song->stage:"mainStage";
+    {const char *stg=palco_atual();
      telemetry_event("gameover_bf",
       (g_cena_modo?1:0)|((g_cena.p[CH_PAPEL_BF].ativo?1:0)<<1)|
       ((g_cena_texde_w[CH_PAPEL_BF]>0?1:0)<<2)|((ch_slot(stg,"bf")?1:0)<<3),

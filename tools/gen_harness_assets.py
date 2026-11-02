@@ -964,6 +964,9 @@ def build(root, charts_src=None):
         "stage/lightning1.pcm": pcm(1 * 48000 * 4, 180),
         "stage/lightning2.pcm": pcm(1 * 48000 * 4, 210),
         "stage/lightning3.pcm": pcm(1 * 48000 * 4, 240),
+        # e o trovao da mansao (`spookyMansionErect` L106)
+        "stage/thunder1.pcm": pcm(1 * 48000 * 4, 150),
+        "stage/thunder2.pcm": pcm(1 * 48000 * 4, 165),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),

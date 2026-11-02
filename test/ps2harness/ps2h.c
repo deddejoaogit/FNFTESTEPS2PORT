@@ -1399,6 +1399,18 @@ int ps2h_semana_inicial(void)
     return (e && *e) ? atoi(e) : -1;
 }
 
+/* FNF_STAGE=<id do palco>: troca o palco da musica SEM trocar a musica.
+   Existe porque 9 dos 21 palcos do dado (os `Erect`) nao sao referenciados por
+   nenhum dos 81 charts do pacote: o script deles -- o flash do
+   `spookyMansionErect`, a chuva do `phillyTrainErect` -- nunca rodaria no
+   harness. Um id que nao existe no dado e' recusado por quem chama
+   (`palco_atual` confere em `sl_stage_find`), entao isto nao inventa palco. */
+const char *ps2h_palco_forcado(void)
+{
+    const char *e = getenv("FNF_STAGE");
+    return (e && *e) ? e : 0;
+}
+
 /* FNF_RANK=<0..5>: forca o rank da TELA DE RESULTADO (0 LOSS, 1 GOOD, 2 GREAT,
    3 EXCELLENT, 4 PERFECT, 5 PERFECT_GOLD). Cada rank troca a arte do rankText,
    os atrasos (`getMusicDelay`) e o par musica+intro, entao sem isto so' um rank

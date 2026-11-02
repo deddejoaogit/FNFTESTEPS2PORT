@@ -77,8 +77,26 @@ typedef struct {
     float cor_t0;               /* instante do ultimo escurecimento */
     int cor_ativa;
 
-    /* --- som: 1..3 = `Lightning<N>` pendente de tocar, 0 = nada --- */
+    /* --- som: 1..3 = `Lightning<N>` pendente de tocar, 0 = nada ---
+       No `spookyMansionErect` 1..2 = `thunder_<N>`. */
     int som;
+
+    /* ---- O FLASH DO `spookyMansionErect` ----
+       phillyBlazin e' relampago de ceu; a mansao e' flash de INTERIOR: as duas
+       camadas de luz acendem, os personagens somem, e a sequencia de 0,06 s /
+       0,12 s (L51-79) inverte isso duas vezes antes dos tweens de 1,5 s. */
+    int i_bgl;          /* `bgLight`, indice ABSOLUTO em bs_props[] */
+    int i_stl;          /* `stairsLight` */
+    int flash;          /* 1 enquanto a sequencia/tween do flash roda */
+    int flash_fase;     /* 0 = nada aplicado, 1 = +0,06 s, 2 = +0,12 s */
+    float flash_t0;
+    float a_bgl, a_stl; /* alpha das duas luzes */
+    float a_char[3];    /* alpha dos personagens (1 = normal) */
+
+    /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L26-27) --- */
+    int strike_beat;
+    int strike_offset;
+    int ultimo_beat;    /* o ultimo beat que chegou (dispara uma vez por beat) */
 
     unsigned int rng;
 } ss_t;
@@ -118,6 +136,17 @@ int ss_prop_frame(const ss_t *ss, int prop_abs, int *anim, int *frame);
 
 /* Alpha do retangulo de cor `cor_abs` (indice em bs_cores[]), ou -1. */
 float ss_cor_alpha(const ss_t *ss, int cor_abs);
+
+/* ---- O `onBeatHit` (spookyMansionErect L155-174) ----
+ * Chamado uma vez por beat, na ordem da fonte. `song_id` e' o id da musica (o
+ * `beat == 4` so' vale na `spookeez`) e `tem_personagens` diz se os tres
+ * personagens estao em cena -- o script do original da' `return` sem eles.
+ * Devolve 1 quando um flash comecou (para a telemetria). */
+int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens);
+
+/* Alpha do personagem do papel `papel` (SS_BF/SS_DAD/SS_GF), ou -1 quando o
+ * palco nao mexe no alpha dos personagens (o desenho sai como sempre). */
+float ss_alpha_papel(const ss_t *ss, int papel);
 
 /* Cor do personagem do papel `papel` (SS_BF/SS_DAD/SS_GF), 3 bytes 0..255.
  * Devolve 0 quando o palco nao tem cor de personagem (o desenho sai com o

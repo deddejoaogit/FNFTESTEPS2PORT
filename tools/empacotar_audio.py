@@ -148,6 +148,10 @@ SONS_PALCO = [
     ("weekend1/sounds/Lightning1", "lightning1", False),
     ("weekend1/sounds/Lightning2", "lightning2", False),
     ("weekend1/sounds/Lightning3", "lightning3", False),
+    # `spookyMansionErect.hxc` L106: `Paths.soundRandom('thunder_', 1, 2)`.
+    # Os arquivos moram em week2/sounds (a semana da mansao).
+    ("week2/sounds/thunder_1", "thunder1", False),
+    ("week2/sounds/thunder_2", "thunder2", False),
 ]
 
 

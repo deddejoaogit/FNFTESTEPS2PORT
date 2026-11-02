@@ -4517,6 +4517,100 @@ convertido pela mesma conta dos outros props.
 estão declarados no cabeçalho de `stage_script.h` como **não portados**, e não
 como feitos.
 
+## Fechado: o flash do `spookyMansionErect` (o segundo script de palco portado)
+
+O `phillyBlazin` foi o primeiro script de palco. Este é o segundo, e ele **não
+desenha nada novo**: ele mexe no `alpha` de props que já existem (as duas luzes)
+e no dos três personagens. O que muda a tela é o *pisca*, não a arte.
+
+**A sequência, linha por linha** (`spookyMansionErect.hxc`):
+
+| o quê | valor | fonte |
+|---|---|---|
+| estado inicial das luzes | `alpha = 0.0001` | L90-91 (`buildStage`) |
+| strike (`doLightningStrike`) | luzes em **1**, bf/dad/gf em **0** | L108-118 |
+| som do strike | `Paths.soundRandom('thunder_', 1, 2)` (só quando `playSound`) | L104-107 |
+| offset | `FlxG.random.int(8, 24)` | L119 |
+| t+**0,06 s** | luzes em **0**, personagens em **1** | L51-61 |
+| t+**0,12 s** | luzes em **1**, personagens em **0** | L62-78 |
+| t+0,12 s → +1,5 s | 5 tweens lineares: luzes → 0, personagens → 1 | L68-77 |
+| `onBeatHit` (beat 4) | só na música `spookeez`: strike **sem** som | L164-167 |
+| `onBeatHit` (todo beat) | `FlxG.random.bool(10)` **e** `beat > strikeBeat + offset`: strike **com** som | L170-174 |
+| guarda | sem bf, gf e dad na música, `doLightningStrike` sai antes de tudo | L102 |
+| `scared` | bf (se tem a animação e não está em `cheer`) e gf tocam `scared` | L112-117 |
+
+O `bool(10)` é o **primeiro** operando do `&&`, então ele é sorteado em TODO
+beat, mesmo quando o segundo `if` não dispararia — a *sequência* de sorteios é
+parte do comportamento, como no relâmpago do `phillyBlazin`. E o offset só é
+sorteado dentro do strike (e depois do som, L106 antes de L119): por isso o
+teste cobra o `strike_offset` de repouso em **8** quando os personagens faltam.
+
+**Onde está no código**
+
+- `src/engine/stage_script.{h,c}` — `i_bgl`/`i_stl` (as duas luzes), `flash` +
+  `flash_fase`/`flash_t0`, `a_bgl`/`a_stl`, `a_char[3]`, `strike_beat`,
+  `strike_offset`, `ultimo_beat`; `ss_flash_comeca()` (o `doLightningStrike` sem
+  o som), `ss_beat()` (o `onBeatHit`), `ss_alpha_papel()` (o alpha dos três
+  personagens) e o override em `ss_prop_alpha()`. `ss_reiniciar` volta ao
+  repouso (luzes no alpha do dado, personagens em 1).
+- `src/main.c` — `sprite_dims_alpha_cor()` (cor **e** alpha no mesmo vértice: o
+  flash precisa dos dois no mesmo `sprite`), `g_cena_alpha_visto[]`,
+  `cena_desenha` perguntando o alpha a `ss_alpha_papel()` (`a == 0` desenha
+  nada, e o log registra o valor uma vez por papel), `palco_scared_toca()`
+  (`cc_toca` para bf e gf) e a chamada de `ss_beat` em `palco_script_anda`, com
+  `palco_tem_personagens()` = os três papéis achados no plano da cena.
+- `tools/empacotar_audio.py` **`thunder_1`/`thunder_2`** → `assets/stage/thunder1.pcm`
+  (662 048 B, 3,45 s) e `thunder2.pcm` (1 319 080 B, 6,87 s), 48 kHz estéreo;
+  `gen_harness_assets.py` gera os dois para o harness; `build_pendrive.sh` leva
+  `lightning*|thunder*` para o pendrive.
+
+**Medido no harness** (`FNF_START_SONG=spookeez FNF_STAGE=spookyMansionErect`,
+1500 quadros):
+
+```
+E,...,palco_alpha,120,0     bgLight     em repouso: 0,0001 -> 0
+E,...,palco_alpha,122,0     stairsLight em repouso: 0,0001 -> 0
+E,...,palco_flash,4,0       o beat 4 da `spookeez` disparou o strike SEM som
+E,...,char_scared,1,0       o bf tocou `scared` (L112-115)
+E,...,char_scared,0,0       a gf tocou `scared` (L116-117)
+E,...,palco_alpha,120,100   as duas luzes em 1 no instante do strike
+E,...,palco_alpha,122,100
+E,...,palco_alpha,120,99    ... e o tween de 1,5 s apagando (99, 98, 97 ...)
+E,...,palco_som,1,7         um strike aleatório depois, com o `thunder1` no anel
+```
+
+O `palco_draw` **não** muda neste palco (2 → 2): as duas luzes já contavam como
+desenhadas em repouso (alpha 0,0001 é `> 0`, e o cinza do `alpha` do vértice
+arredonda para 0 na hora de desenhar). Por isso o log ganhou `palco_alpha`, que
+só aparece quando o alpha de um prop **muda** — é ele que prova que o script
+chegou no desenho.
+
+**O que é do harness e não do jogo**: `FNF_STAGE=<id>` troca o palco da música
+sem trocar a música, e existe porque **9 dos 21 palcos do dado não são
+referenciados por nenhum dos 81 charts do pacote** (os `Erect`). A bandeira
+`SR_VAR_ERECT` está no registro, mas os charts das variações erect não vêm no
+pacote: é dado ausente, e sem essa porta o flash deste palco só teria o teste de
+unidade. Um id que não existe no dado é recusado (`sl_stage_find`), então a
+porta não inventa palco — e o caminho do console (`#ifdef PS2H`) não a tem.
+
+**O que fica de fora, e por quê** (`stage_script.h` declara os dois como NÃO
+portados):
+
+- `RuntimeRainShader` (L34-40 e L83-86) — o GS da pipeline fixa não tem
+  fragment shader; o `bgTrees` é desenhado sem chuva. É a maior parte das 175
+  linhas de shader dos 18 scripts, e a decisão de arte (imagem degradada em vez
+  de evento perdido) já está registrada no plano.
+- `HapticUtil.vibrate` (L136-141 e L181-193) — o controle do PS2 não tem rumble
+  neste port. Não muda nada na tela.
+
+**O que o teste cobra** (`test/test_stage_script.c`, sem pacote): o strike nos
+0,06 s e nos 0,12 s (as luzes e os três personagens), os cinco tweens de 1,5 s
+chegando em 0/1, o `palco_flash` no beat 4 da `spookeez` e **não** em outra
+música, o `bool(10)` + `beat > strikeBeat + offset` (6 disparos em 160 beats,
+10 %, todos com `beat > último + 8` e `som ∈ {1,2}`), o beat repetido disparando
+uma vez só, e a guarda dos três personagens (240 beats sem nenhum disparo, sem
+sorteio de som e com o offset de repouso em 8).
+
 ### O que os 18 scripts fazem, medido (`tools/analisa_scripts_palco.py`)
 
 Para não repetir "77 linhas" sem dizer quais, o inventário novo classifica

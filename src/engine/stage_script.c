@@ -38,6 +38,25 @@
 #define SS_STRIKE_FPS      24.0f
 #define SS_STRIKE_QUADROS  30
 
+/* ---- spookyMansionErect.hxc ----
+     L51-79  a sequencia: 0,06 s apaga as luzes e devolve os personagens;
+             0,12 s acende as luzes, apaga os personagens de novo e comeca os
+             tweens de 1,5 s (luzes -> 0, personagens -> 1)
+     L100-119 doLightningStrike: luzes em 1, personagens em 0, e
+             `lightningStrikeOffset = FlxG.random.int(8, 24)`
+     L160-174 onBeatHit: em `beat == 4` e na musica `spookeez` um strike SEM
+             som; e em `FlxG.random.bool(10)` com `beat > strikeBeat+offset` um
+             strike COM som (`Paths.soundRandom('thunder_', 1, 2)`, L106)
+     L90-91  o estado inicial (buildStage) e' alpha 0.0001 nas duas luzes --
+             e' o alpha do JSON do port, conferido em stage_dados.h */
+#define SS_FLASH_FASE1     0.06f
+#define SS_FLASH_FASE2     0.12f
+#define SS_FLASH_TWEEN     1.5f
+#define SS_FLASH_CHANCE    10.0f
+#define SS_FLASH_BEAT_ESP  4          /* o beat do `spookeez` (L164) */
+#define SS_FLASH_OFF_MIN   8
+#define SS_FLASH_OFF_MAX   24
+
 /* Semente fixa do xorshift. Ver o cabecalho: a sequencia nao e' a do original
    (o flixel semeia com o relogio), mas a ordem dos sorteios e' -- bool(65),
    int do x, int do som, float do proximo timer. */
@@ -115,22 +134,39 @@ void ss_init(ss_t *ss, const char *palco_id)
     memset(ss, 0, sizeof(*ss));
     ss->palco = acha_palco(palco_id);
     ss->i_sky = ss->i_light = ss->i_fg = ss->i_lighten = -1;
+    /* -1 e nao 0: o `memset` zera, e o indice 0 e' um prop de verdade
+       (`skyAdditive` do phillyBlazin). Sem esta linha, um palco com o script do
+       spooky "encontrava" o prop 0 e o flash mexia no prop errado. */
+    ss->i_bgl = ss->i_stl = -1;
     ss->rng = SS_SEMENTE;
-    /* So' o phillyBlazin tem script portado. Um palco sem script fica inativo,
-       e todas as consultas devolvem "o dado manda" -- nenhum outro palco pode
-       ganhar comportamento por acidente. */
-    if (ss->palco < 0 || strcmp(bs_stage_props[ss->palco].id, "phillyBlazin") != 0)
+    if (ss->palco < 0) return;
+
+    /* ---- phillyBlazin (relampago de ceu) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "phillyBlazin") == 0) {
+        ss->i_sky = acha_prop(ss->palco, "skyAdditive");
+        ss->i_light = acha_prop(ss->palco, "lightning");
+        ss->i_fg = acha_prop(ss->palco, "foregroundMultiply");
+        ss->i_lighten = acha_cor(ss->palco, "additionalLighten");
+        /* Sem os quatro o script nao tem o que acender: e' dado faltando, e o
+           dado daqui e' o JSON do palco (conferido por gen_stage_dados.py). */
+        if (ss->i_sky < 0 || ss->i_light < 0 || ss->i_fg < 0 || ss->i_lighten < 0)
+            return;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
         return;
-    ss->i_sky = acha_prop(ss->palco, "skyAdditive");
-    ss->i_light = acha_prop(ss->palco, "lightning");
-    ss->i_fg = acha_prop(ss->palco, "foregroundMultiply");
-    ss->i_lighten = acha_cor(ss->palco, "additionalLighten");
-    /* Sem os quatro o script nao tem o que acender: e' dado faltando, e o dado
-       daqui e' o JSON do palco (conferido por tools/gen_stage_dados.py). */
-    if (ss->i_sky < 0 || ss->i_light < 0 || ss->i_fg < 0 || ss->i_lighten < 0)
+    }
+
+    /* ---- spookyMansionErect (flash de interior) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "spookyMansionErect") == 0) {
+        ss->i_bgl = acha_prop(ss->palco, "bgLight");
+        ss->i_stl = acha_prop(ss->palco, "stairsLight");
+        if (ss->i_bgl < 0 || ss->i_stl < 0) return;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
         return;
-    ss->ativo = 1;
-    ss_reiniciar(ss);
+    }
+    /* Qualquer outro palco fica INATIVO: todas as consultas devolvem "o dado
+       manda", entao nenhum palco ganha comportamento por acidente. */
 }
 
 void ss_reiniciar(ss_t *ss)
@@ -151,6 +187,15 @@ void ss_reiniciar(ss_t *ss)
     ss->cor[SS_BF][0] = ss->cor[SS_BF][1] = ss->cor[SS_BF][2] = SS_BF_DAD_CLARO;
     ss->cor[SS_DAD][0] = ss->cor[SS_DAD][1] = ss->cor[SS_DAD][2] = SS_BF_DAD_CLARO;
     ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_GF_CLARO;
+    /* O flash do spookyMansionErect: luzes no alpha do buildStage (0,0001 vem
+       do JSON) e personagens em 1. */
+    ss->flash = 0;
+    ss->flash_fase = 0;
+    ss->a_bgl = ss->a_stl = -1.0f;
+    ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = 1.0f;
+    ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
+    ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
+    ss->ultimo_beat = -1;
 }
 
 void ss_song_end(ss_t *ss)
@@ -185,6 +230,53 @@ static void ss_raio(ss_t *ss)
     ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_ESCURO;
 }
 
+/* `doLightningStrike` (L100-119) do spookyMansionErect: as duas luzes em 1, os
+   tres personagens em 0, a sequencia armada e o offset sorteado. */
+static void ss_flash_comeca(ss_t *ss)
+{
+    ss->flash = 1;
+    ss->flash_fase = 0;
+    ss->flash_t0 = ss->t;
+    ss->a_bgl = 1.0f;
+    ss->a_stl = 1.0f;
+    ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = 0.0f;
+    /* L119: `lightningStrikeOffset = FlxG.random.int(8, 24)` -- sorteado DEPOIS
+       do som (L106) e antes de qualquer outra coisa, como no original. */
+    ss->strike_offset = ss_rnd_int(ss, SS_FLASH_OFF_MIN, SS_FLASH_OFF_MAX);
+    ss->strike_beat = ss->ultimo_beat;
+}
+
+/* O `onBeatHit` (L155-174). A ordem dos sorteios e' a da fonte:
+   1) `FlxG.random.bool(10)` -- sorteado em TODO beat, mesmo quando o segundo
+      `if` nem chega a disparar (curto-circuito do `&&`);
+   2) o `int(1,2)` do som, dentro do strike com som;
+   3) o `int(8,24)` do offset.
+   O primeiro `if` (beat 4 na spookeez) NAO sorteia som. */
+int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
+{
+    int chance, disparou = 0;
+    if (!ss->ativo || (ss->i_bgl < 0 && ss->i_sky < 0)) return 0;
+    /* Cada beat chega UMA vez; quem chama passa o beat do chart, que pode
+       repetir em varios quadros. */
+    if (beat == ss->ultimo_beat) return 0;
+    ss->ultimo_beat = beat;
+    if (ss->i_bgl < 0) return 0;         /* so' o spooky usa beat */
+
+    /* L164: `event.beat == 4 && currentSong.id == "spookeez"` -> sem som. */
+    if (beat == SS_FLASH_BEAT_ESP && song_id && strcmp(song_id, "spookeez") == 0) {
+        if (tem_personagens) { ss_flash_comeca(ss); disparou = 1; }
+    }
+    /* L170: `FlxG.random.bool(10) && beat > strikeBeat + strikeOffset`.
+       O sorteio acontece SEMPRE (e' o primeiro operando do `&&`). */
+    chance = ss_rnd_bool(ss, SS_FLASH_CHANCE);
+    if (chance && beat > ss->strike_beat + ss->strike_offset && tem_personagens) {
+        ss->som = 1 + ss_rnd_int(ss, 0, 1);   /* Paths.soundRandom('thunder_',1,2) */
+        ss_flash_comeca(ss);
+        disparou = 1;
+    }
+    return disparou;
+}
+
 static float ss_suave(float u)
 {
     if (u <= 0.0f) return 0.0f;
@@ -207,6 +299,34 @@ int ss_update(ss_t *ss, float elapsed)
         ss_raio(ss);
         ss->timer = ss_rnd_float(ss, 7.0f, 15.0f);
         caiu = 1;
+    }
+
+    /* ---- O FLASH DO spookyMansionErect (L51-79) ---- */
+    if (ss->i_bgl >= 0 && ss->flash) {
+        float dt = ss->t - ss->flash_t0;
+        /* L51-61, 0,06 s: as luzes apagam e os personagens voltam (1 quadro de
+           cada estado -- e' um pisca). */
+        if (ss->flash_fase < 1 && dt >= SS_FLASH_FASE1) {
+            ss->flash_fase = 1;
+            ss->a_bgl = ss->a_stl = 0.0f;
+            ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = 1.0f;
+        }
+        /* L62-78, 0,12 s: acendem de novo, os personagens apagam, e os cinco
+           tweens de 1,5 s comecam (luzes -> 0, personagens -> 1). */
+        if (ss->flash_fase < 2 && dt >= SS_FLASH_FASE2) {
+            ss->flash_fase = 2;
+            ss->a_bgl = ss->a_stl = 1.0f;
+            ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = 0.0f;
+        }
+        if (ss->flash_fase >= 2) {
+            float u = ss_suave((dt - SS_FLASH_FASE2) / SS_FLASH_TWEEN);
+            ss->a_bgl = ss->a_stl = 1.0f - u;
+            ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = u;
+            if (u >= 1.0f) {
+                ss->flash = 0;
+                ss->a_bgl = ss->a_stl = 0.0f;
+            }
+        }
     }
 
     /* Os tres `FlxTween.tween(alpha, 0, ...)` do L154-164. O tween anda no
@@ -241,6 +361,10 @@ int ss_update(ss_t *ss, float elapsed)
 float ss_prop_alpha(const ss_t *ss, int prop_abs)
 {
     if (!ss->ativo || prop_abs < 0) return -1.0f;
+    /* spookyMansionErect: as duas luzes do flash. Em repouso o alpha e' o do
+       dado (0,0001, do `buildStage`), nao um 0 escrito aqui. */
+    if (prop_abs == ss->i_bgl) return ss->a_bgl < 0.0f ? -1.0f : ss->a_bgl;
+    if (prop_abs == ss->i_stl) return ss->a_stl < 0.0f ? -1.0f : ss->a_stl;
     if (prop_abs == ss->i_sky) return ss->raio_ativo ? ss->a_sky : 0.0f;
     if (prop_abs == ss->i_fg) return ss->raio_ativo ? ss->a_fg : 0.0f;
     if (prop_abs == ss->i_light) return ss->raio_ativo ? 1.0f : 0.0f;
@@ -285,4 +409,11 @@ int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)
     rgb[1] = ss->cor[papel][1];
     rgb[2] = ss->cor[papel][2];
     return 1;
+}
+
+float ss_alpha_papel(const ss_t *ss, int papel)
+{
+    if (!ss->ativo || papel < 0 || papel > SS_GF) return -1.0f;
+    if (ss->i_bgl < 0) return -1.0f;          /* so' o spooky mexe nisso */
+    return ss->a_char[papel];
 }

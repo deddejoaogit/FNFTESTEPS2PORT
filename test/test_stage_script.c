@@ -85,9 +85,11 @@ int main(void)
     CHECK(ss.i_lighten >= bs_stage_cor_first[ss.palco]);
     CHECK(ss.i_lighten < bs_stage_cor_first[ss.palco] + bs_stage_cor_count[ss.palco]);
 
-    printf("== script do palco: os outros 20 palcos ficam sem script ==\n");
+    printf("== script do palco: os outros 19 palcos ficam sem script ==\n");
     {
-        static const char *outros[] = { "mainStage", "school", "spookyMansionErect",
+        /* Palcos SEM script portado. O `spookyMansionErect` saiu desta lista
+           quando o flash dele entrou -- ele e' o segundo palco com script. */
+        static const char *outros[] = { "mainStage", "school", "mallXmas",
                                         "sserafim", "tankmanBattlefield" };
         int i;
         for (i = 0; i < 5; i++) {
@@ -369,8 +371,147 @@ int main(void)
         }
     }
 
+    printf("== script do palco: o FLASH do spookyMansionErect (sequencia 0,06/0,12) ==\n");
+    {
+        ss_t sp;
+        ss_init(&sp, "spookyMansionErect");
+        CHECK_EQ(sp.ativo, 1);
+        CHECK(sp.i_bgl >= 0 && strcmp(bs_props[sp.i_bgl].name, "bgLight") == 0);
+        CHECK(sp.i_stl >= 0 && strcmp(bs_props[sp.i_stl].name, "stairsLight") == 0);
+        /* em repouso o script NAO manda: o alpha e' o do dado (0,0001, do
+           `buildStage` do L90-91) */
+        CHECK(ss_prop_alpha(&sp, sp.i_bgl) < 0.0f);
+        CHECK(ss_prop_alpha(&sp, sp.i_stl) < 0.0f);
+        CHECK_NEAR(bs_props[sp.i_bgl].alpha, 0.0001f);
+        /* e os personagens comecam em 1 (visiveis) */
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_BF), 1.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_DAD), 1.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_GF), 1.0f);
+        /* o phillyBlazin nao mexe no alpha dos personagens (so' na cor) */
+        {
+            ss_t pb;
+            ss_init(&pb, "phillyBlazin");
+            CHECK(ss_alpha_papel(&pb, SS_BF) < 0.0f);
+        }
+
+        /* `beat == 4` na `spookeez` dispara SEM som (L164). */
+        {
+            int disp = ss_beat(&sp, 4, "spookeez", 1);
+            CHECK_EQ(disp, 1);
+            CHECK_EQ(sp.som, 0);              /* sem som, como o `false` do L164 */
+            CHECK_EQ(sp.flash, 1);
+            CHECK_EQ(sp.flash_fase, 0);
+            CHECK_NEAR(ss_prop_alpha(&sp, sp.i_bgl), 1.0f);
+            CHECK_NEAR(ss_prop_alpha(&sp, sp.i_stl), 1.0f);
+            CHECK_NEAR(ss_alpha_papel(&sp, SS_BF), 0.0f);
+            CHECK_NEAR(ss_alpha_papel(&sp, SS_DAD), 0.0f);
+            CHECK_NEAR(ss_alpha_papel(&sp, SS_GF), 0.0f);
+            /* o offset e' sorteado no strike: 8..24 (L119) */
+            CHECK(sp.strike_offset >= 8 && sp.strike_offset <= 24);
+            CHECK_EQ(sp.strike_beat, 4);
+        }
+        /* +0,06 s: luzes apagam, personagens voltam (L51-61) */
+        avanca(&sp, 0.06f);
+        CHECK_EQ(sp.flash_fase, 1);
+        CHECK_NEAR(ss_prop_alpha(&sp, sp.i_bgl), 0.0f);
+        CHECK_NEAR(ss_prop_alpha(&sp, sp.i_stl), 0.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_BF), 1.0f);
+        /* +0,07 s (= 0,13 s): acende de novo, personagens apagam, tweens de
+           1,5 s comecam (L62-78) */
+        avanca(&sp, 0.07f);
+        CHECK_EQ(sp.flash_fase, 2);
+        CHECK(ss_prop_alpha(&sp, sp.i_bgl) > 0.9f);
+        CHECK(ss_alpha_papel(&sp, SS_BF) < 0.1f);
+        /* +0,75 s: metade do tween de 1,5 s -> luzes 0,5 e personagens 0,5 */
+        avanca(&sp, 0.75f);
+        CHECK_PERTO(ss_prop_alpha(&sp, sp.i_bgl), 0.5f, TOL_TEMPO);
+        CHECK_PERTO(ss_prop_alpha(&sp, sp.i_stl), 0.5f, TOL_TEMPO);
+        CHECK_PERTO(ss_alpha_papel(&sp, SS_BF), 0.5f, TOL_TEMPO);
+        /* +0,8 s: acabou -> tudo no repouso */
+        avanca(&sp, 0.8f);
+        CHECK_EQ(sp.flash, 0);
+        CHECK_NEAR(ss_prop_alpha(&sp, sp.i_bgl), 0.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_BF), 1.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_DAD), 1.0f);
+        CHECK_NEAR(ss_alpha_papel(&sp, SS_GF), 1.0f);
+    }
+
+    printf("== script do palco: o `bool(10)` e o `beat > strike+offset` (L170) ==\n");
+    {
+        ss_t sp;
+        int b, disparos = 0, beats = 0, ultimo = -1000, som_ok = 1;
+        ss_init(&sp, "spookyMansionErect");
+        /* 40 compassos = 160 beats. O sorteio e' 10%, entao ~16 disparos; a
+           regra que importa e' a do offset: um disparo so' pode acontecer com
+           `beat > strike_beat + strike_offset`. */
+        for (b = 5; b < 165; b++) {
+            int d;
+            beats++;
+            d = ss_beat(&sp, b, "spookeez", 1);
+            if (d) {
+                /* no beat 4 nao estamos aqui (b comeca em 5) */
+                CHECK(b > ultimo + 8);
+                if (sp.som < 1 || sp.som > 2) som_ok = 0;
+                ultimo = b;
+                disparos++;
+                sp.som = 0;
+            }
+        }
+        printf("     %d disparo(s) em %d beats (10%% do sorteio), todos com o offset\n",
+               disparos, beats);
+        CHECK(disparos > 4 && disparos < 40);   /* ~10% de 160 */
+        CHECK(som_ok);
+        /* sem personagens em cena o `doLightningStrike` do original faz return:
+           nenhum flash, mas o sorteio do beat continua acontecendo. */
+        {
+            ss_t s2;
+            int k, n = 0;
+            ss_init(&s2, "spookyMansionErect");
+            for (k = 5; k < 165; k++) n += ss_beat(&s2, k, "spookeez", 0);
+            CHECK_EQ(n, 0);
+            CHECK_EQ(s2.flash, 0);
+        }
+        /* e numa musica que NAO e' a `spookeez` o `beat == 4` nao vale
+           (L164: `currentSong.id == "spookeez"`), mas o sorteio de 10% vale
+           para qualquer musica do palco. */
+        {
+            ss_t s3;
+            CHECK_EQ(ss_beat(&s3, 4, "south", 1), 0);
+            ss_init(&s3, "spookyMansionErect");
+            CHECK_EQ(ss_beat(&s3, 4, "south", 1), 0);
+            CHECK_EQ(s3.flash, 0);
+        }
+    }
+
+    printf("== script do palco: o mesmo beat nao dispara duas vezes ==\n");
+    {
+        ss_t sp;
+        int i, n = 0;
+        ss_init(&sp, "spookyMansionErect");
+        for (i = 0; i < 30; i++) n += ss_beat(&sp, 4, "spookeez", 1);
+        CHECK_EQ(n, 1);                 /* um beat chega em varios quadros */
+        CHECK_EQ(sp.som, 0);
+    }
+
+    printf("== script do palco: sem os tres personagens nao ha' raio (L102) ==\n");
+    {
+        /* `doLightningStrike` L102: `if (bf == null || gf == null || dad == null)
+           return;`. O Tutorial nao tem `girlfriend` no playData, entao o palco
+           inteiro (mesmo com o script certo) nao teria raio nenhum -- e' o
+           unico caso em que o `bool(10)` sorteia e nao acontece nada. */
+        ss_t sp;
+        int i, n = 0;
+        ss_init(&sp, "spookyMansionErect");
+        for (i = 0; i < 240; i++) n += ss_beat(&sp, i, "spookeez", 0);
+        CHECK_EQ(n, 0);
+        CHECK_EQ(sp.som, 0);            /* sem personagens, nem sorteia o som */
+        CHECK_EQ(sp.flash, 0);
+        CHECK_EQ(sp.strike_offset, 8);   /* L27: o offset de repouso, sem sorteio */
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
-    printf("\n  script do palco: relampago do phillyBlazin conferido "
-           "(3,0 s / 1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens)\n");
+    printf("\n  script do palco: conferidos o relampago do phillyBlazin (3,0 s /\n"
+           "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens) e o flash\n"
+           "  do spookyMansionErect (0,06 s / 0,12 s / 1,5 s / 10%% / offset 8..24)\n");
     return 0;
 }
