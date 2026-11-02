@@ -149,6 +149,9 @@ typedef struct {
     /* Angulo do prop em GRAUS. Devolve 1 e escreve `*graus` quando o script
        gira o sprite. */
     int   (*ang)(int prop_abs, float *graus);
+    /* O `idleSuffix` do Bopper (school.hxc L19: o `freaks` da `roses` toca
+       `danceLeft-scared`). Devolve "" quando o prop nao tem sufixo. */
+    const char *(*sufixo)(int prop_abs);
 } sl_script_t;
 
 void sl_set_script(const sl_script_t *script);

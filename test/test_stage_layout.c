@@ -88,6 +88,7 @@ static float ov_cor(int cor_abs) { return ss_cor_alpha(&g_tss, cor_abs); }
 static int ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_tss, prop_abs, rgb); }
 static float ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_tss, prop_abs, y_dado); }
 static int ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_tss, prop_abs, graus); }
+static const char *ov_sufixo(int prop_abs) { return ss_prop_sufixo(&g_tss, prop_abs); }
 /* Avanca o `ss_t` de teste em passos de 1/60 s. */
 static void avanca_tss(float segundos)
 {
@@ -913,7 +914,7 @@ int main(void)
            ligados a um `ss_t` de verdade e cobra o resultado no LAYOUT -- que
            e' onde o alpha/x/quadro viram desenho. */
         static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
-                                          ov_y, ov_ang };
+                                          ov_y, ov_ang, ov_sufixo };
         sl_item_t it[SL_MAX_ITENS];
         int n;
 
@@ -1027,7 +1028,7 @@ int main(void)
            chegasse aqui, o prop sairia branco e a troca de cor por beat nao
            apareceria na tela. */
         static const sl_script_t hook2 = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
-                                           ov_y, ov_ang };
+                                           ov_y, ov_ang, ov_sufixo };
         sl_item_t it[SL_MAX_ITENS];
         int n, achou_trem = 0, achou_luz = 0;
         ss_init(&g_tss, "phillyTrain");
@@ -1056,7 +1057,7 @@ int main(void)
            que e' o do `train` no JSON). No instante ZERO o trem esta' em
            x = 2000 e NAO aparece -- ele entra pela direita andando, como no
            original; por isso o x aqui e' um que ja' caiu na tela. */
-        ss_beat(&g_tss, 0, "pico", 1);            /* beat 0: sorteia a cor */
+        ss_beat(&g_tss, 0, "pico", 1, 1.0f / 60.0f);            /* beat 0: sorteia a cor */
         g_tss.trem_x = 300.0f;                    /* como o updateTrainPos faz */
         g_tss.trem_comecou = 1;
         /* Camera do jogo (o `cameraFollowPoint`), nao a do canto: com
@@ -1099,14 +1100,14 @@ int main(void)
            que se cobra e' que o ITEM do layout saia com o angulo e o y do
            script, e nao com os do JSON. */
         static const sl_script_t hook3 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
         sl_item_t it[SL_MAX_ITENS];
         int n, b, saiu = 0;
         ss_init(&g_tss, "phillyStreets");
         sl_set_script(&hook3);
         /* roda beats ate' um carro sair (o `bool(10)` do L493) */
         for (b = 1; b < 200 && !saiu; b++) {
-            ss_beat(&g_tss, b, "2hot", 1);
+            ss_beat(&g_tss, b, "2hot", 1, 1.0f / 60.0f);
             saiu = g_tss.carro[0].ativo;
         }
         CHECK_EQ(saiu, 1);
@@ -1141,7 +1142,7 @@ int main(void)
     printf("== layout: o TANQUE do tankmanBattlefield (x, y e angulo do script) ==\n");
     {
         static const sl_script_t hook4 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
         sl_item_t it[SL_MAX_ITENS];
         int n;
         ss_init(&g_tss, "tankmanBattlefield");
@@ -1170,6 +1171,93 @@ int main(void)
             }
         }
         sl_set_script(NULL);
+    }
+
+    printf("== layout: o carro veloz do limoRide (x/y do script no desenho) ==\n");
+    {
+        /* O `fastCar` NAO esta' no dado: o JSON o poe em (-12600, 160) e o
+           script sorteia o y em 350..380 e o x de -12600 ate' passar da tela.
+           O layout tem de pedir x e y ao script -- se pedisse ao dado, o carro
+           passaria 190 px acima do lugar (o `160` do JSON contra os 350..380 do
+           `resetFastCar`, L88). */
+        static const sl_script_t hook6 = { ov_alpha, ov_x, ov_frame, ov_cor,
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+        sl_item_t it[SL_MAX_ITENS];
+        int n, i, achou = 0, b;
+        ss_init(&g_tss, "limoRide");
+        CHECK_EQ(g_tss.ativo, 1);
+        sl_set_script(&hook6);
+        /* Dirige: o `bool(10)` do L66 dispara em algum beat dos primeiros 200. */
+        for (b = 1; b <= 200 && g_tss.car_vx == 0.0f; b++)
+            ss_beat(&g_tss, b, "high", 1, 1.0f / 60.0f);
+        CHECK(g_tss.car_vx > 0.0f);
+        /* Um segundo depois o x ja' esta' dentro da tela (o carro anda ~600 px
+           por quadro: 60 quadros mais que passam de -12600 a +20000). */
+        for (i = 0; i < 20; i++) ss_update(&g_tss, 1.0f / 60.0f);
+        CHECK(g_tss.car_x > -4000.0f);
+        /* A camera vai onde o carro esta': o `fastCar` tem scrollFactor 1 e o
+           y dele e' 350..380 (o dado diz 160, mas o script manda), entao a
+           camera y de -300 (a do resto do palco) o poria 190 px ABAIXO da
+           tela -- e' o corte de tela do `sl_collect`, nao um erro de posicao. */
+        n = sl_collect("limoRide", g_tss.car_x, g_tss.car_y, 1.0f, 1.0f, 0, 0.5f,
+                       0.0f, it, SL_MAX_ITENS);
+        for (i = 0; i < n; i++) {
+            if (it[i].prop == g_tss.i_fastcar) {
+                achou = 1;
+                /* Com a camera EM CIMA do carro (scrollFactor 1) o desenho cai
+                   no centro da tela -- `x0`/`y0` do `sl_item_t` sao coordenadas
+                   de TELA, nao do mundo. O que importa: o carro esta' dentro da
+                   tela (nao culled) e o y veio do script. */
+                CHECK_NEAR(it[i].x0, (float)SL_VIEW_W * 0.5f);
+                CHECK_NEAR(it[i].y0, (float)SL_VIEW_H * 0.5f);
+                CHECK(g_tss.car_y >= 350.0f && g_tss.car_y <= 380.0f);
+                CHECK(strcmp(bs_props[it[i].prop].name, "fastCar") == 0);
+            }
+        }
+        CHECK_EQ(achou, 1);
+        /* A camera do teste e' a do carro; ele passa na frente da limusine. */
+        for (i = 0; i < n; i++)
+            if (it[i].prop == g_tss.i_fastcar) CHECK(it[i].z > 150);
+        sl_set_script(NULL);
+    }
+
+    printf("== layout: o `idleSuffix` do `freaks` na `roses` (school.hxc L15-24) ==\n");
+    {
+        /* O prop `freaks` do `school` tem QUATRO animacoes: `danceLeft`,
+           `danceRight` e as duas com o sufixo `-scared`. Na `roses` o script
+           troca o sufixo, e o layout tem de entregar a animacao 2/3 -- a cor
+           das duas variantes e' a mesma arte, o que muda e' o desenho. */
+        static const sl_script_t hook5 = { ov_alpha, ov_x, ov_frame, ov_cor,
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+        sl_item_t it[SL_MAX_ITENS];
+        int n, i, achou = -1;
+        for (i = 0; i < 2; i++) {
+            ss_init(&g_tss, "school");
+            ss_set_song(&g_tss, i == 0 ? "roses" : "senpai");
+            sl_set_script(&hook5);
+            /* passo 0 = primeira chamada de `dance()` -> `danceLeft` (+ sufixo) */
+            n = sl_collect("school", -600.0f, -60.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                           it, SL_MAX_ITENS);
+            {
+                const sl_item_t *fr = item_por_nome(it, n, "freaks");
+                CHECK(fr != NULL);
+                if (fr) {
+                    const char *esperado = i == 0 ? "danceLeft-scared" : "danceLeft";
+                    const char *nome = bs_prop_anims[bs_props[fr->prop].anim_first +
+                                                     fr->anim].name;
+                    CHECK(strcmp(nome, esperado) == 0);
+                    achou = fr->anim;
+                }
+            }
+            /* os dois casos usam animacoes DIFERENTES (0 e 2) */
+            if (i == 0) CHECK_EQ(achou, 2);
+            else CHECK_EQ(achou, 0);
+        }
+        sl_set_script(NULL);
+        ss_init(&g_tss, "school");
+        CHECK_EQ(g_tss.ativo, 1);
+        CHECK(g_tss.i_freaks >= 0);
+        CHECK(strcmp(bs_props[g_tss.i_freaks].name, "freaks") == 0);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

@@ -85,12 +85,16 @@ int main(void)
     CHECK(ss.i_lighten >= bs_stage_cor_first[ss.palco]);
     CHECK(ss.i_lighten < bs_stage_cor_first[ss.palco] + bs_stage_cor_count[ss.palco]);
 
-    printf("== script do palco: os outros 19 palcos ficam sem script ==\n");
+    printf("== script do palco: os palcos sem script ficam sem script ==\n");
     {
-        /* Palcos SEM script portado. O `spookyMansionErect` saiu desta lista
-           quando o flash dele entrou -- ele e' o segundo palco com script. */
-        static const char *outros[] = { "mainStage", "school", "mallXmas",
-                                        "sserafim", "limoRide" };
+        /* Palcos SEM script portado -- os 21 menos os que tem:
+           spookyMansion, spookyMansionErect, phillyTrain, phillyStreets,
+           phillyBlazin, tankmanBattlefield, school e limoRide. Cada palco que
+           GANHA script sai desta lista (foi assim que `school` e `limoRide`
+           sairam: deixar um deles aqui faz o teste cobrar o contrario do
+           codigo). */
+        static const char *outros[] = { "mainStage", "mallXmas", "mallEvil",
+                                        "sserafim", "phillyTrainErect" };
         int i;
         for (i = 0; i < 5; i++) {
             ss_t o;
@@ -426,7 +430,7 @@ int main(void)
 
         /* `beat == 4` na `spookeez` dispara SEM som (L164). */
         {
-            int disp = ss_beat(&sp, 4, "spookeez", 1);
+            int disp = ss_beat(&sp, 4, "spookeez", 1, PASSO);
             CHECK_EQ(disp, 1);
             CHECK_EQ(sp.som, 0);              /* sem som, como o `false` do L164 */
             CHECK_EQ(sp.flash, 1);
@@ -477,7 +481,7 @@ int main(void)
         for (b = 5; b < 165; b++) {
             int d;
             beats++;
-            d = ss_beat(&sp, b, "spookeez", 1);
+            d = ss_beat(&sp, b, "spookeez", 1, PASSO);
             if (d) {
                 /* no beat 4 nao estamos aqui (b comeca em 5) */
                 CHECK(b > ultimo + 8);
@@ -497,7 +501,7 @@ int main(void)
             ss_t s2;
             int k, n = 0;
             ss_init(&s2, "spookyMansionErect");
-            for (k = 5; k < 165; k++) n += ss_beat(&s2, k, "spookeez", 0);
+            for (k = 5; k < 165; k++) n += ss_beat(&s2, k, "spookeez", 0, PASSO);
             CHECK_EQ(n, 0);
             CHECK_EQ(s2.flash, 0);
         }
@@ -506,9 +510,9 @@ int main(void)
            para qualquer musica do palco. */
         {
             ss_t s3;
-            CHECK_EQ(ss_beat(&s3, 4, "south", 1), 0);
+            CHECK_EQ(ss_beat(&s3, 4, "south", 1, PASSO), 0);
             ss_init(&s3, "spookyMansionErect");
-            CHECK_EQ(ss_beat(&s3, 4, "south", 1), 0);
+            CHECK_EQ(ss_beat(&s3, 4, "south", 1, PASSO), 0);
             CHECK_EQ(s3.flash, 0);
         }
     }
@@ -518,7 +522,7 @@ int main(void)
         ss_t sp;
         int i, n = 0;
         ss_init(&sp, "spookyMansionErect");
-        for (i = 0; i < 30; i++) n += ss_beat(&sp, 4, "spookeez", 1);
+        for (i = 0; i < 30; i++) n += ss_beat(&sp, 4, "spookeez", 1, PASSO);
         CHECK_EQ(n, 1);                 /* um beat chega em varios quadros */
         CHECK_EQ(sp.som, 0);
     }
@@ -532,7 +536,7 @@ int main(void)
         ss_t sp;
         int i, n = 0;
         ss_init(&sp, "spookyMansionErect");
-        for (i = 0; i < 240; i++) n += ss_beat(&sp, i, "spookeez", 0);
+        for (i = 0; i < 240; i++) n += ss_beat(&sp, i, "spookeez", 0, PASSO);
         CHECK_EQ(n, 0);
         CHECK_EQ(sp.som, 0);            /* sem personagens, nem sorteia o som */
         CHECK_EQ(sp.flash, 0);
@@ -570,7 +574,7 @@ int main(void)
 
         /* L80-83: `beat == 4` na `spookeez`, SEM som -- e sem precisar dos tres
            personagens (a versao nao-erect nao tem a guarda do L102 do erect) */
-        CHECK_EQ(ss_beat(&sm, 4, "spookeez", 0), 1);
+        CHECK_EQ(ss_beat(&sm, 4, "spookeez", 0, PASSO), 1);
         CHECK_EQ(sm.som, 0);
         CHECK_EQ(sm.scared_pedido, 1);
         CHECK_EQ(sm.strike_beat, 4);
@@ -604,7 +608,7 @@ int main(void)
             int i, n = 0, som_ruim = 0, banco_ruim = 0, fora = 0;
             ss_init(&s2, "spookyMansion");
             for (i = 5; i < 205; i++) {
-                int d = ss_beat(&s2, i, "south", 0);   /* outra musica do palco */
+                int d = ss_beat(&s2, i, "south", 0, PASSO);   /* outra musica do palco */
                 if (!d) continue;
                 n++;
                 if (s2.som < 1 || s2.som > 2) som_ruim++;
@@ -623,7 +627,7 @@ int main(void)
         {
             ss_t s3;
             ss_init(&s3, "spookyMansion");
-            ss_beat(&s3, 4, "spookeez", 0);
+            ss_beat(&s3, 4, "spookeez", 0, PASSO);
             ss_reiniciar(&s3);
             CHECK_EQ(s3.strike_beat, 0);
             CHECK_EQ(s3.strike_offset, 8);
@@ -654,7 +658,7 @@ int main(void)
         /* O TREM SO' COMECA em `beat % 8 == 4`, com cooldown > 8 e o `bool(30)`
            sorteado -- e o sorteio acontece em TODO beat %8==4. */
         for (i = 0; i < 200 && disparou < 0; i++) {
-            int r = ss_beat(&sp, i, "pico", 1);
+            int r = ss_beat(&sp, i, "pico", 1, PASSO);
             if (r) { disparou = i; break; }
             if (i % 8 == 4 && i <= 12 && sp.trem_movendo == 0 && sp.trem_cooldown <= 8)
                 CHECK_EQ(r, 0);               /* cooldown curto nao dispara */
@@ -702,7 +706,7 @@ int main(void)
         unsigned char rgb[3];
         ss_init(&sp, "phillyTrain");
         /* beat 0: `beat % 4 == 0` ja' sorteia a cor (L142) */
-        ss_beat(&sp, 0, "pico", 1);
+        ss_beat(&sp, 0, "pico", 1, PASSO);
         CHECK(sp.luz_cor >= 0 && sp.luz_cor < 5);
         CHECK_EQ(ss_prop_cor(&sp, sp.i_lights, rgb), 1);
         CHECK_EQ(rgb[0], esperado[sp.luz_cor][0]);
@@ -711,14 +715,14 @@ int main(void)
         /* beat 1 e 2 nao tocam na cor */
         {
             int cor_antes = sp.luz_cor;
-            ss_beat(&sp, 1, "pico", 1);
-            ss_beat(&sp, 2, "pico", 1);
-            ss_beat(&sp, 3, "pico", 1);
+            ss_beat(&sp, 1, "pico", 1, PASSO);
+            ss_beat(&sp, 2, "pico", 1, PASSO);
+            ss_beat(&sp, 3, "pico", 1, PASSO);
             CHECK_EQ(sp.luz_cor, cor_antes);
         }
         /* ao longo de 40 beats as cinco cores aparecem */
         for (i = 0; i < 40; i++) {
-            ss_beat(&sp, i, "pico", 1);
+            ss_beat(&sp, i, "pico", 1, PASSO);
             if (i % 4 == 0) {
                 vistas[sp.luz_cor]++;
                 if (ss_prop_cor(&sp, sp.i_lights, rgb)) mudou++;
@@ -779,12 +783,12 @@ int main(void)
         {
             int b;
             for (b = 1; b < 8; b++) {
-                ss_beat(&ps, b, "2hot", 1);
+                ss_beat(&ps, b, "2hot", 1, PASSO);
                 CHECK_EQ(ps.luz_ultimo, 0);
             }
             CHECK_EQ(ps.luz_parado, 0);
         }
-        ss_beat(&ps, 8, "2hot", 1);
+        ss_beat(&ps, 8, "2hot", 1, PASSO);
         CHECK_EQ(ps.luz_parado, 1);          /* L56 inverte */
         CHECK_EQ(ps.luz_anim, 1);            /* L60 `tored`   */
         CHECK_EQ(ps.luz_intervalo, 20);      /* L61           */
@@ -794,10 +798,10 @@ int main(void)
         /* a proxima troca so' em 8 + 20 = 28: em 27 ainda esta' vermelho */
         {
             int b;
-            for (b = 9; b < 28; b++) ss_beat(&ps, b, "2hot", 1);
+            for (b = 9; b < 28; b++) ss_beat(&ps, b, "2hot", 1, PASSO);
             CHECK_EQ(ps.luz_parado, 1);
         }
-        ss_beat(&ps, 28, "2hot", 1);
+        ss_beat(&ps, 28, "2hot", 1, PASSO);
         CHECK_EQ(ps.luz_parado, 0);          /* volta ao verde */
         CHECK_EQ(ps.luz_anim, 0);
         CHECK_EQ(ps.luz_intervalo, 30);
@@ -810,7 +814,7 @@ int main(void)
             int b, saiu = -1, tentativas = 0;
             ss_init(&c, "phillyStreets");
             for (b = 1; b < 200; b++) {
-                ss_beat(&c, b, "2hot", 1);
+                ss_beat(&c, b, "2hot", 1, PASSO);
                 tentativas++;
                 if (c.carro[0].ativo) { saiu = b; break; }
             }
@@ -851,7 +855,7 @@ int main(void)
         {
             ss_t r;
             ss_init(&r, "phillyStreets");
-            ss_beat(&r, 8, "2hot", 1);
+            ss_beat(&r, 8, "2hot", 1, PASSO);
             CHECK_EQ(r.luz_parado, 1);
             ss_reiniciar(&r);
             CHECK_EQ(r.luz_parado, 0);
@@ -895,7 +899,7 @@ int main(void)
         /* o tank nao tem `onBeatHit`: o `ss_beat` nao faz nada e nao sorteia */
         {
             unsigned int r = tk.rng;
-            CHECK_EQ(ss_beat(&tk, 8, "ugh", 1), 0);
+            CHECK_EQ(ss_beat(&tk, 8, "ugh", 1, PASSO), 0);
             CHECK_EQ(tk.rng, r);
         }
         /* o retry NAO sorteia angulo/velocidade de novo (L65-69) */
@@ -915,6 +919,134 @@ int main(void)
         }
     }
 
+    printf("== script do palco: o `idleSuffix` do `freaks` (school.hxc L15-24) ==\n");
+    {
+        ss_t sc;
+        ss_init(&sc, "school");
+        CHECK_EQ(sc.ativo, 1);
+        CHECK(sc.i_freaks >= 0 && strcmp(bs_props[sc.i_freaks].name, "freaks") == 0);
+        /* sem musica nenhuma o sufixo e' vazio (o `buildStage` do original le
+           `currentSong.id` e cai no `else` quando nao e' `roses`) */
+        CHECK(strcmp(ss_prop_sufixo(&sc, sc.i_freaks), "") == 0);
+        ss_set_song(&sc, "senpai");
+        CHECK(strcmp(ss_prop_sufixo(&sc, sc.i_freaks), "") == 0);
+        ss_set_song(&sc, "roses");
+        CHECK(strcmp(ss_prop_sufixo(&sc, sc.i_freaks), "-scared") == 0);
+        /* e um prop que nao e' o `freaks` nunca ganha sufixo */
+        CHECK(strcmp(ss_prop_sufixo(&sc, sc.i_freaks + 1), "") == 0);
+        CHECK(strcmp(ss_prop_sufixo(&sc, sc.i_freaks - 1), "") == 0);
+        /* o palco `school` nao tem `onBeatHit` no script dele */
+        CHECK_EQ(sc.tem_beat, 0);
+        CHECK_EQ(ss_beat(&sc, 8, "roses", 1, PASSO), 0);
+    }
+
+    printf("== script do palco: o CARRO VELOZ do `limoRide` (limoRide.hxc) ==\n");
+    {
+        ss_t lc;
+        int b, dirigiu = -1, i;
+        ss_init(&lc, "limoRide");
+        CHECK_EQ(lc.ativo, 1);
+        CHECK_EQ(lc.tem_beat, 1);
+        CHECK(lc.i_fastcar >= 0);
+        CHECK(strcmp(bs_props[lc.i_fastcar].name, "fastCar") == 0);
+        /* `resetFastCar` L87-91: x -12600, velocidade 0, pode dirigir. */
+        CHECK_NEAR(lc.car_x, -12600.0f);
+        CHECK_NEAR(lc.car_vx, 0.0f);
+        CHECK_EQ(lc.car_pode, 1);
+        /* L88: o y e' SORTEADO em 350..380 (o JSON diz 160; quem manda e' o
+           script), e o override de desenho devolve esse y. */
+        CHECK(lc.car_y >= 350.0f && lc.car_y <= 380.0f);
+        CHECK_NEAR(ss_prop_y(&lc, lc.i_fastcar, 160.0f), lc.car_y);
+        CHECK_NEAR(ss_prop_x(&lc, lc.i_fastcar, -12600.0f), -12600.0f);
+
+        /* L60-67: `bool(10) && fastCarCanDrive`. Com a semente fixa o sorteio
+           acontece nos primeiros beats; o teste nao cobra QUAL beat (a
+           sequencia do gerador nao e' a do flixel), cobra o que o evento faz. */
+        for (b = 1; b <= 200 && dirigiu < 0; b++) {
+            if (ss_beat(&lc, b, "high", 1, PASSO)) dirigiu = b;
+            ss_update(&lc, PASSO);
+        }
+        CHECK(dirigiu > 0);
+        /* L99: o som `carPass` a 0,7 -- e o sorteio do som vem ANTES do da
+           velocidade (mesma linha), entao `som` ja' esta' 1..2 aqui. */
+        CHECK(lc.som_banco == SS_SOM_CARPASS);
+        CHECK(lc.som >= 1 && lc.som <= 2);
+        CHECK_EQ(lc.som_vol, 70);
+        /* L106: `velocity.x = (int(170,220) / FlxG.elapsed) * 3`. */
+        CHECK(lc.car_vx > 0.0f);
+        {
+            double n = (double)lc.car_vx / (3.0 / (double)PASSO);
+            int k = (int)(n + 0.5);
+            CHECK(k >= 170 && k <= 220);
+            CHECK_NEAR((float)k, (float)n);
+        }
+        CHECK_EQ(lc.car_pode, 0);
+        CHECK_EQ(lc.car_seq, 1);
+
+        /* O x anda com a velocidade: um quadro depois, `x += vx * elapsed`. */
+        {
+            float x0 = lc.car_x;
+            ss_update(&lc, PASSO);
+            CHECK_NEAR(lc.car_x, x0 + lc.car_vx * PASSO);
+        }
+        /* A Sequence (L44-48): 1 s -> haptics on, 1,4 s -> off, 2 s -> reset.
+           O timer do flixel NAO acumula o estouro: cada evento vale a DIFERENCA
+           entre o seu tempo e o do anterior (0,4 e 0,6 s). */
+        for (i = 0; i < 58; i++) ss_update(&lc, PASSO);   /* ~0,97 s */
+        CHECK_EQ(lc.car_haptics, 0);
+        CHECK_EQ(lc.car_seq, 1);
+        ss_update(&lc, PASSO);                            /* passa de 1,0 s */
+        CHECK_EQ(lc.car_haptics, 1);
+        ss_update(&lc, 0.35f);                            /* 1,35 s */
+        CHECK_EQ(lc.car_haptics, 1);
+        ss_update(&lc, 0.06f);                            /* 1,41 s */
+        CHECK_EQ(lc.car_haptics, 0);
+        ss_update(&lc, 0.55f);                            /* 1,96 s: ainda nao */
+        CHECK_EQ(lc.car_seq, 1);
+        ss_update(&lc, 0.06f);                            /* 2,02 s: reset */
+        CHECK_EQ(lc.car_seq, 0);
+        CHECK_NEAR(lc.car_x, -12600.0f);
+        CHECK_NEAR(lc.car_vx, 0.0f);
+        CHECK_EQ(lc.car_pode, 1);
+        /* o y do reset e' novo sorteio, e continua na faixa de L88 */
+        CHECK(lc.car_y >= 350.0f && lc.car_y <= 380.0f);
+
+        /* Sem delta conhecido (0) a divisao do L106 nao pode dar infinito: o
+           carro fica com velocidade ZERO. So' acontece fora do laco do jogo,
+           mas um `NaN` na posicao seria pior que um carro parado. */
+        {
+            ss_t z;
+            int bb, achou = 0;
+            ss_init(&z, "limoRide");
+            for (bb = 1; bb <= 200 && !achou; bb++) {
+                if (ss_beat(&z, bb, "high", 1, 0.0f)) achou = 1;
+            }
+            CHECK_EQ(achou, 1);
+            CHECK_NEAR(z.car_vx, 0.0f);
+            /* ...e o carro NAO anda, mas o x nao vira NaN */
+            ss_update(&z, PASSO);
+            CHECK_NEAR(z.car_x, -12600.0f);
+        }
+
+        /* `onSongRetry` (L147-151) -> `resetFastCar`: x de volta, velocidade 0,
+           e um y novo sorteado. */
+        ss_reiniciar(&lc);
+        CHECK_NEAR(lc.car_x, -12600.0f);
+        CHECK_NEAR(lc.car_vx, 0.0f);
+        CHECK_EQ(lc.car_pode, 1);
+        CHECK_EQ(lc.car_seq, 0);
+        CHECK(lc.car_y >= 350.0f && lc.car_y <= 380.0f);
+
+        /* O `limoRide` nao mexe em cor nem no alpha dos personagens. */
+        {
+            unsigned char rgb[3] = { 7, 7, 7 };
+            CHECK(ss_prop_alpha(&lc, lc.i_fastcar) < 0.0f);
+            CHECK_EQ(ss_cor_papel(&lc, SS_BF, rgb), 0);
+            CHECK_EQ(rgb[0], 7);
+            CHECK_NEAR(ss_alpha_papel(&lc, SS_BF), -1.0f);
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  script do palco: conferidos o relampago do phillyBlazin (3,0 s /\n"
            "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens), o flash\n"
@@ -922,8 +1054,11 @@ int main(void)
            "  e o trem do phillyTrain (1/24 s, -400, -2000 -> -1150, -4000 -> 1480,\n"
            "  8 vagoes, 4,7 s de som, `beat %% 8 == 4` + bool(30), 5 cores), o\n"
            "  sinal e os dois carros do phillyStreets (verde/vermelho 8/20/30,\n"
-           "  `bool(10)`, car1..car4, curvas de Bezier, angulo e offset) e o\n"
+           "  `bool(10)`, car1..car4, curvas de Bezier, angulo e offset), o\n"
            "  tanque do tankmanBattlefield (int(-90,45), float(5,7), o circulo\n"
-           "  de 1500x1100 e `angle = tankAngle - 75`)\n");
+           "  de 1500x1100 e `angle = tankAngle - 75`), o sufixo `-scared` do\n"
+           "  `freaks` na `roses` e o carro veloz do limoRide (bool(10),\n"
+           "  `int(170,220)/elapsed*3`, `carPass` a 0,7, Sequence 1/1,4/2 s,\n"
+           "  y 350..380 e o reset do retry)\n");
     return 0;
 }

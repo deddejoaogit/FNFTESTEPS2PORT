@@ -157,6 +157,13 @@ SONS_PALCO = [
     # vez (o anel de overlay nao tem laco) e o trem anda em 1,3 s, entao a
     # diferenca audivel e' o rabo do som depois que o trem ja' passou.
     ("week3/sounds/train_passes", "train1", False),
+    # `limoRide.hxc` L99: `FunkinSound.playOnce(Paths.soundRandom('carPass', 0, 1),
+    # 0.7)` -- o carro veloz que cruza a frente da limusine nas tres musicas da
+    # semana 4. Os arquivos moram em week4/sounds. O port numera de 1 (o nome do
+    # arquivo e' o prefixo do banco + o numero, como `lightning3`/`thunder2`):
+    # `carpass1` = `carPass0`, `carpass2` = `carPass1`.
+    ("week4/sounds/carPass0", "carpass1", False),
+    ("week4/sounds/carPass1", "carpass2", False),
 ]
 
 

@@ -163,6 +163,31 @@
 #define SS_TANK_VEL_MIN 5.0f
 #define SS_TANK_VEL_MAX 7.0f
 
+/* ---- limoRide.hxc (o carro veloz da semana 4: satin-panties, high e milf) ----
+     L33-56   `buildStage`: o shader do ceu (nao portado) e o
+              `carSequenceData` = [{1, haptics on}, {1.4, haptics off},
+              {2, resetFastCar}]; depois `resetFastCar()`
+     L70-105  `resetFastCar`: x -12600, y `int(350,380)`, velocidade 0,
+              `fastCarCanDrive = true`
+     L60-67   `onBeatHit`: `FlxG.random.bool(10) && fastCarCanDrive` ->
+              `fastCarDrive()`
+     L97-110  `fastCarDrive`: `playOnce(soundRandom('carPass', 0, 1), 0.7)`,
+              `velocity.x = (int(170,220) / FlxG.elapsed) * 3`,
+              `fastCarCanDrive = false` e `new Sequence(carSequenceData)`
+     L152-165 `onPause`/`onResume` ligam/desligam `carSequence.running`      */
+#define SS_CAR_X0       (-12600.0f)  /* L87 `fastCar.x = -12600`         */
+#define SS_CAR_Y_MIN    350          /* L88 `int(350, 380)`              */
+#define SS_CAR_Y_MAX    380
+#define SS_CAR_VEL_MIN  170          /* L106 `int(170, 220)`             */
+#define SS_CAR_VEL_MAX  220
+#define SS_CAR_VEL_MULT 3.0f         /* L106 `* 3`                       */
+#define SS_CAR_VOL      70           /* L99 `playOnce(..., 0.7)`         */
+#define SS_CAR_CHANCE   10.0f        /* L66 `FlxG.random.bool(10)`       */
+/* Os tres eventos da Sequence, em segundos absolutos desde o `drive` (L44-48),
+   ja' ordenados como o `Sequence` do original ordena (`|time|` crescente):
+   1 -> `doCarHaptics = true`, 1,4 -> `false`, 2 -> `resetFastCar()`. */
+static const float ss_car_seq_t[3] = { 1.0f, 1.4f, 2.0f };
+
 /* `phillyTrain.hxc` L28-34 `lightColors`: as cinco cores das `lights`, em
    0xAARRGGBB como no original. */
 static const unsigned char ss_cores_luzes[SS_COR_LUZES][3] = {
@@ -216,6 +241,7 @@ static int ss_rnd_bool(ss_t *ss, float chance)
    apenas nao mexe nele (o `tools/analisa_scripts_palco.py` ja' provou que
    nenhum dos 18 scripts cita prop que o JSON nao tenha). */
 static void ss_tank_move(ss_t *ss, float elapsed);
+static void ss_fastcar_reset(ss_t *ss);
 
 static int acha_prop(int si, const char *nome)
 {
@@ -271,6 +297,10 @@ void ss_init(ss_t *ss, const char *palco_id)
     ss->i_train = ss->i_lights = -1;
     ss->i_luz = ss->i_car = ss->i_car2 = -1;
     ss->i_tank = -1;
+    ss->i_fastcar = -1;
+    ss->som_vol = 100;
+    ss->i_freaks = -1;
+    ss->sufixo_medo = 0;
     ss->tank_px = SS_TANK_X;
     ss->tank_py = SS_TANK_Y0;
     ss->i_bg = ss->bg_anim = -1;
@@ -313,6 +343,17 @@ void ss_init(ss_t *ss, const char *palco_id)
            `train.x -= 400`, L127). O `ss_reiniciar` deixa -1 = "o dado manda",
            entao quem preenche aqui e' o dado de verdade. */
         ss->trem_x = bs_props[ss->i_train].x;
+        return;
+    }
+
+    /* ---- school (o `idleSuffix` do `freaks` quando a musica e' `roses`) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "school") == 0) {
+        ss->i_freaks = acha_prop(ss->palco, "freaks");
+        if (ss->i_freaks < 0) return;
+        /* O sufixo depende da musica e chega pelo `ss_set_song`; sem ele o
+           palco fica igual ao dado (as animacoes sem sufixo). */
+        ss->ativo = 1;
+        ss_reiniciar(ss);
         return;
     }
 
@@ -378,6 +419,20 @@ void ss_init(ss_t *ss, const char *palco_id)
         ss_reiniciar(ss);
         return;
     }
+    /* ---- limoRide (o carro veloz que cruza na frente da limusine) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "limoRide") == 0) {
+        ss->tem_beat = 1;               /* L60-67 `onBeatHit` */
+        ss->i_fastcar = acha_prop(ss->palco, "fastCar");
+        /* Sem o `fastCar` nao ha' o que mover -- e' dado, nao logica. */
+        if (ss->i_fastcar < 0) return;
+        ss->ativo = 1;
+        /* `ss_reiniciar` faz o `resetFastCar()`: o `buildStage` (L55-56) e o
+           `onSongRetry` (L147-151) chamam a mesma funcao, entao o y do carro
+           e' sorteado uma vez por reinicio -- nem mais, nem menos. */
+        ss_reiniciar(ss);
+        return;
+    }
+
     /* Qualquer outro palco fica INATIVO: todas as consultas devolvem "o dado
        manda", entao nenhum palco ganha comportamento por acidente. */
 }
@@ -441,6 +496,10 @@ void ss_reiniciar(ss_t *ss)
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
+    /* O CARRO VELOZ do limoRide: `buildStage` L55 e `onSongRetry` L147-151
+       chamam `resetFastCar()`. */
+    if (ss->i_fastcar >= 0) ss_fastcar_reset(ss);
+
     /* O TREM. `onCreate` (L46-58) zera o estado e o `onSongRetry` (L190-203)
        chama `trainReset()`: x = 1480, 8 vagoes, parado, e o som parado. O x
        fica em -1 ate' o script mexer nele (o dado manda enquanto isso). */
@@ -460,6 +519,22 @@ void ss_reiniciar(ss_t *ss)
     ss->trem_quadro = 0.0f;
     ss->luz_cor = -1;
     ss->hair_pedido = 0;
+}
+
+void ss_set_song(ss_t *ss, const char *song_id)
+{
+    if (!ss->ativo || ss->i_freaks < 0) return;
+    /* L17: `currentSong.id.toLowerCase() == "roses"` -> `idleSuffix = '-scared'`.
+       Nao ha' `toLowerCase` a fazer: todos os ids do port ja' sao minusculos e
+       o comparador do original e' sobre o id inteiro. */
+    ss->sufixo_medo = (song_id && strcmp(song_id, "roses") == 0) ? 1 : 0;
+}
+
+const char *ss_prop_sufixo(const ss_t *ss, int prop_abs)
+{
+    if (!ss->ativo || ss->i_freaks < 0) return "";
+    if (prop_abs != ss->i_freaks || !ss->sufixo_medo) return "";
+    return "-scared";
 }
 
 void ss_song_end(ss_t *ss)
@@ -508,6 +583,75 @@ static void ss_tank_move(ss_t *ss, float elapsed)
     rad = (ss->tank_ang + 180.0f) * (3.14159265358979f / 180.0f);
     ss->tank_px = SS_TANK_X + (float)cos((double)rad) * SS_TANK_CX;   /* L61 */
     ss->tank_py = SS_TANK_Y0 + (float)sin((double)rad) * SS_TANK_CY;  /* L62 */
+}
+
+/* ---- limoRide.hxc: o carro veloz --------------------------------------- */
+
+/* `resetFastCar` (L70-105). Sorteia o y e zera a velocidade; o `active = true`
+   do sprite e' o que faz o flixel aplicar a velocidade todo quadro, e aqui e'
+   o `i_fastcar >= 0` em `ss_update`. */
+static void ss_fastcar_reset(ss_t *ss)
+{
+    if (ss->i_fastcar < 0) return;
+    ss->car_x = SS_CAR_X0;                                  /* L87 */
+    ss->car_y = (float)ss_rnd_int(ss, SS_CAR_Y_MIN, SS_CAR_Y_MAX);  /* L88 */
+    ss->car_vx = 0.0f;                                      /* L89 */
+    ss->car_pode = 1;                                       /* L91 */
+}
+
+/* `fastCarDrive` (L97-110). O x anda em `ss_update` com a velocidade -- o
+   flixel faz o mesmo em `FlxSprite.update` (`x += velocity.x * elapsed`). */
+static void ss_fastcar_dirige(ss_t *ss)
+{
+    /* L99: `FunkinSound.playOnce(Paths.soundRandom('carPass', 0, 1), 0.7)`.
+       O sorteio vem ANTES do da velocidade, na mesma linha -- e' a ordem do
+       original e o teste cobra. 1..2 = `carPass1`/`carPass2` do pacote (o
+       `carPass0`/`carPass1` do clone de arte). */
+    ss->som = 1 + ss_rnd_int(ss, 0, 1);
+    ss->som_banco = SS_SOM_CARPASS;
+    ss->som_vol = SS_CAR_VOL;
+    /* L106: `(int(170, 220) / FlxG.elapsed) * 3`. O `FlxG.elapsed` e' o delta
+       do quadro corrente, que chega no `ss_beat` (ver o parametro `elapsed`). Se ele
+       for zero (nao acontece no laco do jogo, mas a divisao nao pode estourar)
+       o carro sai com velocidade zero em vez de infinito -- e o teste cobra
+       esse caso. */
+    if (ss->ultimo_dt > 0.0f) {
+        float v = (float)ss_rnd_int(ss, SS_CAR_VEL_MIN, SS_CAR_VEL_MAX) / ss->ultimo_dt;
+        ss->car_vx = v * SS_CAR_VEL_MULT;
+    } else {
+        ss->car_vx = 0.0f;
+    }
+    ss->car_pode = 0;                                       /* L107 */
+    /* L109: `carSequence = new Sequence(carSequenceData)` -- comeca no
+       primeiro evento (1 s), e o `timer` do flixel reinicia por DIFERENCA entre
+       eventos, nao acumula o estouro do quadro. */
+    ss->car_seq = 1;
+    ss->car_seq_fase = 0;
+    ss->car_seq_resta = ss_car_seq_t[0];
+}
+
+/* O `carSequence` (L44-48 + `util/Sequence.hx`): cada evento dispara quando o
+   timer corrente chega a zero, e o proximo timer vale `t[n] - t[n-1]`. */
+static void ss_fastcar_seq(ss_t *ss, float elapsed)
+{
+    if (!ss->car_seq) return;
+    ss->car_seq_resta -= elapsed;
+    if (ss->car_seq_resta > 0.0f) return;
+    switch (ss->car_seq_fase) {
+    case 0: ss->car_haptics = 1; break;      /* L45 `doCarHaptics = true`  */
+    case 1: ss->car_haptics = 0; break;      /* L46 `doCarHaptics = false` */
+    case 2: ss_fastcar_reset(ss); break;     /* L47 `resetFastCar()`       */
+    default: break;
+    }
+    ss->car_seq_fase += 1;
+    if (ss->car_seq_fase >= 3) {
+        /* `completed` -> `autoDestroy` (Sequence.hx): a Sequence morre. */
+        ss->car_seq = 0;
+        ss->car_seq_resta = 0.0f;
+        return;
+    }
+    ss->car_seq_resta = ss_car_seq_t[ss->car_seq_fase] -
+                        ss_car_seq_t[ss->car_seq_fase - 1];
 }
 
 /* ---- phillyStreets.hxc: as curvas do FlxEase ---------------------------- */
@@ -738,10 +882,15 @@ static void ss_mansao_raio(ss_t *ss, int beat, int pede_som);
    2) o `int(1,2)` do som, dentro do strike com som;
    3) o `int(8,24)` do offset.
    O primeiro `if` (beat 4 na spookeez) NAO sorteia som. */
-int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
+int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens,
+            float elapsed)
 {
     int chance, disparou = 0;
     if (!ss->ativo) return 0;
+    /* O `FlxG.elapsed` do quadro: `ss_beat` roda no lugar do `onBeatHit`, que
+       o flixel chama ANTES do `onUpdate` do palco, entao o delta chega por
+       parametro em vez de vir do `ss_update`. */
+    ss->ultimo_dt = elapsed < 0.0f ? 0.0f : elapsed;
     /* Cada beat chega UMA vez; quem chama passa o beat do chart, que pode
        repetir em varios quadros. */
     if (beat == ss->ultimo_beat) return 0;
@@ -768,6 +917,18 @@ int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
         /* L511: a troca do sinal. */
         if (beat == ss->luz_ultimo + ss->luz_intervalo) {
             ss_troca_luz(ss, beat);
+            disparou = 1;
+        }
+        return disparou;
+    }
+
+    /* ---- limoRide L60-67 ---- */
+    if (ss->i_fastcar >= 0) {
+        /* `FlxG.random.bool(10) && fastCarCanDrive`: o sorteio e' o primeiro
+           operando e acontece em TODO beat, mesmo com o carro ja' na rua. */
+        int r10 = ss_rnd_bool(ss, SS_CAR_CHANCE);
+        if (r10 && ss->car_pode) {
+            ss_fastcar_dirige(ss);
             disparou = 1;
         }
         return disparou;
@@ -922,6 +1083,14 @@ int ss_update(ss_t *ss, float elapsed)
         }
     }
 
+    /* ---- O CARRO VELOZ DO limoRide (L60-67 + L97-110 + a Sequence) ---- */
+    if (ss->i_fastcar >= 0) {
+        /* O `FlxSprite.update` do flixel: `x += velocity.x * elapsed` -- so'
+           com o sprite `active`, que no original e' o `resetFastCar` (L86). */
+        if (ss->car_vx != 0.0f) ss->car_x += ss->car_vx * elapsed;
+        ss_fastcar_seq(ss, elapsed);
+    }
+
     /* ---- O TANQUE (L38-42: `onUpdate` chama `moveTank(elapsed)` sempre) ---- */
     if (ss->i_tank >= 0) ss_tank_move(ss, elapsed);
 
@@ -1030,6 +1199,9 @@ float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
     if (prop_abs == ss->i_car) return ss->carro[0].x;
     if (prop_abs == ss->i_car2) return ss->carro[1].x;
     if (prop_abs == ss->i_tank) return ss->tank_px;
+    /* O carro veloz: `x` do `resetFastCar` (L87) mais `velocity.x * elapsed`
+       (o `FlxSprite.update`), escrito em `ss_update`. */
+    if (prop_abs == ss->i_fastcar) return ss->car_x;
     /* O trem: quem escreve o x e' o `updateTrainPos` (L127-134), e o primeiro
        valor e' o do dado. */
     if (prop_abs == ss->i_train) return ss->trem_x >= 0.0f ? ss->trem_x : x_dado;
@@ -1122,6 +1294,9 @@ float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado)
     if (prop_abs == ss->i_car) return ss->carro[0].y;
     if (prop_abs == ss->i_car2) return ss->carro[1].y;
     if (prop_abs == ss->i_tank) return ss->tank_py;
+    /* O y do carro veloz e' SORTEADO no `resetFastCar` (L88 `int(350,380)`), e
+       nao o 160 do JSON: sem este override o carro passaria na altura errada. */
+    if (prop_abs == ss->i_fastcar) return ss->car_y;
     return y_dado;
 }
 

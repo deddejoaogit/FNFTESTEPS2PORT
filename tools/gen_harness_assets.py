@@ -968,6 +968,12 @@ def build(root, charts_src=None):
         "stage/thunder1.pcm": pcm(1 * 48000 * 4, 150),
         "stage/thunder2.pcm": pcm(1 * 48000 * 4, 165),
         "stage/train1.pcm": pcm(1 * 48000 * 4, 175),
+        # O carro veloz do limoRide (`carpass1` = `carPass0`, `carpass2` =
+        # `carPass1`; ver tools/empacotar_audio.py, SONS_PALCO). Sem eles o
+        # `palco_som` do harness nao teria o que abrir e o `palco_som_falta`
+        # apareceria num teste que nao e' sobre o pacote e sim sobre o evento.
+        "stage/carpass1.pcm": pcm(1 * 48000 * 4, 190),
+        "stage/carpass2.pcm": pcm(1 * 48000 * 4, 200),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),

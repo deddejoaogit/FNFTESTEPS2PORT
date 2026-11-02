@@ -203,6 +203,16 @@ typedef struct {
     float tank_vel;     /* tankSpeed                                    */
     float tank_px, tank_py;   /* a posicao corrente (L61-62)             */
 
+    /* ---- O `school` (senpai e roses): o `idleSuffix` do `freaks` ----
+       school.hxc L15-24 `buildStage`: se a musica e' `roses`, o prop `freaks`
+       ganha `idleSuffix = '-scared'` -- o `Bopper.dance()` do flixel monta
+       `danceLeft`/`danceRight` + o sufixo, e o JSON do palco tem as QUATRO
+       animacoes (`danceLeft-scared` e `danceRight-scared` sao as 3a e a 4a).
+       O port nao toca o `.hxc` no `buildStage`: quem diz a musica e' o
+       `ss_set_song`. */
+    int i_freaks;       /* prop `freaks` (ABS em bs_props[]), -1 = sem  */
+    int sufixo_medo;    /* 1 = a musica e' `roses` -> o sufixo `-scared`  */
+
     /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L23-24) --- */
     int strike_beat;
     int strike_offset;
@@ -231,8 +241,41 @@ typedef struct {
     int luz_cor;        /* curLight; -1 = nenhuma cor aplicada ainda        */
     int hair_pedido;    /* 1 = `hairBlow`, 2 = `hairFall`; o main.c consome */
 
-    /* O BANCO do som pendente em `som`: ver SS_SOM_*. */
+    /* ---- O CARRO VELOZ DO `limoRide` (satin-panties, high, milf) ----
+       limoRide.hxc L33-56 `buildStage` cria o `carSequence` e chama
+       `resetFastCar()` (x -12600, y int(350,380), velocidade 0,
+       `fastCarCanDrive = true`); L60-67 `onBeatHit`: `bool(10) &&
+       fastCarCanDrive` -> `fastCarDrive()` (L97-110): toca
+       `soundRandom('carPass', 0, 1)` a 0,7 e poe
+       `velocity.x = int(170,220) / FlxG.elapsed * 3` -- pixels por segundo
+       calculados com o delta do QUADRO, o que da' uns 36 000 px/s (o carro
+       cruza a tela em ~20 quadros, de proposito: e' o "carro veloz" que passa
+       borrado na frente da limusine). A `Sequence` de L44-48 (tempos 1, 1,4 e
+       2 s) liga/desliga o `doCarHaptics` e, em 2 s, chama `resetFastCar`.
+       O `onPause`/`onResume` (L152-165) pausa/retoma a Sequence -- no port isso
+       sai de graca: `ss_update` so' anda com o tempo da MUSICA, e a musica
+       parada no pause nao avanca. */
+    int i_fastcar;      /* prop `fastCar` (ABS em bs_props[]), -1 = sem      */
+    float car_x, car_y; /* posicao corrente (L87-89 e o `velocity.x` do L106) */
+    float car_vx;       /* `fastCar.velocity.x`                              */
+    int car_pode;       /* `fastCarCanDrive` (L91)                           */
+    int car_seq;        /* `carSequence != null` e ainda nao terminou        */
+    int car_seq_fase;   /* quantos eventos da Sequence ja' dispararam       */
+    float car_seq_resta;/* o que falta do `FlxTimer` corrente (segundos)     */
+    int car_haptics;    /* `doCarHaptics` -- so' o vibra do controle, sem
+                           efeito visivel; guardado para o teste            */
+
+    /* O delta do QUADRO corrente, em segundos: e' o `FlxG.elapsed` que o
+       `fastCarDrive` (limoRide L106) usa como divisor da velocidade. Quem
+       escreve e' o proprio `ss_beat` (recebe o delta junto com o beat, porque
+       o `onBeatHit` do flixel acontece ANTES do `onUpdate` do palco). */
+    float ultimo_dt;
+
+    /* O BANCO do som pendente em `som`: ver SS_SOM_*.
+       `som_vol` e' o volume em % (100 = cheio): o `carPass` do limoRide toca a
+       0,7 (L99), o resto a 1,0. */
     int som_banco;
+    int som_vol;
 
     unsigned int rng;
 } ss_t;
@@ -277,8 +320,11 @@ float ss_cor_alpha(const ss_t *ss, int cor_abs);
  * Chamado uma vez por beat, na ordem da fonte. `song_id` e' o id da musica (o
  * `beat == 4` so' vale na `spookeez`) e `tem_personagens` diz se os tres
  * personagens estao em cena -- o script do original da' `return` sem eles.
- * Devolve 1 quando um flash comecou (para a telemetria). */
-int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens);
+ * `elapsed` e' o delta do quadro corrente (o `FlxG.elapsed` do flixel, que o
+ * `fastCarDrive` do limoRide divide em L106).
+ * Devolve 1 quando um evento comecou (para a telemetria). */
+int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens,
+            float elapsed);
 
 /* Alpha do personagem do papel `papel` (SS_BF/SS_DAD/SS_GF), ou -1 quando o
  * palco nao mexe no alpha dos personagens (o desenho sai como sempre). */
@@ -300,6 +346,16 @@ int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb);
    tanque do `tankmanBattlefield` num circulo (L62). */
 float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado);
 
+/* Diz ao script QUAL e' a musica (o `onCreate`/`buildStage` do original le
+ * `PlayState.instance.currentSong.id`). So' o `school` usa isso hoje, e o
+ * resultado e' o `idleSuffix` do `freaks` (school.hxc L15-24). */
+void ss_set_song(ss_t *ss, const char *song_id);
+
+/* O sufixo que o script poe nos nomes das animacoes deste prop (o
+ * `idleSuffix` do Bopper), ou "" quando nao ha'. O layout concatena no nome
+ * que ele procura (`danceLeft` -> `danceLeft-scared`). */
+const char *ss_prop_sufixo(const ss_t *ss, int prop_abs);
+
 /* Angulo do prop em GRAUS (o `sprite.angle`). Devolve 1 quando o script gira o
    sprite e escreve `*graus`; 0 quando o prop nao e' girado por ele. */
 int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus);
@@ -319,6 +375,7 @@ int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus);
 #define SS_SOM_LIGHTNING 0   /* `Lightning1..3` (phillyBlazin L187)        */
 #define SS_SOM_TROVAO    1   /* `thunder_1..2` (spookyMansionErect L106)   */
 #define SS_SOM_TREM      2   /* `train_passes` (phillyTrain L100, so' o 1) */
+#define SS_SOM_CARPASS   3   /* `carPass0..1` (limoRide L99)               */
 
 /* Quantos props o script deste palco mexe -- usado pelos testes e pelo log. */
 #define SS_TREM_CARROS 8     /* L95 `trainCars:Int = 8` */

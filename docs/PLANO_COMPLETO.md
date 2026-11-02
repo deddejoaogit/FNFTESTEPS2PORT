@@ -5076,3 +5076,88 @@ e o tile de 3200 × 235) entra junto com o pacote. E o
 shader**: ele aplica um `DropShadowShader` em cada personagem e desenha arte de
 máscara; os dois únicos eventos portáveis dele são o `sniper.playAnimation(
 'sip')` com `bool(2)` e o `tankBricks.setPosition(445, 774)`.
+
+## Fechado: o carro veloz do `limoRide` (semana 4) e o `-scared` do `school`
+
+Dois scripts entraram no mesmo passo porque são os dois menores que faltavam das
+**três músicas da semana 4** (`satin-panties`, `high`, `milf`) e das **duas da
+semana 6** (`senpai`, `roses`).
+
+### `limoRide.hxc` (147 linhas)
+
+O palco tem uma limusine, cinco dançarinas e um `fastCar` que fica em
+`x = -12600` (fora do mundo) até um beat sortear a passagem dele.
+
+| Linha | O que faz | No port |
+|---|---|---|
+| L33-56 | `buildStage`: shader do céu + `carSequenceData` = [{1, haptics}, {1,4, off}, {2, `resetFastCar`}] e chama `resetFastCar()` | `ss_car_seq_t[3]` e o reset em `ss_reiniciar` |
+| L70-105 | `resetFastCar`: x = −12600, **y = `int(350,380)`**, velocidade 0, `fastCarCanDrive = true` | `ss_fastcar_reset` |
+| L60-67 | `onBeatHit`: `FlxG.random.bool(10) && fastCarCanDrive` | `ss_beat` (o `bool` é sorteado em TODO beat, mesmo travado) |
+| L97-110 | `fastCarDrive`: `playOnce(soundRandom('carPass',0,1), 0,7)`, `velocity.x = int(170,220) / FlxG.elapsed * 3` | `ss_fastcar_dirige` |
+| L44-48 + `util/Sequence.hx` | o timer de cada evento vale a **diferença** entre os tempos (0,4 s e 0,6 s), não o tempo absoluto | `ss_fastcar_seq` |
+| L152-165 | `onPause`/`onResume` ligam/desligam o `running` da Sequence | sai de graça: `ss_update` só anda com o tempo da música, e a música parada no pause não avança |
+
+**A velocidade é de propósito um absurdo.** `int(170,220) / FlxG.elapsed * 3` é
+`~200 / 0,0167 * 3` = **36 000 px/s**, ou 600 px por quadro: o carro cruza a tela
+em ~20 quadros. É o "carro veloz" borrado da semana 4, e é o que o original faz.
+Medido com a semente fixa do port: `vx = 37 080` (185 px/quadro / 0,0166 * 3).
+
+**O divisor é o delta do QUADRO, não um 1/60 fixo.** O `onBeatHit` do flixel
+roda antes do `onUpdate` e o `FlxG.elapsed` ali é o delta daquele quadro; por
+isso `ss_beat` ganhou o parâmetro `elapsed` (e o `palco_script_anda` calcula o
+delta antes do beat, não depois). Sem delta (0) a divisão daria infinito — nesse
+caso o carro fica com velocidade **zero**, e o teste cobra isso.
+
+**O som mudou o `palco_som_toca`:** o banco virou 4 (`lightning`, `thunder`,
+`train`, `carpass`) e o volume passou a vir do script (100 nos três antigos, 70
+no `carPass`, o `playOnce(..., 0.7)` do L99). Os dois PCM vêm de
+`week4/sounds/carPass{0,1}.ogg` e o `tools/empacotar_audio.py` (SONS_PALCO) os
+entrega como `carpass1.pcm`/`carpass2.pcm` — medido: 591 360 B (3,08 s) e
+580 508 B (3,02 s) a 48 kHz.
+
+**Medido no harness** (`FNF_START_SONG=high`, 6 002 quadros, `PS2H_STRICT=1`):
+`PASSOU`, 35 850 pacotes, nenhum estouro, `palco_script,1,0`,
+`palco_carro,7,37` (velocidade 37 080), `palco_som,2,7` (o `carPass1` no slot 7)
+e `palco_aberto,3,99` — o pacote do `fastCar` foi aberto na primeira vez que ele
+entrou na tela, o que prova o caminho inteiro: sorteio → velocidade → x do
+script no desenho → pacote sob demanda.
+
+### `school.hxc` (27 linhas)
+
+O palco inteiro é uma linha de efeito: **na `roses` o prop `freaks` dança com o
+sufixo `-scared`**.
+
+```
+L15-24  if (PlayState.instance.currentSong.id.toLowerCase() == 'roses')
+            getNamedProp('freaks').idleSuffix = '-scared';
+```
+
+O `Bopper.dance()` do flixel monta `danceLeft`/`danceRight` **+ o sufixo**, e o
+JSON do palco tem as quatro animações (`danceLeft`, `danceRight`,
+`danceLeft-scared`, `danceRight-scared`). O port não roda o `buildStage` na hora
+do palco: quem diz a música é o `ss_set_song`, chamado pelo `main.c` logo depois
+do `ss_init`. O layout procura primeiro o nome **com** sufixo e só depois o nome
+puro — na ordem inversa o `freaks` da `roses` acharia `danceLeft` e dançaria sem
+o susto (foi o primeiro erro do teste, corrigido).
+
+**Medido:** `test_stage_layout` cobra `danceLeft-scared` (índice 2) na `roses` e
+`danceLeft` (índice 0) na `senpai`, com o nome do pacote conferido; `test_stage_script`
+cobra o sufixo vazio, o `senpai`, a `roses` e um prop vizinho que nunca ganha
+sufixo.
+
+## O que ainda falta dos 18 scripts de palco, com o motivo
+
+| Script | Estado |
+|---|---|
+| `phillyBlazin`, `spookyMansion`, `spookyMansionErect`, `phillyTrain`, `phillyStreets`, `tankmanBattlefield`, `school`, `limoRide` | **portados e medidos** |
+| `schoolEvil` (thorns) | **só shader**: 4 `WiggleEffectRuntime` do tipo DREAMY · nada portável sem GPU programável (ver abaixo) |
+| `sserafim` (spaghetti) | 997 linhas: cutscene com texto, 4 dançarinas (`yunjin`, `chaewon`, `eunchae`, `kazuha`), flash de tela e 4 shaders — **é o próximo grande** |
+| `phillyTrainErect`, `phillyStreetsErect`, `limoRideErect`, `schoolErect`, `schoolEvilErect`, `tankmanBattlefieldErect`, `mainStageErect`, `mallXmasErect` | variantes ERECT: **nenhuma música do port as usa** (as 26 músicas das 81 charts jogam os palcos base). O que nelas é portável sem shader está listado aqui para quando entrarem | 
+
+**Por que o `schoolEvil` não dá:** o `wiggle.frag` desloca a coordenada de
+textura **por texel** (quantiza em `floor(pt.x / h) * h`) e o DREAMY desloca
+colunas inteiras em y e linhas inteiras em x. Reproduzir isso no pipeline fixo
+exige um quadrilátero por texel de coluna — ~400 por prop, 4 props, por quadro:
+mais de 1 600 quads por quadro só para tremer o fundo. O GS do PS2 não tem
+shader de fragmento/vertice no pipeline fixo, e o custo da emulação exata é
+proibitivo; fica declarado como falta de plataforma, com a fórmula citada.

@@ -88,18 +88,43 @@ void sl_set_script(const sl_script_t *script)
     g_script = script;
 }
 
-static int sl_escolhe_anim(const bs_prop_t *p, int step, float beat_s,
-                           float t, float *fase)
+/* Acha a animacao `nome` + `suf` (o `idleSuffix` do Bopper). Com sufixo, o
+   nome COM sufixo ganha do nome puro -- a ordem importa: procurar o puro
+   primeiro acharia `danceLeft` e o `freaks` da `roses` dancaria sem o susto. */
+static int sl_acha_nome(const bs_prop_t *p, const char *nome, const char *suf)
 {
-    int i, esq = -1, dir = -1, idle = -1;
-    int janela, resto, chamadas;
-
-    for (i = 0; i < p->anim_count; i++) {
-        const char *n = bs_prop_anims[p->anim_first + i].name;
-        if (strcmp(n, "danceLeft") == 0) esq = i;
-        else if (strcmp(n, "danceRight") == 0) dir = i;
-        else if (strcmp(n, "idle") == 0) idle = i;
+    int i;
+    if (suf && *suf) {
+        char alvo[64];
+        int a = (int)strlen(nome), b = (int)strlen(suf);
+        if (a + b < (int)sizeof(alvo)) {
+            memcpy(alvo, nome, (size_t)a);
+            memcpy(alvo + a, suf, (size_t)b + 1);
+            for (i = 0; i < p->anim_count; i++) {
+                if (strcmp(bs_prop_anims[p->anim_first + i].name, alvo) == 0)
+                    return i;
+            }
+        }
     }
+    for (i = 0; i < p->anim_count; i++) {
+        if (strcmp(bs_prop_anims[p->anim_first + i].name, nome) == 0) return i;
+    }
+    return -1;
+}
+
+static int sl_escolhe_anim(const bs_prop_t *p, int prop_abs, int step,
+                           float beat_s, float t, float *fase)
+{
+    int esq, dir, idle;
+    int janela, resto, chamadas;
+    /* O `idleSuffix` do script do palco (`stage_script.c`, `ss_prop_sufixo`):
+       o `Bopper.dance()` do flixel procura `danceLeft`/`danceRight` + o sufixo,
+       e cai no nome puro quando ele nao existe. */
+    const char *suf = (g_script && g_script->sufixo) ? g_script->sufixo(prop_abs) : "";
+
+    esq = sl_acha_nome(p, "danceLeft", suf);
+    dir = sl_acha_nome(p, "danceRight", suf);
+    idle = sl_acha_nome(p, "idle", suf);
 
     /* Antes do passo 0 (contagem regressiva) vale o `startingAnimation`, que e'
        o que o palco tocou ao ser construido. */
@@ -210,7 +235,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (x0 + w <= 0.0f || x0 >= SL_VIEW_W) continue;
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
 
-        anim = sl_escolhe_anim(p, step, beat_s, t, &fase);
+        anim = sl_escolhe_anim(p, prop_abs, step, beat_s, t, &fase);
         it->prop = prop_abs;
         it->cor = -1;
         it->anim = anim;

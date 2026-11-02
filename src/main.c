@@ -1619,6 +1619,7 @@ static float palco_ov_cor_alpha(int cor_abs) { return ss_cor_alpha(&g_script, co
 static int palco_ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_script, prop_abs, rgb); }
 static float palco_ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_script, prop_abs, y_dado); }
 static int palco_ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_script, prop_abs, graus); }
+static const char *palco_ov_sufixo(int prop_abs) { return ss_prop_sufixo(&g_script, prop_abs); }
 
 /* Declarado aqui porque `palco_carregar` (que roda antes desta definicao) ja'
    precisa calar o trem ao trocar de palco. */
@@ -1626,7 +1627,7 @@ static void palco_trem_som_para(void);
 
 static const sl_script_t g_script_hook = {
     palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha,
-    palco_ov_prop_cor, palco_ov_y, palco_ov_ang
+    palco_ov_prop_cor, palco_ov_y, palco_ov_ang, palco_ov_sufixo
 };
 
 
@@ -3743,13 +3744,18 @@ static void palco_trem_som_para(void)
     g_palco_trem_slot = -1;
 }
 
-static void palco_som_toca(int banco, int n)
+static void palco_som_toca(int banco, int n, int vol)
 {
     char caminho[192];
-    static const char *prefixo[3] = { "lightning", "thunder", "train" };
+    /* O BANCO, na ordem de SS_SOM_*: o relampago do ceu, o trovao da mansao, a
+       passagem do trem e o carro veloz do limoRide. O nome do arquivo e' o
+       prefixo do banco + o numero (1..3): `lightning3`, `thunder2`, `train1` e
+       `carpass1`/`carpass2` (o `carPass0`/`carPass1` do clone de arte; o port
+       comeca em 1 para o nome do arquivo bater com o resto do pacote). */
+    static const char *prefixo[4] = { "lightning", "thunder", "train", "carpass" };
     int k = n - 1, fd, slot;
     if (!g_audio_ok || k < 0 || k > 2) return;
-    if (banco < 0 || banco > 2) return;
+    if (banco < 0 || banco > 3) return;
     /* O BANCO escolhe o arquivo: o relampago do ceu (`Lightning1..3`,
        phillyBlazin L187), o trovao da mansao (`thunder_1..2`,
        spookyMansionErect L106) e a passagem do trem (`train_passes`
@@ -3773,7 +3779,9 @@ static void palco_som_toca(int banco, int n)
         telemetry_event("palco_som", n, slot);
         return;
     }
-    slot = audio_ring_overlay(fd);
+    /* O volume do `playOnce(..., 0.7)` do limoRide (L99): `vol` em %, 100 =
+       cheio -- os tres bancos antigos pedem 100 e o `carpass` pede 70. */
+    slot = audio_ring_overlay_vol(fd, vol < 0 ? 0 : vol > 100 ? 100 : vol);
     if (slot < 0) {
         close(fd);
         telemetry_event("palco_som_sem_slot", n, 0);
@@ -3812,6 +3820,7 @@ static void palco_script_anda(const char *stage, float t, int step)
     if (!g_script.ativo) return;
     if (g_script.palco < 0 || strcmp(bs_stage_props[g_script.palco].id, stage) != 0) {
         ss_init(&g_script, stage);
+        ss_set_song(&g_script, g_play_song ? g_play_song->id : "");
         if (!g_script.ativo) return;
     }
     if (t < g_script.t) {
@@ -3827,6 +3836,12 @@ static void palco_script_anda(const char *stage, float t, int step)
         ss_song_end(&g_script);
         palco_trem_som_para();        /* `onSongEnd` -> `trainSound.stop()` */
     }
+    /* O delta DESTE quadro, medido ANTES do `onBeatHit`: o `fastCarDrive` do
+       limoRide (L106) divide a velocidade por `FlxG.elapsed`, que no flixel e'
+       o delta do quadro corrente -- o `onBeatHit` roda antes do `onUpdate`. */
+    dt = t - g_script.t;
+    if (dt > PALCO_ELAPSED_MAX) dt = PALCO_ELAPSED_MAX;
+
     /* O `onBeatHit` (spookyMansionErect L155-174): QUATRO passos por beat
        (`Constants.STEPS_PER_BEAT`), e o `ss_beat` ignora beat repetido -- quem
        chama ve o mesmo `step` em varios quadros. */
@@ -3839,7 +3854,7 @@ static void palco_script_anda(const char *stage, float t, int step)
     if (step >= 0 && g_script.tem_beat) {
         int beat = step / 4;
         if (ss_beat(&g_script, beat, g_play_song ? g_play_song->id : "",
-                    palco_tem_personagens())) {
+                    palco_tem_personagens(), dt > 0.0f ? dt : 0.0f)) {
             /* Cada palco com o NOME do seu evento: o do trem leva o numero de
                vagoes que ainda faltam, o da mansao nao-erect leva o som do
                trovao (0 no raio sincronizado da `spookeez`) e o flash do erect
@@ -3850,9 +3865,14 @@ static void palco_script_anda(const char *stage, float t, int step)
                 telemetry_event("palco_sinal", beat, g_script.luz_anim);
             else if (g_script.i_bg >= 0)
                 telemetry_event("palco_trovao", beat, (int)g_script.som);
+            else if (g_script.i_fastcar >= 0)
+                /* O carro veloz do limoRide: o evento leva a velocidade e o
+                   som (0 = nenhum `carPass` desta vez). */
+                telemetry_event("palco_carro", beat, (int)(g_script.car_vx / 1000.0f));
             else
                 telemetry_event("palco_flash", beat, (int)g_script.som);
-            if (g_script.som > 0) palco_som_toca(g_script.som_banco, g_script.som);
+            if (g_script.som > 0)
+                palco_som_toca(g_script.som_banco, g_script.som, g_script.som_vol);
             g_script.som = 0;
         }
     }
@@ -3864,16 +3884,15 @@ static void palco_script_anda(const char *stage, float t, int step)
         g_script.scared_pedido = 0;
         if (t > 0.0f) palco_scared_toca((long)(t * 1000.0f));
     }
-    dt = t - g_script.t;
     if (dt <= 0.0f) return;
-    if (dt > PALCO_ELAPSED_MAX) dt = PALCO_ELAPSED_MAX;
     if (ss_update(&g_script, dt)) {
-        /* Um evento por raio: quantos ja' cairam, o x sorteado e o som.
-           O som ainda NAO toca (ver a pendencia no PLANO): o dado e' o evento,
-           e o que falta e' o pipeline de som one-shot dos `Lightning1..3`. */
+        /* Um evento por raio: quantos ja' cairam, o x sorteado e o som. O som
+           toca AQUI (o `Lightning<N>` do L187) -- quem escolhe o arquivo e' o
+           banco do `ss_t`, e o volume e' o do script (100 nos tres bancos
+           antigos, 70 no `carPass` do limoRide). */
         telemetry_event("palco_raio", g_script.raios, (int)g_script.raio_x);
         telemetry_event("palco_raio_som", g_script.som, 0);
-        palco_som_toca(SS_SOM_LIGHTNING, g_script.som);
+        palco_som_toca(SS_SOM_LIGHTNING, g_script.som, g_script.som_vol);
     }
     /* O `hairBlow`/`hairFall` da gf e' pedido DENTRO do `ss_update` (o
        `updateTrainPos` roda no relogio do som), entao e' consumido depois
