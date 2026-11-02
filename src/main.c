@@ -1571,6 +1571,9 @@ static int g_palco_add_visto=0;
    partida quando o primeiro pedaco deles vai para a tela. Antes desta build o
    port nao desenhava nenhum -- o fundo do `blazin` faltava inteiro. */
 static int g_palco_criado_visto=0;
+/* E o mesmo para a COR de prop que o script poe (`phillyTrain` L149): um evento
+   na primeira vez, com o R do dado, que e' o que muda de cor para cor. */
+static int g_palco_cor_prop_visto=0;
 
 /* =====================================================================
    O SCRIPT DO PALCO (engine/stage_script.c): os eventos que o `.hxc` do palco
@@ -1583,9 +1586,14 @@ static float palco_ov_alpha(int prop_abs) { return ss_prop_alpha(&g_script, prop
 static float palco_ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_script, prop_abs, x_dado); }
 static int palco_ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_script, prop_abs, anim, frame); }
 static float palco_ov_cor_alpha(int cor_abs) { return ss_cor_alpha(&g_script, cor_abs); }
+static int palco_ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_script, prop_abs, rgb); }
+
+/* Declarado aqui porque `palco_carregar` (que roda antes desta definicao) ja'
+   precisa calar o trem ao trocar de palco. */
+static void palco_trem_som_para(void);
 
 static const sl_script_t g_script_hook = {
-    palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha
+    palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha, palco_ov_prop_cor
 };
 
 
@@ -1678,6 +1686,8 @@ static int palco_pack_abrir(const char *path, int r)
 static void palco_carregar(const char *stage)
 {
     int si, i;
+    /* Trocar de palco tambem cala o trem: o som em laco e' do palco anterior. */
+    palco_trem_som_para();
     palco_soltar();
     si = sl_stage_find(stage);
     if (si < 0) return;
@@ -3685,19 +3695,51 @@ typedef struct {
    por outro overlay, guardar os tres ultimos basta para o pior caso de uma
    musica (tres fds, e o mesmo numero que a Freeplay guarda). */
 static int g_palco_som_fd[3] = { -1, -1, -1 };
+/* O slot do som do TREM. Ele e' o unico em laco: `trainSound.play(true)`
+   (phillyTrain L129) toca por baixo da musica toda, e o original so' o
+   interrompe no fim da musica (`onSongEnd`, L169-176). */
+static int g_palco_trem_slot = -1;
 
-static void palco_som_toca(int n, int trovao)
+/* Para o trem (fim de musica, retry, troca de palco). O fd e' da thread: quem
+   fecha e' o `audio_ring_overlay_parar`/`audio_ring_stop`. */
+static void palco_trem_som_para(void)
+{
+    if (g_palco_trem_slot < 0) return;
+    audio_ring_overlay_parar(g_palco_trem_slot);
+    telemetry_event("palco_trem_som_para", g_palco_trem_slot, 0);
+    g_palco_trem_slot = -1;
+}
+
+static void palco_som_toca(int banco, int n)
 {
     char caminho[192];
+    static const char *prefixo[3] = { "lightning", "thunder", "train" };
     int k = n - 1, fd, slot;
     if (!g_audio_ok || k < 0 || k > 2) return;
-    /* `trovao` escolhe o banco: o relampago do ceu (`Lightning1..3`,
-       phillyBlazin) ou o trovao da mansao (`thunder_1..2`,
-       spookyMansionErect L106). Os dois vao para assets/stage/. */
+    if (banco < 0 || banco > 2) return;
+    /* O BANCO escolhe o arquivo: o relampago do ceu (`Lightning1..3`,
+       phillyBlazin L187), o trovao da mansao (`thunder_1..2`,
+       spookyMansionErect L106) e a passagem do trem (`train_passes`
+       phillyTrain L100, um som so'). Todos vao para assets/stage/. */
     snprintf(caminho, sizeof(caminho), "%s/stage/%s%d.pcm",
-             FNF_ASSET_ROOT, trovao ? "thunder" : "lightning", n);
+             FNF_ASSET_ROOT, prefixo[banco], n);
     fd = open(caminho, O_RDONLY);
     if (fd < 0) { telemetry_event("palco_som_falta", n, 0); return; }
+    /* O TREM e' o unico em LACO, e o original reinicia o som a cada
+       `trainStart` (`play(true)`): o slot anterior e' parado antes. */
+    if (banco == SS_SOM_TREM) {
+        palco_trem_som_para();
+        slot = audio_ring_overlay_loop(fd);
+        if (slot < 0) {
+            close(fd);
+            telemetry_event("palco_som_sem_slot", n, 0);
+            return;
+        }
+        g_palco_som_fd[k] = fd;
+        g_palco_trem_slot = slot;
+        telemetry_event("palco_som", n, slot);
+        return;
+    }
     slot = audio_ring_overlay(fd);
     if (slot < 0) {
         close(fd);
@@ -3720,6 +3762,9 @@ static void palco_som_toca(int n, int trovao)
    aqui porque o estado da cena (`g_cena`) e' definido mais abaixo -- mas quem
    chama e' o `onBeatHit`, no bloco do beat de `palco_script_anda`. */
 static void palco_scared_toca(long ms);
+/* O `phillyTrain` pede o cabelo da gf (`hairBlow`/`hairFall`, L123 e L150).
+   Mesmo motivo para a declaracao: quem sabe o `g_cena` e' o fim do arquivo. */
+static void palco_hair_toca(int pedido, long ms);
 /* `doLightningStrike` L102: `if (bf == null || gf == null || dad == null)
    return;` -- o raio so' existe quando os TRES papeis existem na musica. No
    port isso e' "o plano da cena achou o personagem" (`ci >= 0`), que e' o dado
@@ -3738,6 +3783,7 @@ static void palco_script_anda(const char *stage, float t, int step)
     }
     if (t < g_script.t) {
         ss_reiniciar(&g_script);
+        palco_trem_som_para();        /* `onSongRetry` -> `trainSound.stop()` */
         telemetry_event("palco_script_retry", (int)g_script.palco, 0);
     }
     /* O `onSongEnd` do script (L223-228) para o relampago na cutscene final. O
@@ -3746,18 +3792,28 @@ static void palco_script_anda(const char *stage, float t, int step)
     if (g_chart_info.song_end_sample > 0 &&
         t >= (float)g_chart_info.song_end_sample / 48000.0f) {
         ss_song_end(&g_script);
+        palco_trem_som_para();        /* `onSongEnd` -> `trainSound.stop()` */
     }
     /* O `onBeatHit` (spookyMansionErect L155-174): QUATRO passos por beat
        (`Constants.STEPS_PER_BEAT`), e o `ss_beat` ignora beat repetido -- quem
        chama ve o mesmo `step` em varios quadros. */
-    if (step >= 0 && g_script.i_bgl >= 0) {
+    /* Quem tem `onBeatHit` portado: o spooky (o flash) e o trem (as luzes e a
+       passagem). A guarda tem de listar OS DOIS -- com so' o `i_bgl` o trem
+       nunca recebia beat nenhum, e o palco ficava parado a musica inteira. */
+    if (step >= 0 && (g_script.i_bgl >= 0 || g_script.i_train >= 0)) {
         int beat = step / 4;
         if (ss_beat(&g_script, beat, g_play_song ? g_play_song->id : "",
                     palco_tem_personagens())) {
-            telemetry_event("palco_flash", beat, (int)g_script.som);
-            if (g_script.som > 0) palco_som_toca(g_script.som, 1);
+            /* O `palco_flash` e' o do spooky; o do trem e' outro evento, com o
+               numero de vagoes que ainda faltam. */
+            if (g_script.i_train >= 0)
+                telemetry_event("palco_trem", beat, g_script.trem_carros);
+            else
+                telemetry_event("palco_flash", beat, (int)g_script.som);
+            if (g_script.som > 0) palco_som_toca(g_script.som_banco, g_script.som);
             g_script.som = 0;
-            if (t > 0.0f) palco_scared_toca((long)(t * 1000.0f));
+            if (t > 0.0f && g_script.i_bgl >= 0)
+                palco_scared_toca((long)(t * 1000.0f));
         }
     }
     dt = t - g_script.t;
@@ -3769,7 +3825,14 @@ static void palco_script_anda(const char *stage, float t, int step)
            e o que falta e' o pipeline de som one-shot dos `Lightning1..3`. */
         telemetry_event("palco_raio", g_script.raios, (int)g_script.raio_x);
         telemetry_event("palco_raio_som", g_script.som, 0);
-        palco_som_toca(g_script.som, 0);
+        palco_som_toca(SS_SOM_LIGHTNING, g_script.som);
+    }
+    /* O `hairBlow`/`hairFall` da gf e' pedido DENTRO do `ss_update` (o
+       `updateTrainPos` roda no relogio do som), entao e' consumido depois
+       dele -- e no mesmo quadro, como o `playAnimation` do original. */
+    if (g_script.hair_pedido) {
+        palco_hair_toca(g_script.hair_pedido, (long)(t * 1000.0f));
+        g_script.hair_pedido = 0;
     }
 }
 
@@ -3918,6 +3981,22 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
             original seria pior que dizer que falta. */
          add = L->it[i].blend == 1;
          if (add) q = gs_blend_add(q);
+         /* A COR do prop quando o script pinta (`lightWindow.color` do
+            `phillyTrain`, L149): o GS multiplica a textura pela cor do vertice
+            e 0x80 vale 1,0, a MESMA conversao usada nos personagens. */
+         if (L->it[i].pintado) {
+             unsigned char cr = (unsigned char)((L->it[i].rgb[0] * 0x80u + 127u) / 255u);
+             unsigned char cg = (unsigned char)((L->it[i].rgb[1] * 0x80u + 127u) / 255u);
+             unsigned char cb = (unsigned char)((L->it[i].rgb[2] * 0x80u + 127u) / 255u);
+             q = sprite_dims_alpha_cor(q, L->it[i].x0, L->it[i].y0, L->it[i].w,
+                                       L->it[i].h, L->it[i].tex_w, L->it[i].tex_h,
+                                       cr, cg, cb, a, 0);
+             if (!g_palco_cor_prop_visto) {
+                 g_palco_cor_prop_visto = 1;
+                 telemetry_event("palco_prop_cor", L->it[i].prop,
+                                 (int)L->it[i].rgb[0]);
+             }
+         } else
          q = sprite_dims_alpha(q, L->it[i].x0, L->it[i].y0, L->it[i].w,
                                L->it[i].h, L->it[i].tex_w, L->it[i].tex_h, a);
          if (add) {
@@ -4043,6 +4122,8 @@ static int g_cena_desenhos[CH_CENA_PAPEIS];
 static int g_cena_tam_visto[CH_CENA_PAPEIS];
 static int g_cena_avisou[CH_CENA_PAPEIS];
 static int g_cena_scared_visto[CH_CENA_PAPEIS]; /* o `char_scared` ja' saiu no log */
+static int g_cena_hair_visto[2];               /* idem para hairBlow/hairFall */
+
 static int g_cena_hold_visto[CH_CENA_PAPEIS];
 static int g_cena_pulos_visto[CH_CENA_PAPEIS];
 /* Um aviso por papel: a primeira animacao com `offsets` proprio aplicada (ver
@@ -4078,6 +4159,24 @@ static int g_cena_bf_ci=-1,g_cena_gf_ci=-1;   /* jogador e namorada     */
 static int palco_tem_personagens(void)
 {
     return g_cena_bf_ci >= 0 && g_cena_gf_ci >= 0 && g_cena_dad_ci >= 0;
+}
+
+/* `phillyTrain.hxc` L123 (`playAnimation('hairBlow')`) e L150
+   (`playAnimation('hairFall')`). Sao animacoes nomeadas da gf, exatamente como
+   o `scared` do bf: `cc_toca` e' o mesmo caminho, e o personagem volta a
+   dancar quando ela acaba (o `Bopper.dance()` do beat seguinte). A gf do
+   `phillyTrain` tem as duas no JSON (`assets-data/characters/gf.json`); se um
+   personagem nao tiver, `cc_toca` devolve 0 e nada e' inventado. */
+static void palco_hair_toca(int pedido, long ms)
+{
+    const char *nome = pedido == 2 ? "hairFall" : "hairBlow";
+    if (g_cena_gf_ci < 0) return;
+    if (cc_toca(&g_cena, CH_PAPEL_GF, nome, ms)) {
+        if (!g_cena_hair_visto[pedido & 1]) {
+            g_cena_hair_visto[pedido & 1] = 1;
+            telemetry_event("char_hair", pedido, CH_PAPEL_GF);
+        }
+    }
 }
 
 static void palco_scared_toca(long ms)

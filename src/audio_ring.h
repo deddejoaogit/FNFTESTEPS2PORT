@@ -59,6 +59,12 @@ int audio_ring_preview_trocar(int fd, long ini, long fim);
  * `audio_ring_stop()` fecha. `audio_ring_overlay_parar` devolve o slot ao
  * silencio (o fd e' fechado no `stop`, que e' seguro: quem le e' a thread). */
 int audio_ring_overlay(int fd);
+/* O mesmo, mas o slot toca em LACO: no fim do arquivo ele volta ao comeco em
+ * vez de parar. E' o `FlxSound.play(true)` do original, e o caso e' o
+ * `train_passes` do `phillyTrain` (L129): 14,42 s em laco por baixo da musica
+ * inteira. O fd passa a ser da thread, como nos outros overlays; para parar,
+ * `audio_ring_overlay_parar(slot)`. */
+int audio_ring_overlay_loop(int fd);
 void audio_ring_overlay_parar(int slot);
 
 /* O MESMO, mas com slot FIXO e VOLUME por cento. Existe pelos tres `playOnce`

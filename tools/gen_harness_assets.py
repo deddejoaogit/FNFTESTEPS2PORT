@@ -967,6 +967,7 @@ def build(root, charts_src=None):
         # e o trovao da mansao (`spookyMansionErect` L106)
         "stage/thunder1.pcm": pcm(1 * 48000 * 4, 150),
         "stage/thunder2.pcm": pcm(1 * 48000 * 4, 165),
+        "stage/train1.pcm": pcm(1 * 48000 * 4, 175),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),

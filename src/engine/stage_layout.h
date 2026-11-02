@@ -58,6 +58,11 @@ typedef struct {
     int tex_w, tex_h; /* resolucao do quadro no pacote CFZ4 (sw/sh)    */
     int z;          /* zIndex do prop: a ordem de desenho do Stage.hx  */
     float alpha;    /* alpha do dado (1.0 = opaco)                     */
+    /* COR do prop pelo script do palco (`lightWindow.color = lightColors[...]`
+       no phillyTrain.hxc L149). `pintado = 0` = desenha com o branco de
+       sempre. (`cor` ja' e' o indice do prop de COR -- nomes diferentes.) */
+    int pintado;    /* 1 = a cor abaixo veio do script do palco           */
+    unsigned char rgb[3];
     int blend;      /* 0 normal, 1 ADD, 2 MULTIPLY, 3 SCREEN           */
     /* SPRITE DO SCRIPT DO PALCO (`new FlxTiledSprite`, `new FlxBackdrop`):
        indice em bs_criados[], ou -1. Quando >= 0, `prop` e `cor` sao -1 e os
@@ -119,6 +124,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
  *   x         o proprio `x_dado` quando nao mexe
  *   frame     0    -> o layout escolhe animacao/quadro pelo dado
  *   cor_alpha < 0  -> usa o alpha do dado
+ *   cor       0    -> o prop nao e' pintado pelo script
  *
  * Sem `sl_set_script()` (testes, palcos sem script) tudo isso e' inerte: o
  * dado manda, exatamente como antes. */
@@ -127,6 +133,8 @@ typedef struct {
     float (*x)(int prop_abs, float x_dado);
     int   (*frame)(int prop_abs, int *anim, int *frame);
     float (*cor_alpha)(int cor_abs);
+    /* Cor do prop (0..255 por canal). Devolve 1 quando pinta. */
+    int   (*cor)(int prop_abs, unsigned char *rgb);
 } sl_script_t;
 
 void sl_set_script(const sl_script_t *script);

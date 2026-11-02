@@ -359,6 +359,80 @@ int main(void)
         free(b2);
     }
 
+    /* 11. OVERLAY EM LACO: o `play(true)` do flixel. O caso e' o `train_passes`
+       do `phillyTrain` (14,42 s por baixo da musica inteira). O arquivo tem
+       100 ms -- N nao e' multiplo do bloco de leitura (READ_SIZE), entao a
+       emenda cai no MEIO de um bloco, que e' justamente o caso que parava o
+       som antes: o bloco parcial marcava fim de arquivo. */
+    printf("== anel: o overlay em LACO emenda o fim no comeco ==\n");
+    {
+        const char *arq = "/tmp/fnf_ring_loop.pcm";
+        const int N = 4801;            /* 100 ms + 1 quadro: de proposito impar */
+        const int total = N * 4;
+        short quadros[2];
+        FILE *f = fopen(arq, "wb");
+        int i2, fd_l, slot, ini = -1, ruins = 0;
+        short *out;
+        unsigned int p, r, l, e, u;
+        if (!f) { printf("  FALHA: nao criei %s\n", arq); falhas++; }
+        else {
+        for (i2 = 0; i2 < N; i2++) {
+            /* +3000 na primeira metade, -3000 na segunda: qualquer deslocamento
+               na emenda aparece como amostra fora do padrao. */
+            quadros[0] = (short)(i2 < N / 2 ? 3000 : -3000);
+            quadros[1] = quadros[0];
+            fwrite(quadros, sizeof(quadros), 1, f);
+        }
+        fclose(f);
+        fd_l = open(arq, O_RDONLY);
+        CHECK(fd_l >= 0);
+        CHECK(audio_ring_start_overlay(-1) == 0);   /* silencio + overlays */
+        slot = audio_ring_overlay_loop(fd_l);
+        CHECK(slot >= 0);
+        out = (short *)malloc((size_t)total * 4u);
+        if (!out) { printf("  FALHA: sem memoria\n"); falhas++; }
+        else {
+            for (i2 = 0; i2 < total * 2; ) {
+                int quer = (total * 2 - i2) * 2;      /* shorts -> bytes */
+                int got;
+                if (quer > 4096) quer = 4096;
+                got = audio_ring_take((unsigned char *)out + (size_t)i2 * 2u, quer);
+                if (got <= 0) { DelayThread(1000); continue; }
+                i2 += got / 2;
+            }
+            audio_ring_stats(&p, &r, &l, &e, &u);
+            printf("  voltas do laco .......... %u (esperado >= 3 no arquivo de %d quadros)\n",
+                   l, N);
+            CHECK(l >= 3);
+            /* Onda quadrada: acha a primeira amostra nao nula (o comeco do
+               overlay so' entra no bloco seguinte ao pedido) e confere o
+               padrao nas voltas seguintes. */
+            for (i2 = 0; i2 < total; i2++) if (out[i2 * 2] != 0) { ini = i2; break; }
+            CHECK(ini >= 0);
+            if (ini >= 0) {
+                /* reinicia a contagem no comeco de uma volta do arquivo */
+                int base = ini;
+                while (base > 0 && out[(base - 1) * 2] == out[base * 2]) base--;
+                for (i2 = base; i2 < total; i2++) {
+                    int esperado = (i2 % N) < N / 2 ? 3000 : -3000;
+                    if (out[i2 * 2] != esperado || out[i2 * 2 + 1] != esperado) {
+                        if (ruins < 3)
+                            printf("  i=%d (volta %d): %d/%d, esperado %d\n", i2, i2 % N,
+                                   out[i2 * 2], out[i2 * 2 + 1], esperado);
+                        ruins++;
+                    }
+                }
+                printf("  amostras fora do padrao .. %d\n", ruins);
+                CHECK(ruins == 0);
+            }
+            audio_ring_overlay_parar(slot);
+            audio_ring_stop();
+            /* o fd era da thread: ela o fechou no stop, o teste nao fecha */
+            free(out);
+        }
+        }
+    }
+
     free(buf);
     if (falhas) { printf("  %d FALHA(S)\n", falhas); return 1; }
     printf("  ok: janela, 4 canais -> 2, ganho do fade e a volta conferem\n");

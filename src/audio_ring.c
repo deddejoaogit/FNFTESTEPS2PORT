@@ -52,6 +52,13 @@ static volatile int overlay_pedido[RING_OVERLAYS];
    somar, porque cada fonte tem o seu. */
 static volatile int overlay_vol[RING_OVERLAYS];
 static volatile int overlay_pedido_vol[RING_OVERLAYS];
+/* 1 = o slot TOCA EM LACO: no fim do arquivo ele volta ao comeco em vez de
+   parar. E' o `FlxSound.play(true)` do original, e existe por UM caso medido:
+   o `train_passes` do `phillyTrain` (L129), que toca 14,42 s em laco por baixo
+   da musica inteira. Sem isto o trem some em 14 s e o palco fica mudo no resto
+   da musica -- uma diferenca que so' o ouvido pega. */
+static volatile int overlay_loop[RING_OVERLAYS];
+static volatile int overlay_pedido_loop[RING_OVERLAYS];
 /* Sobe a cada stop/inicio: os fds guardados pelo chamador para reusar deixam de
    valer quando o anel fecha tudo (ver audio_ring_geracao). */
 static volatile unsigned int ring_geracao=0;
@@ -116,6 +123,8 @@ static void aplica_pedidos(void){
    if(overlay_fd[i]>=0&&overlay_fd[i]!=o)close(overlay_fd[i]);
    overlay_fd[i]=o;
    overlay_vol[i]=overlay_pedido_vol[i];
+   overlay_loop[i]=overlay_pedido_loop[i];
+   overlay_pedido_loop[i]=0;
    if(o>=0){lseek(o,0,SEEK_SET);overlay_eof[i]=0;}else overlay_eof[i]=1;
    overlay_pedido[i]=RING_SEM_PEDIDO;
   }
@@ -126,18 +135,30 @@ static void aplica_pedidos(void){
    com um acesso por vez. `og` pode ser menor que `got` no fim do overlay -- o
    resto do bloco fica so' com o que ja' estava, que e' o certo. */
 static void soma_overlay(int got){
- int i,og;
+ int i,off,og;
  if(got<=0)return;
  for(i=0;i<RING_OVERLAYS;i++){
   if(overlay_fd[i]<0||overlay_eof[i])continue;
-  in_read=1;og=read(overlay_fd[i],overlay_block,got);in_read=0;
-  if(og<=0){overlay_eof[i]=1;continue;}
-  if(og<got)overlay_eof[i]=1;
+  /* Le `got` bytes, emendando o FIM DO ARQUIVO no comeco quando o slot esta'
+     em laco. Antes o bloco parcial marcava fim de som: num arquivo cujo
+     tamanho nao e' multiplo de READ_SIZE (o `train_passes` tem 2.768.640 B =
+     84 blocos e meio) isso pararia o som no primeiro bloco incompleto. */
+  off=0;
+  while(off<got){
+   in_read=1;og=read(overlay_fd[i],overlay_block+off,got-off);in_read=0;
+   if(og>0){off+=og;continue;}
+   if(!overlay_loop[i]){overlay_eof[i]=1;break;}
+   /* Arquivo vazio (ou ilegivel): nao ha' o que repetir. */
+   if(off==0){overlay_eof[i]=1;break;}
+   lseek(overlay_fd[i],0,SEEK_SET);
+   loops_count++;
+  }
+  if(off<=0)continue;
   /* O volume do `FlxSound` do original, uma vez por bloco e antes de somar:
      cada fonte secundaria tem o seu (0,4 no `scrollMenu` da Freeplay). */
-  if(overlay_vol[i]!=100)amix_volume((short*)overlay_block,og/4,overlay_vol[i]);
+  if(overlay_vol[i]!=100)amix_volume((short*)overlay_block,off/4,overlay_vol[i]);
   /* 4 bytes por amostra estereo (L,R de 16 bits): o PCM do pendrive. */
-  amix_somar_estereo((short*)io_block,(const short*)overlay_block,og/4);
+  amix_somar_estereo((short*)io_block,(const short*)overlay_block,off/4);
  }
 }
 static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){DelayThread(2000);continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
@@ -210,7 +231,8 @@ static void fontes_reset(int fd,int loop,int ini,int fim,int prev){
  prev_total=prev?fp_aud_janela_amostras(ini,fim):0;
  prev_pos=0;
  for(i=0;i<RING_OVERLAYS;i++){overlay_fd[i]=-1;overlay_eof[i]=1;overlay_pedido[i]=RING_SEM_PEDIDO;
-  overlay_vol[i]=100;overlay_pedido_vol[i]=100;}
+  overlay_vol[i]=100;overlay_pedido_vol[i]=100;
+  overlay_loop[i]=0;overlay_pedido_loop[i]=0;}
  loop_source=loop?1u:0u;
 }
 /* O mesmo arranque de thread das tres entradas do modulo. */
@@ -289,15 +311,27 @@ int audio_ring_overlay_vol(int fd,int vol_pct){
  for(i=RING_OVERLAYS-1;i>=RING_OVERLAY_AUTO_MIN;i--){
   /* Slot com fd VIVO nao e' livre, mesmo em fim de som: o fd e' do chamador e
      um pedido novo para o mesmo slot o poria em dois lugares. */
-  if(overlay_fd[i]<0){overlay_pedido_vol[i]=vol_pct;overlay_pedido[i]=fd;return i;}
+  if(overlay_fd[i]<0){overlay_pedido_vol[i]=vol_pct;overlay_pedido_loop[i]=0;overlay_pedido[i]=fd;return i;}
  }
  return -1;
 }
 int audio_ring_overlay(int fd){return audio_ring_overlay_vol(fd,100);}
+/* O mesmo alocador, com o slot em LACO (o `play(true)` do flixel). O pedido de
+   laco e' escrito ANTES do pedido de fd -- a thread consome o fd no topo do
+   bloco, e escrever a flag depois dela poderia deixa-la para o proximo som. */
+int audio_ring_overlay_loop(int fd){
+ int i;
+ if(thread_id<0||fd<0)return -1;
+ for(i=RING_OVERLAYS-1;i>=RING_OVERLAY_AUTO_MIN;i--){
+  if(overlay_fd[i]<0){overlay_pedido_vol[i]=100;overlay_pedido_loop[i]=1;overlay_pedido[i]=fd;return i;}
+ }
+ return -1;
+}
 int audio_ring_overlay_slot(int slot,int fd,int vol_pct){
  if(thread_id<0||fd<0)return -1;
  if(slot<0||slot>=RING_OVERLAYS)return -1;
  overlay_pedido_vol[slot]=vol_pct;
+ overlay_pedido_loop[slot]=0;
  overlay_pedido[slot]=fd;
  return 0;
 }

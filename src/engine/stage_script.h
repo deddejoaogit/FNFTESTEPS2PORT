@@ -22,12 +22,28 @@
  *                               bf e dad 0xDEDEDE, gf 0x888888
  *   L223-228                    onSongEnd: `lightningActive = false`
  *
+ * O segundo e' o `spookyMansionErect` (o flash das duas luzes e o `scared` do
+ * bf/gf), o terceiro e' o `phillyTrain`:
+ *
+ *   phillyTrain.hxc L100-110    o trem anda 400 px a cada 1/24 s, mas so'
+ *                               depois de 4,7 s do som `train_passes` (L121)
+ *   L127-134                    em -2000 volta para -1150 (um vagao), em
+ *                               -4000 com a fila acabando -> trainReset()
+ *   L115-121                    `beat % 8 == 4` + `bool(30)` + parado +
+ *                               `trainCooldown > 8` -> cooldown int(-4,0)
+ *   L142-149                    a cada 4 batidas as `lights` trocam de cor
+ *                               (as cinco do L28-34)
+ *   L123 / L150                 a gf toca `hairBlow` / `hairFall`
+ *   L169-176 / L190-203         fim da musica para o trem; retry reseta
+ *
  * O QUE NAO E' PORTADO, E POR QUE
- * - O `RuntimeRainShader` (L26, L38-42, L102-104, L136-140): o GS nao tem
- *   fragment shader. Sao 175 das 451 linhas dos 18 scripts; fica declarado
- *   como falta, nao como feito.
- * - `HapticUtil.vibrate` (L194-221): o controle do PS2 nao tem rumble acionado
- *   pelo jogo neste port (nenhum outro evento do original usa).
+ * - Os shaders: o `RuntimeRainShader` do spooky (L26, L38-42, L102-104,
+ *   L136-140) e o `BuildingEffectShader` das `lights` do phillyTrain (L39-40,
+ *   L57, L144). O GS de pipeline fixa nao tem fragment shader. Sao 175 das 451
+ *   linhas dos 18 scripts; fica declarado como falta, nao como feito. O que da'
+ *   para fazer sem shader -- a COR das luzes por batida -- esta' portado.
+ * - `HapticUtil.vibrate` (spooky L194-221, trem L152-158): o controle do PS2
+ *   nao tem rumble acionado pelo jogo neste port.
  *
  * O SORTEIO
  * O original usa `FlxG.random` (semente do relogio). Aqui o gerador e' o
@@ -98,6 +114,32 @@ typedef struct {
     int strike_offset;
     int ultimo_beat;    /* o ultimo beat que chegou (dispara uma vez por beat) */
 
+    /* ---- O TREM DO `phillyTrain` ----
+       phillyTrain.hxc L46-176: o `train` passa no fundo a cada 8 batidas
+       (`beat % 8 == 4` + `bool(30)` + `trainCooldown > 8`), anda 400 px a cada
+       1/24 s DEPOIS que o som `train_passes` chega a 4,7 s (`trainSound.time`),
+       embala em -2000 (volta para -1150 e gasta um vagao) e some em -4000
+       (`trainReset`: x = FlxG.width+200 = 1480, 8 vagoes de novo); a gf toca
+       `hairBlow` quando o trem comeca a andar e `hairFall` no reset, e as
+       `lights` trocam de cor a cada 4 batidas (`lightColors[curLight]`). */
+    int i_train;        /* prop `train`    (indice ABSOLUTO em bs_props[]) */
+    int i_lights;       /* prop `lights`   (idem, -1 se o palco nao tem)    */
+    int trem_ligado;    /* trainEnabled                                     */
+    int trem_movendo;   /* trainMoving                                      */
+    int trem_som_ligado;/* o `trainSound` esta' tocando (o relogio dele)     */
+    int trem_carros;    /* trainCars                                        */
+    int trem_acabando;  /* trainFinishing                                   */
+    int trem_comecou;   /* startedMoving                                    */
+    int trem_cooldown;  /* trainCooldown                                    */
+    float trem_x;       /* x do trem em unidades do original; < 0 = o dado  */
+    float trem_t;       /* `trainSound.time` em segundos                    */
+    float trem_quadro;  /* trainFrameTiming (acumulador de 1/24 s)          */
+    int luz_cor;        /* curLight; -1 = nenhuma cor aplicada ainda        */
+    int hair_pedido;    /* 1 = `hairBlow`, 2 = `hairFall`; o main.c consome */
+
+    /* O BANCO do som pendente em `som`: ver SS_SOM_*. */
+    int som_banco;
+
     unsigned int rng;
 } ss_t;
 
@@ -152,6 +194,22 @@ float ss_alpha_papel(const ss_t *ss, int papel);
  * Devolve 0 quando o palco nao tem cor de personagem (o desenho sai com o
  * branco de sempre). */
 int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb);
+
+/* Cor do prop `prop_abs` (3 bytes 0..255), ou 0 quando o script nao pinta esse
+ * prop. E' o `lightWindow.color = lightColors[curLight]` do `phillyTrain`
+ * (L146-149): o GS multiplica a textura pela cor do vertice, entao um `.color`
+ * do flixel cabe sem shader. */
+int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb);
+
+/* Os bancos de som de `palco_som_toca`, e o numero dentro do banco vai em
+ * `ss->som`. */
+#define SS_SOM_LIGHTNING 0   /* `Lightning1..3` (phillyBlazin L187)        */
+#define SS_SOM_TROVAO    1   /* `thunder_1..2` (spookyMansionErect L106)   */
+#define SS_SOM_TREM      2   /* `train_passes` (phillyTrain L100, so' o 1) */
+
+/* Quantos props o script deste palco mexe -- usado pelos testes e pelo log. */
+#define SS_TREM_CARROS 8     /* L95 `trainCars:Int = 8` */
+#define SS_TREM_X_RESET 1480.0f /* L152 `FlxG.width + 200` (1280 + 200) */
 
 #ifdef __cplusplus
 }

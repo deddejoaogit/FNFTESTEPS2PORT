@@ -4611,6 +4611,84 @@ música, o `bool(10)` + `beat > strikeBeat + offset` (6 disparos em 160 beats,
 uma vez só, e a guarda dos três personagens (240 beats sem nenhum disparo, sem
 sorteio de som e com o offset de repouso em 8).
 
+## Fechado: o trem do `phillyTrain` (o terceiro script de palco, e o primeiro som em laço)
+
+Este é o primeiro script de palco que **não é de uma variação erect**: o
+`phillyTrain` é o palco de TRÊS músicas do jogo (`pico`, `philly-nice` e
+`blammed`), então tudo o que ele faz aparece em três músicas jogáveis.
+
+| o quê | valor | fonte (`phillyTrain.hxc`) |
+|---|---|---|
+| o trem anda | **400 px** a cada **1/24 s** (`trainFrameTiming += elapsed`, zera no disparo) | L100-110, L127 |
+| quando começa | quando o som `train_passes` chega a **4,7 s** — antes disso o trem existe mas não anda | L121 |
+| emenda | em **-2000** volta para **-1150** e gasta um vagão (8 no total) | L129-133 |
+| fim | em **-4000** com a fila acabando: `trainReset` → x = **1280+200 = 1480**, 8 vagões, parado | L133, L152 |
+| quem começa | `beat % 8 == 4` **e** `bool(30)` **e** parado **e** `trainCooldown > 8` → cooldown = `int(-4,0)` | L115-121 |
+| as luzes | em todo `beat % 4 == 0` (inclusive o 0): `curLight = int(0,4)` e `lights.color = lightColors[curLight]` | L142-149 |
+| as cinco cores | `0xFF31A2FD`, `0xFF31FD8C`, `0xFFFB33F5`, `0xFFFBA633`, `0xFFFD4531` | L28-34 |
+| a gf | `hairBlow` quando o trem começa a andar, `hairFall` no reset | L123, L150 |
+| fim da música | o trem para e o som é interrompido | L169-176 |
+| retry | `trainReset()` + som parado | L190-203 |
+
+**A ordem dos sorteios é a da fonte**: `beat % 8 == 4` primeiro (o filtro
+barato), o `bool(30)` depois — e ele é sorteado mesmo com o trem andando, porque
+vem antes das condições de estado no `&&` —, o `int(-4,0)` só quando dispara, e
+o `int(0,4)` das luzes num `if` separado.
+
+**O som em laço — a peça nova do motor de áudio.** `trainSound.play(true)`
+(L129) toca o `train_passes` (14,42 s) em **laço** por baixo da música inteira:
+o original não para o som no `trainReset`, só no `onSongEnd`. O anel de overlay
+do port tocava cada som UMA vez, e um som que acaba no meio de um bloco de
+leitura (2 768 640 B não é múltiplo de 4 096) **parava no primeiro bloco
+incompleto**. Foi preciso:
+
+- `audio_ring_overlay_loop(fd)` — o mesmo alocador de overlay com o slot em laço;
+- em `soma_overlay`, leitura em laço até completar o bloco: no fim do arquivo,
+  `lseek(0)` e continua (o `loops_count` conta as voltas), com guarda para
+  arquivo vazio — sem isso o `while` giraria para sempre;
+- `palco_trem_som_para()` — o slot é parado no fim da música, no retry e na
+  troca de palco, e **recomeçado** a cada `trainStart` (o `play(true)` reinicia).
+
+**Medido no harness** (`FNF_START_SONG=pico`, 4000 quadros):
+
+```
+E,...,palco_script,1,10       o script está ativo no palco 10 (phillyTrain)
+E,...,palco_prop_cor,83,251   as `lights` pintadas (R = 0xFB, uma das cinco)
+E,...,palco_trem,12,8         trem no beat 12 (12 % 8 == 4), 8 vagões
+E,...,palco_som,1,7           o `train_passes` no slot 7 do anel, EM LAÇO
+E,...,char_hair,1,0           a gf tocou `hairBlow` (4,7 s de som)
+E,...,palco_draw,6,0          o trem entrou na tela (5 → 6 itens)
+E,...,palco_draw,5,0          ... e saiu do outro lado
+E,...,palco_trem_som_para,7,0 o fim da música calou o trem
+```
+
+E no teste do anel (`test_audio_ring.c`, sem pacote): um arquivo de **4801**
+quadros (ímpar, para a emenda cair no meio do bloco) em laço dá **13 voltas** com
+**0 amostra fora do padrão** — a emenda é exata, amostra por amostra.
+
+**O que fica de fora, com o motivo** (`stage_script.h` declara os dois como NÃO
+portados):
+
+- `BuildingEffectShader` nas `lights` (L39-40, L57) e o `lightShader.reset()` de
+  cada 4 batidas (L144): o GS de pipeline fixa não tem shader. O que dá para
+  fazer sem shader — a **cor** das luzes por batida — está portado e medido.
+- `HapticUtil.vibrate` (L152-158): o controle do PS2 não tem rumble neste port.
+
+**Uma divergência declarada**: o `onSongRetry` do original chama
+`getGirlfriend().animation.finish()` (L201) — um salto para o último quadro da
+animação. `cc_toca` não tem esse salto; no retry a gf volta a dançar do começo.
+É 1 quadro de diferença numa animação de dança, e o caminho contrário (inventar
+um "finish" que o resto do motor não usa) seria pior que declarar.
+
+**O que o teste cobra** (`test/test_stage_script.c`): o x inicial é o do DADO
+(2000, não o 1480 do reset), o trem **não anda** antes de 4,7 s de som, anda 400
+px no passo seguinte com `hairBlow`, a passagem inteira (8 vagões, -2000 →
+-1150, -4000 → 1480), o `hairFall` no reset, o disparo só em `beat % 8 == 4` com
+cooldown > 8, as cinco cores com os canais conferidos um por um, e o fim da
+música parando o trem. E `test/test_stage_layout.c` cobra o resultado no
+layout: o trem nasce fora da tela (x = 2000), o item segue o x do script pela
+mesma conta dos outros props, e as `lights` chegam ao item com a cor do script.
+
 ### O que os 18 scripts fazem, medido (`tools/analisa_scripts_palco.py`)
 
 Para não repetir "77 linhas" sem dizer quais, o inventário novo classifica

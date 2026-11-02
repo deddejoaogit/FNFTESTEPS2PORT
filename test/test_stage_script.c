@@ -509,9 +509,124 @@ int main(void)
         CHECK_EQ(sp.strike_offset, 8);   /* L27: o offset de repouso, sem sorteio */
     }
 
+    printf("== script do palco: o TREM do phillyTrain (L95-166) ==\n");
+    {
+        ss_t sp;
+        int i, disparou = -1, carros0;
+        float x0;
+        const float passo = 1.0f / 24.0f;
+        ss_init(&sp, "phillyTrain");
+        CHECK_EQ(sp.ativo, 1);
+        CHECK(sp.i_train >= 0);
+        CHECK(sp.i_lights >= 0);
+        /* o x inicial e' o do DADO (o `buildStage` poe o sprite na posicao do
+           JSON), e nao o 1480 do `trainReset` */
+        x0 = bs_props[sp.i_train].x;
+        CHECK(x0 > 1000.0f);
+        CHECK_PERTO(sp.trem_x, x0, 0.001);
+        CHECK_EQ(sp.trem_carros, 8);          /* L95 */
+        CHECK_EQ(sp.trem_movendo, 0);
+        CHECK_EQ(sp.luz_cor, -1);             /* nenhuma cor antes do beat 0 */
+
+        /* O TREM SO' COMECA em `beat % 8 == 4`, com cooldown > 8 e o `bool(30)`
+           sorteado -- e o sorteio acontece em TODO beat %8==4. */
+        for (i = 0; i < 200 && disparou < 0; i++) {
+            int r = ss_beat(&sp, i, "pico", 1);
+            if (r) { disparou = i; break; }
+            if (i % 8 == 4 && i <= 12 && sp.trem_movendo == 0 && sp.trem_cooldown <= 8)
+                CHECK_EQ(r, 0);               /* cooldown curto nao dispara */
+        }
+        CHECK(disparou > 8);                  /* L117: cooldown > 8 */
+        CHECK_EQ(disparou % 8, 4);            /* L117: beat % 8 == 4 */
+        CHECK_EQ(sp.trem_movendo, 1);
+        CHECK_EQ(sp.som, 1);
+        CHECK_EQ(sp.som_banco, SS_SOM_TREM);
+        carros0 = sp.trem_carros;
+
+        /* L121: enquanto o som nao chega a 4,7 s, o trem NAO anda. */
+        for (i = 0; i < 112; i++) ss_update(&sp, passo);   /* 4,666 s */
+        CHECK_PERTO(sp.trem_x, x0, 0.001);
+        CHECK_EQ(sp.trem_comecou, 0);
+        CHECK_EQ(sp.hair_pedido, 0);
+
+        /* ... e no passo seguinte (4,708 s) comeca: x -= 400 e hairBlow. */
+        ss_update(&sp, passo);
+        CHECK_EQ(sp.trem_comecou, 1);
+        CHECK_EQ(sp.hair_pedido, 1);
+        CHECK_PERTO(sp.trem_x, x0 - 400.0f, 0.001);
+
+        /* A passagem inteira: -400 por passo, -2000 -> -1150 (um vagao) e
+           -4000 -> trainReset (x = 1480, 8 vagoes, parado, hairFall). */
+        for (i = 0; i < 200 && sp.trem_movendo; i++) ss_update(&sp, passo);
+        CHECK_EQ(sp.trem_movendo, 0);
+        CHECK_EQ(sp.trem_carros, carros0);
+        CHECK_EQ(sp.trem_acabando, 0);
+        CHECK_EQ(sp.trem_comecou, 0);
+        CHECK_PERTO(sp.trem_x, SS_TREM_X_RESET, 0.001);
+        CHECK_EQ(sp.hair_pedido, 2);
+    }
+
+    printf("== script do palco: as cinco cores das `lights` (L28-34, L142-149) ==\n");
+    {
+        /* As cinco cores do L28-34, escritas aqui de novo DE PROPOSITO: se
+           alguem trocar um byte na tabela do .c, este teste tem de acusar. */
+        static const unsigned char esperado[5][3] = {
+            { 0x31, 0xA2, 0xFD }, { 0x31, 0xFD, 0x8C }, { 0xFB, 0x33, 0xF5 },
+            { 0xFB, 0xA6, 0x33 }, { 0xFD, 0x45, 0x31 }
+        };
+        ss_t sp;
+        int i, mudou = 0, vistas[5] = { 0, 0, 0, 0, 0 };
+        unsigned char rgb[3];
+        ss_init(&sp, "phillyTrain");
+        /* beat 0: `beat % 4 == 0` ja' sorteia a cor (L142) */
+        ss_beat(&sp, 0, "pico", 1);
+        CHECK(sp.luz_cor >= 0 && sp.luz_cor < 5);
+        CHECK_EQ(ss_prop_cor(&sp, sp.i_lights, rgb), 1);
+        CHECK_EQ(rgb[0], esperado[sp.luz_cor][0]);
+        CHECK_EQ(rgb[1], esperado[sp.luz_cor][1]);
+        CHECK_EQ(rgb[2], esperado[sp.luz_cor][2]);
+        /* beat 1 e 2 nao tocam na cor */
+        {
+            int cor_antes = sp.luz_cor;
+            ss_beat(&sp, 1, "pico", 1);
+            ss_beat(&sp, 2, "pico", 1);
+            ss_beat(&sp, 3, "pico", 1);
+            CHECK_EQ(sp.luz_cor, cor_antes);
+        }
+        /* ao longo de 40 beats as cinco cores aparecem */
+        for (i = 0; i < 40; i++) {
+            ss_beat(&sp, i, "pico", 1);
+            if (i % 4 == 0) {
+                vistas[sp.luz_cor]++;
+                if (ss_prop_cor(&sp, sp.i_lights, rgb)) mudou++;
+                /* Toda cor sorteada tem de ser a do L28-34, canal por canal. */
+                CHECK_EQ(rgb[0], esperado[sp.luz_cor][0]);
+                CHECK_EQ(rgb[1], esperado[sp.luz_cor][1]);
+                CHECK_EQ(rgb[2], esperado[sp.luz_cor][2]);
+            }
+        }
+        CHECK(mudou >= 10);
+        /* Nao se cobra as CINCO cores em 40 beats: o sorteio e' uniforme sobre
+           5 e a semente e' fixa, entao o conjunto que sai e' deterministico
+           mas depende da sequencia do xorshift -- cobrar "5 de 5" travava o
+           teste numa propriedade do gerador, nao do script. O que se cobra e'
+           que as cores sorteadas sejam SORTEADAS (>= 4 distintas em 10
+           sorteios) e que cada uma seja a da tabela (acima). */
+        {int k, quantas = 0; for (k = 0; k < 5; k++) if (vistas[k]) quantas++;
+         CHECK(quantas >= 4);}
+        /* um prop que nao e' o `lights` nao ganha cor */
+        CHECK_EQ(ss_prop_cor(&sp, sp.i_train, rgb), 0);
+        /* e o fim da musica para o trem (L169-176) */
+        ss_song_end(&sp);
+        CHECK_EQ(sp.trem_ligado, 0);
+        CHECK_EQ(sp.trem_movendo, 0);
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  script do palco: conferidos o relampago do phillyBlazin (3,0 s /\n"
-           "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens) e o flash\n"
-           "  do spookyMansionErect (0,06 s / 0,12 s / 1,5 s / 10%% / offset 8..24)\n");
+           "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens), o flash\n"
+           "  do spookyMansionErect (0,06 s / 0,12 s / 1,5 s / 10%% / offset 8..24)\n"
+           "  e o trem do phillyTrain (1/24 s, -400, -2000 -> -1150, -4000 -> 1480,\n"
+           "  8 vagoes, 4,7 s de som, `beat %% 8 == 4` + bool(30), 5 cores)\n");
     return 0;
 }

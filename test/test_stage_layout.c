@@ -85,6 +85,7 @@ static float ov_alpha(int prop_abs) { return ss_prop_alpha(&g_tss, prop_abs); }
 static float ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_tss, prop_abs, x_dado); }
 static int ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_tss, prop_abs, anim, frame); }
 static float ov_cor(int cor_abs) { return ss_cor_alpha(&g_tss, cor_abs); }
+static int ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_tss, prop_abs, rgb); }
 
 int main(void)
 {
@@ -903,7 +904,7 @@ int main(void)
            (registrado por `sl_set_script`). Aqui o teste registra os callbacks
            ligados a um `ss_t` de verdade e cobra o resultado no LAYOUT -- que
            e' onde o alpha/x/quadro viram desenho. */
-        static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor };
+        static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor };
         sl_item_t it[SL_MAX_ITENS];
         int n;
 
@@ -1006,6 +1007,77 @@ int main(void)
                             it2, SL_MAX_ITENS);
             CHECK_EQ(n, n2);
         }
+        sl_set_script(NULL);
+    }
+
+    printf("== layout: o TREM e as LUZES do phillyTrain ==\n");
+    {
+        /* O `train` e' UM sprite que o script empurra para a esquerda (L127):
+           a lista tem de mostrar o x do script, e nao o do JSON, assim que ele
+           anda. As `lights` ganham a COR do L149 no item -- se ela nao
+           chegasse aqui, o prop sairia branco e a troca de cor por beat nao
+           apareceria na tela. */
+        static const sl_script_t hook2 = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor };
+        sl_item_t it[SL_MAX_ITENS];
+        int n, achou_trem = 0, achou_luz = 0;
+        ss_init(&g_tss, "phillyTrain");
+        sl_set_script(&hook2);
+        n = sl_collect("phillyTrain", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                       it, SL_MAX_ITENS);
+        CHECK(n > 0);
+        {
+            const sl_item_t *t = item_por_nome(it, n, "train");
+            const sl_item_t *l = item_por_nome(it, n, "lights");
+            /* O trem nasce em x = 2000, FORA da tela: ele entra pela direita
+               andando. Se ele aparecesse aqui, o corte de fora-de-tela estaria
+               errado (e o prop custaria pacote em todo quadro). */
+            CHECK(t == NULL);
+            CHECK(l != NULL);
+            if (l) {
+                achou_luz = 1;
+                /* antes do beat 0 nao ha' cor sorteada: o prop sai como sempre */
+                CHECK_EQ(l->pintado, 0);
+            }
+        }
+        CHECK(achou_luz);
+
+        /* O trem anda: o x do item tem de seguir o script, pela MESMA conta dos
+           outros props (320 + (x - 640) * 0,5 com camera em 0 e scrollFactor 1,
+           que e' o do `train` no JSON). No instante ZERO o trem esta' em
+           x = 2000 e NAO aparece -- ele entra pela direita andando, como no
+           original; por isso o x aqui e' um que ja' caiu na tela. */
+        ss_beat(&g_tss, 0, "pico", 1);            /* beat 0: sorteia a cor */
+        g_tss.trem_x = 300.0f;                    /* como o updateTrainPos faz */
+        g_tss.trem_comecou = 1;
+        /* Camera do jogo (o `cameraFollowPoint`), nao a do canto: com
+           cam_y = 0 o trem em y = 360 ficaria no rodape da tela. */
+        n = sl_collect("phillyTrain", 500.0f, 300.0f, 1.0f, 1.0f, 4, 0.5f, 1.0f,
+                       it, SL_MAX_ITENS);
+        {
+            const sl_item_t *t = item_por_nome(it, n, "train");
+            const sl_item_t *l = item_por_nome(it, n, "lights");
+            CHECK(t != NULL);
+            if (t) {
+                achou_trem = 1;
+                /* 320 + (x - cam_x) * 0,5 com scrollFactor 1 */
+                CHECK_NEAR(t->x0, 320.0f + (g_tss.trem_x - 500.0f) * 0.5f);
+            }
+            CHECK(l != NULL);
+            if (l) {
+                /* A cor do item e' a do script, canal por canal (tabela do
+                   L28-34 repetida aqui de proposito). */
+                static const unsigned char esperado[5][3] = {
+                    { 0x31, 0xA2, 0xFD }, { 0x31, 0xFD, 0x8C }, { 0xFB, 0x33, 0xF5 },
+                    { 0xFB, 0xA6, 0x33 }, { 0xFD, 0x45, 0x31 }
+                };
+                CHECK_EQ(l->pintado, 1);
+                CHECK(g_tss.luz_cor >= 0 && g_tss.luz_cor < 5);
+                CHECK_EQ(l->rgb[0], esperado[g_tss.luz_cor][0]);
+                CHECK_EQ(l->rgb[1], esperado[g_tss.luz_cor][1]);
+                CHECK_EQ(l->rgb[2], esperado[g_tss.luz_cor][2]);
+            }
+        }
+        CHECK_EQ(achou_trem, 1);
         sl_set_script(NULL);
     }
 

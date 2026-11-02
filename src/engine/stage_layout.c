@@ -227,6 +227,12 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->tex_w = p->sw; it->tex_h = p->sh;
         it->z = p->z;
         it->alpha = alpha;
+        /* A COR que o script poe no prop (o `lightWindow.color` do
+           `phillyTrain`). Sem script, `tem_cor` fica 0 e o desenho sai como
+           sempre. */
+        it->pintado = (g_script && g_script->cor)
+                          ? g_script->cor(prop_abs, it->rgb) : 0;
+        if (!it->pintado) { it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80; }
         it->blend = p->blend;
         it->criado = -1;
         it->tile = 0.0f;
@@ -262,6 +268,8 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->tex_w = 0; it->tex_h = 0;
         it->z = c->z;
         it->alpha = alpha;
+        it->pintado = 0;
+        it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80;
         it->blend = c->blend;
         it->criado = -1;
         it->tile = 0.0f;
@@ -299,6 +307,8 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->tex_w = cr->sw; it->tex_h = cr->sh;
         it->z = cr->z;
         it->alpha = cr->alpha;
+        it->pintado = 0;
+        it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80;
         it->blend = cr->blend;
         it->tile = cr->tile ? cr->src_w : 0.0f;
         it->tile_off = cr->vel_x * t;

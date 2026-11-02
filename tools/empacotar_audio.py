@@ -152,6 +152,11 @@ SONS_PALCO = [
     # Os arquivos moram em week2/sounds (a semana da mansao).
     ("week2/sounds/thunder_1", "thunder1", False),
     ("week2/sounds/thunder_2", "thunder2", False),
+    # `phillyTrain.hxc` L41: `FunkinSound.load(Paths.sound('train_passes'))` e
+    # L129 `trainSound.play(true)` -- o original toca em LACO. O port toca uma
+    # vez (o anel de overlay nao tem laco) e o trem anda em 1,3 s, entao a
+    # diferenca audivel e' o rabo do som depois que o trem ja' passou.
+    ("week3/sounds/train_passes", "train1", False),
 ]
 
 

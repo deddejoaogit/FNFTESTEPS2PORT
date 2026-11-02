@@ -57,6 +57,40 @@
 #define SS_FLASH_OFF_MIN   8
 #define SS_FLASH_OFF_MAX   24
 
+/* ---- phillyTrain.hxc ----
+     L95-99   estado do trem: trainCars 8, cooldown 0, trainFrameTiming 0
+     L100-110 onUpdate: enquanto `trainMoving`, acumula `elapsed` e anda o trem
+              a cada 1/24 s (o acumulador zera no disparo, nao desconta)
+     L112-136 onBeatHit: `beat % 8 == 4 && bool(30) && !trainMoving &&
+              trainCooldown > 8` -> cooldown = int(-4,0) e trainStart();
+              e, em TODO `beat % 4 == 0`, `curLight = int(0,4)`
+     L138-146 updateTrainPos: com `trainSound.time >= 4700` ms comeca a andar e
+              a gf toca `hairBlow`; depois x -= 400, em -2000 volta para -1150 e
+              gasta um vagao, em -4000 (acabando) chama trainReset()
+     L148-166 trainReset: gf `hairFall` (se tinha comecado), x = 1280+200,
+              8 vagoes, trem parado
+     L169-186 onSongEnd: para o trem; L190-203 onSongRetry: trainReset       */
+#define SS_TREM_FPS        24.0f
+#define SS_TREM_PASSO      400.0f   /* L127 `train.x -= 400`              */
+#define SS_TREM_EMBALA     (-2000.0f) /* L129 `if (train.x < -2000 ...)`  */
+#define SS_TREM_REENTRA    (-1150.0f) /* L130 `train.x = -1150`           */
+#define SS_TREM_FIM        (-4000.0f) /* L133 `if (train.x < -4000 ...)`  */
+#define SS_TREM_SOM_MS     4700.0f  /* L121 `trainSound.time >= 4700`     */
+#define SS_TREM_CHANCE     30.0f    /* L117 `FlxG.random.bool(30)`        */
+#define SS_TREM_COOLDOWN   8        /* L117 `trainCooldown > 8`           */
+#define SS_TREM_CD_SORTE   (-4)     /* L119 `int(-4, 0)`                  */
+#define SS_COR_LUZES       5        /* L28-34 `lightColors.length`        */
+
+/* `phillyTrain.hxc` L28-34 `lightColors`: as cinco cores das `lights`, em
+   0xAARRGGBB como no original. */
+static const unsigned char ss_cores_luzes[SS_COR_LUZES][3] = {
+    { 0x31, 0xA2, 0xFD },   /* 0xFF31A2FD */
+    { 0x31, 0xFD, 0x8C },   /* 0xFF31FD8C */
+    { 0xFB, 0x33, 0xF5 },   /* 0xFFFB33F5 */
+    { 0xFB, 0xA6, 0x33 },   /* 0xFFFBA633 */
+    { 0xFD, 0x45, 0x31 }    /* 0xFFFD4531 */
+};
+
 /* Semente fixa do xorshift. Ver o cabecalho: a sequencia nao e' a do original
    (o flixel semeia com o relogio), mas a ordem dos sorteios e' -- bool(65),
    int do x, int do som, float do proximo timer. */
@@ -138,6 +172,7 @@ void ss_init(ss_t *ss, const char *palco_id)
        (`skyAdditive` do phillyBlazin). Sem esta linha, um palco com o script do
        spooky "encontrava" o prop 0 e o flash mexia no prop errado. */
     ss->i_bgl = ss->i_stl = -1;
+    ss->i_train = ss->i_lights = -1;
     ss->rng = SS_SEMENTE;
     if (ss->palco < 0) return;
 
@@ -153,6 +188,24 @@ void ss_init(ss_t *ss, const char *palco_id)
             return;
         ss->ativo = 1;
         ss_reiniciar(ss);
+        return;
+    }
+
+    /* ---- phillyTrain (o trem que passa e as luzes) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "phillyTrain") == 0) {
+        ss->i_train = acha_prop(ss->palco, "train");
+        ss->i_lights = acha_prop(ss->palco, "lights");
+        /* Sem o `train` nao ha' trem. As `lights` sao opcionais para o
+           movimento, mas sem elas o `color` do L149 nao tem onde pousar: o
+           layout continua desenhando o prop com a arte do dado. */
+        if (ss->i_train < 0) return;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
+        /* O x INICIAL do trem e' o do dado (o `buildStage` do flixel poe o
+           sprite na posicao do JSON e o script so' mexe nele no primeiro
+           `train.x -= 400`, L127). O `ss_reiniciar` deixa -1 = "o dado manda",
+           entao quem preenche aqui e' o dado de verdade. */
+        ss->trem_x = bs_props[ss->i_train].x;
         return;
     }
 
@@ -181,6 +234,7 @@ void ss_reiniciar(ss_t *ss)
     ss->raio_x = 0.0f;
     ss->a_sky = ss->a_fg = ss->a_lighten = 0.0f;
     ss->som = 0;
+    ss->som_banco = SS_SOM_LIGHTNING;
     ss->cor_ativa = 0;
     ss->cor_t0 = 0.0f;
     /* L114-117: a cor de REPOUSO dos personagens neste palco nao e' branca. */
@@ -196,12 +250,35 @@ void ss_reiniciar(ss_t *ss)
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
+    /* O TREM. `onCreate` (L46-58) zera o estado e o `onSongRetry` (L190-203)
+       chama `trainReset()`: x = 1480, 8 vagoes, parado, e o som parado. O x
+       fica em -1 ate' o script mexer nele (o dado manda enquanto isso). */
+    ss->trem_ligado = 1;
+    ss->trem_movendo = 0;
+    ss->trem_som_ligado = 0;
+    ss->trem_carros = SS_TREM_CARROS;
+    ss->trem_acabando = 0;
+    ss->trem_comecou = 0;
+    ss->trem_cooldown = 0;
+    /* `trainReset()` no `onSongRetry` (L190-203) poe o trem em 1480 -- e nao no
+       x do JSON: o `ss_init` sobrepoe este valor com o do dado logo depois, que
+       e' o estado do `buildStage`. */
+    if (ss->trem_comecou) ss->hair_pedido = 2;      /* `hairFall` */
+    ss->trem_x = ss->i_train >= 0 ? SS_TREM_X_RESET : -1.0f;
+    ss->trem_t = 0.0f;
+    ss->trem_quadro = 0.0f;
+    ss->luz_cor = -1;
+    ss->hair_pedido = 0;
 }
 
 void ss_song_end(ss_t *ss)
 {
     if (!ss->ativo) return;
-    ss->ligado = 0;                    /* L227 */
+    ss->ligado = 0;                    /* phillyBlazin L227 */
+    /* phillyTrain L169-176: o trem para e o som e' interrompido. */
+    ss->trem_movendo = 0;
+    ss->trem_ligado = 0;
+    ss->trem_som_ligado = 0;
 }
 
 /* applyLightning(), L142-190. A ORDEM dos sorteios e' a da fonte. */
@@ -222,6 +299,7 @@ static void ss_raio(ss_t *ss)
     else ss->raio_x = (float)ss_rnd_int(ss, (int)SS_X_B0, (int)SS_X_B1);
     /* L187: `Paths.soundRandom('Lightning', 1, 3)`. */
     ss->som = ss_rnd_int(ss, 1, 3);
+    ss->som_banco = SS_SOM_LIGHTNING;
     /* L180-184: os personagens escurecem por 0,3 s e voltam ao repouso. */
     ss->cor_ativa = 1;
     ss->cor_t0 = ss->t;
@@ -246,6 +324,9 @@ static void ss_flash_comeca(ss_t *ss)
     ss->strike_beat = ss->ultimo_beat;
 }
 
+static void ss_trem_comeca(ss_t *ss);
+static void ss_trem_anda(ss_t *ss);
+
 /* O `onBeatHit` (L155-174). A ordem dos sorteios e' a da fonte:
    1) `FlxG.random.bool(10)` -- sorteado em TODO beat, mesmo quando o segundo
       `if` nem chega a disparar (curto-circuito do `&&`);
@@ -255,11 +336,37 @@ static void ss_flash_comeca(ss_t *ss)
 int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
 {
     int chance, disparou = 0;
-    if (!ss->ativo || (ss->i_bgl < 0 && ss->i_sky < 0)) return 0;
+    if (!ss->ativo) return 0;
     /* Cada beat chega UMA vez; quem chama passa o beat do chart, que pode
        repetir em varios quadros. */
     if (beat == ss->ultimo_beat) return 0;
     ss->ultimo_beat = beat;
+
+    /* ---- phillyTrain L112-149 ---- */
+    if (ss->i_train >= 0) {
+        if (ss->trem_ligado) {
+            /* L115-116: o cooldown sobe em TODO beat parado (nao so' nos
+               beats do trem). */
+            if (!ss->trem_movendo) ss->trem_cooldown += 1;
+            /* L117: a ordem dos operandos e' a da fonte -- `beat % 8 == 4`
+               primeiro, o `bool(30)` depois, e so' entao as duas condicoes de
+               estado (por isso o sorteio acontece mesmo com o trem andando). */
+            if (beat % 8 == 4) {
+                int r30 = ss_rnd_bool(ss, SS_TREM_CHANCE);
+                if (r30 && !ss->trem_movendo &&
+                    ss->trem_cooldown > SS_TREM_COOLDOWN) {
+                    ss->trem_cooldown = ss_rnd_int(ss, SS_TREM_CD_SORTE, 0); /* L119 */
+                    ss_trem_comeca(ss);
+                    disparou = 1;
+                }
+            }
+        }
+        /* L142-149: em TODO `beat % 4 == 0` (inclusive o 0) as luzes trocam de
+           cor. O `lightShader.reset()` da mesma linha e' shader: nao portado. */
+        if (beat % 4 == 0) ss->luz_cor = ss_rnd_int(ss, 0, SS_COR_LUZES - 1);
+        return disparou;
+    }
+
     if (ss->i_bgl < 0) return 0;         /* so' o spooky usa beat */
 
     /* L164: `event.beat == 4 && currentSong.id == "spookeez"` -> sem som. */
@@ -271,10 +378,55 @@ int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
     chance = ss_rnd_bool(ss, SS_FLASH_CHANCE);
     if (chance && beat > ss->strike_beat + ss->strike_offset && tem_personagens) {
         ss->som = 1 + ss_rnd_int(ss, 0, 1);   /* Paths.soundRandom('thunder_',1,2) */
+        ss->som_banco = SS_SOM_TROVAO;
         ss_flash_comeca(ss);
         disparou = 1;
     }
     return disparou;
+}
+
+/* ---- phillyTrain.hxc: o trem --------------------------------------------
+   `trainStart()` (L200-204): o trem passa a andar e o som `train_passes`
+   comeca do zero (`play(true)` reinicia). */
+static void ss_trem_comeca(ss_t *ss)
+{
+    ss->trem_movendo = 1;
+    ss->trem_t = 0.0f;              /* `trainSound.play(true)` -> time = 0 */
+    ss->trem_som_ligado = 1;
+    ss->som = 1;                    /* o unico som do banco do trem */
+    ss->som_banco = SS_SOM_TREM;
+}
+
+/* `trainReset()` (L148-166). O `playAnimation('hairFall')` da gf so' acontece
+   se o trem tinha comecado a andar -- por isso o `trem_comecou` e' testado
+   ANTES de ser zerado. */
+static void ss_trem_reset(ss_t *ss)
+{
+    if (ss->trem_comecou) ss->hair_pedido = 2;      /* `hairFall` */
+    ss->trem_x = SS_TREM_X_RESET;                   /* L152 */
+    ss->trem_movendo = 0;
+    ss->trem_carros = SS_TREM_CARROS;
+    ss->trem_acabando = 0;
+    ss->trem_comecou = 0;
+}
+
+/* `updateTrainPos()` (L138-146): o 1/24 s do trem. */
+static void ss_trem_anda(ss_t *ss)
+{
+    /* L121-126: so' depois de 4,7 s de SOM o trem "aparece" e a gf reage. */
+    if (ss->trem_som_ligado && ss->trem_t >= SS_TREM_SOM_MS / 1000.0f) {
+        if (!ss->trem_comecou) ss->hair_pedido = 1;   /* `hairBlow` */
+        ss->trem_comecou = 1;
+    }
+    if (!ss->trem_comecou) return;
+    ss->trem_x -= SS_TREM_PASSO;                /* L127 */
+    if (ss->trem_x < SS_TREM_EMBALA && !ss->trem_acabando) {  /* L129-133 */
+        ss->trem_x = SS_TREM_REENTRA;
+        ss->trem_carros -= 1;
+        if (ss->trem_carros <= 0) ss->trem_acabando = 1;
+    }
+    if (ss->trem_x < SS_TREM_FIM && ss->trem_acabando)        /* L133-134 */
+        ss_trem_reset(ss);
 }
 
 static float ss_suave(float u)
@@ -292,13 +444,32 @@ int ss_update(ss_t *ss, float elapsed)
     if (elapsed < 0.0f) elapsed = 0.0f;
     ss->t += elapsed;
 
-    /* L120-133 */
-    if (ss->ligado) ss->timer -= elapsed;
-    else ss->timer = 1.0f;
-    if (ss->timer <= 0.0f) {
-        ss_raio(ss);
-        ss->timer = ss_rnd_float(ss, 7.0f, 15.0f);
-        caiu = 1;
+    /* L120-133. So' no `phillyBlazin`: o timer e o raio sao DELE, e um palco
+       com outro script nao pode herdar os indices de prop do palco anterior. */
+    if (ss->i_sky >= 0) {
+        if (ss->ligado) ss->timer -= elapsed;
+        else ss->timer = 1.0f;
+        if (ss->timer <= 0.0f) {
+            ss_raio(ss);
+            ss->timer = ss_rnd_float(ss, 7.0f, 15.0f);
+            caiu = 1;
+        }
+    }
+
+    /* ---- O TREM DO phillyTrain (L100-110 + L112-166) ---- */
+    if (ss->i_train >= 0) {
+        /* L127-131: o relogio do SOM (`trainSound.time`), em segundos. O som
+           toca a partir do `trainStart` e o original nunca o reinicia no
+           `trainReset`, entao o relogio continua correndo. */
+        if (ss->trem_som_ligado) ss->trem_t += elapsed;
+        if (ss->trem_ligado && ss->trem_movendo) {
+            double passo = 1.0 / (double)SS_TREM_FPS;
+            ss->trem_quadro += elapsed;
+            if ((double)ss->trem_quadro >= passo) {
+                ss_trem_anda(ss);
+                ss->trem_quadro = 0.0f;      /* L129 zera, nao desconta */
+            }
+        }
     }
 
     /* ---- O FLASH DO spookyMansionErect (L51-79) ---- */
@@ -373,7 +544,11 @@ float ss_prop_alpha(const ss_t *ss, int prop_abs)
 
 float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
 {
-    if (!ss->ativo || prop_abs < 0 || prop_abs != ss->i_light) return x_dado;
+    if (!ss->ativo || prop_abs < 0) return x_dado;
+    /* O trem: quem escreve o x e' o `updateTrainPos` (L127-134), e o primeiro
+       valor e' o do dado. */
+    if (prop_abs == ss->i_train) return ss->trem_x >= 0.0f ? ss->trem_x : x_dado;
+    if (prop_abs != ss->i_light) return x_dado;
     /* Antes do PRIMEIRO raio o prop esta' onde o JSON o poe: quem escreve o x e'
        o `applyLightning` (L171/L175), e ate' ele o valor e' o do palco. */
     if (ss->raios == 0) return x_dado;
@@ -400,6 +575,17 @@ float ss_cor_alpha(const ss_t *ss, int cor_abs)
     if (!ss->ativo || cor_abs < 0) return -1.0f;
     if (cor_abs == ss->i_lighten) return ss->raio_ativo ? ss->a_lighten : 0.0f;
     return -1.0f;
+}
+
+int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb)
+{
+    if (!ss->ativo || !rgb || prop_abs < 0) return 0;
+    if (prop_abs != ss->i_lights || ss->luz_cor < 0 || ss->luz_cor >= SS_COR_LUZES)
+        return 0;
+    rgb[0] = ss_cores_luzes[ss->luz_cor][0];
+    rgb[1] = ss_cores_luzes[ss->luz_cor][1];
+    rgb[2] = ss_cores_luzes[ss->luz_cor][2];
+    return 1;
 }
 
 int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)
