@@ -1,0 +1,503 @@
+{
+ "dono": "bf",
+ "escala": 0.5,
+ "bpp": 16,
+ "ranks": [
+  {
+   "rank": "PERFECT_GOLD",
+   "chave": "perfectGold",
+   "entradas": [
+    {
+     "rank": "PERFECT_GOLD",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsPERFECT/bed",
+     "asset_de": "script BFBedPerfectResults.hxc",
+     "arquivo": "rank_perfectGold_0_bed.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_perfectGold_0_bed.cfz4",
+       "bytes": 1634809
+      }
+     ],
+     "w": 300,
+     "h": 319,
+     "psm": 16,
+     "quadros": 149,
+     "vram_bytes": 191400,
+     "bytes": 1634909,
+     "x": 201.5,
+     "y": -152.5,
+     "escala": 1.0,
+     "z": 500,
+     "delay_ms": 0,
+     "inicio_ms": 3958,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 137,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP START",
+       "primeiro": 137,
+       "quantos": 12,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": null,
+     "loop_label": "LOOP START",
+     "start_label": "INTRO",
+     "looped": true,
+     "loop_ini": 137,
+     "inicio": 0,
+     "s_pack": 0.5
+    },
+    {
+     "rank": "PERFECT_GOLD",
+     "indice": 1,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsPERFECT/hearts",
+     "asset_de": "json",
+     "arquivo": "rank_perfectGold_1_hearts.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_perfectGold_1_hearts.cfz4",
+       "bytes": 47509
+      }
+     ],
+     "w": 44,
+     "h": 38,
+     "psm": 16,
+     "quadros": 116,
+     "vram_bytes": 3344,
+     "bytes": 47609,
+     "x": 315.0,
+     "y": 150.0,
+     "escala": 1.0,
+     "z": 501,
+     "delay_ms": 4410,
+     "inicio_ms": 8368,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 42,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP START",
+       "primeiro": 42,
+       "quantos": 74,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 43,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 43,
+     "inicio": 0,
+     "s_pack": 0.5
+    }
+   ],
+   "vram_bytes": 194744
+  },
+  {
+   "rank": "PERFECT",
+   "chave": "perfect",
+   "entradas": [
+    {
+     "rank": "PERFECT",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsPERFECT/bed",
+     "asset_de": "script BFBedPerfectResults.hxc",
+     "arquivo": "rank_perfectGold_0_bed.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_perfectGold_0_bed.cfz4",
+       "bytes": 1634809
+      }
+     ],
+     "w": 300,
+     "h": 319,
+     "psm": 16,
+     "quadros": 149,
+     "vram_bytes": 191400,
+     "bytes": 1634909,
+     "x": 201.5,
+     "y": -152.5,
+     "escala": 1.0,
+     "z": 500,
+     "delay_ms": 0,
+     "inicio_ms": 3958,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 137,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP START",
+       "primeiro": 137,
+       "quantos": 12,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": null,
+     "loop_label": "LOOP START",
+     "start_label": "INTRO",
+     "looped": true,
+     "loop_ini": 137,
+     "inicio": 0,
+     "s_pack": 0.5
+    },
+    {
+     "rank": "PERFECT",
+     "indice": 1,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsPERFECT/hearts",
+     "asset_de": "json",
+     "arquivo": "rank_perfectGold_1_hearts.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_perfectGold_1_hearts.cfz4",
+       "bytes": 47509
+      }
+     ],
+     "w": 44,
+     "h": 38,
+     "psm": 16,
+     "quadros": 116,
+     "vram_bytes": 3344,
+     "bytes": 47609,
+     "x": 315.0,
+     "y": 150.0,
+     "escala": 1.0,
+     "z": 501,
+     "delay_ms": 4410,
+     "inicio_ms": 8368,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 42,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP START",
+       "primeiro": 42,
+       "quantos": 74,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 43,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 43,
+     "inicio": 0,
+     "s_pack": 0.5
+    }
+   ],
+   "vram_bytes": 194744
+  },
+  {
+   "rank": "EXCELLENT",
+   "chave": "excellent",
+   "entradas": [
+    {
+     "rank": "EXCELLENT",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsEXCELLENT",
+     "asset_de": "json",
+     "arquivo": "rank_excellent_0_resultsEXCELLENT.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_excellent_0_resultsEXCELLENT.cfz4",
+       "bytes": 3689243
+      }
+     ],
+     "w": 376,
+     "h": 410,
+     "psm": 16,
+     "quadros": 260,
+     "vram_bytes": 308320,
+     "bytes": 3689303,
+     "x": 280.425,
+     "y": -205.175,
+     "escala": 1.0,
+     "z": 500,
+     "delay_ms": 0,
+     "inicio_ms": 4042,
+     "anims": [
+      {
+       "nome": "bf results excellent",
+       "primeiro": 0,
+       "quantos": 260,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 29,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 29,
+     "inicio": 0,
+     "s_pack": 0.5
+    }
+   ],
+   "vram_bytes": 308320
+  },
+  {
+   "rank": "GREAT",
+   "chave": "great",
+   "entradas": [
+    {
+     "rank": "GREAT",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsGREAT/gf",
+     "asset_de": "json",
+     "arquivo": "rank_great_0_gf.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_great_0_gf.cfz4",
+       "bytes": 283486
+      }
+     ],
+     "w": 144,
+     "h": 170,
+     "psm": 16,
+     "quadros": 44,
+     "vram_bytes": 48960,
+     "bytes": 283586,
+     "x": 281.682,
+     "y": -61.593,
+     "escala": 0.93,
+     "z": 499,
+     "delay_ms": 250,
+     "inicio_ms": 4208,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 8,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP",
+       "primeiro": 8,
+       "quantos": 36,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 9,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 9,
+     "inicio": 0,
+     "s_pack": 0.5
+    },
+    {
+     "rank": "GREAT",
+     "indice": 1,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsGREAT/bf",
+     "asset_de": "json",
+     "arquivo": "rank_great_1_bf.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_great_1_bf.cfz4",
+       "bytes": 396868
+      }
+     ],
+     "w": 229,
+     "h": 160,
+     "psm": 16,
+     "quadros": 39,
+     "vram_bytes": 73280,
+     "bytes": 396968,
+     "x": 327.65,
+     "y": -123.975,
+     "escala": 0.93,
+     "z": 500,
+     "delay_ms": 0,
+     "inicio_ms": 3958,
+     "anims": [
+      {
+       "nome": "INTRO",
+       "primeiro": 0,
+       "quantos": 14,
+       "fps100": 2400
+      },
+      {
+       "nome": "LOOP",
+       "primeiro": 14,
+       "quantos": 25,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 15,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 15,
+     "inicio": 0,
+     "s_pack": 0.5
+    }
+   ],
+   "vram_bytes": 122240
+  },
+  {
+   "rank": "GOOD",
+   "chave": "good",
+   "entradas": [
+    {
+     "rank": "GOOD",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsGOOD/bf",
+     "asset_de": "json",
+     "arquivo": "rank_good_0_bf.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_good_0_bf.cfz4",
+       "bytes": 976453
+      }
+     ],
+     "w": 328,
+     "h": 262,
+     "psm": 16,
+     "quadros": 74,
+     "vram_bytes": 171872,
+     "bytes": 976513,
+     "x": 322.7,
+     "y": -107.4,
+     "escala": 1.0,
+     "z": 501,
+     "delay_ms": 0,
+     "inicio_ms": 3958,
+     "anims": [
+      {
+       "nome": "Boyfriend Good Anim",
+       "primeiro": 0,
+       "quantos": 74,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 14,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 14,
+     "inicio": 0,
+     "s_pack": 0.5
+    },
+    {
+     "rank": "GOOD",
+     "indice": 1,
+     "tipo": "sparrow",
+     "asset": "resultScreen/results-bf/resultsGOOD/resultGirlfriendGOOD",
+     "asset_de": "json",
+     "arquivo": "rank_good_1_resultGirlfriendGOOD.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_good_1_resultGirlfriendGOOD.cfz4",
+       "bytes": 341196
+      }
+     ],
+     "w": 126,
+     "h": 209,
+     "psm": 16,
+     "quadros": 52,
+     "vram_bytes": 52668,
+     "bytes": 341256,
+     "x": 272.5,
+     "y": 33.5,
+     "escala": 1.0,
+     "z": 500,
+     "delay_ms": 910,
+     "inicio_ms": 4868,
+     "anims": [
+      {
+       "nome": "Girlfriend Good Anim",
+       "primeiro": 0,
+       "quantos": 52,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": 9,
+     "loop_label": null,
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 9,
+     "inicio": 0,
+     "s_pack": 0.5
+    }
+   ],
+   "vram_bytes": 224540
+  },
+  {
+   "rank": "SHIT",
+   "chave": "loss",
+   "entradas": [
+    {
+     "rank": "SHIT",
+     "indice": 0,
+     "tipo": "animateatlas",
+     "asset": "resultScreen/results-bf/resultsSHIT",
+     "asset_de": "script BFShitResults.hxc",
+     "arquivo": "rank_loss_0_resultsSHIT.cfz4",
+     "partes": [
+      {
+       "arquivo": "rank_loss_0_resultsSHIT.cfz4",
+       "bytes": 5410838
+      }
+     ],
+     "w": 360,
+     "h": 377,
+     "psm": 16,
+     "quadros": 319,
+     "vram_bytes": 271440,
+     "bytes": 5410938,
+     "x": 285.25,
+     "y": -195.25,
+     "escala": 1.1765,
+     "z": 500,
+     "delay_ms": 0,
+     "inicio_ms": 3958,
+     "anims": [
+      {
+       "nome": "Intro",
+       "primeiro": 0,
+       "quantos": 149,
+       "fps100": 2400
+      },
+      {
+       "nome": "Loop Start",
+       "primeiro": 149,
+       "quantos": 170,
+       "fps100": 2400
+      }
+     ],
+     "loop_frame": null,
+     "loop_label": "Loop Start",
+     "start_label": "",
+     "looped": true,
+     "loop_ini": 149,
+     "inicio": 0,
+     "s_pack": 0.425
+    }
+   ],
+   "vram_bytes": 271440
+  }
+ ],
+ "linha": "ResultState.hx L201-330/L704-740; Scoring.hx L530-604",
+ "preferencia": "naughty"
+}

@@ -197,6 +197,21 @@ RESTALLYVAL=$(awk -F, '$1=="E" && $3=="play_result_tallies" {print $4; exit}' "$
 RESTALLYMISS=$(awk -F, '$1=="E" && $3=="play_result_tallies" {print $5; exit}' "$LOG")
 RESMAXCOMBO=$(awk -F, '$1=="E" && $3=="play_result_score" {print $5; exit}' "$LOG")
 RESRANKMS=$(awk -F, '$1=="E" && $3=="resultado_rank" {print $5; exit}' "$LOG")
+# A ANIMACAO DO PERSONAGEM POR RANK (`players/<dono>.json` -> `results[rank]`).
+# `resultado_rrf` = entradas com pacote aberto E VRAM (o pior rank, o GREAT, tem
+# duas); `resultado_rrf_vram` = os B que elas custaram e o que sobrou no pool;
+# `resultado_rrf_entra` = o ms (desde a abertura da tela) em que cada entrada
+# apareceu -- e' o `getBFDelay()` do rank mais o `delay` dela, e o `hearts` do
+# PERFECT entra 4,41 s depois do `bed`.
+RESRRF=$(awk -F, '$1=="E" && $3=="resultado_rrf" {print $4; exit}' "$LOG")
+RESRRFVRAM=$(awk -F, '$1=="E" && $3=="resultado_rrf_vram" {print $4; exit}' "$LOG")
+RESRRLIVRE=$(awk -F, '$1=="E" && $3=="resultado_rrf_vram" {print $5; exit}' "$LOG")
+rrf_entra() {
+    awk -F, -v i="$1" '$1=="E" && $3=="resultado_rrf_entra" && $4==i {print $5; exit}' "$LOG"
+}
+RESRRF0=$(rrf_entra 0)
+RESRRF1=$(rrf_entra 1)
+RESRRFDES=$(awk -F, '$1=="E" && $3=="resultado_rrf_desenho" {v=$4} END{print v}' "$LOG")
 CDFIM=$(awk -F, '$1=="E" && $3=="countdown_step" && $4==5 {print $2; exit}' "$LOG")
 CDPASSOS=$(awk -F, '$1=="E" && $3=="countdown_step" {n++} END{print n+0}' "$LOG")
 CDBEAT=$(awk -F, '$1=="E" && $3=="countdown_begin" {print $4; exit}' "$LOG")
@@ -224,6 +239,8 @@ echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} 
 echo "  maquina do resultado ....... abriu=${RESSO:-?} 1o quadro em ${RESMAQ:-?} ms (esperado >= 333)"
 echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
+echo "  personagem do rank .......... entradas=${RESRRF:-?} VRAM=${RESRRFVRAM:-?} B (livre depois=${RESRRLIVRE:-?} B) desenhadas=${RESRRFDES:-?}"
+echo "  personagem do rank: entrada 0 em ${RESRRF0:-?} ms, entrada 1 em ${RESRRF1:-?} ms (so' nos ranks de duas)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
 echo "  contadores .................. arte=${RESTALLYARTE:-?} sick=${RESTALLY_2:-?} good=${RESTALLY_3:-?} bad=${RESTALLY_4:-?} shit=${RESTALLY_5:-?} miss=${RESTALLY_6:-?}"
 echo "  percentual de conclusao ..... arte=${RESCLEARARTE:-?} na tela=${RESCLEAR:-?}% (o jogo calculou ${RESCLEARPCT:-?}%)"
@@ -307,6 +324,57 @@ for par in "1:250:${RESF1:-}" "2:875:${RESF2:-}" "3:1500:${RESF3:-}"; do
     d=$((tem - quer)); [ "$d" -lt 0 ] && d=$((-d))
     [ "$d" -le 40 ] || { echo "  FALHA: a folha $n entrou em ${tem} ms, e o timer do original diz $quer"; FALHA=1; }
 done
+
+# A ANIMACAO DO PERSONAGEM DO RANK. O que se cobra:
+#   * TODAS as entradas do rank abriram e tem VRAM (1 no SHIT/EXCELLENT, 2 nos
+#     outros) -- sem isso a tela mostra o personagem do rank so' pela metade;
+#   * elas CABEM nos 350.208 B medidos livres (o pior caso medido e' 308.320 B
+#     no EXCELLENT e 271.440 no SHIT depois da degradacao);
+#   * cada uma ENTRA no instante do plano: `getBFDelay()` do rank + o `delay`
+#     dela. A tolerancia e' de dois quadros de video (34 ms), porque o tempo da
+#     tela anda em quadros, nao em microssegundos.
+# ORDEM: a expectativa e' por ENTRADA do plano (`results[rank][i]`), nao pela
+# ordem em que elas sao DESENHADAS. Sao coisas diferentes: no GREAT o `bf`
+# (entrada 1) entra antes do `gf` (entrada 0, com `delay` 0,25) porque o z dele
+# e' maior e a ordenacao do desenho poe o `gf` primeiro na tela.
+rrf_espera() {
+    case "$1:$2" in
+        0:0) echo 3958 ;;                 # SHIT: resultsSHIT
+        1:0) echo 3958 ;;  1:1) echo 4868 ;;   # GOOD: bf, depois gf (delay 0,91)
+        2:0) echo 4208 ;;  2:1) echo 3958 ;;   # GREAT: gf (delay 0,25), bf
+        3:0) echo 4042 ;;                 # EXCELLENT: 97/24 s, sem delay
+        4:0) echo 3958 ;;  4:1) echo 8368 ;;   # PERFECT: bed, hearts (delay 4,41)
+        5:0) echo 3958 ;;  5:1) echo 8368 ;;   # PERFECT_GOLD: igual
+        *) echo -1 ;;
+    esac
+}
+ESP_RANK_ANIM=$RANK
+[ "$RANK_FORCADO" -ge 0 ] && ESP_RANK_ANIM=$RANK_FORCADO
+ESP_RRF0=$(rrf_espera "$ESP_RANK_ANIM" 0)
+ESP_RRF1=$(rrf_espera "$ESP_RANK_ANIM" 1)
+if [ "$ESP_RRF1" -lt 0 ]; then ESP_RRF_N=1; else ESP_RRF_N=2; fi
+[ "${RESRRF:-0}" = "$ESP_RRF_N" ] || {
+    echo "  FALHA: o personagem do rank abriu ${RESRRF:-0} entrada(s) e o rank esperado tem $ESP_RRF_N"; FALHA=1; }
+[ "${RESRRFVRAM:-0}" -gt 0 ] || { echo "  FALHA: o personagem do rank nao tem VRAM"; FALHA=1; }
+[ "${RESRRFVRAM:-0}" -le 350208 ] || {
+    echo "  FALHA: o personagem do rank pede ${RESRRFVRAM} B e so' ha' 350.208 B livres"; FALHA=1; }
+[ "${RESRRLIVRE:-0}" -ge 0 ] || { echo "  FALHA: o pool ficou negativo com o personagem do rank"; FALHA=1; }
+if [ -z "${RESRRF0:-}" ]; then
+    echo "  FALHA: o personagem do rank nunca apareceu"; FALHA=1
+else
+    D=$((RESRRF0 - ESP_RRF0)); [ "$D" -lt 0 ] && D=$((-D))
+    [ "$D" -le 34 ] || { echo "  FALHA: a 1a entrada do rank entrou em $RESRRF0 ms e o plano diz $ESP_RRF0 ms"; FALHA=1; }
+fi
+if [ "$ESP_RRF_N" = 2 ]; then
+    if [ -z "${RESRRF1:-}" ]; then
+        echo "  FALHA: a 2a entrada do rank nunca apareceu"; FALHA=1
+    else
+        D=$((RESRRF1 - ESP_RRF1)); [ "$D" -lt 0 ] && D=$((-D))
+        [ "$D" -le 34 ] || { echo "  FALHA: a 2a entrada do rank entrou em $RESRRF1 ms e o plano diz $ESP_RRF1 ms"; FALHA=1; }
+    fi
+fi
+[ "${RESRRFDES:-0}" = "$ESP_RRF_N" ] || {
+    echo "  FALHA: desenhou ${RESRRFDES:-0} entrada(s) do rank e o rank tem $ESP_RRF_N"; FALHA=1; }
 
 # ARTE DO RANK. Tres exigencias:
 #   * o par carregou (sem ele o rank fica so' no texto);

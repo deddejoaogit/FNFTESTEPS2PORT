@@ -770,6 +770,52 @@ def _freeplay_dj_files():
     return out
 
 
+def _resultado_rank_files():
+    """A ANIMACAO DO PERSONAGEM POR RANK (`assets-data/resultado-rank-plan.json`).
+
+    Cada entrada do plano e' um pacote CFZ4 (em uma ou mais PARTES). O harness
+    nao tem a arte (as folhas passam de 1024 px e o dado real mora no
+    funknin.assets), entao o pacote e' sintetico -- mas com os numeros EXATOS do
+    plano: `quadros`, `w*h*psm/8` por quadro, a divisao em partes e o nome de
+    cada arquivo. E' o que o jogo confere ao abrir (`res_rr_carregar` recusa
+    contagem diferente), e o prefixo muda por quadro para o teste provar que o
+    quadro certo subiu.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-rank-plan.json")
+    if not os.path.isfile(caminho):
+        return {}
+    plano = json.load(open(caminho, encoding="utf-8"))
+    out = {}
+    vistos = set()
+    for r in plano.get("ranks", []):
+        for e in r.get("entradas", []):
+            frame_bytes = e["w"] * e["h"] * (e["psm"] // 8)
+            partes = e.get("partes") or [{"arquivo": e["arquivo"]}]
+            # O `PERFECT` reusa o pacote do `PERFECT_GOLD`: mesmo arquivo, nao
+            # se escreve duas vezes (o plano diz o mesmo nome).
+            if e["arquivo"] in vistos:
+                continue
+            vistos.add(e["arquivo"])
+            total = e["quadros"]
+            n = len(partes)
+            q0 = 0
+            for i, pt in enumerate(partes):
+                if i == n - 1:
+                    qn = total - q0
+                else:
+                    qn = (total * (i + 1)) // n - q0
+                blocos = []
+                for k in range(qn):
+                    q = q0 + k
+                    pref = bytes(((q * 71 + j * 13 + 5) & 0xFF) for j in range(480))
+                    blocos.append(lz4_bloco_repetido(pref, frame_bytes))
+                out["resultado/" + pt["arquivo"]] = make_resultado_pack_de_blocos(
+                    blocos, qn, frame_bytes)
+                q0 += qn
+    return out
+
+
 def make_resultado_pack_de_blocos(blocos, quadros, frame_bytes):
     """CFZ4 a partir de blocos LZ4 ja' comprimidos."""
     cab = b"CFZ4" + struct.pack("<III", 1, quadros, frame_bytes)
@@ -925,6 +971,10 @@ def build(root, charts_src=None):
            for f in resultado_folhas()[0]},
         **{"resultado/%s" % a: make_rank_img(w, h, a.endswith("_vert.rgba"))
            for a, w, h in resultado_ranks()},
+        # A ANIMACAO DO PERSONAGEM POR RANK: um CFZ4 por entrada do plano
+        # (o `PERFECT` reusa o do `PERFECT_GOLD`). Sem eles a tela de Resultado
+        # nao mostra o personagem do rank e o log diz `resultado_rrf`=0.
+        **_resultado_rank_files(),
         # O atlas do PLACAR: os 52 quadros dos digitos num unico RGBA, no
         # tamanho exato que `g_res_score` espera (sem ele os digitos nao saem).
         **({"resultado/%s" % os.path.basename(resultado_score()[0]):

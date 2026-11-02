@@ -444,6 +444,18 @@ $CC $FLAGS test/test_resultado.c src/engine/resultado.c src/engine/pack_stream.c
 /tmp/fnf_test_resultado || exit 1
 echo
 
+# A ANIMACAO DO PERSONAGEM POR RANK (`players/<dono>.json` -> `results[rank]`):
+# o instante em que cada entrada fica visivel (getBFDelay + delay), o rotulo
+# inicial, o loop por rotulo/por quadro e a pausa no ultimo quadro. Tambem
+# confere a TABELA gerada: todo rank tem indice, toda entrada cabe no proprio
+# pacote e o pior rank cabe nos 350.208 B medidos livres na tela de Resultado.
+echo "== resultado: a animacao do personagem por rank =="
+$CC $FLAGS test/test_resultado_rank.c src/engine/resultado_rank.c \
+    src/engine/pack_multi.c src/engine/pack_stream.c \
+    src/engine/lz4_bloco.c -o /tmp/fnf_test_resultado_rank -lm
+/tmp/fnf_test_resultado_rank || exit 1
+echo
+
 echo "== FCH4 round trip: no parameter is dropped =="
 python3 tools/test_fch4.py
 echo

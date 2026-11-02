@@ -39,6 +39,7 @@
 #include "engine/health_icon.h"
 #include "engine/splash.h"
 #include "engine/resultado.h"
+#include "engine/resultado_rank.h"
 #include "engine/freeplay.h"
 #include "engine/pack_multi.h"
 #include "engine/freeplay_dj_dados.h"
@@ -316,6 +317,22 @@ static int g_res_desenhadas=-1;   /* folhas desenhadas no ultimo quadro (telemet
 static int g_res_rank_ok=0;
 static unsigned int g_res_rank_vert_addr=0,g_res_rank_hor_addr=0;
 static int g_res_rank_logado=0;
+/* A ANIMACAO DO PERSONAGEM POR RANK (`players/<dono>.json` -> `results[rank]`).
+   Duas entradas no maximo, cada uma um pacote CFZ4 lido quadro a quadro: na RAM
+   fica a tabela (~8 B por quadro) e na VRAM UM quadro por entrada. O conjunto
+   cabe nos 350.208 B que a tela tem livres (o pior rank medido: 308.320 B). */
+static res_rr_t g_res_rrf;
+static unsigned int g_res_rrf_addr[RES_RR_MAX_ENTRADAS];
+static unsigned int g_res_rrf_frame[RES_RR_MAX_ENTRADAS];
+static unsigned char g_res_rrf_vram[RES_RR_MAX_ENTRADAS];  /* 1 = alocou      */
+static unsigned char *g_res_rrf_pixels=0;   /* UM quadro descomprimido       */
+static unsigned int g_res_rrf_pixels_bytes=0;
+static int g_res_rrf_ok=0;                  /* entradas com VRAM + pacote    */
+static int g_res_rrf_rank=-1;
+static int g_res_rrf_desenho=-1;            /* mascara do ultimo conjunto    */
+static int g_res_rrf_logado=0;
+static int g_res_rrf_visto=0;              /* mascara: entrada ja' apareceu  */
+static unsigned int g_res_rrf_ram=0;
 /* O PLACAR: os 52 quadros dos dez digitos num UNICO atlas (os dez aparecem ao
    mesmo tempo e durante o shuffle qualquer valor pode estar em qualquer
    posicao, entao o conjunto inteiro mora na VRAM: 508.480 B). */
@@ -3509,6 +3526,49 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
    telemetry_event("resultado_sem_vram",-2,(int)sp_livre(pool));
   }
   telemetry_event("resultado_placar_arte",g_res_score_ok,(int)bytes);}
+ /* A ANIMACAO DO PERSONAGEM POR RANK. Cada entrada e' um pacote CFZ4 aberto
+    pelo `pack_multi` (tabela na RAM, quadro no pendrive) e UM quadro na VRAM.
+    O pacote do rank `PERFECT` e' o MESMO arquivo do `PERFECT_GOLD` (o
+    empacotador reaproveita a arte), entao abrir os dois custaria duas tabelas
+    para o mesmo dado -- inofensivo, e cada partida so' abre o rank que mostra.
+    O `PERFECT`/`PERFECT_GOLD` tem a entrada dos `hearts` 4,41 s depois da
+    primeira; as duas ficam residentes, que e' o que o orcamento contou. */
+ g_res_rrf_ok=0;
+ {int idx=res_rr_indice(resultado_rank());
+  if(idx>=0){
+   const res_rr_rank_t *rk=res_rr_rank(idx);
+   unsigned int maior=0;
+   int k,abertos;
+   for(k=0;k<(int)rk->n;k++){
+    unsigned int b=(unsigned int)rk->entradas[k].w*(unsigned int)rk->entradas[k].h*
+                   (unsigned int)(rk->entradas[k].psm/8u);
+    if(b>maior)maior=b;
+   }
+   if(maior>g_res_rrf_pixels_bytes){
+    free(g_res_rrf_pixels);
+    g_res_rrf_pixels=(unsigned char*)memalign(64,(size_t)maior);
+    g_res_rrf_pixels_bytes=g_res_rrf_pixels?maior:0u;
+   }
+   res_rr_init(&g_res_rrf);
+   abertos=g_res_rrf_pixels?res_rr_carregar(&g_res_rrf,RES_ASSET_DIR "resultado/",idx):0;
+   for(k=0;k<(int)rk->n;k++){
+    const res_rr_entrada_t *e=&rk->entradas[k];
+    unsigned int addr=0;
+    g_res_rrf_addr[k]=0;g_res_rrf_frame[k]=0xffffffffu;g_res_rrf_vram[k]=0;
+    if(!g_res_rrf.p[k].aberto)continue;
+    if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x27u+(unsigned)k,e->vram_bytes,&addr)>=0){
+     g_res_rrf_addr[k]=addr;g_res_rrf_vram[k]=1;g_res_rrf_ok++;
+    }else telemetry_event("resultado_sem_vram",0x27+k,(int)sp_livre(pool));
+   }
+   g_res_rrf_rank=idx;
+   g_res_rrf_ram=res_rr_ram(&g_res_rrf);
+   telemetry_event("resultado_rrf",g_res_rrf_ok,
+     (int)(rk->n*100u+abertos)+0);
+   {unsigned int soma=0;
+    for(k=0;k<(int)rk->n;k++)
+     if(g_res_rrf_vram[k])soma+=rk->entradas[k].vram_bytes;
+    telemetry_event("resultado_rrf_vram",(int)soma,(int)sp_livre(pool));}
+  }else telemetry_event("resultado_rrf",-1,0);}
  /* OS CONTADORES DE JULGAMENTO (96x44 = 16.896 B). Aqui cabe tudo no buffer de
     leitura; se nao coubesse, o teste acusaria o tamanho errado no plano. */
  g_res_tally_ok=0;g_res_tally_addr=0;
@@ -3630,6 +3690,61 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
     decide se cabe a proxima peca (medido, nao estimado). */
  telemetry_event("resultado_vram",(int)sp_livre(pool),(int)RES_SS_VRAM);
 }
+/* A ANIMACAO DO PERSONAGEM POR RANK, no desenho.
+   ONDE ELA ENTRA: as entradas tem `zIndex` 499..501 -- DEPOIS dos percentuais
+   (450) e ANTES da faixa vertical do rank (990). Como sao no maximo duas, uma
+   ordenacao de dois itens basta e nao inventa ordem nenhuma.
+   CADA QUADRO SO' SOBE PARA A VRAM QUANDO MUDA (`g_res_rrf_frame`), igual as
+   folhas: reler o bloco do pendrive num quadro de video em que o quadro da
+   animacao e' o mesmo seria I/O a toa -- e' o mesmo criterio do `pack_stream`.
+   O que NAO se pula: a leitura do bloco no quadro em que ele muda. A tabela do
+   pacote diz o offset, o leitor descomprime no buffer de UM quadro. */
+static qword_t *resultado_rrf_arte(qword_t *q, texbuffer_t *tpl)
+{
+ int k,i,n=0,desenhadas=0,ordem[RES_RR_MAX_ENTRADAS];
+ const res_rr_rank_t *rk;
+ unsigned long rms=(unsigned long)g_res_ms;
+ if(!g_res_rrf_ok)return q;
+ rk=res_rr_rank(g_res_rrf_rank);
+ if(!rk)return q;
+ for(k=0;k<(int)rk->n&&k<(int)RES_RR_MAX_ENTRADAS;k++)
+  if(g_res_rrf_vram[k])ordem[n++]=k;
+ for(i=0;i<n;i++)for(k=i+1;k<n;k++)
+  if(rk->entradas[ordem[k]].z<rk->entradas[ordem[i]].z){
+   int t=ordem[i];ordem[i]=ordem[k];ordem[k]=t;}
+ for(i=0;i<n;i++){
+  const res_rr_entrada_t *e=&rk->entradas[ordem[i]];
+  int fr=res_rr_quadro(e,rms);
+  texbuffer_t t;
+  if(fr<0)continue;                      /* ainda invisivel: so' o delay  */
+  /* O INSTANTE em que a entrada aparece: `getBFDelay()` + o `delay` dela. E'
+     o que prova o dado do plano (o `hearts` do PERFECT entra 4,41 s depois do
+     `bed`) sem depender de olhar a tela. */
+  if(!(g_res_rrf_visto&(1<<ordem[i]))){g_res_rrf_visto|=1<<ordem[i];
+   telemetry_event("resultado_rrf_entra",ordem[i],g_res_ms);}
+  if(fr!=(int)g_res_rrf_frame[ordem[i]]){
+   if(res_rr_pixels(&g_res_rrf,ordem[i],fr,g_res_rrf_pixels)!=0)continue;
+   t=*tpl;t.width=e->w;t.psm=e->psm==16?GS_PSM_16:GS_PSM_32;
+   t.address=g_res_rrf_addr[ordem[i]];
+   setup_texture_dims(&t,(int)e->w,(int)e->h);
+   FlushCache(0);
+   if(e->psm==16)upload_raw_psm(&t,g_res_rrf_pixels,(int)e->w,(int)e->h,GS_PSM_16);
+   else upload_raw(&t,g_res_rrf_pixels,(int)e->w,(int)e->h);
+   g_res_rrf_frame[ordem[i]]=(unsigned int)fr;
+  }
+  t=*tpl;t.width=e->w;t.psm=e->psm==16?GS_PSM_16:GS_PSM_32;
+  t.address=g_res_rrf_addr[ordem[i]];
+  setup_texture_dims(&t,(int)e->w,(int)e->h);
+  q=bind_texture_filter(q,&t,1);
+  q=sprite_region(q,e->x,e->y,(float)e->w*e->escala,(float)e->h*e->escala,
+                  0.0f,0.0f,(float)e->w,(float)e->h);
+  desenhadas++;
+ }
+ if(desenhadas!=g_res_rrf_desenho){g_res_rrf_desenho=desenhadas;
+  telemetry_event("resultado_rrf_desenho",desenhadas,g_res_rrf_rank);}
+ return q;
+}
+
 static void resultado_soltar(void)
 {
  int i;
@@ -3639,6 +3754,13 @@ static void resultado_soltar(void)
  if(g_res_ss_addr)sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x26u);
  g_res_ss_ok=0;g_res_ss_addr=0;g_res_ss_frame=-1;g_res_ss_logado=0;
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
+ {int k;for(k=0;k<(int)RES_RR_MAX_ENTRADAS;k++){
+   if(g_res_rrf_vram[k])sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x27u+(unsigned)k);
+   g_res_rrf_vram[k]=0;g_res_rrf_addr[k]=0;g_res_rrf_frame[k]=0xffffffffu;}}
+ res_rr_liberar(&g_res_rrf);
+ if(g_res_rrf_pixels){free(g_res_rrf_pixels);g_res_rrf_pixels=0;g_res_rrf_pixels_bytes=0;}
+ g_res_rrf_ok=0;g_res_rrf_rank=-1;g_res_rrf_desenho=-1;g_res_rrf_logado=0;g_res_rrf_ram=0;
+ g_res_rrf_visto=0;
  g_res_score_ok=0;g_res_score_addr=0;g_res_score_logado=0;g_res_score_final=0;
  g_res_tally_ok=0;g_res_tally_addr=0;g_res_tally_desenho=-1;
  {int k;for(k=0;k<(int)RES_TALLIES;k++)g_res_tally_logado[k]=0;}
@@ -7159,6 +7281,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      if(!g_res_cp_small_logado){g_res_cp_small_logado=1;
       telemetry_event("resultado_clear_small",pct,(int)(sx*10.0f));}
     }
+    /* AS ANIMACOES DO PERSONAGEM DO RANK (zIndex 499..501). Entram entre os
+       percentuais (450) e a faixa vertical (990) -- a ordem das `zIndex` do
+       original, nao a ordem em que os pacotes foram empacotados. */
+    q=resultado_rrf_arte(q,&stagetex);
     /* rankTextVert (zIndex 990): a faixa vertical em x=618, rolando para
        cima, com o piscar de entrada. Vem DEPOIS do percentual (450) e ANTES da
        dificuldade/nome (1000), que e' a ordem das `zIndex` do original. */

@@ -539,8 +539,15 @@ def flatten_character(atlas, scale=0.5, animations=None, pad=2):
     return rendered, 0, 0
 
 
-def pack_from_render(rendered, boxes, scale, bpp, out_path):
-    """Compose the union canvas, scale, and write CFZ4 parts."""
+def pack_from_render(rendered, boxes, scale, bpp, out_path, origem=None):
+    """Compose the union canvas, scale, and write CFZ4 parts.
+
+    `origem`, quando passado, recebe `(x0, y0)` -- o canto do canvas no espaco
+    do DOCUMENTO. O canvas e' a uniao das caixas de todos os quadros, entao
+    quem desenha precisa saber onde ele comeca: no personagem isso vem dos
+    offsets por animacao do JSON; nas animacoes da tela de Resultado (que nao
+    tem offsets no JSON) e' este numero que posiciona o sprite.
+    """
     x0 = min(b[0] for b in boxes)
     y0 = min(b[1] for b in boxes)
     x1 = max(b[2] for b in boxes)
@@ -554,6 +561,8 @@ def pack_from_render(rendered, boxes, scale, bpp, out_path):
         if (w, h) != canvas.size:
             canvas = canvas.resize((w, h), Image.NEAREST)
         out.append(canvas)
+    if origem is not None:
+        origem.extend((x0, y0))
     return out, w, h
 
 
@@ -567,6 +576,12 @@ def main():
                     help="a real CFZ4 pack to score against (--fit)")
     ap.add_argument("--fit", action="store_true",
                     help="try every setting combination and report the score")
+    ap.add_argument("--char-dir", default=None,
+                    help="onde esta' o <character>.json (padrao: "
+                         "assets-data/characters; os empacotadores de TELA "
+                         "escrevem o JSON deles em build/ e apontam aqui, "
+                         "porque aquele diretorio e' a lista de personagens "
+                         "do JOGO -- ver tools/gen_char_dados.py)")
     ap.add_argument("--pack", default=None,
                     help="flatten EVERY animation and write CFZ4 parts here")
     ap.add_argument("--scale", type=float, default=0.5,
@@ -574,23 +589,49 @@ def main():
     ap.add_argument("--bpp", type=int, default=16, choices=(16, 32))
     args = ap.parse_args()
 
-    cj = os.path.join(DATA, "characters", args.character + ".json")
+    cj = os.path.join(args.char_dir or os.path.join(DATA, "characters"),
+                      args.character + ".json")
     with open(cj) as f:
         meta = json.load(f)
-    atlas = Atlas(args.assets, meta.get("assetPath") or args.character)
+    import pacote_personagem as _pp0
+    stem0 = meta.get("assetPath") or args.character
+    sparrow0 = None
+    try:
+        atlas = Atlas(args.assets, stem0)
+    except FileNotFoundError as e:
+        # O asset do char JSON pode ser um atlas SPARROW (PNG+XML, sem
+        # Animation.json). O laco de animacoes ja' sabia empacotar isso quando
+        # o sparrow era um asset SECUNDARIO; o que faltava era o primeiro.
+        # (Quem usa isto: as animacoes da tela de Resultado, onde o GOOD do bf
+        # tem um `resultsGOOD/resultGirlfriendGOOD` Sparrow ao lado do BF.)
+        sp, erro = _pp0.atlas_nomeado(args.assets, stem0)
+        if not sp:
+            raise
+        atlas = None
+        sparrow0 = ("sparrow", sp)
+        print("atlas: %s (SPARROW -- %s)" % (stem0, erro or "PNG+XML"))
+        print("sparrow: %d quadros" % len(sp))
 
-    anims = atlas.animations()
-    print("atlas: %s" % os.path.relpath(atlas.dir, args.assets))
-    print("document %sx%s, %d symbols, %d sprites"
-          % (atlas.meta.get("W"), atlas.meta.get("H"),
-             len(atlas.symbols), len(atlas.sprites)))
+    if atlas is None:
+        anims = {}
+        meta_atlas = {}
+    else:
+        anims = atlas.animations()
+        meta_atlas = atlas.meta or {}
+        print("atlas: %s" % os.path.relpath(atlas.dir, args.assets))
+        print("document %sx%s, %d symbols, %d sprites"
+              % (meta_atlas.get("W"), meta_atlas.get("H"),
+                 len(atlas.symbols), len(atlas.sprites)))
     print("animations in the timeline: %d" % len(anims))
     for n, (i, du) in list(anims.items())[:12]:
         print("  %-24s start %3d  length %3d" % (n, i, du))
 
     if args.pack:
         import pacote_personagem as pp
-        anims = atlas.animations()
+        # `anims` ja' foi calculado acima (e pode ser vazio quando o atlas de
+        # entrada e' um SPARROW -- nesse caso o laco de animacoes usa o
+        # sparrow). Recalcular aqui com `atlas.animations()` estourava com
+        # `atlas = None` no caso Sparrow.
 
         # O NOME QUE O JOGO PEDE NAO E' O NOME DO ATLAS.
         # A timeline rotula as animacoes ("Idle", "Up", "Cheer", "Fear"); o jogo
@@ -606,7 +647,7 @@ def main():
         # beat it, argh). Ler so' o atlas do personagem deixava 10 dos 46
         # pacotes sem essas animacoes -- e' o que o check_char_packs chamava de
         # "faltam animacoes". Os atlases sao abertos sob demanda e guardados.
-        atlases = {meta.get("assetPath") or args.character: atlas}
+        atlases = {stem0: (atlas if atlas is not None else sparrow0)}
         planos, faltando, de_outro = [], [], []
         for an in (meta.get("animations") or []):
             nome = an.get("name")
@@ -654,7 +695,7 @@ def main():
                 planos.append({"nome": nome, "looped": an.get("looped", True),
                                "sparrow": nomeados, "atlas": None})
                 continue
-            labs = anims if at is atlas else at.animations()
+            labs = anims if (atlas is not None and at is atlas) else at.animations()
             pre = an.get("prefix") or nome
             # O export as vezes deixa ESPACO no rotulo da timeline ("up ",
             # "down " no pico-holding-nene) e o character.json pede o nome sem
@@ -724,10 +765,14 @@ def main():
                 dono.append(plano["nome"])
         print("rendered %d frames for %d animations at native size"
               % (len(rendered), len(planos)))
-        frames, w, h = pack_from_render(rendered, boxes, args.scale, args.bpp, None)
+        origem = []
+        frames, w, h = pack_from_render(rendered, boxes, args.scale, args.bpp,
+                                        None, origem)
 
         print("out canvas: %dx%d at scale %.3f (%d B/frame at %d bpp)"
               % (w, h, args.scale, w * h * (args.bpp // 8), args.bpp))
+        print("origem do canvas: %.1f,%.1f (canto no espaco do documento)"
+              % (origem[0], origem[1]))
         blocks = []
         import lz4.block
         for fr in frames:
@@ -747,7 +792,7 @@ def main():
         import chp4 as _chp4
         # A taxa: o atlas Animate declara o frameRate do spritemap; quando nao
         # declara, 24 e' o valor do original (CharacterData DEFAULT).
-        fps = int(round(float(atlas.meta.get("FRT") or atlas.meta.get("frameRate") or 24)))
+        fps = int(round(float(meta_atlas.get("FRT") or meta_atlas.get("frameRate") or 24)))
         # Os grupos levam os LZ4 ja' prontos, na ordem em que os quadros foram
         # comprimidos para o CFZ4: o CHP4 nao recomprime nada (mesmo resultado,
         # metade do tempo -- cada personagem leva minutos).

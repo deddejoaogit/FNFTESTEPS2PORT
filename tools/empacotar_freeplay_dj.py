@@ -201,7 +201,13 @@ def empacotar(assets, dono, escala, bpp, out):
         if faltando else []
 
     os.makedirs(out, exist_ok=True)
-    destino = os.path.join(out, "dj_%s.chp4" % dono)
+    # O `--pack` escreve as PARTES em CFZ4 (que e' o que `pm_abrir`/`pst_abrir`
+    # leem no console) e, ao lado, um CHP4 com a mesma coisa mais a tabela.
+    # Os dois NAO podem ter o mesmo nome: antes o CHP4 era escrito por cima da
+    # parte 0 (`dj_bf.chp4`), e o jogo recebia um arquivo com o magic "CHP4" no
+    # lugar do "CFZ4" -- `pm_abrir` o recusaria e o DJ nunca apareceria no
+    # console. Os nomes agora sao distintos e as partes sao CONFERIDAS.
+    destino = os.path.join(out, "dj_%s.cfz4" % dono)
     cmd = [sys.executable, os.path.join(HERE, "achatar_animate.py"),
            "--assets", assets, "--character", "freeplay-dj-%s" % dono,
            "--pack", destino, "--scale", str(escala), "--bpp", str(bpp)]
@@ -212,7 +218,8 @@ def empacotar(assets, dono, escala, bpp, out):
         return None, problemas + ["freeplay-dj: o achatar_animate falhou"]
 
     import chp4
-    dados = open(destino, "rb").read()
+    caminho_chp4 = os.path.splitext(destino)[0] + ".chp4"
+    dados = open(caminho_chp4, "rb").read()
     # As partes que o `write_packs` criou (o limite de 8 MB por arquivo): o
     # leitor do console abre TODAS, na ordem, e trata os quadros como um
     # fluxo so'. O plano registra os nomes e o tamanho de cada uma.
@@ -224,6 +231,11 @@ def empacotar(assets, dono, escala, bpp, out):
         caminho = os.path.join(out, nome)
         if not os.path.isfile(caminho):
             break
+        with open(caminho, "rb") as fb:
+            if fb.read(4) != b"CFZ4":
+                return None, problemas + [
+                    "freeplay-dj: %s nao tem magic CFZ4 (o leitor do console o "
+                    "recusaria)" % nome]
         partes.append({"arquivo": nome, "bytes": os.path.getsize(caminho)})
         i += 1
     cab = chp4.ler(dados)

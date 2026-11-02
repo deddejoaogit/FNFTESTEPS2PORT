@@ -87,12 +87,19 @@ fi
 # ARTE DA TELA DE RESULTADO: o fundo em gradiente (16x360) e os CFZ4 das tres
 # folhas animadas. Fica fora da musica: o jogo os abre quando a tela entra e o
 # palco ja' foi solto (o pool tem ~1,2 MB livres ali).
-if [ -d "$UI_SRC/resultado" ]; then
+# ATENCAO AO CAMINHO: os empacotadores da tela de Resultado (`--out` de
+# empacotar_resultado.py, empacotar_score_digitos.py, empacotar_resultado_rank.py
+# e os outros) escrevem em build/packs/resultado, NAO em build/packs/ui (que e'
+# so' a barra de vida e o splash do HUD). Ate' agora este bloco procurava em
+# $UI_SRC/resultado e nunca achava nada -- o aviso aparecia, a arte ficava de
+# fora do pendrive e a tela de Resultado saia so' com texto.
+RES_SRC=${RES_SRC:-build/packs/resultado}
+if [ -d "$RES_SRC" ]; then
     mkdir -p "$OUT/FNFPS2/assets/resultado"
-    cp "$UI_SRC"/resultado/* "$OUT/FNFPS2/assets/resultado/"
-    echo "   resultado/: $(ls "$UI_SRC"/resultado | wc -l) arquivo(s), $(cat "$UI_SRC"/resultado/* | wc -c) bytes"
+    cp "$RES_SRC"/* "$OUT/FNFPS2/assets/resultado/"
+    echo "   resultado/: $(ls "$RES_SRC" | wc -l) arquivo(s), $(cat "$RES_SRC"/* | wc -c) bytes"
 else
-    echo "   AVISO: $UI_SRC/resultado nao existe -- rode tools/empacotar_resultado.py" >&2
+    echo "   AVISO: $RES_SRC nao existe -- rode tools/empacotar_resultado.py" >&2
     echo "          (a tela de resultado fica no painel com o texto)" >&2
 fi
 
@@ -256,6 +263,9 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)
        FNFPS2/assets/pause/          a musica da pausa (breakfast*.pcm)
        FNFPS2/assets/result/         a musica + os 3 sons do resultado (15 .pcm)
+       FNFPS2/assets/resultado/      a arte da tela de Resultado (folhas, placar,
+                                    rank, a animacao do personagem por rank)
+       FNFPS2/assets/freeplay/       as capsulas, o fundo, os titulos e o DJ
    Sem chars/ o jogo abre e roda, mas os personagens nao aparecem. Sem stages/
    os fundos nao aparecem. Sem gameover/ a tela de game over fica sem som
    (musica, o sfx do blue balls e o gameOverEnd do confirmar). Os dois casos deixam evento no log
