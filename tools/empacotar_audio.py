@@ -139,6 +139,18 @@ SONS_RESULTADO = [
 ]
 
 
+# OS SONS DO SCRIPT DO PALCO. `phillyBlazin.hxc` L187 faz
+# `FunkinSound.playOnce(Paths.soundRandom('Lightning', 1, 3), 1.0)`: a cada raio
+# o original sorteia um dos TRES arquivos. Eles moram em `weekend1/sounds/` no
+# clone de arte (o `Paths.sound` procura tambem nas pastas de semana) e nao
+# estavam em lugar nenhum do port -- o evento acontecia mudo.
+SONS_PALCO = [
+    ("weekend1/sounds/Lightning1", "lightning1", False),
+    ("weekend1/sounds/Lightning2", "lightning2", False),
+    ("weekend1/sounds/Lightning3", "lightning3", False),
+]
+
+
 def reamostra(dados, taxa_origem):
     """44,1 kHz -> 48 kHz por interpolacao linear.
 
@@ -184,7 +196,8 @@ def main():
     faltando = []
     total = 0
     for grupo, itens in (("MUSICA", MUSICAS), ("PAUSA", PAUSA), ("SOM", SONS),
-                         ("RESULT", RESULTADOS), ("RESULT", SONS_RESULTADO)):
+                         ("RESULT", RESULTADOS), ("RESULT", SONS_RESULTADO),
+                         ("PALCO", SONS_PALCO)):
         for origem, nome, loop in itens:
             ogg = os.path.join(args.assets, origem + ".ogg")
             if not os.path.isfile(ogg):

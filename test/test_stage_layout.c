@@ -13,6 +13,7 @@
 #include "char_layout.h"
 #include "vram_layout.h"
 #include "stage_vram_data.h"
+#include "stage_script.h"
 
 static int falhas;
 #define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
@@ -76,6 +77,14 @@ static int contem_cor(const sl_item_t *it, int n, const char *nome)
     }
     return c;
 }
+
+/* ---- O HOOK DO SCRIPT DO PALCO, ligado a um `ss_t` de verdade ----
+ * Ficam fora de main() porque `sl_set_script` guarda o PONTEIRO. */
+static ss_t g_tss;
+static float ov_alpha(int prop_abs) { return ss_prop_alpha(&g_tss, prop_abs); }
+static float ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_tss, prop_abs, x_dado); }
+static int ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_tss, prop_abs, anim, frame); }
+static float ov_cor(int cor_abs) { return ss_cor_alpha(&g_tss, cor_abs); }
 
 int main(void)
 {
@@ -886,6 +895,118 @@ int main(void)
                 }
             }
         }
+    }
+
+    printf("== palcos: o que o SCRIPT do palco acende (relampago do phillyBlazin) ==\n");
+    {
+        /* O layout nao interpreta HScript: ele PERGUNTA ao `stage_script`
+           (registrado por `sl_set_script`). Aqui o teste registra os callbacks
+           ligados a um `ss_t` de verdade e cobra o resultado no LAYOUT -- que
+           e' onde o alpha/x/quadro viram desenho. */
+        static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor };
+        sl_item_t it[SL_MAX_ITENS];
+        int n;
+
+        ss_init(&g_tss, "phillyBlazin");
+        sl_set_script(&hook);
+
+        /* t = 0: os tres props do relampago continuam apagados (alpha 0 do
+           dado + 0 do script) -> a lista e' a de antes. */
+        n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                       it, SL_MAX_ITENS);
+        CHECK_EQ(n, 2);                       /* phillyForegroundCity + scrollingSky */
+        CHECK(item_por_nome(it, n, "skyAdditive") == NULL);
+        CHECK(item_por_nome(it, n, "lightning") == NULL);
+        CHECK(item_por_nome(it, n, "foregroundMultiply") == NULL);
+        CHECK_EQ(contem_cor(it, n, "additionalLighten"), 0);
+
+        /* o primeiro raio cai em 3,0 s (L93): os tres acendem, e o retangulo
+           do `additionalLighten` tambem (0,3) -- 6 itens na lista. */
+        {
+            int i2, raio = 0;
+            for (i2 = 0; i2 < 200 && !raio; i2++) raio = ss_update(&g_tss, 1.0f / 60.0f);
+            CHECK_EQ(raio, 1);
+        }
+        n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, g_tss.t,
+                       it, SL_MAX_ITENS);
+        CHECK_EQ(n, 6);
+        {
+            const sl_item_t *sky = item_por_nome(it, n, "skyAdditive");
+            const sl_item_t *lig = item_por_nome(it, n, "lightning");
+            const sl_item_t *fg = item_por_nome(it, n, "foregroundMultiply");
+            CHECK(sky != NULL);
+            CHECK(lig != NULL);
+            CHECK(fg != NULL);
+            if (sky) {
+                CHECK_NEAR(sky->alpha, 0.7f);
+                CHECK_EQ(sky->z, 11);
+            }
+            if (fg) {
+                CHECK_NEAR(fg->alpha, 0.64f);
+                CHECK_EQ(fg->z, 31);
+            }
+            if (lig) {
+                CHECK_NEAR(lig->alpha, 1.0f);
+                CHECK_EQ(lig->z, 20);
+                /* o numero de quadros da `strike` tem de existir no prop */
+                CHECK(lig->anim >= 0);
+                CHECK(lig->anim < bs_props[lig->prop].anim_count);
+                CHECK(lig->frame >= 0);
+                /* e o x e' o SORTEADO, convertido para a tela com a MESMA
+                   conta dos outros props: scrollFactor 0 zera a camera dos dois
+                   lados, entao x0 = 320 + (x - 640) * sc, com sc = 0,5*zoom
+                   (aqui zoom 1 -> 0,5). */
+                CHECK_NEAR(lig->x0, 320.0f + (g_tss.raio_x - 640.0f) * 0.5f);
+            }
+            CHECK_EQ(contem_cor(it, n, "additionalLighten"), 1);
+            /* a cor entra com o alpha do SCRIPT (0,3), nao com o 0 do dado */
+            {
+                int m;
+                for (m = 0; m < n; m++) {
+                    if (it[m].cor < 0) continue;
+                    if (strcmp(bs_cores[it[m].cor].name, "additionalLighten") == 0)
+                        CHECK_NEAR(it[m].alpha, 0.3f);
+                }
+            }
+            /* e a ordem por z continua valendo com os seis */
+            {
+                int m;
+                for (m = 1; m < n; m++) CHECK(item_z(&it[m - 1]) <= item_z(&it[m]));
+            }
+        }
+
+        /* depois de 1,5 s o `cleanupLightning` apaga os quatro: volta a 2. */
+        {
+            int i2;
+            for (i2 = 0; i2 < 100; i2++) ss_update(&g_tss, 1.0f / 60.0f);
+            CHECK_EQ(g_tss.raio_ativo, 0);
+        }
+        n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, g_tss.t,
+                       it, SL_MAX_ITENS);
+        CHECK_EQ(n, 2);
+
+        /* sem registro, o dado manda de novo (nenhum prop a mais) */
+        sl_set_script(NULL);
+        n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                       it, SL_MAX_ITENS);
+        CHECK_EQ(n, 2);
+
+        /* e um palco SEM script nao ganha nada com os callbacks registrados:
+           o `ss_t` de outro palco responde "sem override" a tudo. */
+        sl_set_script(&hook);
+        ss_init(&g_tss, "mainStage");
+        n = sl_collect("mainStage", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                       it, SL_MAX_ITENS);
+        {
+            /* a lista do mainStage sem script: medida no proprio teste acima */
+            sl_item_t it2[SL_MAX_ITENS];
+            int n2;
+            sl_set_script(NULL);
+            n2 = sl_collect("mainStage", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                            it2, SL_MAX_ITENS);
+            CHECK_EQ(n, n2);
+        }
+        sl_set_script(NULL);
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

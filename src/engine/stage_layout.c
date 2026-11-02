@@ -78,6 +78,16 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t)
    animacao reiniciava, entao as 25 de danceEvery 1 andavam fora de fase com o
    resto da musica, e as 2 de danceEvery 2 trocavam de lado duas vezes mais
    rapido que o original. */
+/* O estado do script do palco, registrado pelo main.c (ver stage_layout.h).
+   Fica nulo nos testes e nos palcos sem script: nesse caso o DADO manda, que e'
+   o comportamento que ja' existia. */
+static const sl_script_t *g_script;
+
+void sl_set_script(const sl_script_t *script)
+{
+    g_script = script;
+}
+
 static int sl_escolhe_anim(const bs_prop_t *p, int step, float beat_s,
                            float t, float *fase)
 {
@@ -154,17 +164,28 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         const bs_prop_t *p = &bs_props[st->first + i];
         sl_item_t *it = &out[n];
         int anim;
-        float fase, x0, y0, w, h;
+        int prop_abs = st->first + i;
+        float fase, x0, y0, w, h, alpha, px;
+
+        /* O SCRIPT DO PALCO manda no alpha e no x quando mexe neste prop
+           (`phillyBlazin.hxc`: os tres do relampago nascem com alpha 0 e sao
+           acesos por 1,5 s). Sem script registrado, `alpha` e `px` sao os do
+           dado e nada muda. */
+        alpha = g_script && g_script->alpha ? g_script->alpha(prop_abs) : -1.0f;
+        if (alpha < 0.0f) alpha = p->alpha;
+        px = p->x;
+        if (g_script && g_script->x) px = g_script->x(prop_abs, p->x);
 
         /* Prop com alpha 0 e' invisivel no original (9 dos 169: freaks,
-           clouds2, paper, os caminhoses do sserafim...). Nao entra na lista:
-           nem pacote, nem VRAM, nem desenho. */
-        if (p->alpha <= 0.0f) continue;
+           clouds2, paper, os caminhoses do sserafim...) -- ou esta' apagado
+           agora pelo script. Nao entra na lista: nem pacote, nem VRAM, nem
+           desenho. */
+        if (alpha <= 0.0f) continue;
 
         /* Formula do port (ver o cabecalho): o termo (640*f - 640) existe
            porque o scrollFactor menor que 1 desloca o prop em relacao ao
            canto da camera, nao ao centro. */
-        x0 = SL_VIEW_W * 0.5f + (p->x - cam_x * p->scrollx + 640.0f * p->scrollx - 640.0f) * sc;
+        x0 = SL_VIEW_W * 0.5f + (px - cam_x * p->scrollx + 640.0f * p->scrollx - 640.0f) * sc;
         y0 = SL_VIEW_H * 0.5f + (p->y - cam_y * p->scrolly + 360.0f * p->scrolly - 360.0f) * sc;
         /* O tamanho NA TELA vem de src_w/src_h (o tamanho do quadro no espaco
            do original) VEZES o `scale` do prop, nao de sw/sh. Duas escalas
@@ -188,14 +209,24 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
 
         anim = sl_escolhe_anim(p, step, beat_s, t, &fase);
-        it->prop = st->first + i;
+        it->prop = prop_abs;
         it->cor = -1;
         it->anim = anim;
         it->frame = sl_prop_frame(p, anim, fase);
+        /* A animacao do script (o `strike` do `lightning`) tem de existir no
+           prop: um indice fora da faixa poria o quadro de outro prop na tela. */
+        if (g_script && g_script->frame) {
+            int a2 = anim, f2 = it->frame;
+            if (g_script->frame(prop_abs, &a2, &f2) &&
+                a2 >= 0 && a2 < p->anim_count && f2 >= 0) {
+                it->anim = a2;
+                it->frame = f2;
+            }
+        }
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = p->sw; it->tex_h = p->sh;
         it->z = p->z;
-        it->alpha = p->alpha;
+        it->alpha = alpha;
         it->blend = p->blend;
         it->criado = -1;
         it->tile = 0.0f;
@@ -212,8 +243,12 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
      for (i = 0; i < cc && n < max; i++) {
         const bs_cor_t *c = &bs_cores[cf + i];
         sl_item_t *it = &out[n];
-        float x0, y0, w, h;
-        if (c->alpha <= 0.0f) continue;
+        float x0, y0, w, h, alpha;
+        /* O `additionalLighten` do phillyBlazin e' um retangulo de cor que o
+           script acende a 0,3 por 0,3 s (L163). */
+        alpha = g_script && g_script->cor_alpha ? g_script->cor_alpha(cf + i) : -1.0f;
+        if (alpha < 0.0f) alpha = c->alpha;
+        if (alpha <= 0.0f) continue;
         x0 = SL_VIEW_W * 0.5f + (c->x - cam_x * c->scrollx + 640.0f * c->scrollx - 640.0f) * sc;
         y0 = SL_VIEW_H * 0.5f + (c->y - cam_y * c->scrolly + 360.0f * c->scrolly - 360.0f) * sc;
         w = c->w * sc;
@@ -226,7 +261,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = 0; it->tex_h = 0;
         it->z = c->z;
-        it->alpha = c->alpha;
+        it->alpha = alpha;
         it->blend = c->blend;
         it->criado = -1;
         it->tile = 0.0f;

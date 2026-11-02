@@ -142,9 +142,19 @@ echo
 # teste falha se as faixas de props de um palco pegarem o prop de outro.
 echo "== palcos (stage_layout) =="
 $CC $FLAGS test/test_stage_layout.c src/engine/stage_layout.c src/engine/char_layout.c \
-    src/engine/vram_layout.c \
+    src/engine/vram_layout.c src/engine/stage_script.c \
     -o /tmp/fnf_test_stage -lm
 /tmp/fnf_test_stage
+echo
+
+# O SCRIPT DO PALCO: o relampago do phillyBlazin (timers, tweens, animacao do
+# `strike`, cor dos personagens). A logica e' pura e nao depende de pacote, entao
+# o teste roda em segundos -- e' a unica prova possivel de que o evento dura o
+# que o original dura.
+echo "== script do palco (relampago) =="
+$CC $FLAGS test/test_stage_script.c src/engine/stage_script.c \
+    -o /tmp/fnf_test_stage_script -lm
+/tmp/fnf_test_stage_script
 echo
 
 # Personagens: os 46 do jogo, suas animacoes, e a conta de posicao/camera do

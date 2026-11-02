@@ -106,6 +106,31 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t);
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
                float bop, int step, float beat_s, float t, sl_item_t *out, int max);
 
+/* ---- O QUE O SCRIPT DO PALCO MANDA ----
+ * Os `.hxc` de palco mudam `alpha`, `x` e a animacao de props durante a musica
+ * (`phillyBlazin.hxc` L152-167 acende `skyAdditive` a 0,7 e joga o `lightning`
+ * numa animacao `strike` que dura 1,5 s). Sem isso o port desenha o palco no
+ * estado inicial e mais nada -- e os tres props do relampago nem aparecem,
+ * porque no JSON eles nascem com alpha 0.
+ *
+ * Os callbacks recebem o indice ABSOLUTO em bs_props[]/bs_cores[] e devolvem
+ * "sem override" quando o prop nao e' do script:
+ *   alpha     < 0  -> usa o alpha do dado
+ *   x         o proprio `x_dado` quando nao mexe
+ *   frame     0    -> o layout escolhe animacao/quadro pelo dado
+ *   cor_alpha < 0  -> usa o alpha do dado
+ *
+ * Sem `sl_set_script()` (testes, palcos sem script) tudo isso e' inerte: o
+ * dado manda, exatamente como antes. */
+typedef struct {
+    float (*alpha)(int prop_abs);
+    float (*x)(int prop_abs, float x_dado);
+    int   (*frame)(int prop_abs, int *anim, int *frame);
+    float (*cor_alpha)(int cor_abs);
+} sl_script_t;
+
+void sl_set_script(const sl_script_t *script);
+
 #ifdef __cplusplus
 }
 #endif

@@ -151,10 +151,12 @@ if [ ! -d "$GO_SRC" ]; then
     echo "FALTA $GO_SRC -- rode tools/empacotar_audio.py --assets <clone do funkin.assets>" >&2
     exit 1
 fi
-mkdir -p "$OUT/FNFPS2/assets/gameover" "$OUT/FNFPS2/assets/pause" "$OUT/FNFPS2/assets/result"
+mkdir -p "$OUT/FNFPS2/assets/gameover" "$OUT/FNFPS2/assets/pause" "$OUT/FNFPS2/assets/result" \
+         "$OUT/FNFPS2/assets/stage"
 NRES=0
 NGO=0
 NPAUSA=0
+NPALCO=0
 for f in "$GO_SRC"/*.pcm; do
     [ -f "$f" ] || continue
     case "$(basename "$f")" in
@@ -165,6 +167,11 @@ for f in "$GO_SRC"/*.pcm; do
         # `confirm_menu`, `tickle_fight`): ResultState procura em
         # `resultScreen/...` no original, mas no port os PCM ficam em
         # assets/result/ (mesma divisao de gameover/ e pause/).
+        # OS SONS DO SCRIPT DO PALCO: o trovao do phillyBlazin (`Lightning1..3`,
+        # phillyBlazin.hxc L187). Vao para assets/stage/, que e' onde o
+        # `palco_som_toca` do main.c procura -- pasta nova porque nao sao som de
+        # tela nenhuma, sao evento de palco.
+        lightning*) cp "$f" "$OUT/FNFPS2/assets/stage/"; NPALCO=$((NPALCO+1)) ;;
         res_*|scroll_menu*|confirm_menu*|cancel_menu*|fav.pcm|unfav.pcm|tickle_fight*)
             cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
@@ -172,6 +179,7 @@ for f in "$GO_SRC"/*.pcm; do
 done
 echo "   $NPAUSA PCM(s) de pausa em assets/pause/"
 echo "   $NRES PCM(s) da tela de resultado em assets/result/"
+echo "   $NPALCO PCM(s) de script de palco em assets/stage/"
 [ "$NRES" -ge 16 ] || { echo "FALTAM arquivos de audio do resultado em $GO_SRC ($NRES de 16)" >&2; exit 1; }
 [ "$NPAUSA" -ge 2 ] || { echo "FALTAM as musicas de pausa em $GO_SRC (breakfast.pcm/breakfast-pico.pcm)" >&2; exit 1; }
 [ "$NGO" -ge 13 ] || { echo "FALTAM arquivos de audio do game over em $GO_SRC ($NGO de 13)" >&2; exit 1; }

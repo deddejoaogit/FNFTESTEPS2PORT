@@ -4337,7 +4337,8 @@ o **fundo** do palco, e não está no JSON porque nasce no script. Ou seja: o po
 nunca teve o fundo do `blazin`; ele parecia ter porque as duas camadas de luz em
 alpha cheio preenchiam a tela. Agora esse item está **fechado** (seção "Fechado:
 o fundo que o script do palco cria", logo abaixo). Restam 4 dos 5 sprites da
-categoria `create`, todos em `phillyTrainErect`/`sserafim`.
+categoria `create`, todos em `phillyTrainErect`/`sserafim`, e o relâmpago já está
+fechado.
 
 ## Fechado: o fundo que o script do palco cria (o `scrollingSky` do `phillyBlazin`)
 
@@ -4425,11 +4426,96 @@ O pior caso de VRAM do jogo passa a ser o `phillyBlazin`: 1.662.208 B de props
 `scrollFactor 0`, período 1387 e não 4000, `tile_off` = −70 px em t = 2 s,
 câmera não move o sprite, e nenhum dos outros 20 palcos ganha item a mais).
 
-**O que continua faltando neste palco**: o relâmpago (`lightning` +
-`skyAdditive` + `foregroundMultiply` acendendo por 1,5 s a cada 3,0 s +
-`FlxG.random.float(7,15)` s, com os sons `Lightning1..3`) e o
-`spookyMansionErect` (`Sequence` de 0,06/0,12 s). São eventos com timer, não
-sprites — a próxima seção da fila.
+**O que continua faltando neste palco**: o `RuntimeRainShader` (chuva, 175
+linhas de shader — o GS não tem fragment shader) e o
+`spookyMansionErect` (`Sequence` de 0,06/0,12 s). O **relâmpago está fechado**
+— seção abaixo.
+
+## Fechado: o relâmpago do `phillyBlazin` (e a cor dos personagens no palco)
+
+`stage_script.c` é o primeiro **evento de script de palco** portado. Não é dado
+de JSON: é comportamento, e cada linha saiu de `phillyBlazin.hxc` com o número
+da linha ao lado.
+
+| o quê | valor | fonte |
+|---|---|---|
+| primeiro raio | em **3,0 s** de música | L93 `lightningTimer = 3.0` |
+| intervalo seguinte | `FlxG.random.float(7, 15)` → **10 a 18 s** entre raios | L132 |
+| `skyAdditive` | acende em alpha **0,7** e apaga em **1,5 s** | L152-156 |
+| `foregroundMultiply` | **0,64** → 0 em **1,5 s** | L158-160 |
+| `additionalLighten` | **0,3** → 0 em **0,3 s** | L162-164 |
+| `lightning` | `visible = true` + `animation.play('strike')` (24 fps, 30 quadros, em loop) | L166-167 |
+| x do raio | `bool(65)` → `int(-250,280)`, senão `int(780,900)` | L169-176 |
+| personagens | escurecem para **0x606060** e voltam ao repouso em **0,3 s** | L180-184 |
+| cor de repouso | bf e dad **0xDEDEDE**, gf **0x888888** | L114-117 |
+| som | `Paths.soundRandom('Lightning', 1, 3)` | L187 |
+| fim | `cleanupLightning` esconde os **quatro** (inclusive o `lightning`, que não tem tween próprio) | L230-240 |
+| fim da música | `lightningActive = false` (não sorteia mais) | L223-228 |
+
+**A ordem dos sorteios é a da fonte** (`bool(65)` → `int` do x → `int` do som →
+`float` do próximo timer), porque é isso que determina a *sequência* de eventos
+de uma música. A semente é fixa (o flixel semeia com o relógio): a sequência não
+é a do original — não há como ser — mas os intervalos, as probabilidades e a
+ordem são, e o teste cobra os dois lados (o intervalo de 10 a 18 s e o
+determinismo).
+
+**O que estava faltando no desenho, e agora está no lugar**
+
+- `src/engine/stage_script.{h,c}` — o estado e a lógica pura: timer, os três
+  tweens de alpha, o `strike`, o escurecimento e o sorteio do som.
+- `src/engine/stage_layout.{h,c}` — `sl_set_script()`: o layout **pergunta**
+  alpha/x/quadro ao script (não interpreta HScript) e, sem script registrado, o
+  dado manda. Sem esse gancho os três props do relâmpago **não apareciam
+  nunca**, porque no JSON eles nascem com alpha 0.
+- `src/main.c` — `palco_script_anda()` anda o script com o **relógio da
+  música** (não com o quadro): pausa não adianta o raio, retry volta ao começo, e
+  o `elapsed` é cortado em 0,1 s como o `FlxG.maxElapsed`. Também
+  `sprite_dims_cor`/`sprite_dims_flip_cor` e o uso da cor do personagem em
+  `cena_desenha`.
+- `tools/empacotar_audio.py` (`SONS_PALCO`) converte os três `.ogg` de
+  `weekend1/sounds/Lightning{1,2,3}` para PCM 48 kHz; `build_pendrive.sh` os põe
+  em `assets/stage/`; `palco_som_toca()` abre e manda para o **anel de overlay**
+  (`audio_ring_overlay`), o mesmo caminho dos jingles do rank — o som toca por
+  cima da música, como o `playOnce` do original.
+
+**Medido no harness** (`sh tools/run_sweep_harness.sh 1200 blazin`):
+
+```
+E,...,palco_script,1,7        o script esta' ativo no palco 7 (phillyBlazin)
+E,...,char_cor,0,136          gf  = 0x88  (L116)
+E,...,char_cor,1,222          bf  = 0xDE  (L114)
+E,...,char_cor,2,222          dad = 0xDE  (L115)
+E,...,palco_raio,1,163        primeiro raio, x sorteado = 163
+E,...,palco_raio_som,1        sorteou o Lightning1
+E,...,palco_som,1,7           tocou no slot 7 do anel de overlay
+E,...,palco_draw,6,0          6 itens acesos no instante do raio
+E,...,palco_draw,5,0          em 0,3 s o additionalLighten apagou
+E,...,palco_draw,2,0          em 1,5 s o cleanup apagou os quatro
+```
+
+`palco_draw` **2 → 6 → 5 → 2** é exatamente a coreografia do original: o palco
+parado, o raio acendendo três camadas e o retângulo aditivo, o retângulo
+apagando primeiro e as duas luzes apagando juntas 1,5 s depois.
+
+**Custo de VRAM: zero a mais.** Os quatro props já estavam no plano de
+empacotamento (o `sp_stage_demand` reserva para eles desde sempre); o que faltava
+era desenhá-los. O pior palco continua sendo o `phillyBlazin` com 2.005.760 B de
+2.383.872 B.
+
+**O que o teste cobra** (`test/test_stage_script.c`, sem pacote, roda em
+segundos): o primeiro raio em 3,0 s (±1 quadro), os três alphas em 0,15 s / 0,30 s
+/ 0,75 s, o `additionalLighten` apagando em 0,3 s, o `cleanup` em 1,5 s
+escondendo os quatro, o quadro do `strike` a 24 fps com o wrap em 30, o intervalo
+de 10 a 18 s, a cor dos personagens (0x60 → 0xDE/0x88 em 0,3 s, com a cor de
+repouso certa), o `onSongEnd`, o retry e o determinismo. E
+`test/test_stage_layout.c` cobra o resultado no **layout**: com o relâmpago, a
+lista do `phillyBlazin` sai de 2 para 6 itens, na ordem de z, com o x sorteado
+convertido pela mesma conta dos outros props.
+
+**O que continua faltando neste palco**: o `RuntimeRainShader` (chuva) e
+`HapticUtil.vibrate` (o controle do PS2 não recebe rumble neste port). Os dois
+estão declarados no cabeçalho de `stage_script.h` como **não portados**, e não
+como feitos.
 
 ### O que os 18 scripts fazem, medido (`tools/analisa_scripts_palco.py`)
 

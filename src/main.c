@@ -31,6 +31,7 @@
 #include "engine/pack_stream.h"
 #include "engine/shake.h"
 #include "engine/stage_layout.h"
+#include "engine/stage_script.h"
 #include "engine/lz4_bloco.h"
 #include "engine/char_pack.h"
 #include "engine/char_cena.h"
@@ -1367,6 +1368,23 @@ static qword_t *sprite_dims_flip(qword_t*q,float x,float y,float w,float h,int t
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
  v.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
+/* O MESMO sprite_dims, com COR no vertice. E' o `color` do flixel: no GS o
+   vertice multiplica a textura (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0, por
+   isso a cor do flixel (0..255) entra dividida por 2. O `phillyBlazin.hxc`
+   L114-117 poe bf/dad em 0xDEDEDE e gf em 0x888888 (e L180-184 escurece os tres
+   a 0x606060 por 0,3 s a cada relampago): sem esta funcao o port desenhava os
+   personagens brancos nesse palco. */
+static qword_t *sprite_dims_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t v;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
+ band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
+ v.color=rgba(cr,cg,cb,0x80);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+static qword_t *sprite_dims_flip_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t v;float cy0,cy1,cv0,cv1;
+ if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
+ g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
+ band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
+ v.color=rgba(cr,cg,cb,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+
 static qword_t *sprite_region(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
@@ -1513,6 +1531,23 @@ static int g_palco_add_visto=0;
    port nao desenhava nenhum -- o fundo do `blazin` faltava inteiro. */
 static int g_palco_criado_visto=0;
 
+/* =====================================================================
+   O SCRIPT DO PALCO (engine/stage_script.c): os eventos que o `.hxc` do palco
+   dispara durante a musica. O layout nao interpreta HScript -- ele pergunta
+   (sl_set_script), e quem responde e' `g_script`.
+   ===================================================================== */
+static ss_t g_script;
+
+static float palco_ov_alpha(int prop_abs) { return ss_prop_alpha(&g_script, prop_abs); }
+static float palco_ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_script, prop_abs, x_dado); }
+static int palco_ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_script, prop_abs, anim, frame); }
+static float palco_ov_cor_alpha(int cor_abs) { return ss_cor_alpha(&g_script, cor_abs); }
+
+static const sl_script_t g_script_hook = {
+    palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha
+};
+
+
 static int g_palco_fds_ok = 0;   /* 0 = os fds do vetor ainda nao foram zerados */
 
 static void palco_soltar(void)
@@ -1613,6 +1648,13 @@ static void palco_carregar(const char *stage)
     /* Os sprites do script do palco: a faixa em bs_criados[] que este palco
        pede. O indice `si` e' o MESMO de bs_stage_props[] -- ha' um teste que
        confere as duas tabelas lado a lado. */
+    /* O layout pergunta ao script do palco o alpha/x/quadro dos props que ele
+       mexe. O registro e' idempotente e fica aqui porque este e' o unico lugar
+       que roda antes do primeiro `sl_collect` de qualquer palco. */
+    sl_set_script(&g_script_hook);
+    ss_init(&g_script, stage);
+    telemetry_event("palco_script", g_script.ativo, g_script.palco);
+
     g_palco.nc = bs_stage_criado_count[si];
     g_palco.cfirst = bs_stage_criado_first[si];
     if (g_palco.nc > PALCO_MAX_CRIADOS) {
@@ -3593,6 +3635,75 @@ typedef struct {
     int desenhados;     /* quantos ja' foram para a tela (soma das fatias) */
 } palco_lista_t;
 
+
+/* `FunkinSound.playOnce(Paths.soundRandom('Lightning', 1, 3), 1.0)` (L187): o
+   trovao toca por cima da musica, no mesmo anel. Os tres PCM vem do
+   tools/empacotar_audio.py (SONS_PALCO) e ficam em `assets/stage/`. O fd passa a
+   ser da thread do anel (mesmo contrato dos jingles do rank), por isso ele NAO
+   e' fechado aqui -- `audio_ring_stop` fecha. Como o slot pode ser reaproveitado
+   por outro overlay, guardar os tres ultimos basta para o pior caso de uma
+   musica (tres fds, e o mesmo numero que a Freeplay guarda). */
+static int g_palco_som_fd[3] = { -1, -1, -1 };
+
+static void palco_som_toca(int n)
+{
+    char caminho[192];
+    int k = n - 1, fd, slot;
+    if (!g_audio_ok || k < 0 || k > 2) return;
+    snprintf(caminho, sizeof(caminho), "%s/stage/lightning%d.pcm",
+             FNF_ASSET_ROOT, n);
+    fd = open(caminho, O_RDONLY);
+    if (fd < 0) { telemetry_event("palco_som_falta", n, 0); return; }
+    slot = audio_ring_overlay(fd);
+    if (slot < 0) {
+        close(fd);
+        telemetry_event("palco_som_sem_slot", n, 0);
+        return;
+    }
+    g_palco_som_fd[k] = fd;
+    telemetry_event("palco_som", n, slot);
+}
+
+/* O `FlxG.maxElapsed` do flixel: um quadro perdido (carregando pacote) nao pode
+   virar um salto de meio segundo no timer do relampago -- o original tambem
+   corta o `elapsed` em 0,1 s. */
+#define PALCO_ELAPSED_MAX 0.1f
+
+/* Anda o script ate' o tempo de musica `t`. O relogio e' o da MUSICA, e nao o
+   do quadro: pausa nao adianta o relampago, e no retry (t volta a zero) o
+   script volta ao comeco. */
+static void palco_script_anda(const char *stage, float t)
+{
+    float dt;
+    if (!g_script.ativo) return;
+    if (g_script.palco < 0 || strcmp(bs_stage_props[g_script.palco].id, stage) != 0) {
+        ss_init(&g_script, stage);
+        if (!g_script.ativo) return;
+    }
+    if (t < g_script.t) {
+        ss_reiniciar(&g_script);
+        telemetry_event("palco_script_retry", (int)g_script.palco, 0);
+    }
+    /* O `onSongEnd` do script (L223-228) para o relampago na cutscene final. O
+       fim da musica e' o fim do CHART (song_end_sample, em amostras de 48 kHz);
+       sem isso o palco continuaria aceso por cima da tela de resultado. */
+    if (g_chart_info.song_end_sample > 0 &&
+        t >= (float)g_chart_info.song_end_sample / 48000.0f) {
+        ss_song_end(&g_script);
+    }
+    dt = t - g_script.t;
+    if (dt <= 0.0f) return;
+    if (dt > PALCO_ELAPSED_MAX) dt = PALCO_ELAPSED_MAX;
+    if (ss_update(&g_script, dt)) {
+        /* Um evento por raio: quantos ja' cairam, o x sorteado e o som.
+           O som ainda NAO toca (ver a pendencia no PLANO): o dado e' o evento,
+           e o que falta e' o pipeline de som one-shot dos `Lightning1..3`. */
+        telemetry_event("palco_raio", g_script.raios, (int)g_script.raio_x);
+        telemetry_event("palco_raio_som", g_script.som, 0);
+        palco_som_toca(g_script.som);
+    }
+}
+
 static void palco_abre(palco_lista_t *L, const char *stage, float cam_x,
                        float cam_y, float zoom, float bop, int step,
                        float beat_s, float t)
@@ -3602,6 +3713,9 @@ static void palco_abre(palco_lista_t *L, const char *stage, float cam_x,
     if (!stage) return;
     if (g_palco.stage != stage) palco_carregar(stage);
     if (!g_palco.stage) return;
+    /* O script do palco anda ANTES do layout: e' ele que diz quais props do
+       relampago estao acesos neste quadro. */
+    palco_script_anda(stage, t);
     L->n = sl_collect(stage, cam_x, cam_y, zoom, bop, step, beat_s, t,
                       L->it, SL_MAX_ITENS);
     if (L->n < 0) L->n = 0;
@@ -3865,6 +3979,9 @@ static int g_cena_estado=0;             /* 0 = nao tentou, 1 = pronto, <0 = falh
 
 static unsigned int g_cena_ram=0;
 static int g_cena_dad_ci=-1;         /* personagem do slot dad        */
+/* Uma vez por papel: prova no log que o personagem saiu com a cor do palco (o
+   `phillyBlazin` escurece os tres). Mesma politica do `g_cena_off_visto`. */
+static int g_cena_cor_visto[CH_CENA_PAPEIS];
 static int g_cena_bf_ci=-1,g_cena_gf_ci=-1;   /* jogador e namorada     */
 /* 1 = BF e GF desenhados pelo caminho generico; 0 = caminho do tutorial.
    O TUTORIAL continua no caminho antigo de proposito: e' a unica musica cujas
@@ -4303,10 +4420,37 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
   q=bind_texture_filter(q,&g_cena_texde[papel],1);
   {
    float sx=320.0f+(an.sprite_x-cx)*sc,sy=180.0f+(an.sprite_y-cy)*sc;
-   if(ci>=0&&ch_chars[ci].flipx)
-    q=sprite_dims_flip(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
-   else
-    q=sprite_dims(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
+   /* A COR DO PERSONAGEM, quando o palco manda (`BaseCharacter.color`). O
+      `phillyBlazin.hxc` L114-117 poe bf e dad em 0xDEDEDE e gf em 0x888888, e
+      L180-184 escurece os tres a 0x606060 por 0,3 s a cada relampago. O GS
+      multiplica a textura pela cor do vertice, e 0x80 vale 1,0 -- a conversao
+      de 0..255 para 0..0x80 e' a MESMA do `sprite_region_cor` do TallyCounter.
+      O neutro (0x80,0x80,0x80) nao entra aqui: sai pelo caminho de sempre,
+      sem quad a mais nem vertex extra. */
+   int spi=papel==CH_PAPEL_BF?SS_BF:(papel==CH_PAPEL_DAD?SS_DAD:SS_GF);
+   unsigned char rgb[3];
+   int temcor=ss_cor_papel(&g_script,spi,rgb);
+   int desenhou=0;
+   if(temcor){
+    unsigned char cr=(unsigned char)((rgb[0]*0x80u+127u)/255u),
+                  cg=(unsigned char)((rgb[1]*0x80u+127u)/255u),
+                  cb=(unsigned char)((rgb[2]*0x80u+127u)/255u);
+    if(cr!=0x80||cg!=0x80||cb!=0x80){
+     if(ci>=0&&ch_chars[ci].flipx)
+      q=sprite_dims_flip_cor(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel],cr,cg,cb);
+     else
+      q=sprite_dims_cor(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel],cr,cg,cb);
+     desenhou=1;
+     if(!g_cena_cor_visto[papel]){g_cena_cor_visto[papel]=1;
+      telemetry_event("char_cor",papel,(int)rgb[0]);}
+    }
+   }
+   if(!desenhou){
+    if(ci>=0&&ch_chars[ci].flipx)
+     q=sprite_dims_flip(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
+    else
+     q=sprite_dims(q,sx,sy,wm*sc,hm*sc,g_cena_texde_w[papel],g_cena_texde_h[papel]);
+   }
   }
   /* UM evento por papel, uma vez por musica, com as tres parcelas do tamanho.
      Sem ele, "o personagem esta' do tamanho certo" nao teria medida nenhuma. */

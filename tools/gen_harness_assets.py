@@ -955,6 +955,15 @@ def build(root, charts_src=None):
         "gameover/gameover_end-pixel.pcm": pcm(1 * 48000 * 4, 294),
         "gameover/gameover_end-pico.pcm": pcm(1 * 48000 * 4, 294),
         "gameover/gameover_end-pixel-pico.pcm": pcm(1 * 48000 * 4, 294),
+        # OS SONS DO SCRIPT DO PALCO (`assets/stage/lightning1..3.pcm`,
+        # tools/empacotar_audio.py SONS_PALCO): 1 s cada, para o caminho
+        # `palco_som_toca` -> `audio_ring_overlay` ser exercitado de verdade no
+        # harness. Sem eles o log diria `palco_som_falta` -- que e' o
+        # diagnostico certo para "o pendrive nao tem o arquivo", e nao para
+        # "o jogo nao sabe tocar".
+        "stage/lightning1.pcm": pcm(1 * 48000 * 4, 180),
+        "stage/lightning2.pcm": pcm(1 * 48000 * 4, 210),
+        "stage/lightning3.pcm": pcm(1 * 48000 * 4, 240),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),
