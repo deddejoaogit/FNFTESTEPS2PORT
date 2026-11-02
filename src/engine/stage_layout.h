@@ -38,17 +38,25 @@ extern "C" {
 #define SL_VIEW_W 640.0f
 #define SL_VIEW_H 360.0f
 
-/* Um palco tem no maximo 17 props hoje; 32 da' folga para o proximo jogo. */
+/* Um palco tem no maximo 17 props texturizados + 2 cores hoje; 32 da' folga
+   para o proximo jogo. */
 #define SL_MAX_ITENS 32
 
+/* Um item da lista de desenho: ou um prop TEXTURIZADO (cor < 0, prop >= 0),
+   ou um prop de COR (prop < 0, cor >= 0) -- um retangulo chapado, que o
+   Stage.hx L203-216 cria e que nao custa textura nem pacote. Os dois entram
+   na MESMA lista, porque no original os dois entram na mesma ordenacao por
+   zIndex (Stage.hx L300-330). */
 typedef struct {
-    int prop;       /* indice em bs_props[]                            */
+    int prop;       /* indice em bs_props[], -1 quando e' cor           */
+    int cor;        /* indice em bs_cores[], -1 quando e' prop          */
     int anim;       /* indice DENTRO do prop (0..prop->anim_count-1)    */
     int frame;      /* quadro dentro dessa animacao                    */
     float x0, y0;   /* canto superior esquerdo, espaco 640x360         */
     float w, h;     /* tamanho na tela (do src do original, ver .c)    */
     int tex_w, tex_h; /* resolucao do quadro no pacote CFZ4 (sw/sh)    */
     int z;          /* zIndex do prop: a ordem de desenho do Stage.hx  */
+    float alpha;    /* alpha do dado (1.0 = opaco)                     */
 } sl_item_t;
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */
@@ -57,6 +65,10 @@ int sl_stage_find(const char *stage);
 /* Quantos props o palco tem, e o primeiro em bs_props[]. -1 de palco. */
 int sl_stage_prop_count(const char *stage);
 int sl_stage_first_prop(const char *stage);
+
+/* Idem para os props de COR (retangulos de bs_cores[]). */
+int sl_stage_cor_count(const char *stage);
+int sl_stage_first_cor(const char *stage);
 
 /* Quadro da animacao 'anim' no instante t (segundos). Anima em loop volta ao
    zero; anima que nao repete fica no ultimo quadro. E' o mesmo criterio do
@@ -72,7 +84,12 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t);
    tempo de musica em segundos. E' com eles que sai a animacao de cada prop:
    ver sl_escolhe_anim() em .c para as duas regras do Bopper.hx (danceEvery > 0
    reinicia a cada danceEvery batidas; danceEvery == 0 toca so' o
-   startingAnimation do JSON, e nada sem ele). */
+   startingAnimation do JSON, e nada sem ele).
+
+   Props com `alpha <= 0` NAO entram na lista: desenhar um prop invisivel e'
+   desenhar o que o original nao desenha. As cores com alpha 0 tambem ficam de
+   fora (o `additionalLighten` do phillyBlazin nasce `visible = false` no
+   script do palco, phillyBlazin.hxc L77). */
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
                float bop, int step, float beat_s, float t, sl_item_t *out, int max);
 

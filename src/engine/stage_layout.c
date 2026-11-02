@@ -23,6 +23,18 @@ int sl_stage_first_prop(const char *stage)
     return i < 0 ? -1 : bs_stage_props[i].first;
 }
 
+int sl_stage_cor_count(const char *stage)
+{
+    int i = sl_stage_find(stage);
+    return i < 0 ? -1 : bs_stage_cor_count[i];
+}
+
+int sl_stage_first_cor(const char *stage)
+{
+    int i = sl_stage_find(stage);
+    return i < 0 ? -1 : bs_stage_cor_first[i];
+}
+
 int sl_prop_frame(const bs_prop_t *p, int anim, float t)
 {
     const bs_prop_anim_t *a;
@@ -108,6 +120,13 @@ static int sl_escolhe_anim(const bs_prop_t *p, int step, float beat_s,
     return p->start;
 }
 
+/* Posicao do item na lista `props` do JSON do palco (ver bs_prop_t.ord). */
+static int sl_item_ord(const sl_item_t *it)
+{
+    if (it->cor >= 0) return bs_cores[it->cor].ord;
+    return bs_props[it->prop].ord;
+}
+
 int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
                float bop, int step, float beat_s, float t, sl_item_t *out, int max)
 {
@@ -130,6 +149,11 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         sl_item_t *it = &out[n];
         int anim;
         float fase, x0, y0, w, h;
+
+        /* Prop com alpha 0 e' invisivel no original (9 dos 169: freaks,
+           clouds2, paper, os caminhoses do sserafim...). Nao entra na lista:
+           nem pacote, nem VRAM, nem desenho. */
+        if (p->alpha <= 0.0f) continue;
 
         /* Formula do port (ver o cabecalho): o termo (640*f - 640) existe
            porque o scrollFactor menor que 1 desloca o prop em relacao ao
@@ -159,20 +183,56 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
 
         anim = sl_escolhe_anim(p, step, beat_s, t, &fase);
         it->prop = st->first + i;
+        it->cor = -1;
         it->anim = anim;
         it->frame = sl_prop_frame(p, anim, fase);
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = p->sw; it->tex_h = p->sh;
         it->z = p->z;
+        it->alpha = p->alpha;
         n++;
     }
 
-    /* Ordem de desenho = zIndex crescente. Insercao estavel: props com o mesmo
-       z mantem a ordem do JSON, que e' a ordem em que o jogo os adicionou. */
+    /* Os props de COR, com a MESMA conta de tela. A diferenca e' o tamanho: o
+       Stage.hx cria o retangulo com `makeSolidColor(scale[0], scale[1])`, ou
+       seja o `scale` JA' e' o tamanho em pixels do original -- nao se
+       multiplica por scale outra vez (Stage.hx L235 pula o
+       `scale.set` quando e' cor solida). */
+    {int cf = bs_stage_cor_first[si], cc = bs_stage_cor_count[si];
+     for (i = 0; i < cc && n < max; i++) {
+        const bs_cor_t *c = &bs_cores[cf + i];
+        sl_item_t *it = &out[n];
+        float x0, y0, w, h;
+        if (c->alpha <= 0.0f) continue;
+        x0 = SL_VIEW_W * 0.5f + (c->x - cam_x * c->scrollx + 640.0f * c->scrollx - 640.0f) * sc;
+        y0 = SL_VIEW_H * 0.5f + (c->y - cam_y * c->scrolly + 360.0f * c->scrolly - 360.0f) * sc;
+        w = c->w * sc;
+        h = c->h * sc;
+        if (x0 + w <= 0.0f || x0 >= SL_VIEW_W) continue;
+        if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
+        it->prop = -1;
+        it->cor = cf + i;
+        it->anim = 0; it->frame = 0;
+        it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
+        it->tex_w = 0; it->tex_h = 0;
+        it->z = c->z;
+        it->alpha = c->alpha;
+        n++;
+     }
+    }
+
+    /* Ordem de desenho = zIndex crescente; para zIndex IGUAL, a ordem do JSON
+       (`ord`), que e' a ordem em que o jogo adicionou os props ao grupo. A
+       insercao e' estavel, entao comparar (z, ord) reproduz o sort do flixel
+       sem depender da ordem em que props e cores entraram nesta lista. */
     for (i = 1; i < n; i++) {
         sl_item_t chave = out[i];
-        int zc = bs_props[chave.prop].z;
-        for (j = i - 1; j >= 0 && bs_props[out[j].prop].z > zc; j--) out[j + 1] = out[j];
+        int zc = chave.z, oc = sl_item_ord(&chave);
+        for (j = i - 1; j >= 0; j--) {
+            int zj = out[j].z, oj = sl_item_ord(&out[j]);
+            if (zj < zc || (zj == zc && oj <= oc)) break;
+            out[j + 1] = out[j];
+        }
         out[j + 1] = chave;
     }
     return n;

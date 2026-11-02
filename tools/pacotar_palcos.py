@@ -143,6 +143,16 @@ def pack_stage(assets, sid, props, limit, out_root, bpp):
     # O empacotador so' fazia a primeira. Com a segunda, os quatro palcos que
     # saiam com 20 a 59 MB de pacote (school, schoolErect, limoRideErect,
     # spookyMansion) num console de 32 MiB entram no orcamento.
+    if not prepared:
+        # Um palco sem NENHUM prop empacotavel nao e' um palco: e' arte que
+        # faltou no clone ou no dado. Antes isto estourava em `max()` de lista
+        # vazia, o que matava os 21 palcos de uma vez e escondia a causa. Agora
+        # o palco e' nomeado e o plano dele fica como estava.
+        problems.append("%s: nenhum prop empacotavel (%d no dado, todos os "
+                        "%d problemas acima sao deste palco)"
+                        % (sid, len(props), len(problems) + 1))
+        return None, 0, problems, 1.0, 0
+
     canvas = [(cw, ch) for _p, _n, _a, _f, cw, ch in prepared]
     nframes = [len(fr) for _p, _n, _a, fr, cw, ch in prepared]
     f = min(_stage_scale(canvas, limit),
@@ -281,6 +291,10 @@ def main():
                                                       limit, out_root, args.bpp)
         total_bytes += written
         problems.extend(probs)
+        if entries is None:
+            # pack_stage ja' registrou o motivo; o palco fica fora do plano em
+            # vez de entrar vazio (um palco vazio desenha so' o ceu).
+            continue
         plan["stages"].append({"id": sid, "zoom": round(zoom, 6),
                                "scale": round(f, 6), "props": entries})
         print("%-22s escala %.3f  %2d props  %8d B VRAM (%.0f%% do orcamento)"

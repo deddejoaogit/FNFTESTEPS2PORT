@@ -40,9 +40,22 @@ static unsigned int bytes_gs(const bs_prop_t *p)
 static const sl_item_t *item_por_nome(const sl_item_t *it, int n, const char *nome)
 {
     int i;
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
+        if (it[i].cor >= 0) continue;      /* retangulo de cor: nao tem prop */
         if (strcmp(bs_props[it[i].prop].name, nome) == 0) return &it[i];
+    }
     return NULL;
+}
+
+/* Quantos itens da lista sao retangulos de cor. */
+static int contem_cor(const sl_item_t *it, int n, const char *nome)
+{
+    int i, c = 0;
+    for (i = 0; i < n; i++) {
+        if (it[i].cor < 0) continue;
+        if (strcmp(bs_cores[it[i].cor].name, nome) == 0) c++;
+    }
+    return c;
 }
 
 int main(void)
@@ -96,7 +109,7 @@ int main(void)
            formula do modulo: senao o teste concordaria com qualquer erro. */
         sl_item_t it[SL_MAX_ITENS];
         int n = sl_collect("mainStage", 888.5f, 589.0f, 1.1f, 1.0f, 0, 0.5f, 0.0f, it, SL_MAX_ITENS);
-        CHECK_EQ(n, 3);
+        CHECK_EQ(n, 3);   /* o mainStage nao tem prop de cor */
         CHECK_EQ(it[0].prop, bs_stage_props[2].first);   /* zIndex 10 = fundo */
         CHECK(strcmp(bs_props[it[0].prop].name, "stageBack") == 0);
         CHECK_NEAR(it[0].x0, -485.0075f);
@@ -107,12 +120,14 @@ int main(void)
            do plano (`assets-data/stage-props.json`, 712x389 para o
            `mainStage/stageBack`), e o teste os escreve a mao de proposito: se
            o empacotador mudar a escala, este numero tem de ser reconferido em
-           vez de o teste acompanhar sozinho. A escala caiu de 0,313 para 0,278
-           quando o empacotamento passou a rodar sobre a arte de verdade com os
-           DOIS orcamentos (VRAM e RAM): o `limoRide` estava em 1.870.848 B de
-           VRAM contra um teto de 1.337.520 B. */
-        CHECK_EQ(it[0].tex_w, 712);
-        CHECK_EQ(it[0].tex_h, 389);
+           vez de o teste acompanhar sozinho.
+           Historico, para nao parecer numero escolhido: 0,313 era a conta sobre
+           o maior quadro; 0,278 veio dos DOIS orcamentos (VRAM e RAM) com a
+           arte real; 0,302539 e' o empacotamento dos 21 palcos com a arte
+           completa no clone (`week*`/`weekend*` inclusos) -- o canvas do
+           `stageBack` subiu para 774x424 e a escala acompanhou. */
+        CHECK_EQ(it[0].tex_w, 774);
+        CHECK_EQ(it[0].tex_h, 424);
         /* O fundo cobre a tela inteira, senao aparece borda preta. */
         CHECK(it[0].x0 <= 0.0f);
         CHECK(it[0].y0 <= 0.0f);
@@ -187,12 +202,27 @@ int main(void)
         }
     }
 
-    printf("== palcos: z crescente na ordem de desenho ==\n");
+    printf("== palcos: z crescente na ordem de desenho (props E cores) ==\n");
     for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
         sl_item_t it[SL_MAX_ITENS];
         int n = sl_collect(bs_stage_props[i].id, 1000.0f, 800.0f, 1.0f, 1.0f, 0, 0.5f, 1.0f, it, SL_MAX_ITENS);
         CHECK(n >= 0);
-        for (k = 1; k < n; k++) CHECK(bs_props[it[k - 1].prop].z <= bs_props[it[k].prop].z);
+        for (k = 1; k < n; k++) {
+            int za = it[k - 1].cor >= 0 ? bs_cores[it[k - 1].cor].z
+                                        : bs_props[it[k - 1].prop].z;
+            int zb = it[k].cor >= 0 ? bs_cores[it[k].cor].z
+                                    : bs_props[it[k].prop].z;
+            CHECK(za <= zb);
+            /* Para z igual, a ordem e' a do JSON (`ord`): o sort do flixel e'
+               estavel e o grupo recebe os props na ordem do arquivo. */
+            if (za == zb) {
+                int oa = it[k - 1].cor >= 0 ? bs_cores[it[k - 1].cor].ord
+                                            : bs_props[it[k - 1].prop].ord;
+                int ob = it[k].cor >= 0 ? bs_cores[it[k].cor].ord
+                                        : bs_props[it[k].prop].ord;
+                CHECK(oa <= ob);
+            }
+        }
     }
 
     printf("== palcos: prop fora da tela nao entra ==\n");
@@ -374,7 +404,11 @@ int main(void)
             n = sl_collect(id, camx, camy, 1.0f, 1.0f, 0, 0.5f, 0.0f, a, SL_MAX_ITENS);
             CHECK(n >= 0);
             for (j = 0; j < n; j++) {
-                CHECK_EQ(a[j].z, bs_props[a[j].prop].z);
+                /* o item carrega o z; conferir contra o DADO pega troca de
+                   campo (o rectangulo de cor tem z no bs_cores[]) */
+                int z_dado = a[j].cor >= 0 ? bs_cores[a[j].cor].z
+                                           : bs_props[a[j].prop].z;
+                CHECK_EQ(a[j].z, z_dado);
                 if (j) CHECK(a[j].z >= a[j - 1].z);
             }
             /* fatias: para cada z de personagem, o numero de itens abaixo dele
@@ -527,6 +561,123 @@ int main(void)
                pior_bytes, pior_palco, pior_itens, SL_MAX_ITENS);
         CHECK(pior_bytes <= pool);
         CHECK_EQ(cortados, 0);
+    }
+
+    printf("== palcos: props de COR (#RRGGBB) -- retangulos, alpha e z ==\n");
+    {
+        /* 12 props do dado tem assetPath "#RRGGBB": o Stage.hx L203-216 cria um
+           retangulo de `scale` x `scale` pixels (o scale E' o tamanho) e o poe
+           na mesma lista por zIndex. Sem eles o palco saia sem o fundo chapado
+           -- o `solid` preto do schoolEvil, o ceu do tankmanBattlefield, a neve
+           do mallXmas. */
+        CHECK_EQ(BS_COR_COUNT, 12);
+        {
+            int soma = 0;
+            for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
+                CHECK_EQ(bs_stage_cor_first[i], soma);
+                CHECK(bs_stage_cor_count[i] >= 0);
+                soma += bs_stage_cor_count[i];
+                for (k = 0; k < bs_stage_cor_count[i]; k++) {
+                    const bs_cor_t *c = &bs_cores[bs_stage_cor_first[i] + k];
+                    CHECK(strcmp(c->stage, bs_stage_props[i].id) == 0);
+                    CHECK(c->w > 0.0f && c->h > 0.0f);
+                    CHECK(c->alpha >= 0.0f && c->alpha <= 1.0f);
+                }
+            }
+            CHECK_EQ(soma, BS_COR_COUNT);
+        }
+        /* O `solid` do schoolEvil e' preto, cobre a tela e vem antes de tudo. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("schoolEvil", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                               it, SL_MAX_ITENS);
+            CHECK(n > 0);
+            CHECK_EQ(contem_cor(it, n, "solid"), 1);
+            /* z 0 e ord 0: tem de ser o PRIMEIRO item da lista. */
+            CHECK(it[0].cor >= 0);
+            CHECK(strcmp(bs_cores[it[0].cor].name, "solid") == 0);
+            CHECK_EQ(bs_cores[it[0].cor].r, 0);
+            CHECK_EQ(bs_cores[it[0].cor].g, 0);
+            CHECK_EQ(bs_cores[it[0].cor].b, 0);
+            CHECK_NEAR(it[0].alpha, 1.0f);
+            /* O retangulo e' 2400x2000 no espaco do original, com scroll 0:
+               com sc = 0,5 ele cobre a tela 640x360 inteira. */
+            CHECK(it[0].x0 <= 0.0f && it[0].y0 <= 0.0f);
+            CHECK(it[0].x0 + it[0].w >= SL_VIEW_W);
+            CHECK(it[0].y0 + it[0].h >= SL_VIEW_H);
+        }
+        /* mallXmas: a neve por baixo (snowUnder) e' 243,244,245 e fica no
+           z 59 -- acima dos props de fundo, abaixo do z alto. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            /* A neve fica em y=800 no espaco do original: com a camera no zero
+               ela esta' ABAIXO da tela e nem entra na lista (corte de tela).
+               A camera aqui e' a que a mostra, como no palco em jogo. */
+            int n = sl_collect("mallXmas", 0.0f, 1200.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                               it, SL_MAX_ITENS);
+            const sl_item_t *c = NULL;
+            for (k = 0; k < n; k++) {
+                if (it[k].cor >= 0 && strcmp(bs_cores[it[k].cor].name, "snowUnder") == 0)
+                    c = &it[k];
+            }
+            CHECK(c != NULL);
+            if (c) {
+                CHECK_EQ(bs_cores[c->cor].r, 243);
+                CHECK_EQ(bs_cores[c->cor].g, 244);
+                CHECK_EQ(bs_cores[c->cor].b, 245);
+                CHECK_EQ(bs_cores[c->cor].z, 59);
+            }
+        }
+        /* alpha 0 nao entra: o `solidCover` do sserafim (z 9999) e' invisivel no
+           instante zero -- o script do palco o poe em alpha 0 e o JSON tambem.
+           Se ele entrasse, seria um retangulo PRETO cobrindo a tela inteira. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("sserafim", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                               it, SL_MAX_ITENS);
+            CHECK_EQ(contem_cor(it, n, "solidCover"), 0);
+            CHECK_EQ(contem_cor(it, n, "solid"), 1);
+        }
+        /* O `additionalLighten` do phillyBlazin: blend ADD e `visible = false` no
+           script (phillyBlazin.hxc L76-77), logo alpha 0 no dado. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                               it, SL_MAX_ITENS);
+            CHECK_EQ(contem_cor(it, n, "additionalLighten"), 0);
+        }
+    }
+
+    printf("== palcos: prop com alpha 0 fica de fora ==\n");
+    {
+        /* 9 props do dado declaram alpha 0 (schoolErect/freaks,
+           tankmanBattlefield/clouds2, phillyStreetsErect/paper, os caminhoes e o
+           solidCover do sserafim). Desenha-los seria desenhar o que o original
+           nao desenha. */
+        /* 8 props TEXTURIZADOS com alpha 0 + o `solidCover` do sserafim, que e'
+           um retangulo de cor (conferido no bloco de cima). */
+        int zerados = 0, cores_zeradas = 0;
+        for (i = 0; i < BS_PROP_COUNT; i++) if (bs_props[i].alpha <= 0.0f) zerados++;
+        for (i = 0; i < BS_COR_COUNT; i++) if (bs_cores[i].alpha <= 0.0f) cores_zeradas++;
+        CHECK_EQ(zerados, 8);
+        CHECK_EQ(cores_zeradas, 2);   /* solidCover + additionalLighten (ADD) */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("tankmanBattlefield", 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                               0.5f, 1.0f, it, SL_MAX_ITENS);
+            CHECK(item_por_nome(it, n, "clouds2") == NULL);
+            /* e o resto do palco continua la' */
+            CHECK(item_por_nome(it, n, "mountains") != NULL);
+        }
+        /* alpha entre 0 e 1 chega ao item, para o desenho usar (0,3 = 0x26). */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("phillyStreetsErect", 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                               0.5f, 1.0f, it, SL_MAX_ITENS);
+            const sl_item_t *g1 = item_por_nome(it, n, "grey1");
+            CHECK(g1 != NULL);
+            if (g1) CHECK_NEAR(g1->alpha, 0.3f);
+        }
     }
 
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }

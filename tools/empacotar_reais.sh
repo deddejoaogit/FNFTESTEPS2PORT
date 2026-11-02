@@ -20,14 +20,23 @@
 #   audio/     PCM 48 kHz dos sfx de game over
 #
 # Requer: clone esparso de github.com/FunkinCrew/funkin.assets com
-# shared/images, preload/images, preload/data, preload/scripts, shared/music e
-# **fonts** (sem `fonts` o titulo das capsulas nao tem a 5by7.ttf e a Freeplay
-# sai sem titulo) -- e Pillow + lz4 + numpy (PYTHONPATH, por padrao /tmp/pylibs).
+#   shared/images preload/images preload/data preload/scripts shared/music
+#   fonts week1 .. week7 weekend1 weekend2 sserafim tutorial \
+#       shared/sounds preload/sounds
+#
+# Faltar uma dessas pastas NAO da' erro no jogo: da' um pacote a menos ou, pior,
+# um palco sem os props (a arte dos palcos e dos personagens das semanas mora em
+# `weekN/images`, nao em `preload/images`). O script confere a lista antes de
+# comecar. `fonts` tambem e' obrigatorio: sem `fonts/5by7.ttf` o titulo das
+# capsulas nao empacota e a Freeplay fica sem titulo nenhum.
+# Alem do clone: Pillow + lz4 + numpy (PYTHONPATH, por padrao /tmp/pylibs).
 #
 # Uso tipico:
 #   git clone --filter=blob:none --sparse https://github.com/FunkinCrew/funkin.assets /tmp/fassets
 #   git -C /tmp/fassets sparse-checkout set shared/images preload/images \
-#       preload/data preload/scripts shared/music fonts
+#       preload/data preload/scripts shared/music shared/sounds preload/sounds \
+#       fonts week1 week2 week3 week4 week5 week6 week7 weekend1 weekend2 \
+#       sserafim tutorial
 #   pip3 install --target /tmp/pylibs pillow lz4 numpy
 #   sh tools/empacotar_reais.sh /tmp/fassets
 #
@@ -55,6 +64,23 @@ if [ ! -f "$ASSETS/fonts/5by7.ttf" ]; then
     echo "       git -C $ASSETS sparse-checkout add fonts"
     exit 1
 fi
+# A arte das semanas. Sem estas pastas os palcos saem SEM props (nao da' erro:
+# da' um palco vazio), entao a conferencia e' aqui, antes de empacotar.
+FALTANDO=""
+for d in week1 week2 week3 week4 week5 week6 week7 weekend1 weekend2; do
+    [ -d "$ASSETS/$d/images" ] || FALTANDO="$FALTANDO $d"
+done
+# Sons: o `fnf_loss_sfx` (Game Over), os dois do menu (scroll/confirm), o
+# `fakeout_death` e o `tickleFight`. Sem eles o empacotador de audio termina
+# com uma lista de FALTANDO e o jogo fica sem esses sons.
+for d in shared/sounds preload/sounds; do
+    [ -d "$ASSETS/$d" ] || FALTANDO="$FALTANDO $d"
+done
+if [ -n "$FALTANDO" ]; then
+    echo "FALHA: faltam pastas de arte no clone:$FALTANDO"
+    echo "       git -C $ASSETS sparse-checkout add $FALTANDO"
+    exit 1
+fi
 if ! python3 -c "import PIL, lz4, numpy" 2>/dev/null; then
     echo "FALHA: falta Pillow/lz4/numpy em $PYTHONPATH."
     echo "       pip3 install --target $PYTHONPATH pillow lz4 numpy"
@@ -80,15 +106,20 @@ echo "== ui =="
 python3 tools/empacotar_ui.py --assets "$ASSETS" --out "$BASE/ui"
 python3 tools/empacotar_splash.py --assets "$ASSETS" --out "$BASE/ui"
 
-echo "== resultado =="
-sh tools/empacotar_resultado_tudo.sh "$ASSETS"
-
 echo "== freeplay =="
 python3 tools/empacotar_freeplay.py --assets "$ASSETS" --out "$BASE/freeplay"
 python3 tools/empacotar_freeplay_dj.py --assets "$ASSETS" --out "$BASE/freeplay"
 
+# O AUDIO VEM ANTES DO RESULTADO, e nao depois: `empacotar_resultado_musica.py`
+# decide o `intro` de cada rank olhando se `<packs>/res_<rank>_intro.pcm`
+# EXISTE. Com o audio empacotado por ultimo, todos os `intro` saiam vazios em
+# silencio -- e o resultado perdia a introducao da musica (o
+# `Paths.music('$musicPath/$musicPath-intro')` do ResultState.hx L505).
 echo "== audio =="
 python3 tools/empacotar_audio.py --assets "$ASSETS" --out "$BASE/audio"
+
+echo "== resultado =="
+sh tools/empacotar_resultado_tudo.sh "$ASSETS"
 
 echo
 echo "PACOTES PRONTOS em $BASE:"

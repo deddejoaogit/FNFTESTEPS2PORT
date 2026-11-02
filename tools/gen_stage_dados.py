@@ -135,6 +135,40 @@ def stage_scale(sid, sizes, bpp=16):
     return vb.max_scale(sid, limit, bpp)
 
 
+# BLEND INICIAL DOS PROPS DE COR, do script do palco.
+#
+# O StageData nao tem `blend`: quem poe blend no original e' o .hxc do palco,
+# com o numero do openfl.display.BlendMode (0 = ADD, 9 = MULTIPLY,
+# 12 = SCREEN). Para as CORES (assetPath "#RRGGBB") os scripts dizem:
+#
+#   phillyBlazin.hxc L75-77  additionalLighten.blend = 0 (ADD) e
+#                            additionalLighten.visible = false
+#
+# Como ele nasce invisivel e a unica coisa que o mostra e' o relampago
+# (script que este port nao executa), ele entra com alpha 0.0: e' o estado do
+# original no instante zero, e nao um branco somado a tela inteira.
+# Os outros 11 props de cor nao aparecem em script nenhum com blend/alpha
+# proprio -- ficam com o padrao do StageData (alpha 1.0, blend normal).
+BLEND_INICIAL = {
+    ("phillyBlazin", "additionalLighten"): (1, 0.0),   # ADD, invisivel
+}
+
+
+def parse_cor(s):
+    """'#RRGGBB' ou '#RGB' -> (r,g,b). Nada mais: o resto e' dado inventado."""
+    if not s or not s.startswith("#"):
+        raise ValueError("cor %r nao comeca com #" % (s,))
+    h = s[1:]
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        raise ValueError("cor %r: %d digitos (o Stage.hx aceita 3 ou 6)" % (s, len(h)))
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise ValueError("cor %r: nao e' hexadecimal" % (s,))
+
+
 PLAN = os.path.join(PROJECT, "assets-data", "stage-props.json")
 
 
@@ -192,12 +226,29 @@ def render(plan):
     w.append("  int sw,sh;          /* tamanho de UM quadro, ja na escala do palco */")
     w.append("  int src_w,src_h;    /* tamanho do quadro no espaco do ORIGINAL (1280x720) */")
     w.append("  int anim_first,anim_count;  /* faixa em bs_prop_anims[] */")
+    w.append("")
+    w.append("  /* `alpha` do prop no JSON (StageData.hx: default 1.0). 41 dos 169")
+    w.append("     declaram, e 9 deles valem 0 -- invisiveis no instante zero")
+    w.append("     (schoolErect/freaks, tankmanBattlefield/clouds2, phillyStreetsErect/")
+    w.append("     paper, os caminhoes e o solidCover do sserafim). Desenhar um prop")
+    w.append("     com alpha 0 e' desenhar o que o original NAO desenha. */")
+    w.append("  float alpha;")
+    w.append("")
+    w.append("  /* Posicao do prop na lista `props` do JSON do palco. O Stage.hx poe")
+    w.append("     tudo num grupo ordenado por zIndex, e para zIndex IGUAL o flixel")
+    w.append("     mantem a ordem de insercao -- que e' a do JSON. Sem este campo,")
+    w.append("     dois props de mesmo z poderiam trocar de lugar e o desenho mudaria")
+    w.append("     sem nenhum dado ter mudado. */")
+    w.append("  int ord;")
     w.append("}bs_prop_t;")
     w.append("")
 
     anims = []
     rows = []
     per_stage = []
+    cores = []
+    cor_first = []
+    cor_count = []
     for st in plan["stages"]:
         sid = st["id"]
         first = len(rows)
@@ -208,8 +259,13 @@ def render(plan):
         # nao um palpite.
         sj = json.load(open(os.path.join(STAGES, sid + ".json")))
         inicio = {}
-        for sp in sj.get("props") or []:
+        alpha = {}
+        ordem = {}
+        for idx, sp in enumerate(sj.get("props") or []):
             inicio[sp.get("name")] = sp.get("startingAnimation")
+            # StageData.hx L142 `@:default(1.0) var alpha`: ausente = 1,0.
+            alpha[sp.get("name")] = float(sp.get("alpha", 1.0))
+            ordem.setdefault(sp.get("name"), idx)
         for p in st["props"]:
             afirst = len(anims)
             for a in p["anims"]:
@@ -226,8 +282,47 @@ def render(plan):
                 "sw": p["sw"], "sh": p["sh"],
                 "src_w": p["src_w"], "src_h": p["src_h"],
                 "af": afirst, "ac": len(p["anims"]),
+                "alpha": alpha.get(p["name"], 1.0),
+                "ord": ordem.get(p["name"], 0),
             })
         per_stage.append((sid, st["zoom"], st["scale"], first, len(rows) - first))
+
+        # ---- props de COR (#RRGGBB): retangulos, sem textura e sem pacote.
+        #
+        # stage_dados nao os tinha: o `collect()` os pula de proposito (nao ha'
+        # arte a empacotar), e o efeito era o palco sair sem o fundo chapado.
+        # Sao 12: o `solid` do mainStageErect/mallEvil/schoolEvil..., o
+        # `snowUnder` dos dois mallXmas e o `solidCover` do sserafim.
+        # Stage.hx L203-216: `makeSolidColor(scale[0], scale[1], cor)`, ou
+        # seja, o `scale` do JSON e' o TAMANHO em pixels do retangulo (1x1
+        # esticado), e o `scale` NAO e' aplicado de novo (L235).
+        cor_first.append(len(cores))
+        ncor = 0
+        for ord_idx, sp in enumerate(sj.get("props") or []):
+            ap = sp.get("assetPath") or ""
+            if not ap.startswith("#"):
+                continue
+            pos = sp.get("position") or [0.0, 0.0]
+            scl = sp.get("scale", 1)
+            if isinstance(scl, (int, float)):
+                sw = sh = float(scl)
+            else:
+                sw, sh = float(scl[0]), float(scl[1])
+            scr = sp.get("scroll") or [1.0, 1.0]
+            blend, alfa = BLEND_INICIAL.get((sid, sp.get("name")), (0, 1.0))
+            if "alpha" in sp:
+                alfa = float(sp["alpha"])
+            r, g, b = parse_cor(ap)
+            cores.append({
+                "stage": sid, "name": sp.get("name") or "cor",
+                "x": float(pos[0]), "y": float(pos[1]), "w": sw, "h": sh,
+                "scrollx": float(scr[0]), "scrolly": float(scr[1]),
+                "z": int(sp.get("zIndex") or 0),
+                "r": r, "g": g, "b": b, "alpha": alfa, "blend": blend,
+                "ord": ord_idx,
+            })
+            ncor += 1
+        cor_count.append(ncor)
 
     w.append("/* Animacoes de todos os props. */")
     w.append("static const bs_prop_anim_t bs_prop_anims[]={")
@@ -241,14 +336,14 @@ def render(plan):
     w.append("/* Todos os props, agrupados por palco. */")
     w.append("static const bs_prop_t bs_props[]={")
     for r in rows:
-        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d},'
+        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d},'
                  % (c_str(r["stage"]), c_str(r["name"]), c_str(r["tex"]),
                     c_float(r["x"]), c_float(r["y"]),
                     c_float(r["sx"]), c_float(r["sy"]),
                     c_float(r["scrollx"]), c_float(r["scrolly"]),
                     r["z"], r["dance"], r["start"], r["frames"], r["sw"], r["sh"],
                     r["src_w"], r["src_h"],
-                    r["af"], r["ac"]))
+                    r["af"], r["ac"], c_float(r["alpha"]), r["ord"]))
     w.append("};")
     w.append("#define BS_PROP_COUNT %d" % len(rows))
     w.append("")
@@ -297,6 +392,40 @@ def render(plan):
     w.append("/* Primeiro slot de cada palco, na ordem de bs_stage_props[]. */")
     w.append("static const int bs_stage_slot_first[]={")
     w.append("  " + " ".join("%d," % v for v in slot_first))
+    w.append("};")
+    w.append("")
+    w.append("/* ===== PROPS DE COR ==================================================")
+    w.append("   Um prop de cor (`assetPath` \"#RRGGBB\") nao tem textura: o Stage.hx")
+    w.append("   L203-216 cria um retangulo de w x h (o `scale` do JSON) e o desenha")
+    w.append("   como qualquer sprite -- logo ele entra na MESMA ordem de zIndex dos")
+    w.append("   props texturizados, e nao antes/depois de todos eles. */")
+    w.append("typedef struct{")
+    w.append("  const char*stage;const char*name;")
+    w.append("  float x,y,w,h;      /* position, e scale = tamanho (1280x720) */")
+    w.append("  float scrollx,scrolly;")
+    w.append("  int z;              /* zIndex, junto com os props texturizados */")
+    w.append("  unsigned char r,g,b;")
+    w.append("  float alpha;        /* do JSON, ou o inicial do script do palco */")
+    w.append("  int blend;          /* 0 normal, 1 ADD (openfl: 0 = ADD) */")
+    w.append("  int ord;            /* posicao na lista `props` do JSON, ver bs_prop_t */")
+    w.append("}bs_cor_t;")
+    w.append("static const bs_cor_t bs_cores[]={")
+    for c in cores:
+        w.append('  {%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%d,%d},'
+                 % (c_str(c["stage"]), c_str(c["name"]),
+                    c_float(c["x"]), c_float(c["y"]),
+                    c_float(c["w"]), c_float(c["h"]),
+                    c_float(c["scrollx"]), c_float(c["scrolly"]),
+                    c["z"], c["r"], c["g"], c["b"], c_float(c["alpha"]),
+                    c["blend"], c["ord"]))
+    w.append("};")
+    w.append("#define BS_COR_COUNT %d" % len(cores))
+    w.append("/* Faixa de cada palco em bs_cores[], na MESMA ordem de bs_stage_props[]. */")
+    w.append("static const int bs_stage_cor_first[]={")
+    w.append("  " + " ".join("%d," % v for v in cor_first))
+    w.append("};")
+    w.append("static const int bs_stage_cor_count[]={")
+    w.append("  " + " ".join("%d," % v for v in cor_count))
     w.append("};")
     w.append("")
     w.append("/* Um palco: zoom da camera, escala aplicada aos props, e a faixa em")

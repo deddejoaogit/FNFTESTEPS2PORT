@@ -443,8 +443,17 @@ def empacotar(assets, out):
 
     # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
-    # `capsule.height` do original e' o canvas SEM CORTE (ch), nao o pedaco.
-    cap_h_src = ch * CAPSULA["real_scaled"]
+    # `capsule.height` do original e' o canvas SEM CORTE da CAPSULA (src_h), nao
+    # o pedaco nem o selo.
+    #
+    # Vem do dado da capsula, e nao de variavel solta: a primeira versao usava
+    # os `cw,ch,w,h` que sobravam do laco do SELO DE RANK, entao o passo
+    # vertical saia 26,6 (metade de 54*0,8+10, a altura do selo) em vez de 57,8
+    # e a capsula era desenhada com 18,4x19,2 px -- o tamanho do selo. O
+    # `capsule.height` da fonte vale 132 e o `scale` 0,8 (`realScaled` L619,
+    # aplicado em L669-670): 132*0,8 = 105,6; +10 = 115,6; metade = 57,8.
+    cap_w_src = float(dado_capsula["src_w"]) * CAPSULA["real_scaled"]
+    cap_h_src = float(dado_capsula["src_h"]) * CAPSULA["real_scaled"]
     dado = {
         "capsula": dado_capsula,
         "fundo": dado_fundo,
@@ -458,10 +467,13 @@ def empacotar(assets, out):
         "y_base": round(120.0 * HALF, 3),
         "y_passo": round((cap_h_src + 10.0) * HALF, 3),
         # `FunkinSprite(0,0)` da capsula: o desenho parte do canto do canvas.
-        "desenho_w": round(w * CAPSULA["real_scaled"], 3),
-        "desenho_h": round(h * CAPSULA["real_scaled"], 3),
+        "desenho_w": round(cap_w_src * HALF, 3),
+        "desenho_h": round(cap_h_src * HALF, 3),
         # O titulo dentro da capsula, em 640x360.
-        "texto_x": round(cw * CAPSULA["texto"]["x"] * CAPSULA["real_scaled"] * HALF, 3),
+        # `CapsuleText(capsule.width * 0,26, 45, ...)` (L191): a largura e' a da
+        # CAPSULA (612), nao a de outro dado que esteja por perto.
+        "texto_x": round(float(dado_capsula["src_w"]) * CAPSULA["texto"]["x"]
+                         * CAPSULA["real_scaled"] * HALF, 3),
         "texto_y": round(CAPSULA["texto"]["y"] * CAPSULA["real_scaled"] * HALF, 3),
         "texto_clip": round(CAPSULA["texto"]["clip"] * CAPSULA["real_scaled"] * HALF, 3),
         "xframes": XFRAMES,

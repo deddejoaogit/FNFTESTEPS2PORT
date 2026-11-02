@@ -1319,11 +1319,12 @@ static void band_clip_texel(float v0,float v1,float*lo,float*hi){
  *lo=a;*hi=b;
 }
 
-static qword_t *sprite_dims(qword_t*q,float x,float y,float w,float h,int tw,int th){texrect_t v;float cy0,cy1,cv0,cv1;
+static qword_t *sprite_dims_alpha(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char a){texrect_t v;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
+static qword_t *sprite_dims(qword_t*q,float x,float y,float w,float h,int tw,int th){return sprite_dims_alpha(q,x,y,w,h,tw,th,0x80);}
 
 /* O MESMO sprite_dims, ESPELHADO na horizontal.
    `CharacterData.flipX` e' dado: 14 dos 46 personagens tem `true` (todos os bf,
@@ -1419,6 +1420,9 @@ static palco_t g_palco;
 static unsigned char *g_palco_frame;    /* um quadro descomprimido */
 static unsigned int g_palco_frame_cap;
 static int g_palco_ok=0;                /* 1 = o palco desenha por props */
+/* Um evento por partida quando o primeiro retangulo de cor do palco vai para a
+   tela: e' a prova de que os 12 props de cor do dado chegaram ao desenho. */
+static int g_palco_cor_visto=0;
 
 static int g_palco_fds_ok = 0;   /* 0 = os fds do vetor ainda nao foram zerados */
 
@@ -2683,12 +2687,34 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
 {
     int i;
     for (i = 0; i < L->n; i++) {
-        const bs_prop_t *p = &bs_props[L->it[i].prop];
+        const bs_prop_t *p;
         const bs_prop_anim_t *a;
         texbuffer_t *tx;
-        int r = L->it[i].prop - g_palco.first;
-        int quadro;
+        int r, quadro;
         if (L->it[i].z < zmin || L->it[i].z >= zmax) continue;
+        /* PROP DE COR: um retangulo chapado, sem textura e sem pacote
+           (Stage.hx L203-216). Custa 3 qwords e zero byte de VRAM, e entra na
+           mesma fatia de z dos props texturizados -- que e' a ordem do
+           original. O alpha do dado vale; 0,3 e' 0,3. */
+        if (L->it[i].cor >= 0) {
+            const bs_cor_t *c = &bs_cores[L->it[i].cor];
+            unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+            if (a == 0) continue;
+            if (a > 0x80) a = 0x80;
+            q = rect_alpha(q, L->it[i].x0, L->it[i].y0,
+                           L->it[i].x0 + L->it[i].w, L->it[i].y0 + L->it[i].h,
+                           c->r, c->g, c->b, a);
+            if (!g_palco_cor_visto) {
+                g_palco_cor_visto = 1;
+                telemetry_event("palco_cor", (int)(L->it[i].x0 * 10.0f),
+                                (int)(c->z));
+            }
+            L->desenhados++;
+            continue;
+        }
+        r = L->it[i].prop - g_palco.first;
+        if (r < 0) continue;
+        p = &bs_props[L->it[i].prop];
         if (palco_prop_pronto(g_palco.stage, r) != 0) continue;
         a = &bs_prop_anims[p->anim_first + L->it[i].anim];
         /* sl_prop_frame devolve o quadro DENTRO da animacao; no pacote o
@@ -2698,8 +2724,13 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
         tx = palco_prop_textura(r, quadro);
         if (!tx) continue;
         q = bind_texture_filter(q, tx, 1);
-        q = sprite_dims(q, L->it[i].x0, L->it[i].y0, L->it[i].w, L->it[i].h,
-                        L->it[i].tex_w, L->it[i].tex_h);
+        /* O `alpha` do prop no JSON (1,0 em 128 dos 169). O GS mistura pelo
+           alpha do vertice (`Cs*As + Cd*(1-As)`), entao 0,3 vira 0x26. */
+        {unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+         if (a == 0) continue;
+         if (a > 0x80) a = 0x80;
+         q = sprite_dims_alpha(q, L->it[i].x0, L->it[i].y0, L->it[i].w,
+                               L->it[i].h, L->it[i].tex_w, L->it[i].tex_h, a);}
         L->desenhados++;
     }
     return q;
@@ -2737,10 +2768,22 @@ static void palco_fecha(const palco_lista_t *L)
 static int palco_reserva(const palco_lista_t *L, const char *stage)
 {
     unsigned int soma = 0;
-    int i;
+    int i, primeiro = -1;
     if (L->n <= 0) return 1;
-    if (palco_prop_pronto(stage, L->it[0].prop - g_palco.first) != 0) return 1;
-    for (i = 0; i < L->n; i++) soma += sp_prop_bytes(L->it[i].prop);
+    /* O primeiro ITEM pode ser uma cor (custo zero, nada a abrir): a reserva
+       olha o primeiro prop TEXTURIZADO da lista. */
+    for (i = 0; i < L->n; i++) {
+        if (L->it[i].cor >= 0) {
+            if (L->it[i].alpha > 0.0f) return 0;   /* desenhou alguma coisa */
+            continue;
+        }
+        primeiro = L->it[i].prop - g_palco.first;
+        break;
+    }
+    if (primeiro < 0) return 0;              /* so' cores visiveis: nada falta */
+    if (palco_prop_pronto(stage, primeiro) != 0) return 1;
+    for (i = 0; i < L->n; i++)
+        if (L->it[i].cor < 0) soma += sp_prop_bytes(L->it[i].prop);
     return soma > SP_POOL_BYTES;
 }
 /* ===== PERSONAGENS GENERICOS ==========================================

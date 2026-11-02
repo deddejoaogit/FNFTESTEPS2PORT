@@ -1363,6 +1363,63 @@ as fatias por z são **contíguas** (o corte nunca cai no meio de um empate); e 
 `tankmanBattlefield` tem prop dos dois lados do BF (medido: 4 na frente, 11
 atrás), que é o motivo do corte existir.
 
+#### Fechado: os 12 props de COR (`#RRGGBB`) e o `alpha` de cada prop
+
+Duas coisas do `Stage.hx` que o dado do jogo tem e o port não usava.
+
+**1) Os props de cor.** Doze dos 169 props não têm arte: o `assetPath` deles é
+uma cor (`"#222026"`, `"#F3F4F5"`…). O `Stage.hx` L174 marca
+`isSolidColor = assetPath.startsWith('#')`, L203-216 cria o retângulo com
+`makeSolidColor(scale[0], scale[1], FlxColor.fromString(assetPath))` e — detalhe
+que muda a conta — L232-243 **pula** o `propSprite.scale.set(...)` para esses
+props: o `scale` do JSON **é** o tamanho em pixels, não um multiplicador. Eles
+entram no mesmo grupo por `zIndex` dos props texturizados, então têm de entrar
+na mesma lista de desenho, e não antes/depois de todos.
+
+No port, `tools/gen_stage_dados.py` agora lê esses props direto do JSON do palco
+e escreve `bs_cores[]` (`x`, `y`, `w`, `h`, `scroll`, `z`, `r/g/b`, `alpha`,
+`blend`, `ord`) com faixas por palco em `bs_stage_cor_first[]`/
+`bs_stage_cor_count[]`. `sl_collect` faz neles a **mesma** conta de tela dos
+props (`SL_VIEW`/`câmera`/`scroll`), e `palco_fatia` os desenha como retângulo
+chapado (`rect_alpha`, 3 qwords, 0 byte de VRAM, sem pacote). O `ord` novo em
+`bs_prop_t` e `bs_cor_t` é a posição na lista `props` do JSON: o sort do flixel é
+estável, então para `zIndex` igual vale a ordem do arquivo — e agora as cores
+respeitam isso.
+
+**2) O `alpha`.** `Stage.hx` L253 faz `propSprite.alpha = dataProp.alpha`, com
+`@:default(1.0)` (`StageData.hx` L142). 41 dos 169 props declaram `alpha`, e
+**9 valem 0** — são invisíveis no instante zero: `schoolErect/freaks`,
+`tankmanBattlefield/clouds2`, `phillyStreetsErect/paper`, `sserafim/fucker`,
+`sserafim/truckLight1`, `sserafim/truckLight2`, `sserafim/backLightColor`,
+`sserafim/backLightWhite` e o `sserafim/solidCover`. O port desenhava todos
+opacos. Agora `bs_prop_t.alpha` vem do JSON, `sl_collect` **não** põe na lista
+quem tem `alpha <= 0` (nem pacote, nem VRAM, nem desenho) e quem tem `0 < alpha
+< 1` chega ao `sprite_dims_alpha` com `alpha*128` no vértice — no GS a mistura é
+`Cs*As + Cd*(1-As)`, então `0,3` vira `0x26`. Medido: `phillyStreetsErect/grey1`
+0,3 e `grey2` 0,8 são os únicos entre 0 e 1.
+
+**O `blend` continua pendente, e agora se sabe de onde ele vem.** Não há campo
+`blend` em prop nenhum dos 169 (o `StageData` tem `@:default('')`); quem põe
+blend no original é o **script do palco**, com o número do
+`openfl.display.BlendMode` (0 = ADD, 9 = MULTIPLY, 12 = SCREEN):
+`limoRideErect.hxc` (6 misturas ADD), `mainStageErect.hxc` (5),
+`phillyBlazin.hxc` (ADD em `skyAdditive` e `additionalLighten`, MULTIPLY em
+`foregroundMultiply`), `phillyStreetsErect.hxc` (9), `phillyStreets.hxc` (1) e
+`sserafim.hxc` (SCREEN em `truckLight1`/`backLightColor`, ADD em
+`backLightWhite`). Como o port ainda não executa HScript, a única cor que o
+script mexe no instante zero que **muda o desenho** está tratada por dado:
+`phillyBlazin/additionalLighten` nasce com `blend = 0` (ADD) **e**
+`visible = false` (L76-77), então entra em `bs_cores[]` com `alpha = 0` — é o
+estado do original no instante zero, em vez de um branco somado à tela inteira.
+As outras misturas ficam registradas na tabela de pendências.
+
+O teste cobre: `BS_COR_COUNT == 12`; as faixas por palco particionam
+`bs_cores[]` sem buraco e cada cor pertence ao palco que diz; no `schoolEvil` o
+`solid` preto (z 0, `ord` 0) é o **primeiro** item e cobre a tela; o `snowUnder`
+do `mallXmas` é 243/244/245 no z 59; `solidCover` e `additionalLighten` **não**
+entram (alpha 0); `clouds2` não entra mas `mountains` do mesmo palco entra;
+`grey1` chega com 0,3.
+
 #### Fechado: o passo da textura no orçamento de VRAM (TBW de 64 px)
 
 O pool reservava `sw*sh*2` para cada prop (16 bpp, arredondado a 256 bytes) e o
@@ -3231,6 +3288,31 @@ Dois defeitos que o teste expos e que foram consertados:
 * o log do harness e' aberto **em anexo**: sem apagar, o `awk` lia as linhas da
   rodada anterior e o teste dizia "o segundo boot nao leu o arquivo" com o
   arquivo la'.
+
+#### Corrigido: a capsula era desenhada no tamanho do SELO (18,4x19,2 px)
+
+Achado ao refazer os pacotes com o clone de arte completo. `empacotar_freeplay.py`
+gravava `FP_DESENHO_W/H`, `FP_Y_PASSO` e `FP_TEXTO_X` a partir de `cw`, `ch`,
+`w`, `h` — variáveis que sobravam do laço do **selo de rank** (52x54) e não
+foram reatribuídas antes do bloco de dados. Efeito, medido no cabeçalho
+anterior: `FP_DESENHO_W = 18,400` e `FP_DESENHO_H = 19,200` (o selo a 0,8), o
+passo vertical `26,600` em vez de `57,800`, e o título em `x = 5,408` em vez de
+`63,648`.
+
+A fonte diz outra coisa, e toda ela já estava citada no empacotador:
+
+| grandeza | fonte | valor certo |
+|---|---|---|
+| `intendedY(index)` | `SongMenuItem.hx` L766-769: `index*((capsule.height*realScaled)+10)+120`, `capsule.height = 132` | `(132*0,8+10)*0,5 = **57,8**` |
+| desenho da capsula | L669-670: `capsule.scale *= realScaled` (`0,8`) sobre 612x132 | `**244,8 x 52,8**` |
+| `songText` | L191: `CapsuleText(capsule.width*0,26, 45, ...)` | `x = 612*0,26*0,8*0,5 = **63,648**` |
+
+O erro passou por 4 harnesses porque nenhum deles mede tamanho de cápsula: o da
+Freeplay conta quads (9), o selo, o DJ e a volta ao menu. `test/test_freeplay.c`
+já cobrava `57,8` (número escrito à mão a partir da fórmula da fonte) e era o
+único que pegava — ele estava **reprovando** desde `dbe6288`, e a suíte inteira
+não tinha sido rodada depois daquele commit. Agora passa, e o gerador lê o
+tamanho de `dado_capsula["src_w"/"src_h"]` (nada de variável solta).
 
 #### O SELO DE RANK na capsula da Freeplay
 
