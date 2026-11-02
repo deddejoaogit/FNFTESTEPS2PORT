@@ -112,6 +112,51 @@ FUNDO = {
     "bpp": 16,
 }
 
+# O SELO DE RANK na capsula (`SongMenuItem.hx` L821-901, classe `FreeplayRank`):
+#
+#     frames = Paths.getSparrowAtlas('freeplay/rankbadges');
+#     animation.addByPrefix('PERFECT',     'PERFECT rank0',     24, false);
+#     animation.addByPrefix('EXCELLENT',   'EXCELLENT rank0',   24, false);
+#     animation.addByPrefix('GOOD',        'GOOD rank0',        24, false);
+#     animation.addByPrefix('PERFECTSICK', 'PERFECT rank GOLD', 24, false);
+#     animation.addByPrefix('GREAT',       'GREAT rank0',       24, false);
+#     animation.addByPrefix('LOSS',        'LOSS rank0',        24, false);
+#     blend = BlendMode.ADD;
+#     scale.set(0.9, 0.9);
+#
+# Quem escolhe a animacao e' `ScoringRank.getFreeplayRankIconAsset()`
+# (Scoring.hx L606-627): PERFECT_GOLD -> PERFECTSICK, SHIT -> LOSS, e o resto
+# pelo proprio nome. Cada uma toca UMA vez (looped = false) e para no ultimo
+# quadro; quem manda tocar e' `updateScoringRank()` no `refreshDisplay()` da
+# capsula, e o rank vem do SAVE (`getSongRank`).
+#
+# O `switch` do `set_rank` (L834-857) NAO tem fallthrough no Haxe (o manual e'
+# explicito: "Case body expressions never fall through") e o corpo de um `case`
+# e' opcional, entao os `case` com so' comentario dentro sao NO-OP. O unico
+# deslocamento que sobra em pe' e' `offset.y -= 8` no GOOD e no GREAT.
+RANKSELO = {
+    "fonte": "freeplay/rankbadges",
+    "fps": 24,
+    "escala_sprite": 0.9,      # FreeplayRank.new: scale.set(0.9, 0.9)
+    # `ScoringRank.getFreeplayRankIconAsset()`, na ordem do `rank` do port
+    # (0 LOSS/SHIT, 1 GOOD, 2 GREAT, 3 EXCELLENT, 4 PERFECT, 5 PERFECT_GOLD).
+    "anims": [
+        {"nome": "LOSS",        "prefixo": "LOSS rank0"},
+        {"nome": "GOOD",        "prefixo": "GOOD rank0"},
+        {"nome": "GREAT",       "prefixo": "GREAT rank0"},
+        {"nome": "EXCELLENT",   "prefixo": "EXCELLENT rank0"},
+        {"nome": "PERFECT",     "prefixo": "PERFECT rank0"},
+        {"nome": "PERFECTSICK", "prefixo": "PERFECT rank GOLD"},
+    ],
+    # `set_rank`: GOOD e GREAT sobem 8 px (na fonte), em 1280x720.
+    "offset_y": [0.0, -8.0, -8.0, 0.0, 0.0, 0.0],
+    # `FreeplayRank(420, 41)`: no espaco do item, que o port ja' desenha em
+    # 640x360 (o x/y do item NAO e' multiplicado por realScaled: quem escala
+    # 0,8 e' o sprite da capsula, nao o grupo).
+    "pos": (420.0, 41.0),
+    "bpp": 16,
+}
+
 # `SongMenuItem.update()` L670-700: o salto de entrada anda uma casa por 1/24 s
 # e escala a capsula por `xFrames` (x) e o inverso (y).
 XFRAMES = [1.7, 1.8, 0.85, 0.85, 0.97, 0.97, 1.0]
@@ -318,6 +363,84 @@ def empacotar(assets, out):
                 "linha": "FreeplayState.hx L340, L456, L529 e BackingCard.hx L53-62",
             }
 
+    # ---- 3b. O SELO DE RANK --------------------------------------------
+    # Um pacote so', com as seis animacoes em sequencia. Todas no MESMO canvas
+    # (o maior quadro de todos), alinhadas no canto superior esquerdo: no
+    # flixel o sprite e' posicionado pelo canto do QUADRO, entao rank que e'
+    # mais estreito fica com a sobra a' direita, nao centralizado.
+    dado_selo = None
+    rb_png = os.path.join(base, RANKSELO["fonte"] + ".png")
+    rb_xml = os.path.join(base, RANKSELO["fonte"] + ".xml")
+    if not (os.path.isfile(rb_png) and os.path.isfile(rb_xml)):
+        problemas.append("freeplay: falta o selo de rank %s" % rb_png)
+    else:
+        q_rb = ler_xml(rb_xml)
+        folha_rb = Image.open(rb_png).convert("RGBA")
+        listas = []
+        for an in RANKSELO["anims"]:
+            nomes = quadros_da_folha(q_rb, an["prefixo"])
+            if not nomes:
+                problemas.append("freeplay: a animacao %s do selo nao apareceu"
+                                 % an["nome"])
+            listas.append(nomes)
+        todos = [n for lst in listas for n in lst]
+        if not todos:
+            problemas.append("freeplay: nenhum quadro do selo")
+        else:
+            # A escala: a do sprite (0,9) vezes a metade da tela. O resultado e'
+            # arredondado UMA vez, sobre o canvas comum, para todos os quadros
+            # caírem no mesmo retangulo (o pacote exige tamanho fixo).
+            esc = RANKSELO["escala_sprite"] * HALF
+            cw = max(q_rb[n]["fw"] or q_rb[n]["w"] for n in todos)
+            ch = max(q_rb[n]["fh"] or q_rb[n]["h"] for n in todos)
+            w = max(1, int(round(cw * esc)))
+            h = max(1, int(round(ch * esc)))
+            if w > MAX_TEX or h > MAX_TEX:
+                problemas.append("freeplay: o selo %dx%d passa do limite %d"
+                                 % (w, h, MAX_TEX))
+            else:
+                blocos = []
+                for n in todos:
+                    q = q_rb[n]
+                    pedaco = folha_rb.crop((q["x"], q["y"],
+                                            q["x"] + q["w"], q["y"] + q["h"]))
+                    tela = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+                    tela.paste(pedaco, (-q["fx"], -q["fy"]))
+                    tela = tela.resize((w, h), Image.LANCZOS)
+                    blocos.append(lz4.block.compress(
+                        pp.to_ps2_bytes(tela, RANKSELO["bpp"]),
+                        store_size=False))
+                partes = pp.write_packs(blocos, w * h * (RANKSELO["bpp"] // 8),
+                                        os.path.join(out, "rankbadges.cfz4"))
+                anims = []
+                ini = 0
+                for k, (an, nomes) in enumerate(zip(RANKSELO["anims"], listas)):
+                    anims.append({
+                        "nome": an["nome"],
+                        "ini": ini,
+                        "n": len(nomes),
+                        # `offset.y -= 8` so' no GOOD (1) e no GREAT (2); aqui
+                        # ja' na metade da tela.
+                        "off_y": RANKSELO["offset_y"][k] * HALF,
+                    })
+                    ini += len(nomes)
+                dado_selo = {
+                    "fonte": RANKSELO["fonte"],
+                    "tex": "freeplay/rankbadges.cfz4",
+                    "partes": [os.path.basename(p[0]) for p in partes],
+                    "src_w": cw, "src_h": ch,
+                    "w": w, "h": h,
+                    "bpp": RANKSELO["bpp"],
+                    "quadros": len(blocos),
+                    "fps": RANKSELO["fps"],
+                    "vram_bytes": w * h * (RANKSELO["bpp"] // 8),
+                    "anims": anims,
+                    "x": round(RANKSELO["pos"][0] * HALF, 3),
+                    "y": round(RANKSELO["pos"][1] * HALF, 3),
+                    "linha": "SongMenuItem.hx L821-901 (FreeplayRank) e "
+                             "Scoring.hx L606-627",
+                }
+
     # ---- 4. O DADO -----------------------------------------------------
     # As posicoes saem de `SongMenuItem.intendedX/intendedY` (L762-769) e o
     # `capsule.height` do original e' o canvas SEM CORTE (ch), nao o pedaco.
@@ -325,6 +448,7 @@ def empacotar(assets, out):
     dado = {
         "capsula": dado_capsula,
         "fundo": dado_fundo,
+        "selo": dado_selo,
         "titulos": titulos_out,
         "escala": HALF,
         # `intendedX(index) = 270 + 60*fastSin(index)`; `intendedY(index) =
@@ -394,6 +518,38 @@ def escreve_header(dado):
         a("#define FP_FUNDO_ENTRADA_MS %d" % f["entrada_ms"])
         a("#define FP_FUNDO_X          %.3ff" % f["x"])
         a("#define FP_FUNDO_Y          %.3ff" % f["y"])
+        a("")
+    rb = dado.get("selo")
+    if rb:
+        a("/* O SELO DE RANK da capsula (`SongMenuItem.hx` L821-901): as seis")
+        a(" * animacoes de `freeplay/rankbadges`, uma vez cada, no ultimo quadro.")
+        a(" * `off_y` ja' na metade; so' GOOD e GREAT deslocam (`offset.y -= 8`). */")
+        a("#define FP_RB_W             %d      /* %dx%d na arte */"
+          % (rb["w"], rb["src_w"], rb["src_h"]))
+        a("#define FP_RB_H             %d" % rb["h"])
+        a("#define FP_RB_BPP           %d" % rb["bpp"])
+        a("#define FP_RB_QUADROS       %d" % rb["quadros"])
+        a("#define FP_RB_FPS           %d" % rb["fps"])
+        a("#define FP_RB_VRAM          %du" % rb["vram_bytes"])
+        a("#define FP_RB_TEX           \"%s\"" % rb["tex"])
+        a("#define FP_RB_X             %.3ff   /* FreeplayRank(420, 41) */"
+          % rb["x"])
+        a("#define FP_RB_Y             %.3ff" % rb["y"])
+        a("#define FP_RB_ANIMS_N       %d" % len(rb["anims"]))
+        a("")
+        a("typedef struct {")
+        a("    const char *nome;   /* getFreeplayRankIconAsset() */")
+        a("    int ini, n;         /* quadro inicial e quantos              */")
+        a("    float off_y;        /* `offset.y -= 8` no GOOD e no GREAT    */")
+        a("} fp_rb_anim_t;")
+        a("")
+        a("/* Na ordem do rank do port: 0 LOSS/SHIT, 1 GOOD, 2 GREAT,")
+        a(" * 3 EXCELLENT, 4 PERFECT, 5 PERFECT_GOLD (a arte dourada). */")
+        a("static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {")
+        for an in rb["anims"]:
+            a("    {\"%s\", %d, %d, %.1ff},"
+              % (an["nome"], an["ini"], an["n"], an["off_y"]))
+        a("};")
         a("")
     a("#define FP_X_BASE           %.3ff   /* 270 * 0,5 */" % dado["x_base"])
     a("#define FP_X_AMP            %.3ff   /* 60 * 0,5  */" % dado["x_amp"])

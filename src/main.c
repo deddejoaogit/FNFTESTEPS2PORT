@@ -1661,6 +1661,8 @@ static void palco_ui_entrou(texbuffer_t *gf, texbuffer_t *stage, texbuffer_t *te
 #define FP_CHAVE_TIT (SP_CHAVE_TELA_BASE + 0x50u)   /* os 27 titulos (1 por musica) */
 #define FP_CHAVE_FUNDO (SP_CHAVE_TELA_BASE + 0x42u) /* o fundo (1 quadro, 16 bpp) */
 #define FP_CHAVE_DJ    (SP_CHAVE_TELA_BASE + 0x43u) /* o DJ (1 quadro, 16 bpp)    */
+#define FP_CHAVE_RB    (SP_CHAVE_TELA_BASE + 0x44u) /* o selo de rank: +0..+5, um
+                                                       por rank (6 animacoes)   */
 #define FP_TIT_SLOTS 8
 #define FP_JANELA    9      /* quantas capsulas a tela desenha por vez      */
 
@@ -1717,6 +1719,20 @@ static unsigned long g_dj_idle_ms = 0;    /* `timeIdling` */
 static int g_dj_viu_egg = 0;              /* `seenIdleEasterEgg` */
 static int g_dj_logado = 0;
 static int g_dj_desenhos = 0;
+/* O SELO DE RANK na capsula (`SongMenuItem.hx` L821-901, `FreeplayRank`): seis
+   animacoes de 13 a 17 quadros a 24 fps, uma vez cada (looped = false). Um
+   slot de VRAM POR RANK (FP_RB_VRAM = 1.104 B cada): a animacao so' difere
+   entre ranks, e dentro de um rank os quadros se sucedem -- entao o slot do
+   rank guarda o quadro do instante e o cache evita reenviar. */
+static pst_pack_t g_rb_pack;
+static int g_rb_ok = 0, g_rb_tentou = 0;
+static unsigned char *g_rb_buf = 0;
+static unsigned int g_rb_buf_bytes = 0;
+static unsigned int g_rb_addr[FP_RB_ANIMS_N];
+static int g_rb_addr_ok[FP_RB_ANIMS_N];
+static int g_rb_frame[FP_RB_ANIMS_N];
+static int g_rb_rank[FREEPLAY_MAX];      /* rank de cada musica, -1 = nenhum */
+static int g_rb_desenhos = 0, g_rb_logado = 0;
 static unsigned char g_fpt_buf[24576];
 /* Um slot POR MUSICA: os 27 titulos somam 122.740 B de VRAM (o maior,
    `spaghetti`, 20.672 B), e todos cabem no pool da tela -- entao eles sobem
@@ -1746,12 +1762,14 @@ static float fp_desenho_h(float s) { return FP_DESENHO_H * s; }
 
 static void freeplay_dj_soltar(void);
 static void freeplay_dj_carregar(texbuffer_t *tpl);
+static void freeplay_selo_soltar(void);
 static void freeplay_fundo_carregar(texbuffer_t *tpl);
 
 static void freeplay_capsula_soltar(void)
 {
     int i;
     freeplay_dj_soltar();
+    freeplay_selo_soltar();
     /* O fundo sai junto: e' a mesma tela e o mesmo pool. */
     if (g_fpf_tentou) pst_fechar(&g_fpf_pack);
     g_fpf_tentou = 0; g_fpf_ok = 0; g_fpf_logado = 0;
@@ -1830,6 +1848,79 @@ static void freeplay_fundo_carregar(texbuffer_t *tpl)
    quadro de 16 bpp na VRAM e deixa o estado no comeco (`Intro`, que toca a
    animacao 'intro' uma vez e cai no `Idle`). Sem o pacote, a tela continua
    legivel: o fundo, as capsulas e os titulos nao dependem dele. */
+static void freeplay_selo_soltar(void)
+{
+    int i;
+    if (g_rb_tentou) pst_fechar(&g_rb_pack);
+    g_rb_tentou = 0; g_rb_ok = 0; g_rb_logado = 0; g_rb_desenhos = 0;
+    if (g_rb_buf) { free(g_rb_buf); g_rb_buf = 0; g_rb_buf_bytes = 0; }
+    for (i = 0; i < (int)FP_RB_ANIMS_N; i++) {
+        if (g_rb_addr_ok[i] || g_rb_addr[i]) sp_soltar(&g_pool, FP_CHAVE_RB + (unsigned)i);
+        g_rb_addr[i] = 0; g_rb_addr_ok[i] = 0; g_rb_frame[i] = -1;
+    }
+}
+
+/* A tela pergunta ao SAVE o rank de cada musica da lista
+   (`refreshDisplay` -> `updateScoringRank(freeplayData.scoringRank)`, e
+   `scoringRank` e' `Save.instance.getSongRank(id, dificuldade)`). Troca de
+   dificuldade refaz a conta para todas: o rank e' por musica E dificuldade. */
+static void freeplay_selo_ranks(void)
+{
+    int i;
+    int dif = g_fp_diff;
+    if (dif < 0) dif = 0;
+    if (dif >= SAVE_DIFS) dif = SAVE_DIFS - 1;
+    {int com = 0;
+     for (i = 0; i < FREEPLAY_MAX; i++) {
+        int idx = (i < g_fp_n && g_fp[i]) ? sr_song_index(g_fp[i]) : -1;
+        g_rb_rank[i] = (idx >= 0 && idx < SAVE_MUSICAS)
+                           ? save_rank(save_obter(&g_save, idx, dif)) : -1;
+        if (g_rb_rank[i] >= 0) com++;
+     }
+     telemetry_event("freeplay_selo_ranks", com, dif);}
+}
+
+/* Abre o pacote do selo e reserva um slot de VRAM por rank. Sem o pacote a
+   tela continua inteira: so' nao aparece o selo de quem ja' jogou. */
+static void freeplay_selo_carregar(texbuffer_t *tpl)
+{
+    char caminho[128];
+    unsigned int bytes;
+    int i;
+    freeplay_selo_soltar();
+    snprintf(caminho, sizeof(caminho), FP_DIR "%s", FP_RB_TEX);
+    if (pst_abrir(caminho, &g_rb_pack) != PST_OK) {
+        telemetry_event("freeplay_selo_falta", 0, (int)sp_livre(&g_pool));
+        return;
+    }
+    g_rb_tentou = 1;
+    bytes = g_rb_pack.frame_bytes;
+    if (bytes != (unsigned int)FP_RB_W * (unsigned int)FP_RB_H * 2u ||
+        g_rb_pack.count != (unsigned int)FP_RB_QUADROS) {
+        telemetry_event("freeplay_selo_tamanho", (int)bytes, (int)g_rb_pack.count);
+        pst_fechar(&g_rb_pack); g_rb_tentou = 0;
+        return;
+    }
+    if (bytes > g_rb_buf_bytes) {
+        free(g_rb_buf);
+        g_rb_buf = (unsigned char *)memalign(64, (size_t)bytes);
+        g_rb_buf_bytes = g_rb_buf ? bytes : 0u;
+    }
+    if (!g_rb_buf) { pst_fechar(&g_rb_pack); g_rb_tentou = 0; return; }
+    for (i = 0; i < (int)FP_RB_ANIMS_N; i++) {
+        unsigned int addr = 0;
+        if (sp_chave(&g_pool, FP_CHAVE_RB + (unsigned)i, bytes, &addr) >= 0) {
+            g_rb_addr[i] = addr;
+            g_rb_addr_ok[i] = 1;
+            g_rb_frame[i] = -1;
+        }
+    }
+    g_rb_ok = 1;
+    for (i = 0; i < (int)FP_RB_ANIMS_N; i++) if (!g_rb_addr_ok[i]) g_rb_ok = 0;
+    telemetry_event("freeplay_selo", g_rb_ok, (int)bytes);
+    (void)tpl;
+}
+
 static void freeplay_dj_soltar(void)
 {
     if (g_dj_tentou) pm_fechar(&g_dj_pack);
@@ -1959,6 +2050,8 @@ static int freeplay_capsula_carregar(texbuffer_t *tpl)
     telemetry_event("freeplay_titulos", g_fpt_bytes, g_fpt_falhas);
     freeplay_fundo_carregar(tpl);
     freeplay_dj_carregar(tpl);
+    freeplay_selo_carregar(tpl);
+    freeplay_selo_ranks();
     return g_fpc_ok;
 }
 
@@ -1984,6 +2077,44 @@ static int freeplay_capsula_quadro(texbuffer_t *tpl, int sel, int quadro)
     g_fptex_cap[sel] = t;
     if (sel) g_fptex_sel = t; else g_fptex_nao = t;
     g_fpc_desenhos++;
+    return 1;
+}
+
+/* O quadro do selo de `rank` no instante `ms` (desde a abertura da tela). A
+   animacao toca UMA vez e para no ultimo quadro (`looped = false` no
+   `addByPrefix`, e o Haxe nao tem fallthrough: `updateScoringRank` so' chama
+   `animation.play` quando o rank muda). Devolve o indice GLOBAL do quadro no
+   pacote, ou -1 quando nao ha' rank/selo. */
+static int freeplay_selo_quadro(int rank, unsigned long ms)
+{
+    const fp_rb_anim_t *a;
+    unsigned long k;
+    if (rank < 0 || rank >= (int)FP_RB_ANIMS_N) return -1;
+    a = &fp_rb_anims[rank];
+    if (a->n <= 0) return -1;
+    k = (ms * (unsigned long)FP_RB_FPS) / 1000ul;
+    if (k >= (unsigned long)a->n) k = (unsigned long)a->n - 1ul;
+    return a->ini + (int)k;
+}
+
+/* Leva o quadro `frame` (indice global) do pacote para o slot do `rank`.
+   Devolve 1 quando o texbuffer do slot esta' pronto para desenhar. */
+static int freeplay_selo_vram(texbuffer_t *tpl, int rank, int frame)
+{
+    texbuffer_t t;
+    if (!g_rb_ok || !g_rb_buf || rank < 0 || rank >= (int)FP_RB_ANIMS_N) return 0;
+    if (frame < 0) return 0;
+    if (g_rb_frame[rank] != frame) {
+        if (pst_quadro(&g_rb_pack, (unsigned int)frame, g_rb_buf) != PST_OK) return 0;
+        t = *tpl;
+        t.width = FP_RB_W;
+        t.psm = GS_PSM_16;
+        t.address = g_rb_addr[rank];
+        setup_texture_dims(&t, FP_RB_W, FP_RB_H);
+        FlushCache(0);
+        upload_raw_psm(&t, g_rb_buf, FP_RB_W, FP_RB_H, GS_PSM_16);
+        g_rb_frame[rank] = frame;
+    }
     return 1;
 }
 
@@ -3469,7 +3600,9 @@ static void save_carregar_do_cartao(void)
     g_save_ok = 0;
     fd = open(SAVE_PATH, O_RDONLY);
     if (fd < 0) {
-        telemetry_event("save_estado", 0, -1);
+        /* -1 = NAO HA' ARQUIVO (sem cartao). Um arquivo curto/estragado tem
+           codigo proprio (SAVE_ERR_*, -2..-6): o log nao confunde os dois. */
+        telemetry_event("save_estado", 0, SAVE_SEM_ARQUIVO);
         return;
     }
     while (total < (int)SAVE_ARQUIVO_BYTES) {
@@ -6153,7 +6286,8 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    else if(pressed&PAD_DOWN){g_fp_sel=(g_fp_sel+1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);freeplay_dj_acao();telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
    if(pressed&PAD_LEFT||pressed&PAD_RIGHT){int d=g_fp_diff,passo=(pressed&PAD_RIGHT)?1:2,n;
     for(n=0;n<3;n++){d=(d+passo)%3;if(g_fp[g_fp_sel]->difficulties&(1u<<d))break;}
-    g_fp_diff=d;freeplay_dj_acao();telemetry_event("freeplay_diff",g_fp_diff,0);}
+    g_fp_diff=d;freeplay_dj_acao();freeplay_selo_ranks();
+    telemetry_event("freeplay_diff",g_fp_diff,0);}
    if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
     /* `FreeplayState.hx` L2765: `dj?.onConfirm()` antes de sair para o palco. */
@@ -7107,6 +7241,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     /* `generateSongList`: nasce em `initPosition(FlxG.width, 0)` com
        `y = intendedY(index) + 10` -- entra pela direita e sobe/desce. */
     if(!st->vivo){st->vivo=1;st->x=FP_LARGURA;st->y=ay+10.0f;st->sel=sel;}
+
     if(st->sel!=sel){
      /* `updateSelected()` reinicia a animacao e chama `textAppear()`. */
      st->sel=sel;st->t_texto=(unsigned long)g_fp_ms;st->texto_ok=1;
@@ -7148,6 +7283,28 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      q=bind_texture_filter(q,&tt,1);
      q=sprite_region_alpha(q,st->x+FP_TEXTO_X,st->y+FP_TEXTO_Y,tw*tsx,th*tsy,
                            u,0.0f,tw,th,ta);
+    }
+    /* O SELO DE RANK da musica (`ranking`), por cima do titulo: no original ele
+       e' `add()`ado depois do `songText`.`ranking.alpha = isSelected ? 1 : 0,7`
+       (updateSelected, L800). Sem rank (nunca jogada nesta dificuldade) o
+       sprite e' invisivel, como no `set_rank` com valor nulo. */
+    if(g_rb_ok&&i<FREEPLAY_MAX&&g_rb_rank[i]>=0){
+     int rb=g_rb_rank[i],frb=freeplay_selo_quadro(rb,(unsigned long)g_fp_ms);
+     texbuffer_t rt;
+     if(frb>=0&&freeplay_selo_vram(&g_fpc_tpl,rb,frb)){
+      rt=g_fpc_tpl;
+      rt.width=FP_RB_W;rt.psm=GS_PSM_16;rt.address=g_rb_addr[rb];
+      setup_texture_dims(&rt,FP_RB_W,FP_RB_H);
+      q=bind_texture_filter(q,&rt,1);
+      q=sprite_region_alpha(q,st->x+FP_RB_X,
+                            st->y+FP_RB_Y+fp_rb_anims[rb].off_y,
+                            (float)FP_RB_W,(float)FP_RB_H,
+                            0.0f,0.0f,(float)FP_RB_W,(float)FP_RB_H,
+                            (unsigned char)((sel?1.0f:0.7f)*255.0f+0.5f));
+      g_rb_desenhos++;
+      if(!g_rb_logado){g_rb_logado=1;
+       telemetry_event("freeplay_selo_desenho",rb,(int)(st->x*10.0f));}
+     }
     }
    }
    /* A faixa de baixo. O `FreeplayScore`/as estrelas de dificuldade do original

@@ -293,5 +293,37 @@ bgd = g.make_resultado_bg(bw, bh)
 print(f"  RESULTADO   gradiente {bw}x{bh} arquivo={len(bgd):>9,}")
 ok &= (len(bgd) == bw * bh * 4)
 
+# A FREEPLAY: a capsula (16 quadros), o fundo (1 quadro em 16 bpp) e o SELO DE
+# RANK (85 quadros em 16 bpp). Os tres tem de sair com o `frame_bytes` que o
+# `src/engine/freeplay_dados.h` manda -- o jogo recusa o pacote quando o
+# tamanho do quadro nao bate, e recusar o do selo significa "o selo nao acende".
+_fn = g.freeplay_plan()
+if _fn:
+    _check_fp = [("capsula", _fn["capsula"]),
+                 ("fundo", _fn.get("fundo")),
+                 ("selo", _fn.get("selo"))]
+    for _nome, _d in _check_fp:
+        if not _d:
+            continue
+        _fb = _d["w"] * _d["h"] * (_d.get("bpp", 32) // 8)
+        _pk = g.make_resultado_pack(_d["w"], _d["h"], _d["quadros"],
+                                    bytes_por_pixel=_d.get("bpp", 32) // 8)
+        _ver, _cnt, _pb = struct.unpack("<III", _pk[4:16])
+        # `marcas_do_pacote` exige mais de um quadro DIFERENTE; o fundo tem UM,
+        # entao para ele a conferencia e' a decodificacao exata.
+        if _cnt == 1:
+            _off, _size = struct.unpack("<II", _pk[16:24])
+            _dst = bytearray(_fb)
+            _marcas = dec_lz4(_pk[_off:_off + _size], _fb, _dst) == 0
+        else:
+            _marcas = marcas_do_pacote(_pk, _cnt, _fb)
+        _bom = (_pk[:4] == b"CFZ4" and _ver == 1 and _cnt == _d["quadros"]
+                and _pb == _fb and _marcas)
+        print(f"  FREEPLAY    {_d['tex']:28s} {_d['w']}x{_d['h']} "
+              f"quadros={_cnt} frame_bytes={_pb} integro={_bom}")
+        ok &= _bom
+else:
+    ok = False
+
 print()
 print("TODOS EXATOS" if ok else "FALHOU")

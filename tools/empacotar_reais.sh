@@ -20,13 +20,14 @@
 #   audio/     PCM 48 kHz dos sfx de game over
 #
 # Requer: clone esparso de github.com/FunkinCrew/funkin.assets com
-# shared/images, preload/images, preload/data, preload/scripts, shared/music --
-# e Pillow + lz4 + numpy (PYTHONPATH, por padrao /tmp/pylibs).
+# shared/images, preload/images, preload/data, preload/scripts, shared/music e
+# **fonts** (sem `fonts` o titulo das capsulas nao tem a 5by7.ttf e a Freeplay
+# sai sem titulo) -- e Pillow + lz4 + numpy (PYTHONPATH, por padrao /tmp/pylibs).
 #
 # Uso tipico:
 #   git clone --filter=blob:none --sparse https://github.com/FunkinCrew/funkin.assets /tmp/fassets
 #   git -C /tmp/fassets sparse-checkout set shared/images preload/images \
-#       preload/data preload/scripts shared/music
+#       preload/data preload/scripts shared/music fonts
 #   pip3 install --target /tmp/pylibs pillow lz4 numpy
 #   sh tools/empacotar_reais.sh /tmp/fassets
 #
@@ -44,6 +45,14 @@ export PYTHONPATH
 if [ ! -d "$ASSETS/shared/images" ]; then
     echo "FALHA: $ASSETS/shared/images nao existe -- clone da arte ausente."
     echo "       Veja o cabecalho deste script (sparse-checkout do funkin.assets)."
+    exit 1
+fi
+# A fonte do titulo das capsulas mora em fonts/ no clone, e o sparse-checkout
+# padrao das instrucoes antigas nao a trazia: o empacotador da Freeplay parava
+# em "falta a fonte .../fonts/5by7.ttf" e a tela ficava sem titulo nenhum.
+if [ ! -f "$ASSETS/fonts/5by7.ttf" ]; then
+    echo "FALHA: $ASSETS/fonts/5by7.ttf nao existe."
+    echo "       git -C $ASSETS sparse-checkout add fonts"
     exit 1
 fi
 if ! python3 -c "import PIL, lz4, numpy" 2>/dev/null; then

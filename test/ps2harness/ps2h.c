@@ -809,6 +809,15 @@ u64 GetTimerSystemTime(void)
 /*  E/S: mass:/ vira o diretorio de assets do harness                         */
 /* ------------------------------------------------------------------------- */
 
+/* O MEMORY CARD (`mc0:/`). No console ele e' um cartao de verdade; no PC nao
+   existe, e o jogo trata a falha como "save volatil". Para poder TESTAR o save
+   de verdade -- gravar, ler de volta, conferir o CRC e ver o selo de rank na
+   Freeplay -- o harness mapeia `mc0:/` para `<root>/card/` QUANDO FNF_CARD=1.
+   Sem essa variavel o caminho vai para um diretorio que nunca existe, e o
+   comportamento e' exatamente o de um console sem cartao.
+   O que isto NAO prova: o cartao do PS2 (`mcInit`, IRX, formato do sistema de
+   arquivos). Prova o formato, a gravacao, a leitura e a recusa de arquivo
+   estragado -- que sao a parte que o port escreveu. */
 static const char *ps2h_map_path(const char *p, char *buf, size_t n)
 {
     if (p && !strncmp(p, "mass:/", 6)) {
@@ -816,6 +825,14 @@ static const char *ps2h_map_path(const char *p, char *buf, size_t n)
         return buf;
     }
     if (p && !strncmp(p, "host:/", 6)) return p + 6;
+    if (p && !strncmp(p, "mc0:/", 5)) {
+        const char *card = getenv("FNF_CARD");
+        if (card && *card && strcmp(card, "0") != 0)
+            snprintf(buf, n, "%s/%s", ps2h_root, p + 5);
+        else
+            snprintf(buf, n, "%s/../sem-cartao/%s", ps2h_root, p + 5);
+        return buf;
+    }
     return p;
 }
 

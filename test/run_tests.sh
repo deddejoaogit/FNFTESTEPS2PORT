@@ -748,6 +748,19 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     fi
     tail -6 /tmp/fnf_freeplay.log
 
+    # SAVE: gravar no "cartao", ler de volta e ver o selo de rank na Freeplay.
+    # O harness mapeia `mc0:/` para um diretorio quando FNF_CARD=1, entao o
+    # formato de 1.960 B, o CRC e o caminho de leitura deixam de ser so' codigo
+    # revisado: rodam. O CARTAO do PS2 continua so' do console.
+    echo
+    echo "== save no harness (gravar, conferir o CRC, ler e o selo de rank) =="
+    if ! sh tools/run_save_harness.sh > /tmp/fnf_save.log 2>&1; then
+        tail -20 /tmp/fnf_save.log
+        echo "  FALHA: o save nao passou"
+        exit 1
+    fi
+    tail -4 /tmp/fnf_save.log
+
     # SWEEP: as 27 musicas x 3 dificuldades, uma por uma. Antes disto o harness
     # provava UMA musica (o Tutorial) e a Freeplay do port so' toca a primeira
     # da lista: 54 dos 81 charts nunca tinham sido carregados pelo jogo. Um

@@ -856,6 +856,12 @@ def _freeplay_files():
                                               bytes_por_pixel=fun["bpp"] // 8)
     for i, (sid, t) in enumerate(sorted(plano["titulos"].items())):
         out[t["arquivo"]] = rgba_pattern(t["w"], t["h"], i + 1)
+    # O SELO DE RANK (`freeplay/rankbadges.cfz4`): 16 bpp, um slot por rank.
+    selo = plano.get("selo")
+    if selo:
+        out[selo["tex"]] = make_resultado_pack(selo["w"], selo["h"],
+                                               selo["quadros"],
+                                               bytes_por_pixel=selo["bpp"] // 8)
     return out
 
 

@@ -30,13 +30,44 @@
 #define FP_FUNDO_X          0.000f
 #define FP_FUNDO_Y          0.000f
 
+/* O SELO DE RANK da capsula (`SongMenuItem.hx` L821-901): as seis
+ * animacoes de `freeplay/rankbadges`, uma vez cada, no ultimo quadro.
+ * `off_y` ja' na metade; so' GOOD e GREAT deslocam (`offset.y -= 8`). */
+#define FP_RB_W             23      /* 52x54 na arte */
+#define FP_RB_H             24
+#define FP_RB_BPP           16
+#define FP_RB_QUADROS       85
+#define FP_RB_FPS           24
+#define FP_RB_VRAM          1104u
+#define FP_RB_TEX           "freeplay/rankbadges.cfz4"
+#define FP_RB_X             210.000f   /* FreeplayRank(420, 41) */
+#define FP_RB_Y             20.500f
+#define FP_RB_ANIMS_N       6
+
+typedef struct {
+    const char *nome;   /* getFreeplayRankIconAsset() */
+    int ini, n;         /* quadro inicial e quantos              */
+    float off_y;        /* `offset.y -= 8` no GOOD e no GREAT    */
+} fp_rb_anim_t;
+
+/* Na ordem do rank do port: 0 LOSS/SHIT, 1 GOOD, 2 GREAT,
+ * 3 EXCELLENT, 4 PERFECT, 5 PERFECT_GOLD (a arte dourada). */
+static const fp_rb_anim_t fp_rb_anims[FP_RB_ANIMS_N] = {
+    {"LOSS", 0, 17, 0.0f},
+    {"GOOD", 17, 13, -4.0f},
+    {"GREAT", 30, 13, -4.0f},
+    {"EXCELLENT", 43, 14, 0.0f},
+    {"PERFECT", 57, 14, 0.0f},
+    {"PERFECTSICK", 71, 14, 0.0f},
+};
+
 #define FP_X_BASE           135.000f   /* 270 * 0,5 */
 #define FP_X_AMP            30.000f   /* 60 * 0,5  */
 #define FP_Y_BASE           60.000f   /* 120 * 0,5 */
-#define FP_Y_PASSO          57.800f   /* (capsule.height*0,8 + 10) * 0,5 */
-#define FP_DESENHO_W        244.800f
-#define FP_DESENHO_H        52.800f
-#define FP_TEXTO_X          63.648f   /* capsule.width * 0,26 */
+#define FP_Y_PASSO          26.600f   /* (capsule.height*0,8 + 10) * 0,5 */
+#define FP_DESENHO_W        18.400f
+#define FP_DESENHO_H        19.200f
+#define FP_TEXTO_X          5.408f   /* capsule.width * 0,26 */
 #define FP_TEXTO_Y          18.000f   /* 45, em 1280x720 */
 #define FP_TEXTO_CLIP       102.000f   /* CapsuleText.clipWidth = 255 */
 #define FP_LERP_X           0.256f

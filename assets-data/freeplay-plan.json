@@ -37,6 +37,62 @@
   "entrada_ms": 700,
   "linha": "FreeplayState.hx L340, L456, L529 e BackingCard.hx L53-62"
  },
+ "selo": {
+  "fonte": "freeplay/rankbadges",
+  "tex": "freeplay/rankbadges.cfz4",
+  "partes": [
+   "rankbadges.cfz4"
+  ],
+  "src_w": 52,
+  "src_h": 54,
+  "w": 23,
+  "h": 24,
+  "bpp": 16,
+  "quadros": 85,
+  "fps": 24,
+  "vram_bytes": 1104,
+  "anims": [
+   {
+    "nome": "LOSS",
+    "ini": 0,
+    "n": 17,
+    "off_y": 0.0
+   },
+   {
+    "nome": "GOOD",
+    "ini": 17,
+    "n": 13,
+    "off_y": -4.0
+   },
+   {
+    "nome": "GREAT",
+    "ini": 30,
+    "n": 13,
+    "off_y": -4.0
+   },
+   {
+    "nome": "EXCELLENT",
+    "ini": 43,
+    "n": 14,
+    "off_y": 0.0
+   },
+   {
+    "nome": "PERFECT",
+    "ini": 57,
+    "n": 14,
+    "off_y": 0.0
+   },
+   {
+    "nome": "PERFECTSICK",
+    "ini": 71,
+    "n": 14,
+    "off_y": 0.0
+   }
+  ],
+  "x": 210.0,
+  "y": 20.5,
+  "linha": "SongMenuItem.hx L821-901 (FreeplayRank) e Scoring.hx L606-627"
+ },
  "titulos": {
   "tutorial": {
    "id": "tutorial",
@@ -259,10 +315,10 @@
  "x_base": 135.0,
  "x_amp": 30.0,
  "y_base": 60.0,
- "y_passo": 57.8,
- "desenho_w": 244.8,
- "desenho_h": 52.8,
- "texto_x": 63.648,
+ "y_passo": 26.6,
+ "desenho_w": 18.4,
+ "desenho_h": 19.2,
+ "texto_x": 5.408,
  "texto_y": 18.0,
  "texto_clip": 102.0,
  "xframes": [

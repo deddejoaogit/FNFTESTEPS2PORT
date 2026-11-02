@@ -93,11 +93,15 @@ unsigned int save_serializar(const save_t *sv, unsigned char *dst);
 
 /* Le' `src` em `sv`. Devolve 0 ou um erro negativo; em erro, `sv` fica como
  * estava (nada meio lido). */
-#define SAVE_ERR_CURTO   (-1)   /* menos bytes que o cabecalho               */
-#define SAVE_ERR_MAGIC   (-2)   /* nao e' "FNFS"                            */
-#define SAVE_ERR_VERSAO  (-3)   /* versao desconhecida                      */
-#define SAVE_ERR_CONTAGEM (-4)  /* numero de registros diferente do esperado */
-#define SAVE_ERR_CRC     (-5)   /* corpo corrompido                         */
+/* Os codigos de erro comecam em -2 de proposito: -1 e' "NAO HA' SAVE" (sem
+ * cartao, arquivo inexistente), e um arquivo curto NAO e' a mesma coisa. Antes
+ * os dois eram -1 e o log `save_estado,0,-1` nao dizia qual dos dois foi. */
+#define SAVE_SEM_ARQUIVO (-1)   /* open() falhou: sem cartao ou sem arquivo  */
+#define SAVE_ERR_CURTO   (-2)   /* menos bytes que o arquivo inteiro         */
+#define SAVE_ERR_MAGIC   (-3)   /* nao e' "FNFS"                            */
+#define SAVE_ERR_VERSAO  (-4)   /* versao desconhecida                      */
+#define SAVE_ERR_CONTAGEM (-5)  /* numero de registros diferente do esperado */
+#define SAVE_ERR_CRC     (-6)   /* corpo corrompido                         */
 int save_desserializar(save_t *sv, const unsigned char *src, unsigned int bytes);
 
 /* CRC32 (polinomio 0xEDB88320, o mesmo do zlib) -- usado no cabecalho. */
