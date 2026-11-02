@@ -50,6 +50,13 @@ ZOOMS=$(awk -F, '$1=="E" && $3=="freeplay_rank_fase" {printf "%s ", $5}' "$LOG")
 POS=$(awk -F, '$1=="E" && $3=="freeplay_rank_pos" {printf "%s:%s ", $4, $5}' "$LOG")
 FIM=$(awk -F, '$1=="E" && $3=="freeplay_rank_fim" {print $4","$5; exit}' "$LOG")
 DES=$(awk -F, '$1=="E" && $3=="freeplay_rank_desenho" {print $4","$5; exit}' "$LOG")
+# O AUDIO DA CINEMATICA: silencio + os dois `playOnce` do rank novo (600 ms e
+# 1100 ms) e, no fim do tremor, o preview da musica de volta do comeco.
+CINEAUD=$(awk -F, '$1=="E" && $3=="freeplay_audio_cine" {print $4","$5; exit}' "$LOG")
+SONS=$(awk -F, '$1=="E" && $3=="freeplay_rank_som" {printf "%s ", $4}' "$LOG")
+SONSFALHA=$(awk -F, '$1=="E" && ($3=="freeplay_rank_som_falta" || $3=="freeplay_rank_som_sem_slot" || $3=="freeplay_rank_som_desconhecido") {printf "%s:%s ", $3, $4}' "$LOG")
+RECOMECO=$(awk -F, '$1=="E" && $3=="freeplay_audio_recomeco" {print $4","$5; exit}' "$LOG")
+PREVA=$(awk -F, '$1=="E" && $3=="freeplay_audio_preview" {print $4","$5; exit}' "$LOG")
 NDRAW=$(awk -F, '$1=="E" && $3=="freeplay_cine_quadro_falhou" {n++} END{print n+0}' "$LOG")
 
 echo
@@ -62,6 +69,11 @@ echo "  capsula (x:y em decimos) ... ${POS:-?}"
 echo "  fim (desenhos, atraso ms) .. ${FIM:-?}"
 echo "  desenho (novo, antigo) ..... ${DES:-?}"
 echo "  quadros da cinematica que falharam .. $NDRAW"
+echo "  audio: silencio+jingles ............ ${CINEAUD:-?}   (estado 3 = cinematica)"
+echo "  jingles do rank (indice) ........... ${SONS:-?}   (0 bad / 1 normal / 2 perfect | 3 loss / 4 good / 5 great / 6 excellent / 7 perfect)"
+echo "  jingles ausentes ................... ${SONSFALHA:-nenhum}"
+echo "  preview de volta no fim ............ ${RECOMECO:-?}   (amostras, KB do fim da janela)"
+echo "  preview antes da cinematica ........ ${PREVA:-?}   (amostras, indice da musica)"
 
 FALHA=0
 [ "${CINE%%,*}" = "7" ] || { echo "  FALHA: as texturas da cinematica nao abriram todas (${CINE:-sem evento})"; FALHA=1; }
@@ -99,6 +111,47 @@ esac
 [ "${DES%%,*}" = "$RANK" ] || { echo "  FALHA: o desenho registrou o rank ${DES%%,*} e o forcado era $RANK"; FALHA=1; }
 [ "${DES##*,}" = "$ANTIGO" ] || { echo "  FALHA: o desenho registrou o rank antigo ${DES##*,} e o forcado era $ANTIGO"; FALHA=1; }
 [ "$NDRAW" = "0" ] || { echo "  FALHA: $NDRAW quadro(s) da cinematica nao descomprimiram"; FALHA=1; }
+
+# ---- O AUDIO DA CINEMATICA (engine/freeplay_audio.c) ------------------------
+# 1. A tela entrou em modo CINEMATICA: `FlxG.sound.music.volume = 0` (L1088) no
+#    original, que aqui quer dizer "sem fonte primaria, so' os jingles".
+[ "${CINEAUD%%,*}" = "3" ] || { echo "  FALHA: o transporte de audio nao entrou no modo cinematica (${CINEAUD:-sem evento})"; FALHA=1; }
+# 2. Os DOIS jingles do rank novo, na ordem e com o som que a fonte manda:
+#      `rankDisplayNew` (600 ms): 0 SHIT -> rankinbad (0)
+#                                 4/5 PERFECT -> rankinperfect (2)
+#                                 resto       -> rankinnormal (1)
+#      `rankAnimSlam`  (1100 ms): 0 -> loss (3), 1 -> good (4), 2 -> great (5),
+#                                 3 -> excellent (6), 4/5 -> perfect (7)
+case "$RANK" in
+    0) IDX_NOVO=0 ;;
+    4|5) IDX_NOVO=2 ;;
+    *) IDX_NOVO=1 ;;
+esac
+case "$RANK" in
+    0) IDX_SLAM=3 ;;
+    1) IDX_SLAM=4 ;;
+    2) IDX_SLAM=5 ;;
+    3) IDX_SLAM=6 ;;
+    *) IDX_SLAM=7 ;;
+esac
+[ "${SONS:-}" = "$IDX_NOVO $IDX_SLAM " ] || {
+    echo "  FALHA: os jingles do rank $RANK sairam '${SONS:-}' e deviam ser '$IDX_NOVO $IDX_SLAM'"
+    FALHA=1; }
+[ -z "${SONSFALHA:-}" ] || { echo "  FALHA: jingle nao abriu/sem slot: $SONSFALHA"; FALHA=1; }
+# 3. No fim do tremor (2200 ms, L1289) o preview da musica volta DO COMECO, com
+#    a mesma janela que ele tinha antes da cinematica (20 % do instrumental).
+[ -n "${RECOMECO:-}" ] || { echo "  FALHA: o preview nao voltou no fim da cinematica"; FALHA=1; }
+[ -n "${PREVA:-}" ] || { echo "  FALHA: o preview nunca tocou antes da cinematica"; FALHA=1; }
+if [ -n "${RECOMECO:-}" ] && [ -n "${PREVA:-}" ]; then
+    [ "${RECOMECO%%,*}" = "${PREVA%%,*}" ] || {
+        echo "  FALHA: o preview de volta tem ${RECOMECO%%,*} amostras e o de antes tinha ${PREVA%%,*}"
+        FALHA=1; }
+    # A janela em KB: cada amostra tem 8 B (4 canais), entao bytes/1024 = amostras/128.
+    ESP=$(( ${RECOMECO%%,*} / 128 ))
+    [ "${RECOMECO##*,}" = "$ESP" ] || {
+        echo "  FALHA: a janela do preview termina em ${RECOMECO##*,} KB e 20 % de ${RECOMECO%%,*} amostras da' $ESP KB"
+        FALHA=1; }
+fi
 
 if [ "$FALHA" != 0 ]; then
     echo

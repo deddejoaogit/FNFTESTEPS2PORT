@@ -27,7 +27,9 @@ LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 # ele o roteiro sem notas morre no meio da musica (game over) e o RESULTADO,
 # que e' o que faz o DJ fazer o fist pump, nunca apareceria. 1400:START volta
 # ao jogo. 5400:CIRCLE sai do resultado: tem de voltar para a Freeplay.
-ENTRADA="200:CROSS,420:CROSS,640:DOWN,700:CROSS,840:RIGHT,900:CROSS,1200:START,1260:DOWN,1264:DOWN,1268:DOWN,1280:CROSS,1400:START,5750:CIRCLE"
+# 6800:CIRCLE sai da Freeplay para o menu -- e' o caminho do `goBack`, que toca
+# `cancelMenu` (L2240) e so' para o som depois do fade.
+ENTRADA="200:CROSS,420:CROSS,640:DOWN,700:CROSS,840:RIGHT,900:CROSS,1200:START,1260:DOWN,1264:DOWN,1268:DOWN,1280:CROSS,1400:START,5750:CIRCLE,6800:CIRCLE"
 
 rm -f "$LOG"
 echo "== freeplay: menu -> lista -> musica =="
@@ -58,6 +60,22 @@ DJTAM=$(awk -F, '$1=="E" && $3=="freeplay_dj_tamanho" {print $4","$5; exit}' "$L
 DJDRW=$(awk -F, '$1=="E" && $3=="freeplay_dj_desenho" {n++} END{print n+0}' "$LOG")
 DJEST=$(awk -F, '$1=="E" && $3=="freeplay_dj_estado" {printf "%s ", $4}' "$LOG")
 DJVOLTA=$(awk -F, '$1=="E" && $3=="freeplay_dj_volta" {print $4","$5; exit}' "$LOG")
+# O AUDIO DA TELA (engine/freeplay_audio.c): o preview do instrumental entra
+# 0,25 s depois de a tela abrir (`FADE_IN_DELAY`, FreeplayState.hx L141), toca
+# 20 % do arquivo (`Constants.DEFAULT_PREVIEW_*`) em laco e e' reagendado a
+# cada troca de musica. O tamanho da janela vem do proprio `stems.pcm`.
+PREVN=$(awk -F, '$1=="E" && $3=="freeplay_audio_preview" {n++} END{print n+0}' "$LOG")
+PREV=$(awk -F, '$1=="E" && $3=="freeplay_audio_preview" {print $4","$5; exit}' "$LOG")
+JANELA=$(awk -F, '$1=="E" && $3=="freeplay_audio_janela" {print $4","$5; exit}' "$LOG")
+ATRASO=$(awk -F, '$1=="E" && $3=="freeplay_audio_atraso" {n++} END{print n+0}' "$LOG")
+AUDFALHA=$(awk -F, '$1=="E" && ($3=="freeplay_audio_falta" || $3=="freeplay_audio_vazio" || $3=="freeplay_audio_janela_ruim" || $3=="freeplay_audio_ring_falhou" || $3=="freeplay_audio_sem_musica") {printf "%s ", $3}' "$LOG")
+# OS `playOnce` DE MENU: `scrollMenu` a 0,4 na troca de musica/dificuldade
+# (`FreeplayState.hx` L2918 e L2388) e `confirmMenu` no CROSS (L2764) -- com o
+# volume que a fonte manda. O `cancelMenu` do CIRCLE (L2240) so' toca no fim do
+# roteiro, quando a tela ja' vai sair.
+UISOM=$(awk -F, '$1=="E" && $3=="ui_som" {printf "%s:%s ", $4, $5}' "$LOG")
+UISOMFALHA=$(awk -F, '$1=="E" && ($3=="ui_som_falta" || $3=="ui_som_sem_anel") {printf "%s:%s ", $3, $4}' "$LOG")
+MENU=$(awk -F, '$1=="S" && $3==6 {n++} END{print n+0}' "$LOG")
 
 echo
 echo "  musicas na lista ............ ${NSONGS:-?}"
@@ -80,6 +98,13 @@ echo "  DJ: volta do resultado ...... ${DJVOLTA:-?}   (rank, estado)"
 echo "  DJ: quadro que falhou ....... ${DJFALHA:-nenhum}"
 echo "  DJ: tamanho recusado ........ ${DJTAM:-nao}"
 echo "  quadros de volta na freeplay  $VOLTOU"
+echo "  audio: previews iniciados ... $PREVN   (amostras, indice da musica: ${PREV:-?})"
+echo "  audio: janela em KB ......... ${JANELA:-?}   (0 -> 20 % do instrumental)"
+echo "  audio: reagendamentos ....... $ATRASO   (0,25 s depois de abrir e a cada troca de musica)"
+echo "  audio: falhas ............... ${AUDFALHA:-nenhuma}"
+echo "  sons de menu (indice:volume)  ${UISOM:-nenhum}   (0 scroll 40 / 1 confirm 100 / 2 cancel 100)"
+echo "  sons de menu que falharam ... ${UISOMFALHA:-nenhum}"
+echo "  vezes no menu (estado 6) .... $MENU"
 
 FALHA=0
 [ "${NSONGS:-0}" -ge 20 ] || { echo "  FALHA: a lista da Freeplay saiu com menos de 20 musicas"; FALHA=1; }
@@ -146,6 +171,34 @@ RKPED=$(awk -F, '$1=="E" && $3=="freeplay_rank_pedido" {print $4; exit}' "$LOG")
 echo "  cinematica de rank ......... pedido=${RKPED:-?} inicios=$RKANIM   (0 = nao roda em practice)"
 [ "${RKPED:-0}" = "0" ] || { echo "  FALHA: a cinematica foi pedida em Practice Mode"; FALHA=1; }
 [ "$RKANIM" = "0" ] || { echo "  FALHA: a cinematica de rank rodou sem rank pessoal"; FALHA=1; }
+# O AUDIO: pelo menos um preview (a tela abriu duas vezes, entao sao dois), com
+# a janela comecando em 0 e terminando em 20 % do `stems.pcm` da musica. E
+# nenhuma falha de abertura.
+[ "${PREVN:-0}" -ge 2 ] || { echo "  FALHA: o preview da musica tocou ${PREVN:-0} vez(es), menos que 2"; FALHA=1; }
+[ -z "${AUDFALHA:-}" ] || { echo "  FALHA: audio da Freeplay: $AUDFALHA"; FALHA=1; }
+# OS TRES `playOnce` DE MENU. O scroll tem de ter tocado nas trocas (musica e
+# dificuldade) e o confirm no CROSS, com os volumes da fonte (0,4 e 1,0); o
+# cancel, na saida.
+case " ${UISOM:-} " in *" 0:40 "*) ;; *) echo "  FALHA: o scrollMenu (0,4) nao tocou na troca de selecao (${UISOM:-})"; FALHA=1;; esac
+# O `confirmMenu` do TITULO e' o mesmo som a 0,7 (`TitleState.hx` L288): e' a
+# primeira coisa que o roteiro faz (200:CROSS).
+case " ${UISOM:-} " in *" 1:70 "*) ;; *) echo "  FALHA: o confirmMenu do titulo (0,7) nao tocou (${UISOM:-})"; FALHA=1;; esac
+case " ${UISOM:-} " in *" 1:100 "*) ;; *) echo "  FALHA: o confirmMenu nao tocou no CROSS (${UISOM:-})"; FALHA=1;; esac
+case " ${UISOM:-} " in *" 2:100 "*) ;; *) echo "  FALHA: o cancelMenu nao tocou na saida da tela (${UISOM:-})"; FALHA=1;; esac
+[ -z "${UISOMFALHA:-}" ] || { echo "  FALHA: som de menu nao abriu/sem anel: $UISOMFALHA"; FALHA=1; }
+# E a saida tem de ter chegado no menu (estado 6) sem matar o som do estado novo.
+[ "${MENU:-0}" -ge 1 ] || { echo "  FALHA: o CIRCLE no fim nao voltou para o menu"; FALHA=1; }
+if [ -z "${JANELA:-}" ]; then
+    echo "  FALHA: a janela do preview nunca foi calculada"; FALHA=1
+else
+    JINI=${JANELA%%,*}; JFIM=${JANELA##*,}
+    [ "$JINI" = "0" ] || { echo "  FALHA: a janela comeca em ${JINI} KB e o padrao e' 0"; FALHA=1; }
+    STEMS=build/harness_assets/FNFPS2/assets/songs/tutorial/stems.pcm
+    if [ -f "$STEMS" ]; then
+        ESP=$(( $(wc -c < "$STEMS") / 5 / 1024 ))
+        [ "$JFIM" = "$ESP" ] || { echo "  FALHA: a janela termina em ${JFIM} KB e 20 % do stems da' $ESP KB"; FALHA=1; }
+    fi
+fi
 
 if [ "$FALHA" != 0 ]; then
     echo

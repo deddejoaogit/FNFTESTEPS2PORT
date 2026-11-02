@@ -113,6 +113,14 @@ retângulo preto com alpha animado, e `pauseAlt/` não é referenciado por fonte
 nenhum) e o `AtlasFont` da pausa (as entradas são `AtlasText` desenhadas com a
 fonte do jogo).
 
+O **som** da Freeplay, que era a última peça aberta desta fase, entrou: o
+preview de 20 % do instrumental em laço com `fadeIn(2)`/`fadeOut(2)` a 0,7, os
+dois jingles do rank por cima (oito slots de overlay no anel, porque os dois se
+sobrepõem de verdade) e os três `playOnce` de menu com o volume de cada um
+(`scrollMenu` 0,4, `confirmMenu`/`cancelMenu` 1,0). Os números, os dois defeitos
+que o teste do anel pegou e a lista do que ainda falta estão em *"Fechado: o
+ÁUDIO DA FREEPLAY"* e *"Fechado: os `playOnce` de menu"*, no fim do documento.
+
 ### Fase 4 — VRAM: FECHADA EM PARTE (1 de 4 passos medidos)
 
 **Existia:** 8 reservas de VRAM no init, zero liberações; 8 buffers = 99,4 % da
@@ -3237,7 +3245,7 @@ um quadro por vez na VRAM (5 subidas de 33 KB em 208 ms). Somando a cápsula
 21 palcos (pior 1.736.192 B) não convivem com ela, e não precisam: a Freeplay
 roda com o palco solto.
 
-## Próximo passo planejado: o ÁUDIO DA FREEPLAY (o preview e os jingles do rank)
+## O ÁUDIO DA FREEPLAY (o preview e os jingles do rank) — planejado aqui, fechado no fim do documento
 
 Medido antes de escrever código (regra 2), porque o estado 11 hoje é **mudo**
 debaixo da música do menu: o laço do consumidor (`src/main.c` L6029) inclui
@@ -4114,3 +4122,143 @@ O que isso quer dizer, sem otimismo:
   `tex` (320×256 PSMCT32 = 327.680 B), que o gameplay com pacotes **não usa**
   (os personagens vêm do pool) e que o menu já re-sobe ao voltar
   (`menu_restore`).
+
+## Fechado: o ÁUDIO DA FREEPLAY — o preview de 20 % e os 8 jingles, medidos
+
+O estado 11 deixou de ser mudo. A cadeia inteira, do arquivo ao `audsrv`:
+
+| peça | onde | número medido |
+|---|---|---|
+| atraso do preview | `freeplay_audio_entrar` → `FPA_ATRASO` | 0,25 s (`FADE_IN_DELAY`, L141) |
+| janela | `fp_aud_janela(total, 0, 0,2)` | `stems.pcm` inteiro → **20 %** dele, em bytes alinhados a uma amostra de 4 canais |
+| janela medida no harness | `freeplay_audio_janela` | **645 120 amostras** = 5 160 960 B = 5 040 KB |
+| canais | `audio_ring` no modo preview | 4 → 2 **sem as vozes** (`amix_somar`, `vozes = 0`) |
+| ganho | `fp_aud_ganho` + `amix_somar_ganho` | `min(t/2 s, (len−t)/2 s) × 0,7`; pico **700** de 1000 no dente de serra do teste |
+| laço | fim da janela → `prev_ini` | segunda volta idêntica à primeira em k = 500 / 5 000 / 95 000 |
+| jingles | `audio_ring_overlay` (4 slots) | 8 sons, 3 720 852 B no total, **dois tocando juntos** (o de 1,004 s do `rankinperfect` ainda está no ar quando o do slam entra 0,5 s depois) |
+| agenda | `fp_aud_eventos` | jingle do rank **600 ms**, jingle do slam **1100 ms**, preview de volta **2200 ms** — sem pular instante num quadro longo |
+| troca de música | `freeplay_audio_reagendar` | só quando o índice muda; trocar de dificuldade NÃO reinicia o preview (a fonte só reinicia em troca de variação) |
+| cinemática | `freeplay_audio_entrar(cinematica=1)` | primária em silêncio (`music.volume = 0`, L1088) + os dois jingles; o preview volta no fim |
+
+**Os dois erros que o teste do anel pegou** (e que o harness do PC nunca pegaria,
+porque com música de verdade a janela de 5 MB não termina no roteiro):
+
+1. **O ganho era interpolado de ponta a ponta do bloco de 32 KB.** O `fp_aud_ganho`
+   é o MENOR de duas rampas lineares, então ele tem um bico em 2 s (fim do
+   `fadeIn` = começo do `fadeOut`). Uma reta entre as duas pontas de 4 096
+   amostras corta esse bico: medido, o pico do fade saía **686** em vez de
+   **700** — 2 % de amplitude em toda a janela, e o mesmo erro de volta. Agora o
+   ganho é aplicado em trechos de 256 amostras dentro do bloco: pior erro
+   0,7 × 128/96 000 = **0,09 %**, 16 chamadas por bloco de 85 ms.
+2. **O marcador de posição da janela misturava amostras com bytes.**
+   `prev_pos` conta amostras (é o que alimenta o ganho) e `prev_ini`/`prev_fim`
+   são bytes; a conta da sobra era `prev_fim − prev_pos`, ou seja, bytes menos
+   amostras. O limite nunca disparava: o produtor lia **até o fim do ARQUIVO**
+   (5× a janela) e só então voltava. No teste, isso apareceu como o conteúdo
+   deslocado no tempo — a primeira subida de zero do dente de serra saía no
+   quadro **926** em vez do começo da janela, e os períodos medidos eram
+   2 052/2 011/2 005/2 003 em vez de 2 001. Corrigido: a sobra é
+   `prev_fim − prev_pos × 8` e o marcador volta a **zero** no laço.
+
+O defeito 2 era audível e não sutil: a janela de 4 s tocava e depois vinham
+**12 s de silêncio** (o ganho já estava em 0) antes de o trecho recomeçar.
+
+**Como está provado**
+
+- `test/test_audio_ring.c` (novo, no `test/run_tests.sh`): kernel falso em
+  pthread (`test/ps2sdk-shim/kernel.h` e `delaythread.h`) e um `stems.pcm`
+  sintético de 200 000 amostras com as vozes em ±0x6000. Uma janela de 4 s, duas
+  voltas. Cobra: pico ≤ 1001 (**as vozes não vazam**), pico ≥ 690 (o
+  instrumental chega ao volume 0,7), o meio da janela em 667, L = −R em todas as
+  amostras, 8 zeros no recomeço e a repetição idêntica em três posições.
+- `test/test_freeplay_audio.c` (já existia): janela em bytes, ganho, os 8
+  jingles por rank, a agenda.
+- `tools/run_freeplay_harness.sh`: `previews iniciados 2`, `janela 0,5040 KB`
+  (20 % do `stems.pcm` real), `reagendamentos 2`, `falhas nenhuma`.
+- `tools/run_rank_anim_harness.sh`: `jingles 1 6` (normal + excellent para o
+  rank 3), `preview antes 645120,0`, `preview de volta 645120,5040`.
+
+**O que o PC não prova**: que sai som na TV. Isto é `audsrv`, `libsd` e o
+`usbhdfsd` lendo 5 MB de um pendrive enquanto o GS desenha — só o console.
+
+Os três `playOnce` de menu da tela (`scrollMenu` a 0,4, `confirmMenu` e
+`cancelMenu` a 1,0) entraram na mesma rodada — ver *"Fechado: os `playOnce` de
+menu e o volume por fonte"*, logo abaixo.
+
+**O que continua faltando nesta tela, e por quê**: só a cápsula aleatória
+(`curSelected == 0` → `freeplayRandom`). Duas medidas, não um chute: a lista do
+port são as 27 músicas sem a cápsula "?", e `shared/music/freeplayRandom.ogg`
+não existe no repositório de arte (`ls shared/music | grep -i random` → 0). É
+dado ausente, não decisão de design.
+
+## Fechado: os `playOnce` de menu e o volume por fonte (Freeplay, menu e título)
+
+A tela de Freeplay estava **muda fora do preview**: trocar de música, trocar de
+dificuldade, confirmar e voltar não tocavam nada. As quatro chamadas estão na
+fonte e agora no port, com o volume de cada linha:
+
+| som | onde na fonte | volume | no port | medido no log |
+|---|---|---|---|---|
+| `scrollMenu` | `FreeplayState.hx` L2918 (`changeSelection`) e L2388 (`changeDiff`) | **0,4** | UP/DOWN na lista e LEFT/RIGHT na dificuldade | `ui_som 0 40` |
+| `confirmMenu` | L2764 (`startSong`) | 1,0 | CROSS na lista | `ui_som 1 100` |
+| `cancelMenu` | L2240 (`goBack`) e `MainMenuState.hx` L629 | 1,0 | CIRCLE na Freeplay e CIRCLE no menu | `ui_som 2 100` |
+| `confirmMenu` | `TitleState.hx` L288 | **0,7** | CROSS no título com o intro já pulado | `ui_som 1 70` |
+
+**Como toca.** Não é um mixer novo: é o mesmo anel de áudio, pelos slots de
+fonte secundária (`audio_ring_overlay_slot`). Três coisas mudaram nele:
+
+1. **Volume por slot** (`amix_volume`): o `scrollMenu` é o único a 0,4. O ajuste
+   é na amostra lida, **antes** de somar, porque cada fonte tem o seu — a mesma
+   regra que já valia para o ganho do preview.
+2. **Slot fixo por som** (0, 1, 2): o arquivo é sempre o mesmo, então o fd é
+   aberto uma vez e reaproveitado. Abrir um arquivo no meio de uma música é o
+   que trava o quadro no console (o `usbhdfsd` não é reentrante). O alocador
+   automático (jingles do rank, sfx de game over/resultado) agora começa no
+   **último** slot e desce até o 3: sem essa separação um jingle poderia pegar o
+   slot de um sfx de menu e o pedido seguinte fecharia o fd do jingle no meio.
+   Slots: **8** (3 fixos de menu + 5 automáticos).
+3. **Gerador de geração** (`audio_ring_geracao`): os fds guardados para reusar
+   valem enquanto o anel é o mesmo. Toda parada/início sobe a geração — quando
+   ela muda, o anel já fechou os fds e o port reabre no toque seguinte. Sem isso
+   haveria `read` de fd fechado depois de cada troca de tela.
+
+**O `cancelMenu` não existia como amostra.** O `menu_sfx.pcm` do port tem só
+`scrollMenu` [0, 39168) e `confirmMenu` [39168, 241920); a faixa seguinte é a
+fonte VCR do tutorial. Era uma pendência declarada desde a 0.2.104 ("não vou
+inventar offset"). Agora ele é um arquivo próprio, empacotado de
+`preload/sounds/cancelMenu.ogg` como os outros dois: **85 264 B, 0,44 s** em
+`assets/result/cancel_menu.pcm` (a mesma pasta, para o pendrive não ganhar mais
+uma divisão; o gate do `tools/build_pendrive.sh` subiu de 15 para 16 PCM).
+
+**A saída da tela não para mais o som na hora.** Antes, `freeplay_audio_parar()`
+era chamado no mesmo quadro do CIRCLE/CROSS e cortava o `cancelMenu`/`confirmMenu`
+recém-começado. Agora quem para é `freeplay_audio_sair()`, na **troca de
+estado**, e ele só toca no anel se a geração ainda for a desta tela:
+
+- **CIRCLE → menu**: a geração é a mesma, então o anel é parado ali — antes do
+  `ui_state==6` abrir o `freakyMenu` (parar depois mataria a música nova, que foi
+  um defeito já medido);
+- **CROSS → palco**: o preparo da cena (`transition_frame==15`) já parou este
+  anel e abriu o dele (`audio_ring_start`, L6788) no mesmo quadro. A geração
+  mudou, então aqui só se devolve o fd do preview — mexer no anel mataria a
+  música recém-começada (`TUT_RING_BEGIN` + stop no mesmo quadro);
+- o bombeamento (`freeplay_audio_bombear`) passou a rodar **também** no fade de
+  saída, senão o sfx morria no primeiro quadro. Na **entrada** ele continua de
+  fora: medido, bombear durante a transição de entrada empurrava o primeiro
+  quadro da cinemática de 0 para 1 ms e o zoom de **1850 para 1849**.
+
+**Limite medido, e é do console**: o `confirmMenu` tem **2,30 s** e o
+`cancelMenu` **0,44 s**, mas o fade da transição leva 0,25 s e o estado seguinte
+chama `audsrv_stop_audio()` — a cauda é cortada a ~11 % do `confirmMenu`. No
+original o `FlxSound` global sobrevive à troca de estado e toca por cima da
+contagem. Levar o sfx de uma tela para outra exigiria um transporte contínuo
+entre telas, que o port não tem: está na lista de pendências do console, com
+estes números.
+
+**O que continua faltando, e por quê (dado, não lógica):**
+
+- `fav` / `unfav` (L3092 e L3115, volume 1): o **favorito** não existe no port —
+  não há campo no save, nem o ícone na cápsula, nem o tween de 0,1 s do
+  `favoriteSong()`. Os dois sons vêm junto com a função, não antes dela.
+- os sons do menu de **opções** (`OffsetMenu.hx` L418/L422): a tela de ajustes do
+  port é um stub sem lista de itens, então não há evento para somar.

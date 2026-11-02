@@ -440,6 +440,36 @@ $CC $FLAGS test/test_freeplay_rank.c src/engine/freeplay_rank.c src/engine/freep
 /tmp/fnf_test_freeplay_rank || exit 1
 echo
 
+# O AUDIO DA FREEPLAY: a janela do `loadPartial` (0 -> 20 % do arquivo, em
+# bytes e alinhada a uma amostra de 4 canais), o ganho do `fadeIn(2)` /
+# `fadeOut(2)` a 0,7 com o caso degenerado da janela curta, os OITO jingles do
+# rank (um por rank, sem queda de `switch`) e a agenda da cinematica (600 /
+# 1100 / 2200 ms, sem pular instante num quadro longo). Funcao pura de
+# src/engine/freeplay_audio.c.
+echo "== freeplay: o audio da tela (preview e jingles do rank)"
+$CC $FLAGS test/test_freeplay_audio.c src/engine/freeplay_audio.c \
+    src/engine/freeplay_rank.c src/engine/freeplay.c -o /tmp/fnf_test_freeplay_audio -lm
+/tmp/fnf_test_freeplay_audio || exit 1
+echo
+
+# O ANEL DE AUDIO NO MODO PREVIEW, com a thread de verdade (kernel falso em
+# pthread: test/ps2sdk-shim). E' o unico caminho em que o produtor le' um
+# TRECHO do arquivo e volta para o comeco do TRECHO -- o `loadPartial` do
+# `FreeplayState.hx` L2967-3046 --, joga fora os 4 canais de voz do
+# `stems.pcm`, aplica o ganho do `fadeIn(2)`/`fadeOut(2)` e soma os jingles
+# DEPOIS. O harness do PC nao chega no fim de uma janela de 5 MB; aqui o
+# arquivo e' sintetico e a janela tem 4 s. O teste pegou dois erros reais no
+# `src/audio_ring.c`: o ganho era interpolado de uma ponta a outra do bloco de
+# 4096 quadros (cortava o bico do `min` em 2 %) e o marcador de posicao da
+# janela misturava AMOSTRAS com BYTES (a janela ficava 8x mais longa).
+echo "== audio: o anel no preview da Freeplay (a thread de verdade)"
+$CC $FLAGS -Itest/ps2sdk-shim test/test_audio_ring.c src/audio_ring.c \
+    src/engine/audio_mix.c src/engine/freeplay_audio.c \
+    src/engine/freeplay_rank.c src/engine/freeplay.c \
+    -o /tmp/fnf_test_audio_ring -lm -lpthread
+/tmp/fnf_test_audio_ring || exit 1
+echo
+
 # A tela de RESULTADO: as folhas e o relogio delas (res_quadro), o RANK
 # (res_flash_alpha / res_flash_alpha_tally / res_flash_cor / res_rank_pisca /
 # res_rank_scroll_*), o PLACAR

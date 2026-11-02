@@ -43,6 +43,8 @@
 #include "engine/save.h"
 #include "engine/freeplay.h"
 #include "engine/freeplay_rank.h"
+#include "engine/freeplay_audio.h"
+#include "engine/freeplay_audio_dados.h"
 #include "engine/pack_multi.h"
 #include "engine/freeplay_dj_dados.h"
 #include "gameover_dados.h"
@@ -2638,6 +2640,345 @@ static float freeplay_letreiro(unsigned long desde_ms, float distancia)
     return 0.0f;
 }
 
+/* ===== O AUDIO DA FREEPLAY (o preview e os jingles do rank) =====
+   As tres contas -- a janela do `loadPartial`, o ganho do fade e a escolha do
+   jingle -- estao em `engine/freeplay_audio.c`, que e' puro e roda no PC
+   (`test/test_freeplay_audio.c`). Aqui fica o TRANSPORTE: abrir o arquivo,
+   entregar o fd ao `audio_ring` e bombear o anel para o `audsrv`.
+
+   POR QUE UM TRANSPORTE PROPRIO. Na tela de Freeplay o original NAO toca a
+   musica do menu: `changeSelection` pausa a musica (L2954) e 0,25 s depois
+   `playCurSongPreview` faz `FlxG.sound.music.stop()` (L2976) e poe o preview no
+   lugar. O port ate' agora deixava o `freakyMenu` tocando nessa tela -- um som
+   que o original nao tem ali. Os estados:
+
+     0  nada                    (a tela nao esta' na frente)
+     1  esperando os 0,25 s     (`FADE_IN_DELAY`, L141); o menu ainda toca
+     2  preview                 (o `audio_ring` com a janela de 4 canais)
+     3  cinematica de rank      (silencio + os dois `playOnce`)
+
+   O `audio_ring` faz UMA leitura do pendrive por vez, e e' por isso que o
+   preview e os jingles passam por ele em vez de o main.c abrir e ler os
+   arquivos: duas threads lendo o usbhdfsd corrompem o driver (ver
+   src/audio_ring.h). */
+/* `audio_play_complete` esta' definida mais abaixo (o caminho do tutorial);
+   o transporte da Freeplay usa a mesma funcao que todo o resto do audio. */
+static int audio_play_complete(const char *data,int bytes);
+
+#define FPA_OFF   0
+#define FPA_ATRASO 1
+#define FPA_PREVIEW 2
+#define FPA_CINE  3
+static int g_fpa_estado=FPA_OFF;
+static int g_fpa_fd=-1;                 /* o stems do preview (dono: a thread) */
+static int g_fpa_ms_alvo=0;             /* quando o preview comeca            */
+static const sr_song_t *g_fpa_song=0;
+static int g_fpa_amostras=0;            /* amostras da janela (telemetria)    */
+static int g_fpa_janela_ini=0,g_fpa_janela_fim=0;
+static int g_fpa_rank=-1;               /* rank novo, para os dois jingles    */
+static int g_fpa_jfd[2]={-1,-1};        /* fds dos jingles (donos: a thread)  */
+static int g_fpa_jslot[2]={-1,-1};
+static int g_fpa_cine_ms_antes=0;       /* ms da cinematica no quadro anterior */
+/* A GERACAO do anel em que o som desta tela foi aberto (ver audio_ring_geracao).
+   Na saida, se ela mudou, o estado novo ja' parou o anel e abriu o dele -- e
+   entao nao se toca mais no anel (mataria a musica recem-comecada). */
+static unsigned int g_fpa_ger=0;
+
+/* O `freakyMenu` que vinha do menu: `playCurSongPreview` o PARA (L2976). A
+   ordem importa: `audio_ring_stop()` espera a thread sair (ela e' quem le o
+   fd), e so' depois o fd pode ser fechado -- fechar durante uma leitura foi
+   corrida medida antes neste projeto. */
+static void freeplay_audio_menu_parar(void)
+{
+ if(g_title_audio_fd<0)return;
+ audsrv_stop_audio();
+ audio_ring_stop();
+ close(g_title_audio_fd);
+ g_title_audio_fd=-1;
+ g_title_audio_submitted=0;
+ g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;
+}
+
+/* Para o som e devolve tudo, mas MANTEM a musica escolhida: e' o que a troca
+   de selecao precisa (o preview novo e' da mesma musica ate' o jogador andar
+   na lista). */
+static void freeplay_audio_soltar(void)
+{
+ if(g_fpa_estado==FPA_OFF&&g_fpa_fd<0)return;
+ audio_ring_stop();
+ /* O `audio_ring_stop()` ja' fechou os fds dos overlays (ele e' o dono). Se
+    a thread teve de ser terminada a' forca, nenhum fd e' fechado -- fd vazado
+    e' melhor que `close` em cima de um `read` (ver src/audio_ring.c). */
+ g_fpa_jfd[0]=g_fpa_jfd[1]=-1;
+ g_fpa_jslot[0]=g_fpa_jslot[1]=-1;
+ if(g_fpa_fd>=0){close(g_fpa_fd);g_fpa_fd=-1;}
+ g_fpa_estado=FPA_OFF;
+ g_fpa_amostras=0;
+ g_fpa_janela_ini=g_fpa_janela_fim=0;
+}
+
+/* Saida da tela: para o som e esquece a musica e o rank. */
+static void freeplay_audio_parar(void)
+{
+ int est=g_fpa_estado,am=g_fpa_amostras;
+ freeplay_audio_soltar();
+ if(est!=FPA_OFF)telemetry_event("freeplay_audio_parar",est,am);
+ g_fpa_song=0;g_fpa_rank=-1;g_fpa_cine_ms_antes=0;
+}
+
+/* Abre o `stems.pcm` da musica e calcula a JANELA (0 -> 20 % das amostras).
+   Devolve 0, ou um codigo negativo que vai para a telemetria. */
+static int freeplay_audio_abrir_janela(long *ini_b,long *fim_b)
+{
+ char caminho[192];
+ int fd,am;
+ long total;
+
+ *ini_b=*fim_b=0;
+ if(!g_fpa_song){telemetry_event("freeplay_audio_sem_musica",0,0);return -1;}
+ if(sr_stems_path(caminho,(unsigned int)sizeof(caminho),FNF_ASSET_ROOT,g_fpa_song)<0){
+  telemetry_event("freeplay_audio_sem_musica",1,0);return -2;}
+ fd=open(caminho,O_RDONLY);
+ if(fd<0){telemetry_event("freeplay_audio_falta",(int)g_fpa_song->id[0],0);return -3;}
+ total=(long)lseek(fd,0,SEEK_END);
+ if(total<=0){close(fd);telemetry_event("freeplay_audio_vazio",(int)total,0);return -4;}
+ if(fp_aud_janela(total,FP_AUD_PREVIEW_INI,FP_AUD_PREVIEW_FIM,ini_b,fim_b)!=0){
+  close(fd);telemetry_event("freeplay_audio_janela_ruim",(int)total,0);return -5;}
+ am=fp_aud_janela_amostras(*ini_b,*fim_b);
+ if(audio_ring_iniciar_preview(fd,*ini_b,*fim_b)!=0){
+  close(fd);telemetry_event("freeplay_audio_ring_falhou",0,0);return -6;}
+ g_fpa_fd=fd;
+ g_fpa_amostras=am;
+ g_fpa_janela_ini=(int)*ini_b;g_fpa_janela_fim=(int)*fim_b;
+ return 0;
+}
+
+/* O preview do zero (entrada na tela ou troca de musica). */
+static int freeplay_audio_preview_iniciar(void)
+{
+ long ini,fim;
+ int rc;
+ freeplay_audio_soltar();
+ rc=freeplay_audio_abrir_janela(&ini,&fim);
+ if(rc!=0){g_fpa_estado=FPA_OFF;return rc;}
+ g_fpa_estado=FPA_PREVIEW;
+ g_fpa_ger=audio_ring_geracao();
+ telemetry_event("freeplay_audio_preview",g_fpa_amostras,
+                 g_fpa_song?sr_song_index(g_fpa_song):-1);
+ telemetry_event("freeplay_audio_janela",g_fpa_janela_ini>>10,g_fpa_janela_fim>>10);
+ return 0;
+}
+
+/* O `playCurSongPreview` do fim do tremor da cinematica (L1289): o preview
+   VOLTA DO COMECO. Se a cinematica esta' tocando, o anel ja' existe e tem os
+   jingles dentro -- entao troca-se so' a fonte primaria, para nao cortar o
+   `perfect` (4,9 s) que ainda esta' no ar. A troca entrega o fd novo para a
+   thread, que fecha o anterior. */
+static int freeplay_audio_preview_recomecar(void)
+{
+ long ini,fim;
+ int rc,fd;
+ char caminho[192];
+ long total;
+ if(!g_fpa_song)return -1;
+ if(g_fpa_estado==FPA_CINE){
+  if(sr_stems_path(caminho,(unsigned int)sizeof(caminho),FNF_ASSET_ROOT,g_fpa_song)<0)return -2;
+  fd=open(caminho,O_RDONLY);
+  if(fd<0){telemetry_event("freeplay_audio_falta",(int)g_fpa_song->id[0],1);return -3;}
+  total=(long)lseek(fd,0,SEEK_END);
+  if(total<=0||fp_aud_janela(total,FP_AUD_PREVIEW_INI,FP_AUD_PREVIEW_FIM,&ini,&fim)!=0){
+   close(fd);return -4;}
+  if(audio_ring_preview_trocar(fd,ini,fim)!=0){
+   close(fd);telemetry_event("freeplay_audio_troca_falhou",0,0);return -5;}
+  g_fpa_fd=fd;
+  g_fpa_amostras=fp_aud_janela_amostras(ini,fim);
+  g_fpa_janela_ini=(int)ini;g_fpa_janela_fim=(int)fim;
+  g_fpa_estado=FPA_PREVIEW;
+  g_fpa_ger=audio_ring_geracao();
+  telemetry_event("freeplay_audio_preview",g_fpa_amostras,sr_song_index(g_fpa_song));
+  telemetry_event("freeplay_audio_recomeco",g_fpa_amostras,g_fpa_janela_fim>>10);
+  return 0;
+ }
+ return freeplay_audio_preview_iniciar();
+}
+
+/* Um `FunkinSound.playOnce(Paths.sound('ranks/<nome>'))`. */
+static void freeplay_audio_jingle(int k,const char *nome)
+{
+ char caminho[192];
+ int i,fd,slot;
+ if(!g_audio_ok||k<0||k>1||!nome)return;
+ if(g_fpa_estado!=FPA_CINE)return;
+ for(i=0;i<(int)FP_AUD_SONS_N;i++)if(strcmp(fp_aud_sons[i].nome,nome)==0)break;
+ if(i>=(int)FP_AUD_SONS_N){telemetry_event("freeplay_rank_som_desconhecido",(int)nome[0],0);return;}
+ snprintf(caminho,sizeof(caminho),"%s/%s%s.pcm",FNF_ASSET_ROOT,FP_AUD_SOM_DIR,nome);
+ fd=open(caminho,O_RDONLY);
+ if(fd<0){telemetry_event("freeplay_rank_som_falta",i,0);return;}
+ slot=audio_ring_overlay(fd);
+ if(slot<0){close(fd);telemetry_event("freeplay_rank_som_sem_slot",i,0);return;}
+ g_fpa_jfd[k]=fd;g_fpa_jslot[k]=slot;
+ telemetry_event("freeplay_rank_som",i,slot);
+}
+
+/* A agenda da cinematica: 600 ms (jingle do rank novo), 1100 ms (o do slam) e
+   2200 ms (o preview volta do comeco). Ver `fp_aud_eventos`. */
+static void freeplay_audio_cine(void)
+{
+ int ev;
+ if(g_fpa_estado!=FPA_CINE)return;
+ ev=fp_aud_eventos(g_fpa_cine_ms_antes,g_fp_ms);
+ g_fpa_cine_ms_antes=g_fp_ms;
+ if(ev&FP_AUD_EV_JINGLE_NOVO){
+  /* `rankAnimSlam`/`rankDisplayNew` nao recebem o rank: usam
+     `fromResultsParams?.newRank`, o MESMO que o selo desenha. */
+  freeplay_audio_jingle(0,fp_aud_jingle_novo(g_fpa_rank));
+ }
+ if(ev&FP_AUD_EV_JINGLE_SLAM)freeplay_audio_jingle(1,fp_aud_jingle_slam(g_fpa_rank));
+ if(ev&FP_AUD_EV_PREVIEW)freeplay_audio_preview_recomecar();
+}
+
+/* Entrada na tela. `cinematica` = 1 quando viemos do resultado com rank novo:
+   ai' o original poe `FlxG.sound.music.volume = 0` (L1088) e a tela fica em
+   silencio ate' o fim do tremor, quando o preview volta. */
+static void freeplay_audio_entrar(int cinematica,const sr_song_t *song,int rank,int ms)
+{
+ freeplay_audio_parar();
+ g_fpa_song=song;
+ g_fpa_rank=rank;
+ g_fpa_cine_ms_antes=0;
+ if(cinematica){
+  freeplay_audio_menu_parar();
+  g_fpa_estado=FPA_CINE;
+  if(g_audio_ok&&audio_ring_start_overlay(-1)!=0){
+   g_fpa_estado=FPA_OFF;
+   telemetry_event("freeplay_audio_cine_falhou",0,0);
+   return;
+  }
+  g_fpa_ger=audio_ring_geracao();   /* depois do start: e' ele que sobe */
+  telemetry_event("freeplay_audio_cine",rank,0);
+  return;
+ }
+ /* Sem cinematica: `changeSelection` ja' rodou no create e o preview entra em
+    0,25 s. O menu continua tocando nesse intervalo, como no original. */
+ g_fpa_estado=FPA_ATRASO;
+ g_fpa_ms_alvo=ms+FP_AUD_ATRASO_MS;
+ telemetry_event("freeplay_audio_atraso",g_fpa_ms_alvo,0);
+}
+
+/* A SAIDA DA TELA. O `cancelMenu`/`confirmMenu` que acabou de tocar pode estar
+   no ar (o `goBack` do original nao para a musica), entao o anel so' e' parado
+   se ele ainda for o DESTA tela: com a geracao igual, `freeplay_audio_soltar`
+   para tudo -- e' o que o estado 6 precisa fazer antes de abrir o `freakyMenu`.
+   Com a geracao diferente, o estado novo (o palco, no `target_state==8`) ja'
+   parou este anel e abriu o dele no mesmo quadro (L6788, `audio_ring_start`);
+   parar de novo aqui seria o defeito ja' medido uma vez (`TUT_RING_BEGIN` e o
+   stop no mesmo quadro). Ai' so' se devolve o fd do preview, que ninguem mais
+   le -- a thread antiga ja' saiu. */
+static void freeplay_audio_sair(void)
+{
+ if(g_fpa_estado==FPA_OFF&&g_fpa_fd<0)return;
+ if(audio_ring_geracao()==g_fpa_ger){
+  int est=g_fpa_estado,am=g_fpa_amostras;
+  freeplay_audio_soltar();
+  if(est!=FPA_OFF)telemetry_event("freeplay_audio_parar",est,am);
+ }else{
+  if(g_fpa_fd>=0){close(g_fpa_fd);g_fpa_fd=-1;}
+  g_fpa_estado=FPA_OFF;g_fpa_amostras=0;
+  g_fpa_janela_ini=g_fpa_janela_fim=0;
+  telemetry_event("freeplay_audio_saiu_anel_novo",0,0);
+ }
+ g_fpa_song=0;g_fpa_rank=-1;g_fpa_cine_ms_antes=0;
+}
+
+/* Troca de musica ou de dificuldade: `changeSelection` PAUSA o que esta'
+   tocando (L2954) e 0,25 s depois o preview novo entra do zero. */
+static void freeplay_audio_reagendar(int ms)
+{
+ if(g_fpa_estado==FPA_CINE)return;   /* a cinematica manda enquanto roda */
+ freeplay_audio_soltar();
+ g_fpa_estado=FPA_ATRASO;
+ g_fpa_ms_alvo=ms+FP_AUD_ATRASO_MS;
+ telemetry_event("freeplay_audio_atraso",g_fpa_ms_alvo,1);
+}
+
+/* O bombeamento: tira do anel e entrega ao `audsrv`, como o do menu. Um bloco
+   curto nao mata nada: quem decide e' o anel. */
+static int freeplay_audio_bombear(void)
+{
+ int voltas=0,enviado=0;
+ if(!g_audio_ok||g_fpa_estado<FPA_PREVIEW)return 0;
+ while(audsrv_available()>=AUDIO_READ_CHUNK){
+  int n,j;
+  if(++voltas>64)break;
+  n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);
+  if(n<=0)break;
+  j=audio_play_complete((char*)g_audio_pcm,n);
+  if(j<=0)break;
+  enviado+=j;
+ }
+ return enviado;
+}
+
+/* Chamado uma vez por quadro, antes do desenho: e' aqui que o atraso de 0,25 s
+   vence e o preview comeca. */
+static void freeplay_audio_passo(int parado)
+{
+ /* `parado` (transition_frame != 0): saindo da tela, no fade do CIRCLE/CROSS,
+    o preview NAO comeca mais -- ele nasceria junto com o menu ou o palco. */
+ if(!parado&&g_fpa_estado==FPA_ATRASO&&g_fp_ms>=g_fpa_ms_alvo)
+  freeplay_audio_preview_iniciar();
+}
+
+/* ============ OS `playOnce` DE MENU (scrollMenu / confirmMenu / cancelMenu) ===
+   O original toca os tres em varios pontos (`FreeplayState.hx` L2918 e L2388:
+   `scrollMenu` a 0,4; L2764: `confirmMenu`; L2240 e `MainMenuState.hx` L629:
+   `cancelMenu`). Sao arquivos de `preload/sounds/`, e o port ja' os empacota em
+   `assets/result/` para a tela de Resultado (`scroll_menu`, `confirm_menu`) --
+   `cancel_menu` foi acrescentado por esta rodada. Um arquivo so', tres slots
+   fixos: o fd e' reaproveitado a cada toque, entao nao ha' `open` no meio de uma
+   musica (o USB nao e' reentrante e um `open` ali trava o quadro).
+   O VOLUME e' por slot (`audio_ring_overlay_slot` -> `amix_volume`), porque
+   `scrollMenu` e' 0,4 e os outros dois sao 1,0.
+   Um toque novo do MESMO som recomeca o som no mesmo slot: e' o limite de vozes
+   que a tela de Resultado ja' declara (nao ha' duas instancias do mesmo sfx). */
+#define UI_SOM_DIR "mass:/FNFPS2/assets/result/"
+#define UI_SOM_N 3
+#define UI_SOM_SCROLL 0
+#define UI_SOM_CONFIRM 1
+#define UI_SOM_CANCEL 2
+static const char *const ui_som_nome[UI_SOM_N]={"scroll_menu","confirm_menu","cancel_menu"};
+static int ui_som_fd[UI_SOM_N]={-1,-1,-1};
+static unsigned int ui_som_ger=0;
+
+/* `vol_pct` e' o volume da LINHA da fonte (o `playOnce(som, volume)`): 0,4 no
+   `scrollMenu` da Freeplay (L2918/L2388), 1,0 no `confirmMenu` de la' (L2764) e
+   no `cancelMenu` (L2240), e 0,7 no `confirmMenu` do titulo (TitleState.hx
+   L288). Por isso vem por chamada e nao de uma tabela. */
+static void ui_som_tocar(int q,int vol_pct)
+{
+ char caminho[128];
+ if(q<0||q>=UI_SOM_N||!g_audio_ok)return;
+ /* O anel fecha os fds dos slots em toda parada: se ele parou desde o ultimo
+    toque, o que estava guardado nao vale e e' reaberto. */
+ if(ui_som_ger!=audio_ring_geracao()){
+  int i;
+  for(i=0;i<UI_SOM_N;i++)ui_som_fd[i]=-1;
+  ui_som_ger=audio_ring_geracao();
+ }
+ if(ui_som_fd[q]<0){
+  snprintf(caminho,sizeof(caminho),UI_SOM_DIR "%s.pcm",ui_som_nome[q]);
+  ui_som_fd[q]=open(caminho,O_RDONLY);
+  if(ui_som_fd[q]<0){telemetry_event("ui_som_falta",q,0);return;}
+ }
+ if(audio_ring_overlay_slot(q,ui_som_fd[q],vol_pct)!=0){
+  /* Sem anel: o fd continua sendo do main (nao foi entregue). */
+  close(ui_som_fd[q]);ui_som_fd[q]=-1;
+  telemetry_event("ui_som_sem_anel",q,0);
+  return;
+ }
+ telemetry_event("ui_som",q,vol_pct);
+}
+
 /* ===== ICONES DE VIDA DO HUD (engine/health_icon.c) =====
    Um por lado: 0 = jogador (BF), 1 = oponente. O pacote ICP1
    (tools/empacotar_icones.py) traz os quadros no formato do original --
@@ -5108,7 +5449,7 @@ static const official_stage_node_t g_official_mainstage_chars[3]={
 static const float g_official_mainstage_camera_zoom=1.1f;
 
 /* ZOOM INICIAL DA CAMERA = o `cameraZoom` do PALCO daquela musica.
-   Cada palco declara o seu em assets-data/stages/*.json (bs_stages[].zoom):
+   Cada palco declara o seu em assets-data/stages/<palco>.json (bs_stages[].zoom):
    mainStage 1,10; limoRide 0,90; mallXmas 0,80; tankmanBattlefieldErect 0,70;
    sserafim 0,80. O port usava 1,10 (o do mainStage) em TODAS as musicas, e esse
    numero nao e' um detalhe: `sc = 0,5 * zoom * bop` e' o tamanho de TUDO que
@@ -6027,6 +6368,16 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      audio deste jogo, entao o caminho saudavel sai pela mesma condicao de
      antes. Quando o limite ou o erro pegam, fica registrado em AUDIO_STALL. */
   if((ui_state==0||ui_state==6||ui_state==7||ui_state==11)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){int voltas=0;while(audsrv_available()>=AUDIO_READ_CHUNK){int n;int j;if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);else{frame_mark("A.STOP_ERRO",j);break;}}else break;} }
+  /* AUDIO DA FREEPLAY: transporte proprio (o do menu so' serve enquanto o
+     `freakyMenu` ainda esta' tocando nos 0,25 s do comeco). */
+  /* O bombeamento da Freeplay: sempre na tela parada, e TAMBEM durante o fade
+     de SAIDA (`target_state != 11`), porque o `cancelMenu`/`confirmMenu` que
+     tocou no CIRCLE/CROSS ainda tem 0,25 s de fade para soar. Na ENTRADA
+     (`target_state == 11`) ele nao roda: o `freeplay_audio_entrar` acabou de
+     abrir o anel e o relogio da cinematica conta de `g_fp_t0` -- medido, o
+     bombeamento durante a entrada empurrava o primeiro quadro de 0 para 1 ms e
+     o zoom de 1850 para 1849. */
+  if(ui_state==11&&(transition_frame==0||target_state!=11)&&freeplay_audio_bombear()>0)frame_mark("A.FREEPLAY",g_fpa_estado);
   if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0&&!g_paused){
    /* A musica so' comeca depois da contagem: no original startSong() e'
       chamado quando o Conductor chega em 0 (PlayState.hx:1144-1151). */
@@ -6495,10 +6846,15 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11)freeplay_capsula_soltar();palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11){freeplay_capsula_soltar();
+    /* E O SOM DELA SAI AQUI, ainda antes do som do estado novo: o `goBack` da
+       Freeplay toca `cancelMenu` e so' fecha depois que o fade termina. Parar
+       no meio mataria o som; parar DEPOIS do `ui_state==6` mataria o
+       `freakyMenu` que acabou de comecar (foi o defeito de uma versao). */
+    freeplay_audio_sair();}palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
-   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;resmus_parar();telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
+   (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1||previous_state==11){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;resmus_parar();telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
    /* A ARTE DA TELA DE RESULTADO. O palco ja' foi solto logo acima, entao o
       pool tem ~1,2 MB livres: e' aqui que as tres folhas e o gradiente do
       fundo entram. `g_res_t0` marca o instante da abertura, porque os timers
@@ -6558,7 +6914,15 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       pendrive usa FCH5, entao um numero aqui significa que o chart carregado
       nao era o do build. */
    if(chart_events_state()->bop_sem_parametros)telemetry_event("bop_sem_parametros",
-      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;/* a arte das capsulas e a contagem do tempo da tela (os timers do "initJumpIn" contam daqui) */freeplay_capsula_carregar(&stagetex);g_fp_t0=GetTimerSystemTime();g_fp_ms=0;g_fp_cap_logado=0;
+      (int)chart_events_state()->bop_sem_parametros,(int)(g_play_song?g_play_song->id[0]:0));if(g_ev_icone||g_ev_script||g_ev_sem_efeito)telemetry_event("eventos_sem_efeito",(int)(g_ev_icone|(g_ev_script<<8)),(int)g_ev_sem_efeito);}else if(ui_state==11){g_fp_active=0;g_fp_drawn=0;menu_anim_tick=-1;
+    /* O AUDIO DA TELA, ANTES do `g_fp_t0`: com cinematica, silencio + os
+       jingles do rank; sem ela, o preview entra em 0,25 s (`FADE_IN_DELAY`).
+       Aqui e nao depois porque parar/abrir o anel custa milissegundos e esses
+       milissegundos nao podem empurrar o relogio da cinematica (o harness do
+       rank cobra o zoom em 0 ms e a cinematica em 2,2 s). */
+    freeplay_audio_entrar(g_rk_pendente&&g_fp_n>0&&g_fp_sel>=0&&g_fp_sel<g_fp_n,
+                          g_fp_n?g_fp[g_fp_sel]:0,g_rk_new_rank,0);
+    /* a arte das capsulas e a contagem do tempo da tela (os timers do "initJumpIn" contam daqui) */freeplay_capsula_carregar(&stagetex);g_fp_t0=GetTimerSystemTime();g_fp_ms=0;g_fp_cap_logado=0;
     /* O DJ: vindo do resultado com rank, o fist pump (ou a reacao de perda);
        senao, o `Intro` que o `freeplay_dj_carregar` ja deixou armado. */
     if(g_dj_volta_rank>=0){freeplay_dj_fist_pump(g_dj_volta_rank);
@@ -6598,18 +6962,37 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      devolve a `Idle` so' no fim do tremor (L1287): a lista nao responde
      enquanto a cinematica roda. */
   if(transition_frame==0&&ui_state==11&&g_fp_n>0&&!g_rk_ativo){
+   int fpa_sel_antes=g_fp_sel,fpa_diff_antes=g_fp_diff;
    /* Todo movimento da lista e' um `dj.onPlayerAction()` no original (L1764
       roda do mouse, L1821 das teclas, L1844/L1850 e L2548 das bordas e do
       arrasto de dificuldade): zera o `timeIdling`, nao troca a animacao. */
    if(pressed&PAD_UP){g_fp_sel=(g_fp_sel+g_fp_n-1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);freeplay_dj_acao();telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
    else if(pressed&PAD_DOWN){g_fp_sel=(g_fp_sel+1)%g_fp_n;g_fp_diff=freeplay_diff_valida(g_fp[g_fp_sel],g_fp_diff);freeplay_dj_acao();telemetry_event("freeplay_sel",g_fp_sel,g_fp_diff);}
+   /* `scrollMenu` a 0,4 (`changeSelection` L2918) quando a MUSICA mudou. */
+   if(fpa_sel_antes!=g_fp_sel)ui_som_tocar(UI_SOM_SCROLL,40);
    if(pressed&PAD_LEFT||pressed&PAD_RIGHT){int d=g_fp_diff,passo=(pressed&PAD_RIGHT)?1:2,n;
     for(n=0;n<3;n++){d=(d+passo)%3;if(g_fp[g_fp_sel]->difficulties&(1u<<d))break;}
+    /* `changeDiff` L2388: `scrollMenu` a 0,4 so' quando a dificuldade realmente
+       mudou -- com uma dificuldade so' a bolha gira e nao muda nada. */
+    if(d!=g_fp_diff)ui_som_tocar(UI_SOM_SCROLL,40);
     g_fp_diff=d;freeplay_dj_acao();freeplay_selo_ranks();
     telemetry_event("freeplay_diff",g_fp_diff,0);}
-   if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
+   /* `changeSelection` (L2954-2955): trocar de MUSICA pausa o preview e agenda
+      o novo para 0,25 s depois. Trocar de dificuldade NAO reinicia nada: o
+      `changeDiff` so' chama `playCurSongPreview` quando a VARIACAO muda
+      (L2516-2517, "normal->erect"), e as 27 musicas do projeto tem uma
+      variacao so' -- o instrumental e' o mesmo nas tres dificuldades. */
+   (void)fpa_diff_antes;
+   if(fpa_sel_antes!=g_fp_sel)freeplay_audio_reagendar(g_fp_ms);
+   /* A SAIDA NAO PARA O SOM AQUI: o `cancelMenu` (L2240) e o `confirmMenu`
+      (L2764) acabam de comecar e o fade da transicao leva 0,25 s. Quem para o
+      anel e' `freeplay_audio_sair()`, na troca de estado -- e ele so' toca no
+      anel se ele ainda for o desta tela (ver o comentario de la'). */
+   if(pressed&PAD_CIRCLE){ui_som_tocar(UI_SOM_CANCEL,100);target_state=6;transition_frame=1;transitions++;telemetry_event("freeplay_back",0,0);}
    else if(pressed&PAD_CROSS){
-    /* `FreeplayState.hx` L2765: `dj?.onConfirm()` antes de sair para o palco. */
+    /* `FreeplayState.hx` L2764-2765: `playOnce(confirmMenu)` e o
+       `dj?.onConfirm()` antes de sair para o palco. */
+    ui_som_tocar(UI_SOM_CONFIRM,100);
     freeplay_dj_confirmar();
     story_diff=g_fp_diff;g_fp_play_song=g_fp[g_fp_sel];g_fp_active=1;g_story_mode=0;
     g_practice_mode=0;fnf_play_set_practice(&g_play,0);
@@ -6921,17 +7304,23 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     if(pressed&PAD_L1)tab_value=(tab_value+2)%3;
     if(pressed&PAD_R1)tab_value=(tab_value+1)%3;
    }else{
-    if(pressed&PAD_CROSS&&title_intro_active){title_intro_active=0;title_intro_flash_frames=60;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;title_ng_restored=1;}else if((pressed&PAD_CROSS)&&title_confirm_frames==0){title_confirm_frames=120;}
+    if(pressed&PAD_CROSS&&title_intro_active){title_intro_active=0;title_intro_flash_frames=60;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;title_ng_restored=1;}else if((pressed&PAD_CROSS)&&title_confirm_frames==0){
+     /* `TitleState.hx` L283-288: o Enter com o intro ja' pulado toca
+        `playOnce(confirmMenu, 0.7)`, faz o flash da camera e troca de tela. */
+     ui_som_tocar(UI_SOM_CONFIRM,70);title_confirm_frames=120;}
    }
   }else if(transition_frame==0&&ui_state==6){int oldsel=selection;menu_flicker_step(frame_no);if(menu_placeholder){if(pressed&PAD_CIRCLE){menu_placeholder=0;menu_anim_tick=-1;}}else if(!g_fl_item_on&&!menu_exit_frames){if(pressed&PAD_UP)selection=(selection+4)%5;else if(pressed&PAD_DOWN)selection=(selection+1)%5;if(pressed&PAD_CIRCLE){/* 0.2.104 A5: goBack() do original guarda a selecao antes de sair
      (MainMenuState.hx L627: rememberedSelectedIndex = menuItems?.selectedIndex ?? 0).
      O porto so guardava no CROSS (startExitState, L426); voltar com CIRCLE
      perdia a selecao e reentrar no menu abria sempre no STORY MODE.
-     Pendencia registrada: L629 toca Paths.sound('cancelMenu'), e o
-     menu_sfx.pcm do porto so tem scroll [0,39168) e confirm [39168,241920);
-     [241920,281088) e a fonte VCR usada por tutorial_vcr_restore (main.c
-     L687). Sem a amostra cancelMenu no asset nao da para tocar - nao vou
-     inventar offset. */g_menu_remembered=selection;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;g_menu_cache_ready=0;title_logo_last=title_gf_last=-1;menu_back_transition=0;target_state=0;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){g_menu_sfx_pos=39168;g_menu_sfx_end=241920;g_menu_sfx_phase=0;g_menu_remembered=selection;
+     L629 tambem toca Frag.playOnce(Paths.sound('cancelMenu')). Esse som NAO
+     esta' no menu_sfx.pcm do porto (que tem scroll [0,39168) e confirm
+     [39168,241920); [241920,281088) e a fonte VCR do tutorial_vcr_restore), e
+     por isso ficou pendente desde a 0.2.104: agora ele e' um arquivo proprio
+     do pacote (`assets/result/cancel_menu.pcm`, empacotado de
+     `preload/sounds/cancelMenu.ogg` como o scroll/confirm) e toca como fonte
+     secundaria do anel do menu, que ja' esta' rodando com o `freakyMenu`. */
+     ui_som_tocar(UI_SOM_CANCEL,100);g_menu_remembered=selection;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;g_menu_cache_ready=0;title_logo_last=title_gf_last=-1;menu_back_transition=0;target_state=0;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){g_menu_sfx_pos=39168;g_menu_sfx_end=241920;g_menu_sfx_phase=0;g_menu_remembered=selection;
      /* 0.2.105 C4: o original (MenuList.hx L286-305) nao tem janela de 24
         quadros. accept() dispara onAcceptPress (flicker do magenta 1,1 s /
         0,15 s) e FlxFlicker.flicker(item, 1, 0.06, true, false, callback):
@@ -7500,10 +7889,15 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    unsigned long ms;
    {u64 agora=GetTimerSystemTime();g_fp_ms=(int)(((agora-g_fp_t0)*1000ull)/(u64)kBUSCLK);}
    ms=(unsigned long)g_fp_ms;
+   /* Vence o `FADE_IN_DELAY` de 0,25 s: o preview comeca. */
+   freeplay_audio_passo(transition_frame!=0);
    /* A CINEMATICA DE RANK: ela dura `FP_RK_FIM` (2,2 s) desde a abertura da
       tela. O `rankAnimStart` (L1069) e' a primeira coisa que roda ao voltar do
       resultado com `fromResults.playRankAnim`. */
    if(g_rk_ativo){
+    /* Antes de qualquer saida: os jingles em 600/1100 ms e o preview de volta
+       em 2200 ms (`playCurSongPreview` no fim do tremor, L1289). */
+    freeplay_audio_cine();
     if(ms>=(unsigned long)FP_RK_FIM){g_rk_ativo=0;g_rk_fase=-1;g_rk_fase_logada=-1;
      telemetry_event("freeplay_rank_fim",g_rk_desenhos,(int)(ms-FP_RK_FIM));}
     else{rk_on=1;fp_rk_avaliar(ms,g_rk_old_rank>=0,&rk);

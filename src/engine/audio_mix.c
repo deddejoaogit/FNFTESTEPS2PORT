@@ -41,3 +41,40 @@ int amix_somar_estereo(short *dst, const short *src, int amostras)
         dst[i] = sat16((int)dst[i] + (int)src[i]);
     return amostras;
 }
+
+int amix_somar_ganho(const short *entrada, short *saida, int amostras, float g0, float g1)
+{
+    int i;
+    if (!entrada || !saida || amostras <= 0) return 0;
+    for (i = 0; i < amostras; i++) {
+        float f = (amostras == 1) ? 0.0f : ((float)i / (float)(amostras - 1));
+        float g = g0 + (g1 - g0) * f;
+        float il = (float)entrada[i * 4 + 0] * g;
+        float ir = (float)entrada[i * 4 + 1] * g;
+        /* O +-0,5 antes do truncamento e' o arredondamento para o inteiro mais
+           proximo: sem ele, um sinal positivo perde sempre meio bit. */
+        int vl = (int)(il < 0.0f ? il - 0.5f : il + 0.5f);
+        int vr = (int)(ir < 0.0f ? ir - 0.5f : ir + 0.5f);
+        saida[i * 2 + 0] = sat16(vl);
+        saida[i * 2 + 1] = sat16(vr);
+    }
+    return amostras;
+}
+
+int amix_volume(short *pcm, int amostras, int vol_pct)
+{
+    int i, n;
+    if (!pcm || amostras <= 0) return 0;
+    if (vol_pct < 0) vol_pct = 0;
+    if (vol_pct == 100) return amostras;
+    n = amostras * AMIX_CANAIS_SAIDA;
+    for (i = 0; i < n; i++) {
+        int v = (int)pcm[i] * vol_pct;
+        /* +-50 antes de dividir: arredondamento para o inteiro mais proximo,
+           simetrico (metade para longe do zero). */
+        if (v >= 0) v = (v + 50) / 100;
+        else v = -((-v + 50) / 100);
+        pcm[i] = sat16(v);
+    }
+    return amostras;
+}

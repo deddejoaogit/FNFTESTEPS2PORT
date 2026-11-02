@@ -109,6 +109,8 @@ python3 tools/empacotar_splash.py --assets "$ASSETS" --out "$BASE/ui"
 echo "== freeplay =="
 python3 tools/empacotar_freeplay.py --assets "$ASSETS" --out "$BASE/freeplay"
 python3 tools/empacotar_freeplay_dj.py --assets "$ASSETS" --out "$BASE/freeplay"
+# Os OITO jingles do rank da Freeplay (`preload/sounds/ranks/*.ogg`).
+PYTHONPATH=tools python3 tools/empacotar_rank_sons.py --assets "$ASSETS" --out "$BASE/freeplay"
 
 # O AUDIO VEM ANTES DO RESULTADO, e nao depois: `empacotar_resultado_musica.py`
 # decide o `intro` de cada rank olhando se `<packs>/res_<rank>_intro.pcm`

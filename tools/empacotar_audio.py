@@ -120,9 +120,15 @@ RESULTADOS = [
 # fim do tween (`playOnce(Paths.sound('confirmMenu'))`, L609). `tickleFight` e'
 # o `sound` de uma das animacoes do BF (`players/bf.json`, resultsPERFECT/perfect
 # -> `shared:tickleFight`), tocado no `afterRankTallySequence`.
+# `cancelMenu` entrou com a Freeplay: `goBack()` toca `playOnce(cancelMenu)`
+# (FreeplayState.hx L2240) e o `MainMenuState.hx` L629 faz o mesmo ao voltar com
+# CIRCLE. O `menu_sfx.pcm` do porto nao tem essa amostra (so' scroll e confirm
+# mais a fonte VCR), entao ela vem como arquivo proprio -- e' a mesma pasta dos
+# outros dois para o pendrive nao ganhar mais uma.
 SONS_RESULTADO = [
     ("preload/sounds/scrollMenu", "scroll_menu", False),
     ("preload/sounds/confirmMenu", "confirm_menu", False),
+    ("preload/sounds/cancelMenu", "cancel_menu", False),
     ("shared/sounds/tickleFight", "tickle_fight", False),
 ]
 

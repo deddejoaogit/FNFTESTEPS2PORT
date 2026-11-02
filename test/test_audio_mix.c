@@ -136,7 +136,89 @@ int main(void)
         CHECK_EQ(dst[1], 70);
     }
 
+    /* O PREVIEW DA FREEPLAY: 4 canais -> 2, com o ganho do fade DENTRO do
+       bloco. O `fadeIn(2)`/`fadeOut(2)` a 0,7 vale so' para o preview, e os
+       jingles do rank entram por cima depois (`audio_ring.c`), a volume 1. */
+    printf("== mixer: ganho por bloco (o preview da Freeplay) ==\n");
+    {
+        short in[4 * 4] = { 1000, -1000, 3000, -3000,      /* amostra 0 */
+                            2000, -2000, 3000, -3000,      /* amostra 1 */
+                            32767, -32768, 3000, -3000,    /* amostra 2 (fundo) */
+                            100, -100, 3000, -3000 };      /* amostra 3 */
+        short out[2 * 4];
+        /* g0 = 0, g1 = 1: o bloco inteiro e' um ramo linear de 0 a 1. */
+        CHECK_EQ(amix_somar_ganho(in, out, 4, 0.0f, 1.0f), 4);
+        CHECK_EQ(out[0], 0);            /* 1000 * 0        */
+        CHECK_EQ(out[1], 0);
+        CHECK_EQ(out[2], 667);          /* 2000 * 1/3      */
+        CHECK_EQ(out[3], -667);
+        CHECK_EQ(out[4], 21845);        /* 32767 * 2/3 -- nao satura        */
+        CHECK_EQ(out[5], -21845);
+        CHECK_EQ(out[6], 100);          /* 100 * 1         */
+        CHECK_EQ(out[7], -100);
+        /* So' o instrumental: os dois canais de voz (3000/-3000) NAO entram. */
+        /* Um ganho constante e' o caminho normal do meio do trecho (0,7). */
+        CHECK_EQ(amix_somar_ganho(in, out, 1, 0.7f, 0.7f), 1);
+        CHECK_EQ(out[0], 700);
+        CHECK_EQ(out[1], -700);
+        /* Satura quando o ganho e' maior que 1 (o `fadeIn` nunca passa de 1,
+           mas a parede de 16 bits tem de existir do mesmo jeito). */
+        CHECK_EQ(amix_somar_ganho(in, out, 1, 2.0f, 2.0f), 1);
+        CHECK_EQ(out[0], 2000);
+        in[0] = 30000;
+        CHECK_EQ(amix_somar_ganho(in, out, 1, 2.0f, 2.0f), 1);
+        CHECK_EQ(out[0], 32767);
+        in[0] = 1000;
+        /* In place: `saida` pode ser o mesmo buffer. */
+        CHECK_EQ(amix_somar_ganho(in, in, 4, 0.5f, 0.5f), 4);
+        CHECK_EQ(in[0], 500);
+        CHECK_EQ(in[1], -500);
+        CHECK_EQ(in[2], 1000);
+        /* Ponteiro nulo e contagem zero nao escrevem nada. */
+        CHECK_EQ(amix_somar_ganho(NULL, out, 4, 1.0f, 1.0f), 0);
+        CHECK_EQ(amix_somar_ganho(in, NULL, 4, 1.0f, 1.0f), 0);
+        CHECK_EQ(amix_somar_ganho(in, out, 0, 1.0f, 1.0f), 0);
+    }
+
+    /* O VOLUME POR FONTE (`amix_volume`): e' o volume do `FlxSound` do
+       original, sem rampa -- 0,4 no `scrollMenu` da Freeplay
+       (`FreeplayState.hx` L2918), 1,0 no `confirmMenu`/`cancelMenu`. */
+    printf("== mixer: o volume de uma fonte secundaria (0,4 do scrollMenu)\n");
+    {
+        short pcm[8];
+        pcm[0] = 1000;  pcm[1] = -1000;
+        pcm[2] = 250;   pcm[3] = -250;
+        pcm[4] = 32767; pcm[5] = -32768;
+        pcm[6] = 0;     pcm[7] = 0;
+        CHECK_EQ(amix_volume(pcm, 4, 40), 4);
+        CHECK_EQ(pcm[0], 400);      /* 1000 * 0,4                     */
+        CHECK_EQ(pcm[1], -400);     /* simetrico                       */
+        CHECK_EQ(pcm[2], 100);      /* 250 * 0,4 = 100, exato          */
+        CHECK_EQ(pcm[3], -100);
+        CHECK_EQ(pcm[4], 13107);    /* 32767 * 0,4 = 13106,8 -> 13107  */
+        CHECK_EQ(pcm[5], -13107);   /* -32767,2 -> -13107 (longe do 0) */
+        /* Volume 0 zera, 100 nao mexe, negativo vira 0. */
+        pcm[0] = 1234; pcm[1] = -1234;
+        CHECK_EQ(amix_volume(pcm, 4, 0), 4);
+        CHECK_EQ(pcm[0], 0);
+        CHECK_EQ(pcm[1], 0);
+        pcm[0] = 1234; pcm[1] = -1234;
+        CHECK_EQ(amix_volume(pcm, 4, 100), 4);
+        CHECK_EQ(pcm[0], 1234);
+        pcm[0] = 1234;
+        CHECK_EQ(amix_volume(pcm, 4, -5), 4);
+        CHECK_EQ(pcm[0], 0);
+        /* Satura quando o volume passa de 100 (nenhuma linha do original pede,
+           mas a parede de 16 bits tem de existir). */
+        pcm[0] = 30000;
+        CHECK_EQ(amix_volume(pcm, 4, 200), 4);
+        CHECK_EQ(pcm[0], 32767);
+        /* Ponteiro nulo e contagem zero nao escrevem nada. */
+        CHECK_EQ(amix_volume(NULL, 4, 40), 0);
+        CHECK_EQ(amix_volume(pcm, 0, 40), 0);
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
-    printf("\n  mixer: soma por canal, saturacao, vozes desligadas, metade dos bytes e in place conferidos\n");
+    printf("\n  mixer: soma por canal, saturacao, vozes desligadas, metade dos bytes, in place, ganho por bloco e volume por fonte conferidos\n");
     return 0;
 }

@@ -118,6 +118,14 @@ if [ -d "$FP_SRC" ]; then
     # `dj_*.cfz4`. Copiar o `.chp4` seria 12,6 MB de dado morto no pendrive.
     FPB=0
     for f in "$FP_SRC"/*; do
+        # O subdiretorio `som/` (os OITO jingles do rank, tools/empacotar_rank_sons.py)
+        # e' o unico diretorio aqui: vai inteiro, senao a cinematica de rank fica
+        # muda no console (`freeplay_rank_som_falta`).
+        if [ -d "$f" ]; then
+            cp -r "$f" "$OUT/FNFPS2/assets/freeplay/"
+            FPB=$((FPB + $(cat "$f"/* | wc -c)))
+            continue
+        fi
         [ -f "$f" ] || continue
         case "$(basename "$f")" in
             dj_*.chp4) continue ;;
@@ -157,14 +165,14 @@ for f in "$GO_SRC"/*.pcm; do
         # `confirm_menu`, `tickle_fight`): ResultState procura em
         # `resultScreen/...` no original, mas no port os PCM ficam em
         # assets/result/ (mesma divisao de gameover/ e pause/).
-        res_*|scroll_menu*|confirm_menu*|tickle_fight*)
+        res_*|scroll_menu*|confirm_menu*|cancel_menu*|tickle_fight*)
             cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
     esac
 done
 echo "   $NPAUSA PCM(s) de pausa em assets/pause/"
 echo "   $NRES PCM(s) da tela de resultado em assets/result/"
-[ "$NRES" -ge 15 ] || { echo "FALTAM arquivos de audio do resultado em $GO_SRC ($NRES de 15)" >&2; exit 1; }
+[ "$NRES" -ge 16 ] || { echo "FALTAM arquivos de audio do resultado em $GO_SRC ($NRES de 16)" >&2; exit 1; }
 [ "$NPAUSA" -ge 2 ] || { echo "FALTAM as musicas de pausa em $GO_SRC (breakfast.pcm/breakfast-pico.pcm)" >&2; exit 1; }
 [ "$NGO" -ge 13 ] || { echo "FALTAM arquivos de audio do game over em $GO_SRC ($NGO de 13)" >&2; exit 1; }
 [ -f "$GO_SRC/AUDIO.txt" ] && cp "$GO_SRC/AUDIO.txt" "$OUT/FNFPS2/assets/gameover/"
@@ -274,7 +282,9 @@ FNF PS2 -- COMO INSTALAR
        FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
        FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)
        FNFPS2/assets/pause/          a musica da pausa (breakfast*.pcm)
-       FNFPS2/assets/result/         a musica + os 3 sons do resultado (15 .pcm)
+       FNFPS2/assets/result/         a musica + os 4 sons de menu/resultado
+                                     (scrollMenu, confirmMenu, cancelMenu,
+                                     tickleFight) e as 12 faixas de musica
        FNFPS2/assets/resultado/      a arte da tela de Resultado (folhas, placar,
                                     rank, a animacao do personagem por rank)
        FNFPS2/assets/freeplay/       as capsulas, o fundo, os titulos e o DJ

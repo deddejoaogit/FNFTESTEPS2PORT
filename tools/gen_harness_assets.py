@@ -22,6 +22,7 @@ do jogo devolve erro se qualquer uma nao fechar:
 
 import json
 import os
+import re
 import struct
 import sys
 
@@ -868,7 +869,33 @@ def _freeplay_files():
     for c in (plano.get("cinematica") or {}).values():
         out[c["tex"]] = make_resultado_pack(c["w"], c["h"], c["quadros"],
                                            bytes_por_pixel=c["bpp"] // 8)
+    # OS JINGLES DO RANK (`freeplay/som/*.pcm`, tools/empacotar_rank_sons.py).
+    # O tamanho NAO e' chutado aqui: vem do `freeplay_audio_dados.h` gerado pelo
+    # empacotador, que e' o mesmo que o jogo usa. Sem isso o harness do rank
+    # acusava "nao abriu: freeplay/som/rankinnormal.pcm" -- e o caminho do som
+    # ficava sem prova nenhuma no PC.
+    for nome, tam in _rank_sons():
+        out["freeplay/som/" + nome + ".pcm"] = pcm(tam, 440 + len(nome))
     return out
+
+
+def _rank_sons():
+    """(nome, bytes) de cada jingle, lidos do cabecalho gerado.
+
+    O cabecalho e' a fonte da verdade do tamanho: `tools/empacotar_rank_sons.py`
+    escreve `{"rankinbad", 41357u, 165428u}` e o harness sintetiza um PCM do
+    MESMO tamanho, para que o caminho de abertura e o laco do anel sejam os
+    mesmos do pendrive.
+    """
+    h = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "src", "engine", "freeplay_audio_dados.h")
+    itens = []
+    with open(h, encoding="utf-8") as f:
+        for linha in f:
+            m = re.match(r'\s*\{"([a-z_]+)",\s*\d+u,\s*(\d+)u\}', linha)
+            if m:
+                itens.append((m.group(1), int(m.group(2))))
+    return itens
 
 
 def build(root, charts_src=None):
@@ -962,6 +989,10 @@ def build(root, charts_src=None):
         "result/scroll_menu.pcm": pcm(48000 * 4 // 8, 342),
         "result/confirm_menu.pcm": pcm(48000 * 4 // 8, 344),
         "result/tickle_fight.pcm": pcm(48000 * 4 // 8, 346),
+        # `cancelMenu` (CIRCLE no menu e na Freeplay). E' um arquivo proprio
+        # porque o `menu_sfx.pcm` do porto nao tem essa amostra -- ver o
+        # comentario em tools/empacotar_audio.py.
+        "result/cancel_menu.pcm": pcm(48000 * 4 // 8, 348),
 
         "font.rgba": rgba_pattern(384, 192, 1),
         "title_alphabet.rgba": rgba_pattern(384, 192, 2),

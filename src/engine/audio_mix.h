@@ -49,4 +49,41 @@ int amix_bytes_saida(int amostras);
  */
 int amix_somar_estereo(short *dst, const short *src, int amostras);
 
+/*
+ * `amix_somar` com GANHO que muda dentro do bloco: o mesmo 4 canais -> 2, so'
+ * com o instrumental (`vozes` = 0), multiplicado por um ramo linear de `g0`
+ * (no primeiro quadro do bloco) a `g1` (no ultimo).
+ *
+ * Existe por causa do PREVIEW da Freeplay: `playCurSongPreview` toca 20 % do
+ * instrumental em laco com `fadeIn(2)` e `fadeOut(2)`
+ * (`FreeplayState.hx` L3025-3031), e esse ganho tem de valer so' para o
+ * preview -- os jingles do rank, que tocam por cima no mesmo anel, sao
+ * `playOnce` a volume 1. Multiplicar o bloco inteiro depois de somar os dois
+ * apagaria o jingle junto. Por isso o ganho entra AQUI, antes da soma.
+ *
+ * O ramo e' linear entre as duas pontas: o `audio_ring` calcula
+ * `fp_aud_ganho` no inicio e no fim do bloco e passa os dois. Com blocos de
+ * 32 KB (4096 amostras, 85 ms) a diferenca entre o ramo e a exponencial do
+ * fade e' menor que 0,001 de amplitude.
+ *
+ * `saida` pode ser o mesmo buffer de `entrada` (mesma prova de indices do
+ * `amix_somar`). Devolve o numero de amostras escritas.
+ */
+int amix_somar_ganho(const short *entrada, short *saida, int amostras, float g0, float g1);
+
+/*
+ * Multiplica um bloco estereo (L,R entrelacados) por `vol_pct` por cento, NO
+ * LUGAR: e' o `volume` de um `FlxSound` que nao muda durante o som. Existe
+ * pelos tres `playOnce` da tela de Freeplay: `scrollMenu` toca a **0,4**
+ * (`FreeplayState.hx` L2918 e L2388) e `confirmMenu`/`cancelMenu` a 1,0
+ * (L2764, L2240). O anel soma as fontes secundarias com ganho 1, entao o ajuste
+ * tem de ser na amostra lida -- e no bloco inteiro, uma vez, e nao por amostra
+ * somada.
+ *
+ * O arredondamento e' simetrico (metade para longe do zero) e a saturacao
+ * acontece so' se `vol_pct` > 100, que nenhuma linha do original pede hoje.
+ * `vol_pct` <= 0 zera o bloco. Devolve o numero de amostras.
+ */
+int amix_volume(short *pcm, int amostras, int vol_pct);
+
 #endif /* FNF_AUDIO_MIX_H */

@@ -1,0 +1,343 @@
+/* O ANEL DE AUDIO NO MODO PREVIEW DA FREEPLAY: a janela, os 4 canais viram 2,
+ * o ganho do fade e a VOLTA para o comeco da janela.
+ *
+ * POR QUE UM TESTE SO' PARA ISTO
+ *
+ * `audio_ring_iniciar_preview` e' o unico caminho do jogo em que o produtor do
+ * anel:
+ *   1. le' um TRECHO do arquivo e volta para o comeco do TRECHO (e nao para o
+ *      byte 0) -- e' o `loadPartial` + o `FlxTimer` de `length/1000` que chama
+ *      `playCurSongPreview()` de novo (`FreeplayState.hx` L3022-3038);
+ *   2. converte os 4 canais do `stems.pcm` em 2, JOGANDO FORA as vozes (o
+ *      preview do original e' `pathsFunction: INST`);
+ *   3. multiplica o bloco pelo ganho do `fadeIn(2)`/`fadeOut(2)` ANTES de somar
+ *      os overlays.
+ *
+ * O harness do PC nao prova nada disso: com uma musica de verdade a janela tem
+ * mais de 5 MB e o roteiro nunca chega no fim dela. Aqui o arquivo e' sintetico
+ * e a janela tem 4 s (2 s de fade em cada ponta), entao a volta acontece no
+ * meio da leitura.
+ *
+ * O que NAO prova: que sai som na TV. Isso e' o console.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+#include <kernel.h>          /* os shims de test/ps2sdk-shim: ver o cabecalho */
+#include <delaythread.h>
+
+#include "audio_ring.h"
+#include "engine/freeplay_audio.h"
+
+/* ---- o kernel minimo (test/ps2sdk-shim/kernel.h) ------------------------- */
+/* O `audio_ring.c` passa `&_gp` para o CreateThread (o registrador de gp do
+ * MIPS). No PC ele so' precisa existir: e' um simbolo, nao um valor usado. */
+void *_gp;
+#define MAX_THREADS 8
+typedef struct {
+    sem_t sem;
+    int vivo;
+} sema_t;
+static sema_t semas[MAX_THREADS];
+typedef struct {
+    void (*func)(void *);
+    int vivo;
+    pthread_t th;
+    void *arg;
+} thread_t;
+static thread_t threads[MAX_THREADS];
+
+int CreateSema(ee_sema_t *s)
+{
+    int i;
+    for (i = 0; i < MAX_THREADS; i++) {
+        if (!semas[i].vivo) {
+            sem_init(&semas[i].sem, 0, s && s->init_count > 0 ? s->init_count : 1);
+            semas[i].vivo = 1;
+            return i;
+        }
+    }
+    return -1;
+}
+int DeleteSema(int id)
+{
+    if (id < 0 || id >= MAX_THREADS || !semas[id].vivo) return -1;
+    sem_destroy(&semas[id].sem);
+    semas[id].vivo = 0;
+    return 0;
+}
+int WaitSema(int id)
+{
+    if (id < 0 || id >= MAX_THREADS || !semas[id].vivo) return -1;
+    return sem_wait(&semas[id].sem);
+}
+int SignalSema(int id)
+{
+    if (id < 0 || id >= MAX_THREADS || !semas[id].vivo) return -1;
+    return sem_post(&semas[id].sem);
+}
+static void *trampolim(void *p)
+{
+    int i = (int)(long)p;
+    thread_t *t = &threads[i];
+    t->func(t->arg);
+    return NULL;
+}
+int CreateThread(ee_thread_t *t)
+{
+    int i;
+    if (!t || !t->func) return -1;
+    for (i = 0; i < MAX_THREADS; i++) {
+        if (!threads[i].vivo) {
+            threads[i].vivo = 1;
+            threads[i].func = t->func;
+            threads[i].arg = NULL;
+            return i;
+        }
+    }
+    return -1;
+}
+int DeleteThread(int id)
+{
+    if (id < 0 || id >= MAX_THREADS || !threads[id].vivo) return -1;
+    threads[id].vivo = 0;
+    return 0;
+}
+int StartThread(int id, void *arg)
+{
+    if (id < 0 || id >= MAX_THREADS || !threads[id].vivo) return -1;
+    threads[id].arg = arg;
+    return pthread_create(&threads[id].th, NULL, trampolim, (void *)(long)id) == 0 ? 0 : -1;
+}
+/* `TerminateThread` nao existe de verdade no PC; o anel so' cai aqui em ultimo
+ * recurso (a thread nao saiu em 600 ms), e no teste ela sempre sai. */
+int TerminateThread(int id) { return DeleteThread(id); }
+void ExitThread(void) { pthread_exit(NULL); }
+void DelayThread(unsigned int usec)
+{
+    struct timespec ts;
+    ts.tv_sec = (time_t)(usec / 1000000u);
+    ts.tv_nsec = (long)(usec % 1000000u) * 1000L;
+    nanosleep(&ts, NULL);
+}
+
+static int falhas;
+
+/* ---- o arquivo sintetico ------------------------------------------------- */
+#define ARQ_QUADROS 200000L          /* amostras de 4 canais no arquivo      */
+#define JANELA_QUADROS 192000L       /* a janela do preview: 4 s a 48 kHz    */
+#define FADE_QUADROS 96000           /* 2 s = FP_AUD_FADE_MS                 */
+#define VOZ 0x6000                   /* o valor que PROVA o vazamento        */
+
+#define CHECK(c) do { if (!(c)) { printf("  FALHA: %s (linha %d)\n", #c, __LINE__); falhas++; } } while (0)
+
+static void escreve_arquivo(const char *caminho)
+{
+    FILE *f = fopen(caminho, "wb");
+    long i;
+    if (!f) { printf("  FALHA: nao criei %s\n", caminho); falhas++; return; }
+    for (i = 0; i < ARQ_QUADROS; i++) {
+        short quadros[4];
+        /* O instrumental e' um dente de serra de -1000 a 1000: qualquer valor
+           acima disso na saida so' pode ter vindo das vozes. */
+        quadros[0] = (short)((i % 2001L) - 1000L);
+        quadros[1] = (short)-quadros[0];
+        quadros[2] = (short)VOZ;
+        quadros[3] = (short)-VOZ;
+        fwrite(quadros, sizeof(quadros), 1, f);
+    }
+    fclose(f);
+}
+
+int main(void)
+{
+    const char *caminho = "/tmp/fnf_ring_test.pcm";
+    long i, total_quadros = JANELA_QUADROS * 2;
+    unsigned char *buf;
+    short *pcm;
+    int fd, maximo = 0, zeros_inicio = 0;
+
+    escreve_arquivo(caminho);
+    if (falhas) return 1;
+
+    fd = open(caminho, O_RDONLY);
+    if (fd < 0) { printf("  FALHA: nao abri %s\n", caminho); return 1; }
+
+    printf("== anel: a janela do preview (%ld quadros de 4 canais, 4 s)\n", JANELA_QUADROS);
+    if (fp_aud_janela_amostras(0, JANELA_QUADROS * 8) != (int)JANELA_QUADROS) {
+        printf("  FALHA: a janela de %ld B nao deu %ld amostras\n",
+               JANELA_QUADROS * 8, JANELA_QUADROS);
+        return 1;
+    }
+    if (audio_ring_iniciar_preview(fd, 0, JANELA_QUADROS * 8) != 0) {
+        printf("  FALHA: o anel nao iniciou no modo preview\n");
+        close(fd);
+        return 1;
+    }
+
+    /* Duas voltas completas da janela. */
+    buf = (unsigned char *)malloc((size_t)total_quadros * 4u);
+    if (!buf) { printf("  FALHA: sem memoria\n"); audio_ring_stop(); close(fd); return 1; }
+    for (i = 0; i < total_quadros * 4L; ) {
+        int n = (int)((total_quadros * 4L - i) > 4096L ? 4096L : (total_quadros * 4L - i));
+        int got = audio_ring_take(buf + i, n);
+        if (got <= 0) { DelayThread(1000); continue; }
+        i += got;
+    }
+    audio_ring_stop();
+    close(fd);
+    pcm = (short *)buf;
+
+    printf("== anel: o instrumental passa e as vozes NAO\n");
+    /* 1. Nenhuma amostra pode passar de 1000: as vozes valem 0x6000 e so'
+       apareceriam se os 4 canais fossem para a saida. */
+    for (i = 0; i < total_quadros * 2L; i++) {
+        int v = pcm[i] < 0 ? -pcm[i] : pcm[i];
+        if (v > maximo) maximo = v;
+    }
+    CHECK(maximo <= 1001);
+    CHECK(maximo >= 690);            /* e o instrumental chega ao volume 0,7 */
+    printf("  maior amostra na saida ..... %d   (0,7 x 1000 = 700; voz = %d)\n", maximo, VOZ);
+
+    printf("== anel: o fadeIn(2) / fadeOut(2) a 0,7\n");
+    /* 2. No comeco da janela o ganho e' 0. */
+    for (i = 0; i < 8; i++) if (pcm[i] == 0) zeros_inicio++;
+    CHECK(zeros_inicio == 8);
+    /* 3. No MEIO da janela (2 s) os dois fades se encontram e o ganho e' 0,7. */
+    {
+        long k = JANELA_QUADROS / 2;
+        int esperado = (int)((double)((k % 2001L) - 1000L) * 0.7 +
+                             (((k % 2001L) - 1000L) < 0 ? -0.5 : 0.5));
+        int v = pcm[k * 2];
+        printf("  no meio (2 s) .............. %d   (esperado ~%d)\n", v, esperado);
+        CHECK(v >= esperado - 20 && v <= esperado + 20);
+    }
+    /* 4. L e R sao opostos (o canal 1 do stems e' -canal 0): nenhum par
+       trocado, nenhuma soma dos dois. */
+    {
+        int opostos = 0;
+        for (i = 0; i < total_quadros; i++)
+            if (pcm[i * 2] == -pcm[i * 2 + 1] || (pcm[i * 2] == 0 && pcm[i * 2 + 1] == 0)) opostos++;
+        CHECK(opostos == (int)total_quadros);
+    }
+
+    printf("== anel: a volta para o comeco da JANELA (nao para o byte 0)\n");
+    /* 5. No fim da janela o ganho cai a zero e a segunda volta RECOMECA em
+       zero -- se o produtor voltasse para o byte 0 do ARQUIVO o conteudo seria
+       o mesmo (a janela comeca em 0), entao o que este teste prova e' o
+       reinicio do GANHO: com uma janela deslocada o conteudo tambem muda. */
+    CHECK(pcm[(JANELA_QUADROS - 1) * 2] == 0 || pcm[(JANELA_QUADROS - 1) * 2] <= 1);
+    {
+        int z = 0;
+        for (i = 0; i < 8; i++) if (pcm[(JANELA_QUADROS + i) * 2] == 0) z++;
+        printf("  amostras em zero no recomeco  %d de 8\n", z);
+        CHECK(z == 8);
+    }
+    /* 6. E o conteudo se repete: a amostra k da segunda volta e' a mesma da
+       primeira (mesma posicao na janela, mesmo ganho). */
+    {
+        long ks[3] = { 500L, 5000L, 95000L };
+        int ok = 0;
+        for (i = 0; i < 3; i++) {
+            long k = ks[i];
+            if (pcm[(k + JANELA_QUADROS) * 2] == pcm[k * 2] &&
+                pcm[(k + JANELA_QUADROS) * 2 + 1] == pcm[k * 2 + 1]) ok++;
+        }
+        CHECK(ok == 3);
+    }
+
+    /* ---- a fonte SECUNDARIA com volume ------------------------------- */
+    /* O `scrollMenu` da Freeplay toca a 0,4 (`FreeplayState.hx` L2918) por cima
+       do preview, e o preview tem ganho 0 no primeiro quadro: se o volume
+       fosse aplicado depois da soma, o sfx sumiria com o fade. Aqui o overlay
+       e' um DC de 2000 nos dois canais: 0,4 x 2000 = 800. */
+    printf("== anel: a fonte secundaria soma por cima, com o volume dela\n");
+    {
+        const char *caminho_ov = "/tmp/fnf_ring_overlay.pcm";
+        FILE *f = fopen(caminho_ov, "wb");
+        long k;
+        short *pcm2;
+        unsigned char *b2;
+        int fd_ov, slot;
+        if (!f) { printf("  FALHA: nao criei %s\n", caminho_ov); return 1; }
+        for (k = 0; k < 4800; k++) {
+            short q[2];
+            q[0] = 2000;
+            q[1] = 2000;
+            fwrite(q, sizeof(q), 1, f);
+        }
+        fclose(f);
+
+        fd_ov = open(caminho_ov, O_RDONLY);
+        if (fd_ov < 0) { printf("  FALHA: nao abri %s\n", caminho_ov); return 1; }
+        fd = open(caminho, O_RDONLY);
+        if (fd < 0) { printf("  FALHA: nao reabri %s\n", caminho); return 1; }
+        if (audio_ring_iniciar_preview(fd, 0, JANELA_QUADROS * 8) != 0) {
+            printf("  FALHA: o anel nao reiniciou\n");
+            return 1;
+        }
+        slot = audio_ring_overlay_slot(1, fd_ov, 40);
+        if (slot != 0) { printf("  FALHA: o slot 1 do overlay nao aceitou (rc %d)\n", slot); return 1; }
+
+        b2 = (unsigned char *)malloc((size_t)total_quadros * 4u);
+        if (!b2) { printf("  FALHA: sem memoria\n"); return 1; }
+        for (i = 0; i < total_quadros * 4L; ) {
+            int n = (int)((total_quadros * 4L - i) > 4096L ? 4096L : (total_quadros * 4L - i));
+            int got = audio_ring_take(b2 + i, n);
+            if (got <= 0) { DelayThread(1000); continue; }
+            i += got;
+        }
+        audio_ring_stop();
+        close(fd);
+        pcm2 = (short *)b2;
+
+        /* 7. No PRIMEIRO quadro o preview tem ganho 0 e o sfx ja' esta' no
+           volume DELE: 0,4 x 2000 = 800 nos dois canais. */
+        printf("  primeiro quadro (fade 0 + sfx) %d %d   (0,4 x 2000 = 800)\n",
+               pcm2[0], pcm2[1]);
+        CHECK(pcm2[0] == 800);
+        CHECK(pcm2[1] == 800);
+        /* 8. Enquanto o sfx toca (0,1 s = 4800 quadros), L + R = 2 x 800: o
+           instrumental e' espelhado (L = -R) e some na soma. */
+        {
+            int ok = 0, ruins = 0;
+            for (i = 0; i < 4800; i++) {
+                if (pcm2[i * 2] + pcm2[i * 2 + 1] == 1600) ok++;
+                else if (ruins < 3) { printf("  k=%ld: %d + %d\n", (long)i, pcm2[i*2], pcm2[i*2+1]); ruins++; }
+            }
+            printf("  L + R = 1600 nos quadros com sfx  %d de 4800\n", ok);
+            CHECK(ok == 4800);
+        }
+        /* 9. Depois do fim do sfx (4800 quadros) a saida e' IDENTICA a' da
+           rodada sem overlay -- o fim do sfx nao corta nem atrasa a primaria.
+           O bloco de 4096 quadros que contem o fim le' so' o que falta
+           (704 quadros) e o resto do bloco sai so' com o instrumental. */
+        {
+            long ks[4] = { 4800L, 9000L, 60000L, 150000L };
+            int iguais = 0;
+            for (i = 0; i < 4; i++) {
+                long k = ks[i];
+                if (pcm2[k * 2] == pcm[k * 2] && pcm2[k * 2 + 1] == pcm[k * 2 + 1]) iguais++;
+                else printf("  k=%ld: sem sfx %d/%d, com sfx %d/%d\n", k,
+                            pcm[k*2], pcm[k*2+1], pcm2[k*2], pcm2[k*2+1]);
+            }
+            printf("  sem sfx, a saida e' igual a' da 1a rodada  %d de 4\n", iguais);
+            CHECK(iguais == 4);
+        }
+        /* 10. E o pedido com slot explicito devolve -1 sem anel: quem chama
+           nao perde o fd. */
+        CHECK(audio_ring_overlay_slot(1, fd_ov, 40) == -1);
+        free(b2);
+    }
+
+    free(buf);
+    if (falhas) { printf("  %d FALHA(S)\n", falhas); return 1; }
+    printf("  ok: janela, 4 canais -> 2, ganho do fade e a volta conferem\n");
+    printf("ANEL DE AUDIO (PREVIEW) OK\n");
+    return 0;
+}
