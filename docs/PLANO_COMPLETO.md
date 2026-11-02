@@ -103,8 +103,15 @@ voicesR`, 16 bits cada) e o mixer do port soma as duas com saturação em
 telas existem e cada uma tem harness próprio: `ui_state 9` (Resultado), `10`
 (Game Over, com reinício por CROSS), `11` (Freeplay: 27 músicas, 153 quads,
 dificuldade HARD, 48 notas, 506 quadros de volta) e a pausa (congela o relógio,
-73 quads de sobreposição, Resume/Restart/Change Difficulty). Falta só a **arte**
-dessas telas (cápsulas da Freeplay, ícone de pausa, `AtlasFont` e `firstDeath`).
+73 quads de sobreposição, Resume/Restart/Change Difficulty). A **arte** dessas
+telas também entrou: cápsulas da Freeplay + fundo + títulos + DJ (`.chp4` de 9
+animações), placar/tallies/percentual/barra do topo/nome da música/arte do rank/
+selo de recorde, ícones de vida, splashes e a música do resultado nas 12 faixas
+dos dois donos. Duas coisas que a lista antiga pedia **não existem na v0.8.6** e
+por isso não entraram: o ícone de pausa (o `PauseSubState` monta só um
+retângulo preto com alpha animado, e `pauseAlt/` não é referenciado por fonte
+nenhum) e o `AtlasFont` da pausa (as entradas são `AtlasText` desenhadas com a
+fonte do jogo).
 
 ### Fase 4 — VRAM: FECHADA EM PARTE (1 de 4 passos medidos)
 
@@ -118,9 +125,11 @@ chave de tela), os frame buffers são 640×448 PSMCT16, os 21 palcos foram
 reempacotados da arte real e os 46 personagens também. O que **não** é
 necessário, medido: nenhum pacote dos 67 tem largura acima de 1024 (o maior é
 `tankman-bloody`, 612×516, e o limite de 1024×1024 do PSMCT16 não é tocado), então
-não há imagem para fatiar. O que **falta**: espaço para os ícones de vida do HUD
-— com a arte real, a pior combinação deixa 1.792 B livres no pool (seção "O jogo
-inteiro com os pacotes DE VERDADE").
+não há imagem para fatiar. Os **ícones de vida** do HUD entraram sem VRAM nova
+(eles moram na faixa vazia do atlas do HUD, como o splash — seção dos NOTE
+KINDS), então o que sobra desta fase é só o que depende do console: ver como a
+captura PSMCT16 e o dither saem na TV. O `tools/orcamento_vram.py` fecha 27/27
+combinações dentro do orçamento.
 
 #### Fechado: o mapa de VRAM agora é uma tabela conferida contra o alocador
 
@@ -1496,16 +1505,21 @@ empacotador já aplica a menor escala) e depois
 (`stagetex`, 512×256), não os três props — a troca para o renderizador genérico
 é o passo 4, e é ele que passa a depender deste orçamento.
 
-### Fase 5 — Otimização medida
+### Fase 5 — Otimização medida: FECHADA (com a tabela no documento)
 
-**Existe hoje:** harness de PC que mede quadros, pacotes, qwords, overflows.
+**Existe:** o harness de PC mede quadros, pacotes, qwords e overflows, e a
+tabela de custo por quadro está registrada abaixo em duas versões — a linha de
+base (`## Fase 5: o custo por quadro, medido`) e a mesma conta com os pacotes
+**de verdade** (`## Fase 5 com os pacotes de verdade: o custo por quadro,
+medido`). Nenhum ganho é declarado sem antes/depois medido no harness.
 
-**Falta:** usar o mesmo harness para medir antes/depois de cada mudança e
-registrar a tabela neste documento. Sem tabela, nada é declarado ganho.
+**O que ficou de fora, e é limite de hardware, não de fonte:** as vozes do anel
+de áudio (uma secundária, então dois `playOnce` simultâneos dividem a voz) e o
+que só o console responde (dither, captura, tempo real de DMA).
 
 ---
 
-### Fase 3 — Telas: FECHADA (arte das telas ainda pendente)
+### Fase 3 — Telas: FECHADA (arte incluída)
 
 **Fechado: Game Over (`ui_state == 10`, `GameOverSubState.hx`).**
 
