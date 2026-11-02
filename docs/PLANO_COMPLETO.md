@@ -3346,7 +3346,7 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1992,0` no fim da primeira música e `save_estado,1,1992` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
-| o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
+| o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, **18** arquivos) criam coisas que **nao estao no JSON** (5 `new FlxBackdrop`/sprite: as `mist1..5` do `limoRideErect`, o `scrollingSky` do `phillyBlazin`) e mexem em alpha/visible/posicao por evento e por timer (relampago dos dois palcos, luzes do `sserafim`, trem do `phillyTrainErect`). Medido por `tools/analisa_scripts_palco.py`: **666** linhas mudam estado, **451** rodam durante a musica, e **175** delas sao shader (o GS nao tem) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts o **estado inicial** completo -- `blend`, `alpha` e `visible`, extraidos por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. Faltam os 238 portaveis + os 175 de shader + 13 de cor por personagem + 20 de haptica + 5 sprites criados por script |
 
 #### A tela de Resultado: a arte entrou
 
@@ -4274,6 +4274,91 @@ estes números.
   `favoriteSong()`. Os dois sons vêm junto com a função, não antes dela.
 - os sons do menu de **opções** (`OffsetMenu.hx` L418/L422): a tela de ajustes do
   port é um stub sem lista de itens, então não há evento para somar.
+
+## Fechado: os props que o script do palco esconde (o estado inicial de `visible` e `alpha`)
+
+O port extraía dos 18 scripts de palco só o **`blend`** inicial
+(`tools/extrair_blend_palcos.py`). Duas outras formas de "este prop nasce
+invisível" ficavam de fora, e o resultado era desenho a mais — medido, e não
+pouco:
+
+| palco | prop | fonte | tamanho na tela | antes | agora |
+|---|---|---|---|---|---|
+| `phillyBlazin` | `skyAdditive` | L66 `visible = false` | 683×244 ×1,75 | alpha 1,0, desenhado | **não desenha** |
+| `phillyBlazin` | `lightning` | L69 `visible = false` | 101×171 ×1,75 | alpha 1,0, desenhado | **não desenha** |
+| `phillyBlazin` | `foregroundMultiply` | L73 `visible = false` | 802×383 ×1,75 | alpha 1,0, desenhado | **não desenha** |
+| `phillyBlazin` | `additionalLighten` | L77 `visible = false` | cor sólida | já era 0 (lista escrita à mão) | agora **do extrator** |
+| `spookyMansionErect` | `bgLight` | L90 `alpha = 0.0001` | **2450×1250** | alpha 1,0, desenhado | alpha 0,0001 |
+| `spookyMansionErect` | `stairsLight` | L91 `alpha = 0.0001` | **1150×1250** | alpha 1,0, desenhado | alpha 0,0001 |
+
+Os dois últimos cobrem a tela inteira do palco da mansão: o port estava somando
+duas camadas de luz em alpha cheio por cima da cena, e no `phillyBlazin` o
+relâmpago ficava **congelado na tela**. Nenhum harness reclamava porque um prop
+a mais desenhado não é erro de conta — é erro de olho, e o olho foi o console
+que ninguém ligou ainda.
+
+**Como ficou, e por que não é chute.** O extrator passou a saber em que FUNÇÃO
+cada linha está: só `buildStage`/`onCreate` (e o `prop.` do `addProp`) valem
+como estado inicial; atribuição dentro de callback de evento é comportamento em
+jogo e continua contada como fora. Ele lê as duas formas que os scripts usam —
+
+    getNamedProp('bgLight').alpha = 0.0001;      // direto
+    var p = getNamedProp('skyAdditive'); p.visible = false;   // por variável
+
+— e grava `alpha`/`visible` em `assets-data/stage-script.json`, que
+`tools/gen_stage_dados.py` transforma no `alpha` de `bs_props[]`
+(`visible = false` → alpha 0, que o `stage_layout` já sabia pular). A lista
+`BLEND_INICIAL` escrita à mão para o `additionalLighten` **saiu**: agora o dado
+vem de um lugar só.
+
+Medido no teste: **11** props texturizados com alpha 0 (eram 8) e
+`test/test_stage_layout.c` cobra o caso — os quatro do `phillyBlazin` não podem
+aparecer na lista, os dois do `spookyMansionErect` têm de chegar com alpha
+≤ 0,001, e um controle (`bgTrees`) garante que o palco não foi apagado inteiro.
+
+**O que continua faltando**: esses props agora *nunca* aparecem, porque quem os
+mostra é o relâmpago do script (um `Sequence` de 0,06 s / 0,12 s que acende e
+apaga em 1,5 s). Continua sendo o item da tabela de pendências abaixo; a
+diferença é que agora o ponto de partida é o do original.
+
+**E isso expôs o que faltava de verdade no `blazin`.** Medido no sweep
+(`sh tools/run_sweep_harness.sh 1200 blazin`, log `palco_draw`):
+
+| | camadas desenhadas no quadro 0 |
+|---|---|
+| original | **2**: `phillyForegroundCity` + o `scrollingSky` que o script CRIA |
+| port antes desta build | **5**: as 2 certas + `skyAdditive`, `lightning` e `foregroundMultiply` em alpha 1,0 |
+| port agora | **1**: só `phillyForegroundCity` |
+
+O `scrollingSky` é um `new FlxTiledSprite(Paths.image('phillyBlazin/skyBlur'),
+4000, 495)` em (-700,-120), `scrollFactor 0`, zIndex 10, rolando a 35 px/s — é
+o **fundo** do palco, e não está no JSON porque nasce no script. Ou seja: o port
+nunca teve o fundo do `blazin`; ele parecia ter porque as duas camadas de luz em
+alpha cheio preenchiam a tela. Agora a falta tem nome e tamanho — é o próximo
+item portável (categoria `create`: 5 sprites em 2 palcos), e o primeiro da fila
+porque é o fundo de uma das 27 músicas.
+
+### O que os 18 scripts fazem, medido (`tools/analisa_scripts_palco.py`)
+
+Para não repetir "77 linhas" sem dizer quais, o inventário novo classifica
+**cada linha** que muda estado, por palco e por tipo, e diz se o prop citado
+existe no JSON do port:
+
+```
+18 arquivos, 666 linhas que mudam estado; 451 rodam durante a música
+  alpha 34   visible 70   blend 7   position 41   animation 16
+  color 13   shader 175   sound 20   haptic 20   create 5
+  timer 58   char_visible 12
+props citados por getNamedProp que NAO existem no JSON: nenhum
+```
+
+Duas leituras que mudam a ordem do trabalho: **175 das 451 linhas são shader**
+(o GS não tem `RuntimeRainShader`, `AdjustColorShader`, `GaussianBlurShader`,
+`OverlayBlend`) e **238 são portáveis** (alpha/visible/position/animation/
+timer/som). Por palco, os portáveis são `sserafim` 108, `phillyTrainErect` 36,
+`phillyStreetsErect` 20, `phillyBlazin` 18, `limoRideErect` 15 e
+`spookyMansionErect` 13 — e nenhum prop citado falta no JSON, então o que falta
+é comportamento, não dado.
 
 ## Fechado: o brilho do selo PERFECT_GOLD (o `sparkle`)
 

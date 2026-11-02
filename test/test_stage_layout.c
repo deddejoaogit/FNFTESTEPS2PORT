@@ -654,12 +654,16 @@ int main(void)
            tankmanBattlefield/clouds2, phillyStreetsErect/paper, os caminhoes e o
            solidCover do sserafim). Desenha-los seria desenhar o que o original
            nao desenha. */
-        /* 8 props TEXTURIZADOS com alpha 0 + o `solidCover` do sserafim, que e'
-           um retangulo de cor (conferido no bloco de cima). */
+        /* 11 props TEXTURIZADOS com alpha 0 + o `solidCover` do sserafim, que
+           e' um retangulo de cor (conferido no bloco de cima). Os 8 do JSON
+           (schoolErect/freaks, tankmanBattlefield/clouds2,
+           phillyStreetsErect/paper, os caminhoes, ...) mais os 3 que o
+           `buildStage` do phillyBlazin esconde (`skyAdditive`, `lightning` e
+           `foregroundMultiply`, L66-77) -- medido, e' o que o dado diz. */
         int zerados = 0, cores_zeradas = 0;
         for (i = 0; i < BS_PROP_COUNT; i++) if (bs_props[i].alpha <= 0.0f) zerados++;
         for (i = 0; i < BS_COR_COUNT; i++) if (bs_cores[i].alpha <= 0.0f) cores_zeradas++;
-        CHECK_EQ(zerados, 8);
+        CHECK_EQ(zerados, 11);
         CHECK_EQ(cores_zeradas, 2);   /* solidCover + additionalLighten (ADD) */
         {
             sl_item_t it[SL_MAX_ITENS];
@@ -677,6 +681,35 @@ int main(void)
             const sl_item_t *g1 = item_por_nome(it, n, "grey1");
             CHECK(g1 != NULL);
             if (g1) CHECK_NEAR(g1->alpha, 0.3f);
+        }
+        /* O ESTADO INICIAL DOS SCRIPTS DE PALCO. O `.hxc` do palco esconde
+           props no `buildStage` (`phillyBlazin.hxc` L66/L69/L73/L77:
+           `skyAdditive`, `lightning`, `foregroundMultiply` e
+           `additionalLighten` com `visible = false`) e deixa outros em alpha
+           1e-4 (`spookyMansionErect.hxc` L90-91: `bgLight` e `stairsLight`).
+           Antes desta extracao o port desenhava os cinco em alpha 1,0 -- e
+           dois deles cobrem a tela inteira (2450x1250 e 1150x1250), entao o
+           palco saia lavado. Quem os esconde e' `tools/extrair_blend_palcos.py`
+           -> `assets-data/stage-script.json` -> `gen_stage_dados.py`. */
+        {
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("phillyBlazin", 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                               0.5f, 1.0f, it, SL_MAX_ITENS);
+            CHECK(item_por_nome(it, n, "skyAdditive") == NULL);
+            CHECK(item_por_nome(it, n, "lightning") == NULL);
+            CHECK(item_por_nome(it, n, "foregroundMultiply") == NULL);
+            CHECK(item_por_nome(it, n, "additionalLighten") == NULL);
+            n = sl_collect("spookyMansionErect", 0.0f, 0.0f, 1.0f, 1.0f, 0,
+                           0.5f, 1.0f, it, SL_MAX_ITENS);
+            {
+                const sl_item_t *bg = item_por_nome(it, n, "bgLight");
+                const sl_item_t *st = item_por_nome(it, n, "stairsLight");
+                CHECK(bg == NULL || bg->alpha <= 0.001f);
+                CHECK(st == NULL || st->alpha <= 0.001f);
+            }
+            /* E o que o script NAO esconde continua sendo desenhado: sem esta
+               linha, "apagou tudo" tambem passaria. */
+            CHECK(item_por_nome(it, n, "bgTrees") != NULL);
         }
     }
 

@@ -18,12 +18,12 @@
  },
  "linhas_fora_do_inicial": {
   "limoRideErect": 10,
-  "phillyBlazin": 3,
+  "phillyBlazin": 14,
   "phillyStreets": 1,
   "phillyStreetsErect": 15,
-  "phillyTrainErect": 1,
-  "spookyMansionErect": 22,
-  "sserafim": 22
+  "phillyTrainErect": 20,
+  "spookyMansionErect": 20,
+  "sserafim": 66
  },
  "nao_resolvido": [
   "limoRideErect.hxc linha 58: mist1.blend = 0 (variavel sem getNamedProp)",
@@ -98,23 +98,34 @@
     {
      "alpha": null,
      "blend": 0,
-     "linha": 65,
+     "linha": 66,
      "nome": "skyAdditive",
-     "regra": "nome"
+     "regra": "nome",
+     "visible": false
     },
     {
      "alpha": null,
      "blend": 9,
-     "linha": 72,
+     "linha": 73,
      "nome": "foregroundMultiply",
-     "regra": "nome"
+     "regra": "nome",
+     "visible": false
     },
     {
      "alpha": null,
      "blend": 0,
-     "linha": 76,
+     "linha": 77,
      "nome": "additionalLighten",
-     "regra": "nome"
+     "regra": "nome",
+     "visible": false
+    },
+    {
+     "alpha": null,
+     "blend": null,
+     "linha": 69,
+     "nome": "lightning",
+     "regra": "nome",
+     "visible": false
     }
    ]
   },
@@ -153,6 +164,27 @@
      "linha": 652,
      "nome": "grey2",
      "regra": "nome"
+    }
+   ]
+  },
+  "spookyMansionErect": {
+   "fonte": "preload/scripts/stages/spookyMansionErect.hxc",
+   "props": [
+    {
+     "alpha": 0.0001,
+     "blend": null,
+     "linha": 90,
+     "nome": "bgLight",
+     "regra": "nome",
+     "visible": null
+    },
+    {
+     "alpha": 0.0001,
+     "blend": null,
+     "linha": 91,
+     "nome": "stairsLight",
+     "regra": "nome",
+     "visible": null
     }
    ]
   },

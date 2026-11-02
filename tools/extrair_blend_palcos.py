@@ -76,6 +76,39 @@ RE_NAME_EQ = re.compile(r'name\s*==\s*"([^"]+)"')
 RE_CASE = re.compile(r"case\s*'([^']+)'\s*:")
 RE_ATTR = re.compile(r"prop\.(blend|alpha)\s*=\s*([0-9.]+)")
 
+# O estado inicial nao e' so' `blend`: o script tambem ESCONDE props
+# (`phillyBlazin.hxc` L65-77: `skyAdditive.visible = false` e mais tres) e deixa
+# outros com alpha praticamente zero (`spookyMansionErect.hxc` L90-91:
+# `getNamedProp('bgLight').alpha = 0.0001`, que e' o "apagado ate' o relampago").
+# Sem isso o port desenhava esses props em alpha 1 -- medido: 6 props em 2
+# palcos. As duas formas que os 18 scripts usam:
+#
+#   getNamedProp('X').alpha = 0.0001;   getNamedProp('X').visible = false;
+#   var x = getNamedProp('X');  x.alpha = 0.5;  x.visible = true;
+#
+# So' vale dentro do estado inicial (`buildStage`/`onCreate`): uma atribuicao
+# dentro de callback de evento e' comportamento em jogo, nao estado de partida,
+# e continua contada em `linhas_fora_do_inicial`.
+RE_NAMED_ATTR = re.compile(
+    r"getNamedProp\(\s*'([^']+)'\s*\)\.(alpha|visible)\s*=\s*"
+    r"([0-9.]+|true|false)")
+RE_VAR_ATTR = re.compile(
+    r"^\s*([A-Za-z_]\w*)\.(alpha|visible)\s*=\s*([0-9.]+|true|false)")
+FUNCAO_RE = re.compile(r"^\s*(?:override\s+)?(?:public\s+|private\s+)?"
+                       r"function\s+(\w+)\s*\(")
+# Funcoes cujo efeito E' o estado com que o prop nasce.
+FUNCOES_INICIAIS = ("buildStage", "onCreate")
+
+
+def _ficha(fichas, regra, nome, linha):
+    for g in fichas:
+        if g["regra"] == regra and g["nome"] == nome:
+            return g
+    g = {"nome": nome, "regra": regra, "blend": None, "alpha": None,
+         "visible": None, "linha": linha}
+    fichas.append(g)
+    return g
+
 
 def scan_file(path):
     """-> (fichas, nao_resolvido, eventos) for one .hxc."""
@@ -83,6 +116,16 @@ def scan_file(path):
     fichas = []
     nao = []
     eventos = 0
+
+    # 0) em que funcao esta' cada linha -- para separar o ESTADO INICIAL do
+    #    comportamento em jogo.
+    escopo = {}
+    atual = "(topo)"
+    for n, ln in enumerate(lines, 1):
+        m = FUNCAO_RE.match(ln)
+        if m:
+            atual = m.group(1)
+        escopo[n] = atual
 
     # 1) `getNamedProp('X').blend = N;` em qualquer linha.
     for n, ln in enumerate(lines, 1):
@@ -171,6 +214,40 @@ def scan_file(path):
                     f["alpha"] = v
             i += 1
 
+    # 3b) `alpha`/`visible` do ESTADO INICIAL, nomeados direto ou por variavel.
+    mapa_var = {}
+    for n, ln in enumerate(lines, 1):
+        for m in RE_VAR_BLEND_TARGET.finditer(ln):
+            mapa_var[m.group(1)] = m.group(2)
+    for n, ln in enumerate(lines, 1):
+        if escopo.get(n) not in FUNCOES_INICIAIS:
+            continue
+        achados = []
+        for m in RE_NAMED_ATTR.finditer(ln):
+            achados.append((m.group(1), m.group(2), m.group(3)))
+        for m in RE_VAR_ATTR.finditer(ln):
+            var = m.group(1)
+            if var not in mapa_var:
+                continue
+            if m.group(2) == "blend":
+                continue
+            achados.append((mapa_var[var], m.group(2), m.group(3)))
+        for nome, k, v in achados:
+            f = _ficha(fichas, "nome", nome, n)
+            if k == "alpha":
+                f["alpha"] = float(v)
+                f["linha"] = n
+            else:
+                if v == "false":
+                    f["visible"] = False
+                elif v == "true":
+                    f["visible"] = True
+                else:
+                    nao.append("linha %d: visible = %s (nao e' booleano)"
+                               % (n, v))
+                    continue
+                f["linha"] = n
+
     # 4) Contagem honesta do que ficou de fora: atribuicoes de blend/alpha que
     #    nao sao estado inicial (dentro de callbacks) ou que mexem em quem nao e'
     #    prop do JSON.
@@ -180,7 +257,7 @@ def scan_file(path):
     for n, ln in enumerate(lines, 1):
         if n in pegas:
             continue
-        if re.search(r"\.(blend|alpha)\s*=", ln) or ".alpha =" in ln:
+        if re.search(r"\.(blend|alpha|visible)\s*=", ln):
             eventos += 1
     return fichas, nao, eventos
 
@@ -238,10 +315,13 @@ def main():
         print("  NAO RESOLVIDO: " + p)
     for sid, v in sorted(d["palcos"].items()):
         for f in v["props"]:
-            print("  %-22s %-28s regra=%-6s %-10s blend=%d alpha=%s (L%d)"
+            b = f.get("blend")
+            print("  %-22s %-28s regra=%-6s %-10s blend=%s alpha=%s "
+                  "visible=%s (L%d)"
                   % (sid, f["nome"], f["regra"],
-                     BLEND.get(f["blend"], "?%d" % f["blend"]), f["blend"],
-                     f["alpha"], f["linha"]))
+                     ("?" if b is None else BLEND.get(b, "?%d" % b)),
+                     ("-" if b is None else str(b)),
+                     f.get("alpha"), f.get("visible"), f["linha"]))
     return 0
 
 

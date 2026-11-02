@@ -144,14 +144,17 @@ def stage_scale(sid, sizes, bpp=16):
 #   phillyBlazin.hxc L75-77  additionalLighten.blend = 0 (ADD) e
 #                            additionalLighten.visible = false
 #
-# Como ele nasce invisivel e a unica coisa que o mostra e' o relampago
-# (script que este port nao executa), ele entra com alpha 0.0: e' o estado do
-# original no instante zero, e nao um branco somado a tela inteira.
-# Os outros 11 props de cor nao aparecem em script nenhum com blend/alpha
-# proprio -- ficam com o padrao do StageData (alpha 1.0, blend normal).
-BLEND_INICIAL = {
-    ("phillyBlazin", "additionalLighten"): (1, 0.0),   # ADD, invisivel
-}
+# Como ele nasce invisivel (`visible = false`) e a unica coisa que o mostra e'
+# o relampago (script que este port nao executa), ele entra com alpha 0.0: e' o
+# estado do original no instante zero, e nao um branco somado a tela inteira.
+#
+# Quem diz isso agora e' o EXTRATOR (`tools/extrair_blend_palcos.py`), nao uma
+# lista escrita a mao aqui: ele le `alpha` e `visible` do `buildStage`/`onCreate`
+# de cada script e grava em `assets-data/stage-script.json`. Medido, o extractor
+# acha 6 props em 2 palcos que nascem escondidos (4 no `phillyBlazin`, 2 com
+# alpha 0.0001 no `spookyMansionErect`); antes desta build eles eram desenhados
+# em alpha 1.0 -- dois deles cobrem a tela inteira (2450x1250 e 1150x1250).
+NADA = None
 
 
 def parse_cor(s):
@@ -326,12 +329,17 @@ def render(plan):
             alfa = alpha.get(p["name"], 1.0)
             blend = 0
             if ficha is not None:
-                blend = BLEND_PORT.get(int(ficha.get("blend", 0)), 0)
+                bv = ficha.get("blend")
+                blend = BLEND_PORT.get(int(bv), 0) if bv is not None else 0
                 # O `addProp` do script roda DEPOIS do buildStage, entao o alpha
                 # dele vence o do JSON (medido: os `_lightmap` do phillyStreets
                 # sao 1,0 no JSON e 0,6 no script).
                 if ficha.get("alpha") is not None:
                     alfa = float(ficha["alpha"])
+                # `visible = false` no estado inicial = o original NAO desenha
+                # o prop ate' um evento o ligar.
+                if ficha.get("visible") is False:
+                    alfa = 0.0
             rows.append({
                 "stage": sid, "name": p["name"], "tex": p["tex"],
                 "x": p["x"], "y": p["y"], "sx": p["sx"], "sy": p["sy"],
@@ -369,14 +377,19 @@ def render(plan):
             else:
                 sw, sh = float(scl[0]), float(scl[1])
             scr = sp.get("scroll") or [1.0, 1.0]
-            blend, alfa = BLEND_INICIAL.get((sid, sp.get("name")), (0, 1.0))
+            blend, alfa = 0, 1.0
             ficha = script_para(regras, sid, sp.get("name"))
             if ficha is not None:
-                blend = BLEND_PORT.get(int(ficha.get("blend", 0)), 0)
+                bv = ficha.get("blend")
+                blend = BLEND_PORT.get(int(bv), 0) if bv is not None else 0
                 if ficha.get("alpha") is not None:
                     alfa = float(ficha["alpha"])
             if "alpha" in sp:
                 alfa = float(sp["alpha"])
+            # `visible = false` no estado inicial vence o JSON (o prop nasce
+            # escondido no original e o port nao o desenha).
+            if ficha is not None and ficha.get("visible") is False:
+                alfa = 0.0
             r, g, b = parse_cor(ap)
             cores.append({
                 "stage": sid, "name": sp.get("name") or "cor",
