@@ -190,6 +190,19 @@ typedef struct {
     int car2_livre;     /* car2Interruptable (L40)                           */
     ss_carro_t carro[2];/* [0] = `phillyCars`, [1] = `phillyCars2`           */
 
+    /* ---- O TANQUE DO `tankmanBattlefield` (ugh, stress e guns) ----
+       tankmanBattlefield.hxc L20-36 `buildStage`: cria as nuvens (sprite do
+       script, ver a falta declarada) e sorteia `tankAngle = int(-90,45)` e
+       `tankSpeed = float(5,7)`; L54-63 `moveTank(elapsed)`: o angulo anda
+       `elapsed * tankSpeed` por quadro, o sprite vai para
+       (400 + cos(rad(ang+180))*1500, 1300 + sin(rad(ang+180))*1100) e o
+       `angle` do sprite e' `tankAngle - 90 + 15`; L65-69 `onSongRetry` chama
+       `moveTank(0)`, que so' reaplica a posicao do angulo atual. */
+    int i_tank;         /* prop `tankRolling` (ABS em bs_props[]), -1 = sem */
+    float tank_ang;     /* tankAngle                                    */
+    float tank_vel;     /* tankSpeed                                    */
+    float tank_px, tank_py;   /* a posicao corrente (L61-62)             */
+
     /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L23-24) --- */
     int strike_beat;
     int strike_offset;

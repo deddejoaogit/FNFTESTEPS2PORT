@@ -90,7 +90,7 @@ int main(void)
         /* Palcos SEM script portado. O `spookyMansionErect` saiu desta lista
            quando o flash dele entrou -- ele e' o segundo palco com script. */
         static const char *outros[] = { "mainStage", "school", "mallXmas",
-                                        "sserafim", "tankmanBattlefield" };
+                                        "sserafim", "limoRide" };
         int i;
         for (i = 0; i < 5; i++) {
             ss_t o;
@@ -863,6 +863,58 @@ int main(void)
         }
     }
 
+    printf("== script do palco: o TANQUE do tankmanBattlefield (L20-69) ==\n");
+    {
+        ss_t tk;
+        float px0, py0, a0;
+        ss_init(&tk, "tankmanBattlefield");
+        CHECK_EQ(tk.ativo, 1);
+        CHECK(tk.i_tank >= 0 && strcmp(bs_props[tk.i_tank].name, "tankRolling") == 0);
+        /* L34-35 / L45-46: `int(-90,45)` e `float(5,7)` */
+        CHECK(tk.tank_ang >= -90.0f && tk.tank_ang <= 45.0f);
+        CHECK(tk.tank_vel >= 4.99f && tk.tank_vel <= 7.01f);
+        /* L61-62: a posicao sai do angulo -- x no circulo de raio 1500 em
+           volta de 400, y no de raio 1100 em volta de 1300 */
+        {
+            float rad = (tk.tank_ang + 180.0f) * 3.14159265f / 180.0f;
+            CHECK_PERTO(tk.tank_px, 400.0f + cosf(rad) * 1500.0f, 0.01);
+            CHECK_PERTO(tk.tank_py, 1300.0f + sinf(rad) * 1100.0f, 0.01);
+        }
+        CHECK_NEAR(ss_prop_x(&tk, tk.i_tank, 0.0f), tk.tank_px);
+        CHECK_NEAR(ss_prop_y(&tk, tk.i_tank, 0.0f), tk.tank_py);
+        {
+            float g = 0.0f;
+            CHECK_EQ(ss_prop_ang(&tk, tk.i_tank, &g), 1);
+            CHECK_NEAR(g, tk.tank_ang - 75.0f);   /* L60 `- 90 + 15` */
+        }
+        /* L57: `tankAngle += elapsed * tankSpeed` a cada quadro */
+        px0 = tk.tank_px; py0 = tk.tank_py; a0 = tk.tank_ang;
+        avanca(&tk, 1.0f);                        /* 60 quadros */
+        CHECK_PERTO(tk.tank_ang, a0 + tk.tank_vel, 0.02);
+        CHECK(tk.tank_px != px0 || tk.tank_py != py0);
+        /* o tank nao tem `onBeatHit`: o `ss_beat` nao faz nada e nao sorteia */
+        {
+            unsigned int r = tk.rng;
+            CHECK_EQ(ss_beat(&tk, 8, "ugh", 1), 0);
+            CHECK_EQ(tk.rng, r);
+        }
+        /* o retry NAO sorteia angulo/velocidade de novo (L65-69) */
+        {
+            float ang = tk.tank_ang, vel = tk.tank_vel;
+            ss_reiniciar(&tk);
+            CHECK_NEAR(tk.tank_ang, ang);
+            CHECK_NEAR(tk.tank_vel, vel);
+        }
+        /* e um prop que nao e' o tanque nao ganha posicao nem angulo */
+        {
+            float g = 1234.0f;
+            CHECK_NEAR(ss_prop_x(&tk, tk.i_tank + 1, 77.0f), 77.0f);
+            CHECK_NEAR(ss_prop_y(&tk, tk.i_tank + 1, 88.0f), 88.0f);
+            CHECK_EQ(ss_prop_ang(&tk, tk.i_tank + 1, &g), 0);
+            CHECK_NEAR(g, 1234.0f);
+        }
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  script do palco: conferidos o relampago do phillyBlazin (3,0 s /\n"
            "  1,5 s / 0,3 s / 7..15 s / 4 props / cor dos personagens), o flash\n"
@@ -870,6 +922,8 @@ int main(void)
            "  e o trem do phillyTrain (1/24 s, -400, -2000 -> -1150, -4000 -> 1480,\n"
            "  8 vagoes, 4,7 s de som, `beat %% 8 == 4` + bool(30), 5 cores), o\n"
            "  sinal e os dois carros do phillyStreets (verde/vermelho 8/20/30,\n"
-           "  `bool(10)`, car1..car4, curvas de Bezier, angulo e offset)\n");
+           "  `bool(10)`, car1..car4, curvas de Bezier, angulo e offset) e o\n"
+           "  tanque do tankmanBattlefield (int(-90,45), float(5,7), o circulo\n"
+           "  de 1500x1100 e `angle = tankAngle - 75`)\n");
     return 0;
 }

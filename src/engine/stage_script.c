@@ -140,6 +140,29 @@
 #define SS_PHILLY_OFFX 306.6f       /* L195 `offset = [306.6, 168.3]` */
 #define SS_PHILLY_OFFY 168.3f
 
+/* ---- tankmanBattlefield.hxc (o tanque dando volta no campo) ----
+     L44-47   `tankMoving` falso, `tankAngle = int(-90,45)`,
+              `tankSpeed = float(5,7)`, `tankX = 400`
+     L34-35   `buildStage` SORTEIA DE NOVO os dois (o inicializador da
+              declaracao ja' sorteou uma vez: sao QUATRO sorteios, e a ordem
+              fica registrada aqui)
+     L54-63   `moveTank(elapsed)`: `tankAngle += elapsed * tankSpeed`,
+              `angle = tankAngle - 90 + 15`,
+              `x = 400 + cos(rad(tankAngle + 180)) * 1500`,
+              `y = 1300 + sin(rad(tankAngle + 180)) * 1100`
+     L65-69   `onSongRetry` -> `moveTank(0)` (reaplica sem andar)
+     L24-31   as nuvens: `FlxTiledSprite('tankClouds', 3200, 235)` em
+              (-1100, 20), `scrollFactor` 0,25, z 12, `velocity.x = 8`  */
+#define SS_TANK_X 400.0f
+#define SS_TANK_CX 1500.0f
+#define SS_TANK_CY 1100.0f
+#define SS_TANK_Y0 1300.0f
+#define SS_TANK_GRAUS (-90.0f + 15.0f)   /* L60 `- 90 + 15` */
+#define SS_TANK_ANG_MIN (-90)
+#define SS_TANK_ANG_MAX 45
+#define SS_TANK_VEL_MIN 5.0f
+#define SS_TANK_VEL_MAX 7.0f
+
 /* `phillyTrain.hxc` L28-34 `lightColors`: as cinco cores das `lights`, em
    0xAARRGGBB como no original. */
 static const unsigned char ss_cores_luzes[SS_COR_LUZES][3] = {
@@ -192,6 +215,8 @@ static int ss_rnd_bool(ss_t *ss, float chance)
    bs_props[], ou -1. Nao adivinha: prop que o JSON nao tem fica -1 e o script
    apenas nao mexe nele (o `tools/analisa_scripts_palco.py` ja' provou que
    nenhum dos 18 scripts cita prop que o JSON nao tenha). */
+static void ss_tank_move(ss_t *ss, float elapsed);
+
 static int acha_prop(int si, const char *nome)
 {
     const bs_stage_props_t *st = &bs_stage_props[si];
@@ -245,6 +270,9 @@ void ss_init(ss_t *ss, const char *palco_id)
     ss->i_bgl = ss->i_stl = -1;
     ss->i_train = ss->i_lights = -1;
     ss->i_luz = ss->i_car = ss->i_car2 = -1;
+    ss->i_tank = -1;
+    ss->tank_px = SS_TANK_X;
+    ss->tank_py = SS_TANK_Y0;
     ss->i_bg = ss->bg_anim = -1;
     ss->bg_t0 = -1.0f;
     ss->bg_quadros = 0;
@@ -285,6 +313,24 @@ void ss_init(ss_t *ss, const char *palco_id)
            `train.x -= 400`, L127). O `ss_reiniciar` deixa -1 = "o dado manda",
            entao quem preenche aqui e' o dado de verdade. */
         ss->trem_x = bs_props[ss->i_train].x;
+        return;
+    }
+
+    /* ---- tankmanBattlefield (o tanque) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "tankmanBattlefield") == 0) {
+        ss->i_tank = acha_prop(ss->palco, "tankRolling");
+        if (ss->i_tank < 0) return;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
+        /* QUATRO sorteios, como na fonte: os dois do inicializador da
+           declaracao (L45-46, que rodam na construcao do script) e os dois do
+           `buildStage` (L34-35). A sequencia do gerador nao e' a do flixel, mas
+           a QUANTIDADE e a ORDEM sao as da fonte. */
+        ss->tank_ang = (float)ss_rnd_int(ss, SS_TANK_ANG_MIN, SS_TANK_ANG_MAX);
+        ss->tank_vel = ss_rnd_float(ss, SS_TANK_VEL_MIN, SS_TANK_VEL_MAX);
+        ss->tank_ang = (float)ss_rnd_int(ss, SS_TANK_ANG_MIN, SS_TANK_ANG_MAX);
+        ss->tank_vel = ss_rnd_float(ss, SS_TANK_VEL_MIN, SS_TANK_VEL_MAX);
+        ss_tank_move(ss, 0.0f);
         return;
     }
 
@@ -389,6 +435,9 @@ void ss_reiniciar(ss_t *ss)
     /* `resetCar` (L85-100): x 1200, y 818, angulo 0, sem tween. */
     ss_carro_reset(&ss->carro[0]);
     ss_carro_reset(&ss->carro[1]);
+    /* O tanque: o `onSongRetry` so' chama `moveTank(0)` -- ele NAO sorteia
+       angulo nem velocidade de novo (L65-69). Os sorteios ficam no `ss_init`. */
+    ss_tank_move(ss, 0.0f);
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
@@ -448,6 +497,17 @@ static void ss_raio(ss_t *ss)
     ss->cor[SS_BF][0] = ss->cor[SS_BF][1] = ss->cor[SS_BF][2] = SS_ESCURO;
     ss->cor[SS_DAD][0] = ss->cor[SS_DAD][1] = ss->cor[SS_DAD][2] = SS_ESCURO;
     ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_ESCURO;
+}
+
+/* `moveTank` (tankmanBattlefield.hxc L54-63), com o `FlxAngle.asRadians`. */
+static void ss_tank_move(ss_t *ss, float elapsed)
+{
+    float rad;
+    if (ss->i_tank < 0) return;
+    ss->tank_ang += elapsed * ss->tank_vel;          /* L57 */
+    rad = (ss->tank_ang + 180.0f) * (3.14159265358979f / 180.0f);
+    ss->tank_px = SS_TANK_X + (float)cos((double)rad) * SS_TANK_CX;   /* L61 */
+    ss->tank_py = SS_TANK_Y0 + (float)sin((double)rad) * SS_TANK_CY;  /* L62 */
 }
 
 /* ---- phillyStreets.hxc: as curvas do FlxEase ---------------------------- */
@@ -862,6 +922,9 @@ int ss_update(ss_t *ss, float elapsed)
         }
     }
 
+    /* ---- O TANQUE (L38-42: `onUpdate` chama `moveTank(elapsed)` sempre) ---- */
+    if (ss->i_tank >= 0) ss_tank_move(ss, elapsed);
+
     /* ---- OS DOIS CARROS DO phillyStreets ---- */
     if (ss->i_luz >= 0) {
         int k;
@@ -966,6 +1029,7 @@ float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
        ja' esta' embutido em `carro[].x`, como no desenho do flixel). */
     if (prop_abs == ss->i_car) return ss->carro[0].x;
     if (prop_abs == ss->i_car2) return ss->carro[1].x;
+    if (prop_abs == ss->i_tank) return ss->tank_px;
     /* O trem: quem escreve o x e' o `updateTrainPos` (L127-134), e o primeiro
        valor e' o do dado. */
     if (prop_abs == ss->i_train) return ss->trem_x >= 0.0f ? ss->trem_x : x_dado;
@@ -1057,6 +1121,7 @@ float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado)
     if (!ss->ativo || prop_abs < 0) return y_dado;
     if (prop_abs == ss->i_car) return ss->carro[0].y;
     if (prop_abs == ss->i_car2) return ss->carro[1].y;
+    if (prop_abs == ss->i_tank) return ss->tank_py;
     return y_dado;
 }
 
@@ -1065,6 +1130,7 @@ int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus)
     if (!ss->ativo || prop_abs < 0 || !graus) return 0;
     if (prop_abs == ss->i_car) { *graus = ss->carro[0].ang; return 1; }
     if (prop_abs == ss->i_car2) { *graus = ss->carro[1].ang; return 1; }
+    if (prop_abs == ss->i_tank) { *graus = ss->tank_ang + SS_TANK_GRAUS; return 1; }
     return 0;
 }
 

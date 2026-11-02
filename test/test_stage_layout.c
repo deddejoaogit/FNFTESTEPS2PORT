@@ -1138,6 +1138,40 @@ int main(void)
         sl_set_script(NULL);
     }
 
+    printf("== layout: o TANQUE do tankmanBattlefield (x, y e angulo do script) ==\n");
+    {
+        static const sl_script_t hook4 = { ov_alpha, ov_x, ov_frame, ov_cor,
+                                           ov_prop_cor, ov_y, ov_ang };
+        sl_item_t it[SL_MAX_ITENS];
+        int n;
+        ss_init(&g_tss, "tankmanBattlefield");
+        sl_set_script(&hook4);
+        /* O tanque nasce longe: o circulo do L61-62 tem raio 1500 e o angulo
+           inicial e' int(-90,45), entao nos primeiros segundos ele esta' FORA
+           da tela (medido: com a camera em 600 o x de tela fica em -538). E'
+           o que o original faz -- o tanque entra na vista quando o angulo
+           chega perto de 120 graus, uns 20 s depois do comeco. */
+        avanca_tss(2.0f);
+        n = sl_collect("tankmanBattlefield", 600.0f, 300.0f, 1.0f, 1.0f, 0, 0.5f,
+                       g_tss.t, it, SL_MAX_ITENS);
+        CHECK(item_por_nome(it, n, "tankRolling") == NULL);
+        avanca_tss(18.0f);           /* t = 20 s: o tanque cruza a tela */
+        n = sl_collect("tankmanBattlefield", 600.0f, 300.0f, 1.0f, 1.0f, 0, 0.5f,
+                       g_tss.t, it, SL_MAX_ITENS);
+        {
+            const sl_item_t *tk = item_por_nome(it, n, "tankRolling");
+            CHECK(tk != NULL);
+            if (tk) {
+                CHECK_NEAR(tk->ang, g_tss.tank_ang - 75.0f);
+                CHECK_NEAR(tk->x0, 320.0f + (g_tss.tank_px - 600.0f * 0.5f +
+                                             640.0f * 0.5f - 640.0f) * 0.5f);
+                CHECK_NEAR(tk->y0, 180.0f + (g_tss.tank_py - 300.0f * 0.5f +
+                                             360.0f * 0.5f - 360.0f) * 0.5f);
+            }
+        }
+        sl_set_script(NULL);
+    }
+
     if (falhas) { printf("\n  %d falha(s)\n", falhas); return 1; }
     printf("\n  palcos: 21 palcos, 157 props, conta de tela e ordem de z conferidas\n");
     return 0;

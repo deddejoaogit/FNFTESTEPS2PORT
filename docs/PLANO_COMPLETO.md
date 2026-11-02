@@ -5031,3 +5031,48 @@ com ângulo 0, para pegar vazamento de um prop para o outro).
 
 **Ainda falta neste palco**: nada de lógica que o dado permita. A chuva e o céu
 são shader e arte.
+
+## Fechado: o tanque do `tankmanBattlefield` (o terceiro script com `angle`)
+
+`tankmanBattlefield` é o palco de `ugh`, `guns` e `stress`. O script
+(`tankmanBattlefield.hxc`, 70 linhas) não mexe em alpha nem em cor: ele **gira e
+move** um prop só — o `tankRolling`, o tanque que dá volta no campo em cima de
+um círculo de 1500 × 1100 px.
+
+| Linha | O que faz | No port |
+|---|---|---|
+| L45-46 | `tankAngle = int(-90,45)`, `tankSpeed = float(5,7)` (inicializador da declaração) | dois sorteios no `ss_init` |
+| L34-35 | `buildStage` sorteia **de novo** os dois | mais dois sorteios, na mesma ordem |
+| L54-63 | `tankAngle += elapsed * tankSpeed`; `x = 400 + cos(rad(ang+180))*1500`; `y = 1300 + sin(rad(ang+180))*1100`; `angle = tankAngle - 90 + 15` | `ss_tank_move` |
+| L65-69 | `onSongRetry` → `moveTank(0)`: reaplica **sem sortear de novo** | `ss_reiniciar` chama `ss_tank_move(ss, 0)` e não sorteia |
+| L24-31 | as nuvens (`FlxTiledSprite('tankClouds', 3200, 235)` em (−1100, 20), `scrollFactor` 0,25, z 12, `velocity.x = 8`) | **falta**: sprite criado, ver abaixo |
+
+**Quatro sorteios, não dois.** Os inicializadores das variáveis rodam na
+construção do script e o `buildStage` sorteia outra vez por cima — quem ler só o
+`buildStage` acerta o intervalo mas erra a posição da sequência do gerador. É o
+mesmo tipo de armadilha do `getNamedProp('freaks')` do `school` e do
+`lightningStrikeOffset` do spooky: **a fonte tem duas escritas da mesma
+variável**, e as duas contam.
+
+**O círculo é grande de propósito.** Medido: com o ângulo inicial em 3,0° e
+`tankSpeed` 6,05 (semente fixa do port), o tanque fica em `x = −1098` no
+começo e só cruza a tela perto de **20 s** (ângulo ≈ 120°). Isso **não** é bug
+de posicionamento: é o que o original faz, e por isso o harness de 10 s da
+`ugh` mostra o script ativo (`palco_script,1`) sem nenhum `palco_giro` — o
+tanque está fora da vista. O teste de layout cobra as duas pontas: **fora** em
+t = 2 s, **dentro** (com `ang`, `x` e `y` do script) em t = 20 s.
+
+**Medido no harness** (`FNF_START_SONG=ugh FNF_START_DIFF=1`, 2 500 quadros,
+`PS2H_STRICT=1`): `PASSOU`, 2 502 quadros, 2 075 pacotes, nenhum estouro, todo
+asset abriu; `palco_script,1,19` e `palco_draw` variando 12..14 (os props do
+palco entram e saem com a câmera).
+
+**O que NÃO está portado neste palco**: as nuvens (`tankClouds`, um sprite
+criado pelo script) — mesma falta do `scrollingSky` do `phillyStreets`: o
+`assets-data/stage-criados.json` só tem a entrada do `phillyBlazin`, e o PNG
+não está no clone de arte deste ambiente. A lógica (uma linha: `velocity.x = 8`
+e o tile de 3200 × 235) entra junto com o pacote. E o
+`tankmanBattlefieldErect` (outro arquivo, 129 linhas) é **instransponível sem
+shader**: ele aplica um `DropShadowShader` em cada personagem e desenha arte de
+máscara; os dois únicos eventos portáveis dele são o `sniper.playAnimation(
+'sip')` com `bool(2)` e o `tankBricks.setPosition(445, 774)`.
