@@ -432,6 +432,51 @@ void res_flash_cor(int banda, int *r, int *g, int *b)
     if (b) *b = azul;
 }
 
+static int arredonda(float v)
+{
+    return (int)(v + (v >= 0.0f ? 0.5f : -0.5f));
+}
+
+/* A cor da faixa `b` de um gradiente de 2 cores em `n` faixas. O centro da
+ * faixa e' (b + 0,5)/n, que e' onde cai o `beginGradientFill` do flixel depois
+ * de escalar a forma de n linhas para a altura do sprite. */
+static void gradiente_cor(int b, int n, const int *a, const int *z,
+                          int *r, int *g, int *bl)
+{
+    /* t = centro da faixa `b`: (b + 0,5) / n, com n = 8 (720 / chunkSize 90). */
+    float t;
+    if (b < 0) b = 0;
+    if (b >= n) b = n - 1;
+    t = ((float)b + 0.5f) / (float)n;
+    if (r) *r = a[0] + arredonda((float)(z[0] - a[0]) * t);
+    if (g) *g = a[1] + arredonda((float)(z[1] - a[1]) * t);
+    if (bl) *bl = a[2] + arredonda((float)(z[2] - a[2]) * t);
+}
+
+void res_bg_cor(int banda, int *r, int *g, int *b)
+{
+    /* `FlxGradient.createGradientFlxSprite(1280, 720, [0xFFFECC5C, 0xFFFDC05C],
+     * 90)`: as duas cores da fonte, do topo para a base. */
+    static const int topo[3] = {0xFE, 0xCC, 0x5C};
+    static const int base[3] = {0xFD, 0xC0, 0x5C};
+    gradiente_cor(banda, RES_BG_FAIXAS, topo, base, r, g, b);
+}
+
+int res_ss_quadro(unsigned long ms)
+{
+    unsigned long desde;
+    int q;
+    /* O `FlxTimer` de 8/24 s (333 ms) liga a animacao E a visibilidade
+     * (`ResultState.hx` L192-197): antes dele a maquina nao esta' na tela. */
+    if (ms < (unsigned long)g_res_ss.inicio_ms) return -1;
+    desde = ms - (unsigned long)g_res_ss.inicio_ms;
+    q = (int)((desde * (unsigned long)RES_SS_FPS) / 1000ul);
+    /* `looped = false`: o flixel PARA no ultimo quadro e ele fica na tela. */
+    if (q >= (int)RES_SS_QUADROS) q = (int)RES_SS_QUADROS - 1;
+    return q;
+}
+
+
 int res_flash_alpha_tally(unsigned long ms)
 {
     unsigned long ini = res_cp_inicio_ms(), dur = res_cp_q_ms(5), dt;

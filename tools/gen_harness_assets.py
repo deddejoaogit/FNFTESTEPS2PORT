@@ -629,6 +629,23 @@ def make_resultado_bg(w, h):
     return bytes(out)
 
 
+def _soundsystem_file():
+    """O CFZ4 da maquina (`soundSystem`) com o canvas que o plano manda.
+
+    O jogo le' um quadro por vez e a VRAM paga um quadro, entao o asset
+    sintetico tem de ter EXATAMENTE o canvas do plano -- senao o harness passa
+    com um tamanho que o pendrive real nao tem.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "assets-data", "resultado-plan.json")
+    if not os.path.isfile(caminho):
+        return {}
+    d = json.load(open(caminho, encoding="utf-8")).get("soundsystem")
+    if not d:
+        return {}
+    return {d["tex"]: make_resultado_pack(d["w"], d["h"], d["quadros"])}
+
+
 def _freeplay_files():
     plano = freeplay_plan()
     if plano is None:
@@ -725,6 +742,7 @@ def build(root, charts_src=None):
         # por musica com o titulo JA' renderizado (`CapsuleText` = FlxText com a
         # fonte 5by7; nao ha' bitmap de letra para compor no console).
         **_freeplay_files(),
+        **_soundsystem_file(),
 
         "result/scroll_menu.pcm": pcm(48000 * 4 // 8, 342),
         "result/confirm_menu.pcm": pcm(48000 * 4 // 8, 344),

@@ -208,6 +208,31 @@ void res_flash_cor(int banda, int *r, int *g, int *b);
 /* Alpha (0..255) do flash do inicio da contagem do percentual. */
 int res_flash_alpha_tally(unsigned long ms);
 
+/* ---- A MAQUINA QUE CAI ATRAS DO PLACAR (`soundSystem`) ------------------
+ *
+ * `ResultState.hx` L189-199: Sparrow `resultScreen/soundSystem`, animacao
+ * "idle" (prefixo "sound system"), 65 quadros a 24 fps com `looped = false`,
+ * em `(-15, -180)`, `visible = false` ate' um `FlxTimer` de 8/24 s, `zIndex`
+ * 1100. Ela toca em TODA partida ("Plays every time!" no comentario da fonte).
+ *
+ * O `looped = false` do flixel PARA no ultimo quadro: o que fica na tela e' o
+ * quadro 64, e e' por isso que o desenho congela e nao some.
+ */
+int res_ss_quadro(unsigned long ms);
+
+/* ---- O FUNDO (`ResultState.create()` L172-176) -------------------------
+ *
+ * `FlxGradient.createGradientFlxSprite(1280, 720, [0xFFFECC5C, 0xFFFDC05C], 90)`
+ * -- de novo o `chunkSize` 90 sobre 720: OITO faixas horizontais de cor solida.
+ * O port desenhava isso como uma textura de 16x360 esticada (23.040 B de VRAM
+ * que a tela pagava para sempre); agora sao oito retangulos e a VRAM e' zero.
+ * A cor de cada faixa e' a mesma conta do flash, com o par de cores do fundo.
+ */
+#define RES_BG_FAIXAS 8
+
+/* Cor (0..255) da faixa `banda` (0 = topo) do fundo. */
+void res_bg_cor(int banda, int *r, int *g, int *b);
+
 /* ---- O CONTADOR PEQUENO DO TOPO (ClearPercentCounter com `small = true`) --
 
  * `ResultState.create()` L143 cria `clearPercentSmall` em

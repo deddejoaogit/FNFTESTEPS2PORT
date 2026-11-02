@@ -60,6 +60,9 @@ PLANO = os.path.join(PROJECT, "assets-data", "resultado-plan.json")
 FOLHAS = [
     {
         "id": "results",
+        # 0,4 do original (desenhada a 1,25x): o orcamento da tela e' fechado e
+        # este e' o unico lugar que cede SEM tocar em evento -- so' nitidez.
+        "escala": 0.4,
         "arquivo": "resultScreen/results",
         "prefixo": "results instance 1",
         "x": -200.0, "y": -10.0,          # 1280 - 1480
@@ -69,6 +72,9 @@ FOLHAS = [
     },
     {
         "id": "ratings",
+        # 0,4 do original (desenhada a 1,25x): o orcamento da tela e' fechado e
+        # este e' o unico lugar que cede SEM tocar em evento -- so' nitidez.
+        "escala": 0.4,
         "arquivo": "resultScreen/ratingsPopin",
         "prefixo": "Categories",
         "x": -135.0, "y": 135.0,
@@ -78,6 +84,9 @@ FOLHAS = [
     },
     {
         "id": "score",
+        # 0,4 do original (desenhada a 1,25x): o orcamento da tela e' fechado e
+        # este e' o unico lugar que cede SEM tocar em evento -- so' nitidez.
+        "escala": 0.4,
         "arquivo": "resultScreen/scorePopin",
         "prefixo": "tally score",
         "x": -180.0, "y": 515.0,
@@ -236,8 +245,9 @@ def main():
                              % (f["id"], f["prefixo"]))
             continue
         cw, ch = canvas(quadros, ids)
-        w = max(1, int(round(cw * HALF)))
-        h = max(1, int(round(ch * HALF)))
+        esc = f["escala"]
+        w = max(1, int(round(cw * esc)))
+        h = max(1, int(round(ch * esc)))
         if w > MAX_TEX or h > MAX_TEX:
             problemas.append("%s: %dx%d passa do limite de textura %d"
                              % (f["id"], w, h, MAX_TEX))
@@ -262,6 +272,10 @@ def main():
             "x": round(f["x"] * HALF, 3), "y": round(f["y"] * HALF, 3),
             "src_w": cw, "src_h": ch,
             "w": w, "h": h,
+            # `fator` e' o que o DESENHO multiplica: o pacote esta' em `esc` do
+            # original e a tela e' a metade, entao desenhar w*fator poe a folha
+            # no lugar e no tamanho da fonte.
+            "escala": esc, "fator": round(HALF / esc, 4),
             "quadros": len(ids),
             "fps": f["fps"], "looped": f["looped"],
             "inicio_ms": f["inicio_ms"],

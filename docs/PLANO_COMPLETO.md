@@ -3083,8 +3083,9 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 
 | Falta | Por que | O que precisa |
 |---|---|---|
-| `soundSystem` da tela de Resultado | 65 quadros, canvas 875x963: 841.508 B por quadro a 0,5 | so' entra rebaixando o atlas do placar (ver abaixo) |
 | Animacao do personagem por rank | `players/{bf,pico}.json` -> `results[rank]`: animacoes Animate/Sparrow com `delay`, `loopFrame`, `scale`, `sound` | leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
+| `highscoreNew` (o selo de recorde) | **e' do jogo, mas o DADO nao existe**: `ResultState.hx` L415-426 so' o desenha se `params.isNewHighscore`, que vem de `Save.instance.isNewHighscore(...)` | o port nao tem save nenhum (nem memory card), entao o valor e' dado ausente: o desenho NAO acontece (e' o `else` da fonte) e o caso vai para o log |
+| leitor do `Animation.json` dos `results-*` + o `scriptClass` (`BFBedPerfectResults` etc.) que carrega a arte |
 | `highscoreNew` | 524.928 B a 0,5, 75x a sobra do orcamento | degradacao severa ou liberar outra peca |
 
 #### A tela de Resultado: a arte entrou
@@ -3325,25 +3326,54 @@ livres ao entrar na tela):
 
 | peca | estado | numero medido |
 |---|---|---|
-| `bgFlash` (o flash amarelo, zIndex 20) | **falta** | sem textura: cor `#FFF1BE` + alpha 1->0 |
-| `soundSystem` (a maquina que cai atras do placar) | **nao cabe** | 65 quadros, canvas 875x963: 841.508 B por quadro a 0,5 em RGBA |
-| animacao do personagem por rank (`results-bf`/`results-pico`) | **nao cabe + formato** | spritesheets de 1003x862 a 4094x2485 (Animate Atlas `AN`/`SD`/`TL`) |
-| `highscoreNew` | **nao cabe** | 524.928 B a 0,5 (75x a sobra) |
+| `bgFlash` (o flash amarelo, zIndex 20) | **feito** | oito faixas de cor por `res_flash_cor`, alpha 1->0 em 5/24 s e em 14/24 s |
+| `soundSystem` (a maquina que cai atras do placar) | **feito** | 65 quadros a 0,235 do original (canvas 206x226 = **186.224 B**), um quadro por vez na VRAM |
+| animacao do personagem por rank (`results-bf`/`results-pico`) | **formato** | Animate Atlas multi-simbolo (`AN`/`SD`/`TL` com `M3D` por instancia): nao e' sequencia de quadros, e' timeline com hierarquia |
+| `highscoreNew` | **dado ausente** | `params.isNewHighscore` vem do save; o port nao tem save, entao o selo nao e' desenhado (e' o `else` da fonte) |
 | `results-bf`/`results-pico` como PASTA de arte | **nao e' do jogo** | nenhum `.hx` da v0.8.6 referencia a pasta: so' os `Animation.json`/`sparrow` de dentro dela |
 
-Os tres primeiros nao sao "arte que falta empacotar": sao arte que **nao cabe**
-no orcamento deste port com a fidelidade atual do resto. A sobra e' de 6.976 B e
-o `soundSystem` precisa de 841 KB por quadro **mesmo a meia resolucao**. Para
-entrar, alguma outra peca tem de ceder -- e a candidata medida e' o atlas do
-placar (508.480 B): ele guarda as 5 variantes de brilho de cada digito, e o
-`bgFlash` mostra que 5 quadros de brilho podem ser 1 quadro + alpha do vertice.
-Sem essa troca (que muda a fidelidade do PLACAR, nao dos eventos), `soundSystem`
-e a animacao do personagem ficam fora por medicao, nao por esquecimento.
+O que **fechou nesta build**: a `bgFlash` (que ja' estava no codigo, e aqui
+esta' registrada como feita) e a **maquina do `soundSystem`**, a unica peca da
+tela que toca em TODA partida. Ela entrou trocando fidelidade de imagem por
+espaco, como a regra do projeto manda -- e a troca esta' medida:
 
-A sobra de ~7 KB e' o numero que decide o que vem depois: `highscoreNew` a 0,5
-sao 524.928 B, ou seja **setenta e cinco vezes** a sobra. Ele nao entra sem
-degradacao severa (0,25 daria 131.232 B, ainda 19x a sobra) nem sem tirar outra
-peca da tela — decisao registrada, nao tomada por chute.
+| peca | antes | agora | VRAM |
+|---|---|---|---|
+| tres folhas (`results`, `ratingsPopin`, `scorePopin`) | 0,5 do original | **0,4** (desenhadas a 1,25x) | 462.452 -> **295.560** |
+| fundo | textura 16x360 esticada | **oito faixas** (`res_bg_cor`, 0 textura) | 23.040 -> **0** |
+| maquina (`soundSystem`) | fora da tela | canvas 206x226 (0,235 do original) | **186.224** |
+
+Medido no harness (`tools/run_gameplay_harness.sh 7600`):
+`resultado_soundsystem,1,186224` (abriu), `resultado_maquina,334,438` (o
+primeiro quadro desenha em 334 ms, largura 438,3 px -- o `FlxTimer` de 8/24 s
+e' 333 ms) e `resultado_vram,96000` livre **depois** de toda a arte da tela.
+Nenhum `resultado_sem_vram`.
+
+A escala nao foi escolhida a mao: `tools/empacotar_soundsystem.py` desce de 0,5
+em passos de 0,005 ate' o canvas caber no `--limite` (190.000 B, o que as outras
+duas trocas liberam), e o desenho multiplica por `fator = 0,5 / escala`, entao a
+maquina sai no MESMO lugar e no MESMO tamanho da fonte. O que muda e' a nitidez,
+nunca o evento: os 65 quadros, os 24 fps, o congelamento no ultimo quadro
+(`looped = false`) e o zIndex 1100 continuam os da fonte.
+
+O que **sobrou** na lista, com o motivo medido:
+
+- **`highscoreNew`** nao e' "arte que nao cabe": e' **dado ausente**. A fonte o
+  desenha so' quando `params.isNewHighscore` (L417), que vem do save; o port nao
+  tem save (nem memory card), entao o caminho de desenho e' o `else` da fonte
+  (`highscoreNew.visible = false`). Guardar 47.424 B de arte para um selo que
+  nunca pode acender seria pior que nao te-lo.
+- **a animacao do personagem por rank** (`results-bf`/`results-pico`) e' um
+  problema de **formato**, nao de espaco: os `Animation.json` dessas pastas sao
+  Animate Atlas **multi-simbolo** (`AN`/`SD`/`TL`, com `SI`/`TRP`/`M3D` por
+  instancia e simbolos aninhados), isto e', uma timeline hierarquica do Flash --
+  nao uma sequencia de quadros como as folhas do `resultScreen`. Portar isso e'
+  escrever um *flattener* de timeline no empacotador (resolver o grafo de
+  simbolos e emitir, por quadro, a lista de retangulos com matriz), e o plano e'
+  esse: **flatten no PC, desenho de quadrilateros no console**, sem rasterizar
+  nada em tempo de execucao. Fica registrado com o formato lido e o numero de
+  cada pasta (`results-bf` 5,1 MB, `results-pico` 6,4 MB; canvas de 1003x862 a
+  4094x2485).
 
 #### O nome da musica (medido)
 

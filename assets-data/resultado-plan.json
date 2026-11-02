@@ -967,8 +967,10 @@
    "y": -5.0,
    "src_w": 1130,
    "src_h": 149,
-   "w": 565,
-   "h": 74,
+   "w": 452,
+   "h": 60,
+   "escala": 0.4,
+   "fator": 1.25,
    "quadros": 36,
    "fps": 24,
    "looped": false,
@@ -977,7 +979,7 @@
    "partes": [
     "results.cfz4"
    ],
-   "vram_bytes": 167240,
+   "vram_bytes": 108480,
    "linha": "ResultState.hx L143 (posicao) e L359-367 (animacao/tempo)"
   },
   {
@@ -988,8 +990,10 @@
    "y": 67.5,
    "src_w": 449,
    "src_h": 419,
-   "w": 224,
-   "h": 210,
+   "w": 180,
+   "h": 168,
+   "escala": 0.4,
+   "fator": 1.25,
    "quadros": 16,
    "fps": 24,
    "looped": false,
@@ -998,7 +1002,7 @@
    "partes": [
     "ratings.cfz4"
    ],
-   "vram_bytes": 188160,
+   "vram_bytes": 120960,
    "linha": "ResultState.hx L145 (posicao) e L369-377 (animacao/tempo)"
   },
   {
@@ -1009,8 +1013,10 @@
    "y": 257.5,
    "src_w": 712,
    "src_h": 145,
-   "w": 356,
-   "h": 72,
+   "w": 285,
+   "h": 58,
+   "escala": 0.4,
+   "fator": 1.25,
    "quadros": 30,
    "fps": 24,
    "looped": false,
@@ -1019,7 +1025,7 @@
    "partes": [
     "score.cfz4"
    ],
-   "vram_bytes": 102528,
+   "vram_bytes": 66120,
    "linha": "ResultState.hx L147 (posicao) e L379-388 (animacao/tempo)"
   }
  ],
@@ -2183,5 +2189,29 @@
    ]
   },
   "linha": "ResultState.hx L502-550; Scoring.hx L530-547; PlayableCharacter.hx L126-145"
+ },
+ "soundsystem": {
+  "id": "soundsystem",
+  "prefixo": "sound system",
+  "fonte": "resultScreen/soundSystem",
+  "src_w": 875,
+  "src_h": 963,
+  "escala": 0.235,
+  "fator": 2.1277,
+  "w": 206,
+  "h": 226,
+  "quadros": 65,
+  "fps": 24,
+  "looped": false,
+  "x": -7.5,
+  "y": -90.0,
+  "inicio_ms": 333,
+  "tex": "resultado/soundsystem.cfz4",
+  "partes": [
+   "soundsystem.cfz4"
+  ],
+  "vram_bytes": 186224,
+  "limite": 190000,
+  "linha": "ResultState.hx L189-199 (posicao, 8/24 s, 24 fps, zIndex 1100)"
  }
 }

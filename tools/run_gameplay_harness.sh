@@ -114,6 +114,10 @@ DRAW=$(awk -F, '$1=="E" && $3=="result_draw" {print $4; exit}' "$LOG")
 # (6/24 s, 21/24 s e 36/24 s = 250, 875 e 1500 ms depois de a tela abrir).
 RESARTE=$(awk -F, '$1=="E" && $3=="resultado_arte" {print $4; exit}' "$LOG")
 RESFUNDO=$(awk -F, '$1=="E" && $3=="resultado_fundo" {print $4; exit}' "$LOG")
+# A maquina que cai atras do placar: abriu (1) e desenhou; o `resultado_maquina`
+# traz o ms do primeiro quadro desenhado, que tem de ser >= 8/24 s = 333 ms.
+RESSO=$(awk -F, '$1=="E" && $3=="resultado_soundsystem" {print $4; exit}' "$LOG")
+RESMAQ=$(awk -F, '$1=="E" && $3=="resultado_maquina" {print $4; exit}' "$LOG")
 RESCENA=$(awk -F, '$1=="E" && $3=="resultado_cena" {print $4; exit}' "$LOG")
 RESF1=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==1 {print $5; exit}' "$LOG")
 RESF2=$(awk -F, '$1=="E" && $3=="resultado_folhas" && $4==2 {print $5; exit}' "$LOG")
@@ -217,6 +221,7 @@ echo "  HUD: zoom maximo / pulsos .... ${HUDZOOM:-?} (milesimos) / ${HUDPULSOS:-
 echo "  icones de vida ............... ${ICONES:-?} carregado(s), ${ICONEDES:-?} desenho(s), ${ICONEEST:-?} troca(s) de estado"
 echo "  note splash .................. arte=${SPLARTE:-?} criadas=$SPLNOVOS (SICK=$SPLSICK) pico na tela=$SPLMAX"
 echo "  tela de resultado: arte ..... folhas=${RESARTE:-?} fundo=${RESFUNDO:-?} cena=${RESCENA:-?}"
+echo "  maquina do resultado ....... abriu=${RESSO:-?} 1o quadro em ${RESMAQ:-?} ms (esperado >= 333)"
 echo "  folhas na tela em (ms) ...... ${RESF1:-?} / ${RESF2:-?} / ${RESF3:-?} (esperado 250 / 875 / 1500)"
 echo "  arte do rank ................ carregada=${RESRANKARTE:-?} (${RESRANKVISTO:-?} B)"
 echo "  placar: arte / slots ........ carregada=${RESPLACARARTE:-?} slots=${RESPLACAR:-?}"
@@ -288,7 +293,12 @@ fi
 # A tolerancia e' de 2 quadros (33 ms): o evento sai no quadro em que a folha
 # entra e o relogio da tela e' lido por quadro.
 [ "${RESARTE:-0}" -eq 3 ] || { echo "  FALHA: a arte da tela de resultado nao carregou ($RESARTE de 3 folhas)"; FALHA=1; }
-[ "${RESFUNDO:-0}" -eq 1 ] || { echo "  FALHA: o gradiente do fundo da tela de resultado nao carregou"; FALHA=1; }
+[ "${RESFUNDO:-0}" -eq 1 ] || { echo "  FALHA: o fundo da tela de resultado nao foi montado"; FALHA=1; }
+# A MAQUINA (`soundSystem`): ela toca em TODA partida; sem ela a tela perde um
+# evento. O gate cobra a arte carregada E o primeiro quadro no timer de 8/24 s.
+[ "${RESSO:-0}" -eq 1 ] || { echo "  FALHA: a maquina do resultado (soundSystem) nao carregou"; FALHA=1; }
+[ "${RESMAQ:-0}" -ge 333 ] || { echo "  FALHA: a maquina do resultado apareceu antes de 333 ms (${RESMAQ:-0})"; FALHA=1; }
+[ "${RESMAQ:-99999}" -lt 400 ] || { echo "  FALHA: a maquina do resultado demorou a aparecer (${RESMAQ:-?} ms)"; FALHA=1; }
 # cena = folhas | (fundo << 8) no campo 4 do evento.
 [ "${RESCENA:-0}" -eq 259 ] || { echo "  FALHA: a cena da tela de resultado saiu incompleta (cena=$RESCENA, esperado 259)"; FALHA=1; }
 for par in "1:250:${RESF1:-}" "2:875:${RESF2:-}" "3:1500:${RESF3:-}"; do

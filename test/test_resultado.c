@@ -82,6 +82,51 @@ int main(void)
     int i;
     unsigned char *buf;
 
+    printf("== resultado: a maquina (soundSystem) e o fundo em faixas\n");
+    {
+        /* `new FlxTimer().start(8 / 24, ...)`: a maquina so' entra em 333 ms. */
+        CHECK_EQ(res_ss_quadro(0), -1);
+        CHECK_EQ(res_ss_quadro(332), -1);
+        CHECK_EQ(res_ss_quadro(333), 0);
+        /* 24 fps: 41,67 ms por quadro. */
+        CHECK_EQ(res_ss_quadro(333 + 41), 0);
+        CHECK_EQ(res_ss_quadro(333 + 42), 1);
+        CHECK_EQ(res_ss_quadro(333 + 1000), 24);
+        /* `looped = false`: para no ultimo quadro e fica na tela para sempre. */
+        CHECK_EQ(res_ss_quadro(333 + 100000), (int)RES_SS_QUADROS - 1);
+        {
+            /* As cores da fonte: 0xFFFECC5C (topo) -> 0xFFFDC05C (base), no
+             * CENTRO de cada uma das oito faixas. O azul e' igual nas duas
+             * pontas (0x5C) e por isso nao muda. */
+            int b, r = 0, g = 0, bl = 0, ant = 999;
+            for (b = 0; b < RES_BG_FAIXAS; b++) {
+                float t = ((float)b + 0.5f) / (float)RES_BG_FAIXAS;
+                res_bg_cor(b, &r, &g, &bl);
+                CHECK_EQ(r, (int)(0xFE + (-1.0f * t + (t > 0.0f ? 0.5f : -0.5f))));
+                CHECK_EQ(g, 0xCC - (int)(12.0f * t + 0.5f));
+                CHECK_EQ(bl, 0x5C);
+                CHECK(g < ant);   /* desce, faixa a faixa */
+                ant = g;
+            }
+            /* Fora da faixa e' presa na ponta, como no flash. */
+            res_bg_cor(-1, &r, &g, &bl);
+            res_bg_cor(0, &r, &g, &bl);
+            {
+                int r0 = r, g0 = g;
+                res_bg_cor(-1, &r, &g, &bl);
+                CHECK_EQ(r, r0);
+                CHECK_EQ(g, g0);
+            }
+            res_bg_cor(99, &r, &g, &bl);
+            {
+                int r7, g7;
+                res_bg_cor(RES_BG_FAIXAS - 1, &r7, &g7, &bl);
+                CHECK_EQ(r, r7);
+                CHECK_EQ(g, g7);
+            }
+        }
+    }
+
     printf("== resultado: as tres folhas do plano ==\n");
     CHECK_EQ(RES_FOLHAS, 3u);
     CHECK(g_res_folha[0].quadros == 36u);

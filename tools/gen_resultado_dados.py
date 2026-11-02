@@ -54,7 +54,8 @@ def gerar():
     a("#define RES_BG_BASE_B %du" % d["bg_base"][2])
     a("")
     a("typedef struct {")
-    a("    unsigned short w, h;        /* canvas da folha em 640x360       */")
+    a("    unsigned short w, h;        /* canvas do quadro NO PACOTE       */")
+    a("    float          fator;       /* tamanho de desenho = w/h * fator */")
     a("    unsigned short quadros;     /* quadros da animacao              */")
     a("    unsigned short fps;")
     a("    unsigned char  looped;")
@@ -66,8 +67,9 @@ def gerar():
     a("")
     a("static const res_folha_dado_t g_res_folha[RES_FOLHAS] = {")
     for f in folhas:
-        a('    { %3du, %3du, %2du, %2du, %du, %.1ff, %.1ff, %4du, "%s", "%s" },'
-          % (f["w"], f["h"], f["quadros"], f["fps"], 1 if f["looped"] else 0,
+        a('    { %3du, %3du, %.4ff, %2du, %2du, %du, %.1ff, %.1ff, %4du, "%s", "%s" },'
+          % (f["w"], f["h"], f.get("fator", 1.0), f["quadros"], f["fps"],
+             1 if f["looped"] else 0,
              f["x"], f["y"], f["inicio_ms"], f["tex"], f["id"]))
     a("};")
     a("")
@@ -156,6 +158,31 @@ def gerar():
     a("    %2du, %2du, %2du, %2du" % (sc["inicio_q"], sc["shuffle_q"],
                                     sc["tween_q"], sc["fps"]))
     a("};")
+    a("")
+    ss = d.get("soundsystem")
+    if ss:
+        a("")
+        a("/* A MAQUINA QUE CAI ATRAS DO PLACAR (`soundSystem`, ResultState.hx")
+        a(" * L189-199): 65 quadros a 24 fps nao loopados -- congela no ultimo e")
+        a(" * fica na tela --, em (-15,-180) do original, zIndex 1100. O pacote")
+        a(" * esta' a `escala` do original e o desenho multiplica `w*fator`. */")
+        a("#define RES_SS_QUADROS %du" % ss["quadros"])
+        a("#define RES_SS_FPS     %du" % ss["fps"])
+        a("#define RES_SS_TEX     \"%s\"" % ss["tex"])
+        a("#define RES_SS_VRAM    %du" % ss["vram_bytes"])
+        a("")
+        a("typedef struct {")
+        a("    unsigned short w, h;        /* canvas NO PACOTE               */")
+        a("    float          fator;       /* desenho = w/h * fator          */")
+        a("    float          x, y;        /* canto superior esquerdo        */")
+        a("    unsigned int   inicio_ms;   /* new FlxTimer().start(8 / 24)   */")
+        a("} res_ss_t;")
+        a("")
+        a("static const res_ss_t g_res_ss = {")
+        a("    %3du, %3du, %.4ff, %.1ff, %.1ff, %4du" % (
+            ss["w"], ss["h"], ss["fator"], ss["x"], ss["y"], ss["inicio_ms"]))
+        a("};")
+        a("")
     a("")
     tl = d["tallies"]
     a("")

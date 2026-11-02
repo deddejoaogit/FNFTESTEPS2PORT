@@ -23,7 +23,8 @@
 #define RES_BG_BASE_B 92u
 
 typedef struct {
-    unsigned short w, h;        /* canvas da folha em 640x360       */
+    unsigned short w, h;        /* canvas do quadro NO PACOTE       */
+    float          fator;       /* tamanho de desenho = w/h * fator */
     unsigned short quadros;     /* quadros da animacao              */
     unsigned short fps;
     unsigned char  looped;
@@ -34,9 +35,9 @@ typedef struct {
 } res_folha_dado_t;
 
 static const res_folha_dado_t g_res_folha[RES_FOLHAS] = {
-    { 565u,  74u, 36u, 24u, 0u, -100.0f, -5.0f,  250u, "resultado/results.cfz4", "results" },
-    { 224u, 210u, 16u, 24u, 0u, -67.5f, 67.5f,  875u, "resultado/ratings.cfz4", "ratings" },
-    { 356u,  72u, 30u, 24u, 0u, -90.0f, 257.5f, 1500u, "resultado/score.cfz4", "score" },
+    { 452u,  60u, 1.2500f, 36u, 24u, 0u, -100.0f, -5.0f,  250u, "resultado/results.cfz4", "results" },
+    { 180u, 168u, 1.2500f, 16u, 24u, 0u, -67.5f, 67.5f,  875u, "resultado/ratings.cfz4", "ratings" },
+    { 285u,  58u, 1.2500f, 30u, 24u, 0u, -90.0f, 257.5f, 1500u, "resultado/score.cfz4", "score" },
 };
 
 #define RES_RANKS 6u
@@ -182,6 +183,28 @@ static const res_score_t g_res_score = {
     5u, 10u, 11u,
     37u, 41u, 23u, 24u
 };
+
+
+/* A MAQUINA QUE CAI ATRAS DO PLACAR (`soundSystem`, ResultState.hx
+ * L189-199): 65 quadros a 24 fps nao loopados -- congela no ultimo e
+ * fica na tela --, em (-15,-180) do original, zIndex 1100. O pacote
+ * esta' a `escala` do original e o desenho multiplica `w*fator`. */
+#define RES_SS_QUADROS 65u
+#define RES_SS_FPS     24u
+#define RES_SS_TEX     "resultado/soundsystem.cfz4"
+#define RES_SS_VRAM    186224u
+
+typedef struct {
+    unsigned short w, h;        /* canvas NO PACOTE               */
+    float          fator;       /* desenho = w/h * fator          */
+    float          x, y;        /* canto superior esquerdo        */
+    unsigned int   inicio_ms;   /* new FlxTimer().start(8 / 24)   */
+} res_ss_t;
+
+static const res_ss_t g_res_ss = {
+    206u, 226u, 2.1277f, -7.5f, -90.0f,  333u
+};
+
 
 
 #define RES_TALLIES 7u

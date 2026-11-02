@@ -12,13 +12,23 @@
 #   2. empacotar_tallies.py       os sete contadores de julgamento
 #   3. empacotar_clearpercent.py  o percentual (contador grande e pequeno)
 #   4. empacotar_topbar.py        a barra do topo e a imagem da dificuldade
+#   5. empacotar_nome.py          o nome da musica (e os tempos do percentual
+#                                 pequeno, que ele mede junto) -- SEM ele o
+#                                 `gen_resultado_dados.py` quebra em
+#                                 `small_atraso_ms`, e foi o que aconteceu
+#   6. empacotar_resultado_musica.py  o dono x rank da musica do resultado
+#   7. empacotar_soundsystem.py   a maquina de som (por ULTIMO: ele tambem LE o
+#                                 plano e o `empacotar_resultado.py` reescreve
+#                                 o JSON inteiro, apagando este bloco)
 #
 # Uso:  PYTHONPATH=/tmp/pylibs sh tools/empacotar_resultado_tudo.sh /tmp/fassets
 set -e
 ASSETS=${1:-${FNF_ASSETS:-/tmp/fassets}}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 cd "$HERE"
-for t in empacotar_resultado empacotar_tallies empacotar_clearpercent empacotar_topbar; do
+for t in empacotar_resultado empacotar_tallies empacotar_clearpercent \
+         empacotar_topbar empacotar_nome empacotar_resultado_musica \
+         empacotar_soundsystem; do
     echo "== $t =="
     python3 "tools/$t.py" --assets "$ASSETS"
 done

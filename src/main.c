@@ -295,7 +295,11 @@ static int g_result_wait=0;
    ao pool (o palco ja' foi solto nessa tela) e o instante em que a tela abriu. */
 static res_t g_res;
 static int g_res_ok=0;              /* folhas abertas (0..RES_FOLHAS)          */
-static int g_res_bg_ok=0;           /* o gradiente do fundo foi carregado      */
+static int g_res_bg_ok=0;           /* o fundo (agora 8 faixas, sem textura)   */
+/* A MAQUINA (`soundSystem`): um pacote CFZ4 e UM quadro na VRAM. */
+static pst_pack_t g_res_ss_pack;
+static int g_res_ss_ok=0,g_res_ss_tentou=0,g_res_ss_frame=-1,g_res_ss_logado=0;
+static unsigned int g_res_ss_addr=0;
 static unsigned int g_res_addr[RES_FOLHAS];
 static unsigned int g_res_frame[RES_FOLHAS];
 static unsigned int g_res_bg_addr=0;
@@ -2999,6 +3003,20 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
    telemetry_event("resultado_sem_vram",i,(int)sp_livre(pool));
   }
  }
+ /* A MAQUINA QUE CAI ATRAS DO PLACAR: um pacote CFZ4 e UM quadro na VRAM (o
+    resto vem do pendrive quadro a quadro, como as folhas). */
+ g_res_ss_ok=0;g_res_ss_tentou=0;g_res_ss_addr=0;g_res_ss_frame=-1;
+ {
+  unsigned int bytes=(unsigned int)g_res_ss.w*(unsigned int)g_res_ss.h*4u,addr=0;
+  if(bytes>(unsigned int)maior)maior=(int)bytes;
+  if(pst_abrir(RES_ASSET_DIR RES_SS_TEX,&g_res_ss_pack)==PST_OK){
+   g_res_ss_tentou=1;
+   if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x26u,bytes,&addr)>=0){
+    g_res_ss_addr=addr;g_res_ss_ok=1;
+   }else telemetry_event("resultado_sem_vram",0x26,(int)sp_livre(pool));
+  }
+  telemetry_event("resultado_soundsystem",g_res_ss_ok,(int)bytes);
+ }
  telemetry_event("resultado_arte",g_res_ok,(int)RES_FOLHAS);
  if(g_res_ok>0){
   if(g_res_pixels_bytes<(unsigned int)maior){
@@ -3009,22 +3027,15 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
   }
   if(g_res_pixels)telemetry_event("resultado_pixels",(int)maior,0);
  }
- /* O GRADIENTE DO FUNDO: 16x360 RGBA = 23.040 B, uma textura estreita que o
-    desenho estica na horizontal (o gradiente do original so' varia em Y). */
- if(read_exact_path("mass:/FNFPS2/assets/resultado/bg.rgba",g_up_bounce,
-                    RES_BG_W*RES_BG_H*4)==0){
-  unsigned int addr=0;
-  if(sp_chave(pool,SP_CHAVE_TELA_BASE+0x20u,RES_BG_W*RES_BG_H*4u,&addr)>=0){
-   texbuffer_t t=*tpl;
-   t.width=RES_BG_W;t.psm=GS_PSM_32;t.address=addr;
-   setup_texture_dims(&t,RES_BG_W,RES_BG_H);
-   FlushCache(0);
-   upload_raw(&t,g_up_bounce,RES_BG_W,RES_BG_H);
-   g_res_bg_addr=addr;g_res_bg_ok=1;
-  }else telemetry_event("resultado_sem_vram",-1,(int)sp_livre(pool));
- }
- telemetry_event("resultado_fundo",g_res_bg_ok,RES_BG_W*RES_BG_H*4u);
- /* A ARTE DO RANK. Duas imagens estaticas do rank CONQUISTADO (o par escolhido
+ /* O FUNDO NAO TEM TEXTURA. `FlxGradient.createGradientFlxSprite(1280, 720,
+   [0xFFFECC5C, 0xFFFDC05C], 90)` e' um `chunkSize` de 90 px sobre 720, isto e',
+   OITO faixas horizontais de cor solida -- o desenho faz oito retangulos
+   (`res_bg_cor`) em vez de esticar uma textura de 16x360. Eram 23.040 B de
+   VRAM que a tela pagava para sempre; agora sao zero, e o espaco vai para a
+   arte que ainda faltava (a maquina do `soundSystem`). */
+ g_res_bg_ok=1;
+ telemetry_event("resultado_fundo",g_res_bg_ok,0);
+/* A ARTE DO RANK. Duas imagens estaticas do rank CONQUISTADO (o par escolhido
     por `fnf_play_rank`), lidas para `g_up_bounce` e subidas para o pool. Nao se
     carrega os cinco ranks: cada partida mostra um. */
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;
@@ -3192,13 +3203,18 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
     telemetry_event("resultado_sem_vram",-10,(int)sp_livre(pool));
    }
    telemetry_event("resultado_nome_arte",g_res_nome_ok,(int)bytes);
-  }else telemetry_event("resultado_nome_arte",-1,0);}
+  }else telemetry_event("resultado_nome_arte",-1,0);} /* Quanto sobrou do pool DEPOIS de toda a arte da tela: e' o numero que
+    decide se cabe a proxima peca (medido, nao estimado). */
+ telemetry_event("resultado_vram",(int)sp_livre(pool),(int)RES_SS_VRAM);
 }
 static void resultado_soltar(void)
 {
  int i;
  res_liberar(&g_res);
  g_res_ok=0;g_res_bg_ok=0;g_res_bg_addr=0;
+ if(g_res_ss_tentou){pst_fechar(&g_res_ss_pack);g_res_ss_tentou=0;}
+ if(g_res_ss_addr)sp_soltar(&g_pool,SP_CHAVE_TELA_BASE+0x26u);
+ g_res_ss_ok=0;g_res_ss_addr=0;g_res_ss_frame=-1;g_res_ss_logado=0;
  g_res_rank_ok=0;g_res_rank_vert_addr=0;g_res_rank_hor_addr=0;g_res_rank_logado=0;
  g_res_score_ok=0;g_res_score_addr=0;g_res_score_logado=0;g_res_score_final=0;
  g_res_tally_ok=0;g_res_tally_addr=0;g_res_tally_desenho=-1;
@@ -6474,12 +6490,16 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     {u64 agora=GetTimerSystemTime();
      g_res_ms=(int)(((agora-(u64)g_res_t0)*1000ull)/(u64)kBUSCLK);}
     if(g_res_bg_ok){
-     texbuffer_t bt=stagetex;
-     bt.width=RES_BG_W;bt.psm=GS_PSM_32;bt.address=g_res_bg_addr;
-     setup_texture_dims(&bt,RES_BG_W,RES_BG_H);
-     q=bind_texture_filter(q,&bt,0);
-     q=sprite_region(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0.0f,0.0f,
-                     (float)RES_BG_W,(float)RES_BG_H);
+     /* Oito faixas de 45 px (720/90 = 8 linhas na fonte, metade = 45 aqui). */
+     int fb;
+     for(fb=0;fb<RES_BG_FAIXAS;fb++){
+      int fr,fg,fb2;
+      float y0=360.0f*(float)fb/(float)RES_BG_FAIXAS;
+      float y1=360.0f*(float)(fb+1)/(float)RES_BG_FAIXAS;
+      res_bg_cor(fb,&fr,&fg,&fb2);
+      q=rect_alpha(q,0.0f,y0,(float)SCREEN_W,y1,
+                   (unsigned char)fr,(unsigned char)fg,(unsigned char)fb2,255);
+     }
     }
     /* bgFlash (zIndex 20): as DUAS piscadas da tela, sem PNG nenhum. O
        `FlxGradient` do original e' um `chunkSize` de 90 px sobre 720, isto e',
@@ -6754,6 +6774,34 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       telemetry_event("resultado_barra",(int)(b0*10.0f),(int)(b1*10.0f));
      }
     }
+    /* A MAQUINA QUE CAI ATRAS DO PLACAR (`soundSystem`, zIndex 1100): acima da
+       barra do topo (1010) e abaixo das folhas e do placar (1200). Ela entra em
+       8/24 s, roda 65 quadros a 24 fps e CONGELA no ultimo (`looped = false`).
+       Um quadro por vez na VRAM, lido do pendrive na troca de quadro. */
+    if(g_res_ss_ok&&g_res_pixels){
+     int qd=res_ss_quadro((unsigned long)g_res_ms);
+     if(qd>=0&&qd!=g_res_ss_frame&&
+        pst_quadro(&g_res_ss_pack,(unsigned)qd,g_res_pixels)==PST_OK){
+      texbuffer_t st=stagetex;
+      st.width=(unsigned)g_res_ss.w;st.psm=GS_PSM_32;st.address=g_res_ss_addr;
+      setup_texture_dims(&st,(int)g_res_ss.w,(int)g_res_ss.h);
+      FlushCache(0);
+      upload_raw(&st,g_res_pixels,(int)g_res_ss.w,(int)g_res_ss.h);
+      g_res_ss_frame=qd;
+     }
+     if(g_res_ss_frame>=0){
+      texbuffer_t st=stagetex;
+      st.width=(unsigned)g_res_ss.w;st.psm=GS_PSM_32;st.address=g_res_ss_addr;
+      setup_texture_dims(&st,(int)g_res_ss.w,(int)g_res_ss.h);
+      q=bind_texture_filter(q,&st,1);
+      q=sprite_region(q,g_res_ss.x,g_res_ss.y,
+                      (float)g_res_ss.w*g_res_ss.fator,
+                      (float)g_res_ss.h*g_res_ss.fator,
+                      0.0f,0.0f,(float)g_res_ss.w,(float)g_res_ss.h);
+      if(!g_res_ss_logado){g_res_ss_logado=1;
+       telemetry_event("resultado_maquina",g_res_ms,(int)(g_res_ss.w*g_res_ss.fator));}
+     }
+    }
     for(i=0;i<(int)RES_FOLHAS;i++){
      int qd;texbuffer_t ft=stagetex;
      if(i>=g_res_ok||!g_res_addr[i]||!g_res_pixels)continue;
@@ -6771,8 +6819,12 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      if(qd<0)continue;
      setup_texture_dims(&ft,(int)g_res_folha[i].w,(int)g_res_folha[i].h);
      q=bind_texture_filter(q,&ft,1);
+     /* O pacote esta' em `escala` do original e a tela e' a metade: o desenho
+        multiplica por `fator` (1,25 com o pacote a 0,4) para a folha sair no
+        tamanho da fonte. E' a MESMA troca dos glifos do percentual: so' nitidez. */
      q=sprite_region(q,g_res_folha[i].x,g_res_folha[i].y,
-                     (float)g_res_folha[i].w,(float)g_res_folha[i].h,
+                     (float)g_res_folha[i].w*g_res_folha[i].fator,
+                     (float)g_res_folha[i].h*g_res_folha[i].fator,
                      0.0f,0.0f,(float)g_res_folha[i].w,(float)g_res_folha[i].h);
      desenhadas++;
     }

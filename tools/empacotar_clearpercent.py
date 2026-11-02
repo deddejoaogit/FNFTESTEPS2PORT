@@ -163,6 +163,13 @@ def empacotar(assets, out):
         "small_y_alvo": round((122.0 - 5.0) * HALF, 3),
         # O texto (`clearPercentTextSmall`) fica em x = 40 no grupo.
         "small_texto_x": round(40.0 * HALF, 3),
+        # A ENTRADA do contador pequeno, quando o nome da musica volta
+        # (`timerThenSongName`, L741-760): `y = -height`, e um FlxTween de 0,5 s
+        # com `expoOut` depois de 0,85 s (a dificuldade entra em 0,8 e o nome em
+        # 0,9 -- e' a ordem da fonte). Estes dois numeros estavam escritos A MAO
+        # no plano commitado e se perdiam a cada reempacotamento.
+        "small_atraso_ms": 850,
+        "small_tween_ms": 500,
         # Os tempos, em 24 avos (o relogio da tela).
         "inicio_q": 37,          # junto com o `score.animateNumbers()`
         "tween_q": 58,           # FlxTween.tween(..., 58 / 24, quartOut)
