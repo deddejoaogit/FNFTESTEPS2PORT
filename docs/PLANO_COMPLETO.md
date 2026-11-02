@@ -5232,6 +5232,8 @@ entrada com texto e uma dúzia de eventos de música.
 | 13 props do palco | `assets-data/stage-props.json` → `stage_dados.h` | **empacotados** |
 | 3 dançarinas + `sserafim-gf` (cutscene) + `sserafim-sakura` (note kind) | `char_dados.h` L635-640 | **empacotados** (`characterOrigin` de cada uma conferido) |
 | **slot OUTRO** no desenho (as 3 dançarinas em `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97) | `sserafim.hxc` L160-164 | **falta código** — o `char_cena` desenha 3 papéis (bf/dad/gf); falta um quarto |
+| `setGirlsSinging` (o `characterType` de DAD/BF) | `sserafim.hxc` L307-323 | **recebido, não aplicado**. O `characterType` decide de QUEM são as notas que fazem o personagem cantar (`BaseCharacter.hx` L557-660: `BF` canta nas notas do jogador, `DAD` nas do oponente). Nas janelas do `sserafimSing` o DAD passa a cantar nas notas do JOGADOR e vice-versa. O port fixa bf→jogador e dad→oponente; trocar isso é mexer na camada de animação por nota, e só vale a pena junto com os slots das dançarinas |
+| **a MEDIÇÃO de VRAM das 3 dançarinas** | `shared/images/characters/sserafim/*/spritemap1.json` (clone de arte, via API do GitHub) | **MEDIDO**: o canvas do CHP4 é o MAIOR QUADRO, não a folha. A 0,5 (a escala do empacotador): `yunjin` 539x664 → 270x332 (stride 320) = **212.480 B**; `chaewon` 394x661 → 197x330 (256) = **168.960 B**; `eunchae` 649x533 → 324x266 (384) = **204.288 B**. Total **585.728 B** de 4 194 304 B — cabe. (O plano antes disto dizia que não dava para medir; dava, bastava ler o `spritemap1.json` em vez do JSON de personagem, que não traz tamanho de quadro.) |
 | `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **falta o slot** (o pedido já chega ao `ss_t`) |
 | `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente |
 | `doorKick1`, `doorKick2` | `sserafim/sounds/` no clone de arte | **JÁ EMPACOTADOS** (`tools/empacotar_audio.py`, `SONS_PALCO`). O plano dizia que faltavam e estava errado: medidos 1,389 s e 3,120 s a 44,1 kHz (145.152 B e 326.016 B a 48 kHz) |
@@ -5241,3 +5243,17 @@ entrada com texto e uma dúzia de eventos de música.
 
 **Nenhuma música perde evento por causa disto**: os 86 eventos de script do
 `spaghetti` chegam ao `ss_evento` e 86 são aplicados.
+
+### Ordem de trabalho que sobrou (com a medição acima)
+
+1. **slot OUTRO + as três dançarinas**: 585.728 B medidos, cabe no orçamento.
+   Falta o quarto (quinto e sexto) papel no `char_cena`/`char_layout`, com
+   `zIndex` 1000, `scrollFactor` 0,95/0,95/0,97 e posição
+   `(x - characterOrigin.x, y - characterOrigin.y)` de L162-164; as máscaras de
+   `sserafimShow`/`sserafimSing` já chegam no `ss_t` (`ssf_mostra`, `ssf_canta`).
+2. **`sserafimKick`**: a `yunjin.playAnimation('kick1'/'kick2')` e o
+   `truckDoor.visible` no quadro 23 (o SOM já toca).
+3. **`setGirlsSinging`**: trocar o lado que faz cada papel cantar
+   (`BaseCharacter.hx` L557-660) — só faz sentido com (1) pronto.
+4. **a cutscene** (L567-930): depende da arte que falta (`floor`, `dust*`,
+   `sserafimCutscene`, `SEEYOU2`, `gameOver` do palco).
