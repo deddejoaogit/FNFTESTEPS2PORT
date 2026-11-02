@@ -171,6 +171,7 @@ typedef struct {
     unsigned short w, h;
     const char    *arquivo;
     unsigned int   vram_bytes;
+    unsigned char  bpp;             /* 16 = RGBA5551 (GS_PSM_16) */
     float          x, y, dx;        /* 640x360: 17,5 / 152,5 / 32,5 */
     unsigned char  slots, quadros_por_digito;
     unsigned char  digito_disabled, digito_gone;
@@ -178,7 +179,7 @@ typedef struct {
 } res_score_t;
 
 static const res_score_t g_res_score = {
-    560u, 227u, "resultado/score_digitos.rgba", 508480u,
+    560u, 227u, "resultado/score_digitos16.rgba", 254240u, 16u,
     17.5f, 152.5f, 32.5f, 10u,
     5u, 10u, 11u,
     37u, 41u, 23u, 24u

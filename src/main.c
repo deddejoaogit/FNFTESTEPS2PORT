@@ -3489,17 +3489,21 @@ static void resultado_carregar(sp_t *pool,texbuffer_t *tpl,int dificuldade)
     qualquer slot. `g_up_bounce` tem 512x256x4 = 524.288 B e o atlas ocupa
     508.480 B, entao ele cabe no buffer de leitura que a tela ja' usa. */
  g_res_score_ok=0;g_res_score_addr=0;
- {unsigned int bytes=(unsigned int)g_res_score.w*g_res_score.h*4u,addr=0;
+ {unsigned int bytes=(unsigned int)g_res_score.w*g_res_score.h*
+                      (unsigned int)(g_res_score.bpp/8u),addr=0;
+  int psm=g_res_score.bpp==16?GS_PSM_16:GS_PSM_32;
   char caminho[96];
   snprintf(caminho,sizeof(caminho),"mass:/FNFPS2/assets/%s",g_res_score.arquivo);
   if(bytes<=512u*256u*4u&&
      read_exact_path(caminho,g_up_bounce,(int)bytes)==0&&
      sp_chave(pool,SP_CHAVE_TELA_BASE+0x23u,bytes,&addr)>=0){
    texbuffer_t t=*tpl;
-   t.width=g_res_score.w;t.psm=GS_PSM_32;t.address=addr;
+   t.width=g_res_score.w;t.psm=psm;t.address=addr;
    setup_texture_dims(&t,(int)g_res_score.w,(int)g_res_score.h);
    FlushCache(0);
-   upload_raw(&t,g_up_bounce,(int)g_res_score.w,(int)g_res_score.h);
+   if(psm==GS_PSM_16)upload_raw_psm(&t,g_up_bounce,(int)g_res_score.w,
+                                    (int)g_res_score.h,GS_PSM_16);
+   else upload_raw(&t,g_up_bounce,(int)g_res_score.w,(int)g_res_score.h);
    g_res_score_addr=addr;g_res_score_ok=1;
   }else{
    telemetry_event("resultado_sem_vram",-2,(int)sp_livre(pool));
@@ -7338,7 +7342,9 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
         fora dele -- o mesmo valor que o texto de reserva usa logo abaixo. */
      long placar=g_story_mode?g_campaign_score:(long)g_play.score;
      int digitos=res_score_digitos(placar);
-     st.width=g_res_score.w;st.psm=GS_PSM_32;st.address=g_res_score_addr;
+     st.width=g_res_score.w;
+     st.psm=g_res_score.bpp==16?GS_PSM_16:GS_PSM_32;
+     st.address=g_res_score_addr;
      setup_texture_dims(&st,(int)g_res_score.w,(int)g_res_score.h);
      q=bind_texture_filter(q,&st,1);
      for(slot=0;slot<(int)g_res_score.slots;slot++){

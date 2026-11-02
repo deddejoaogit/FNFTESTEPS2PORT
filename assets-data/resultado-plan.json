@@ -1,9 +1,10 @@
 {
  "score": {
-  "atlas": "resultado/score_digitos.rgba",
+  "atlas": "resultado/score_digitos16.rgba",
   "w": 560,
   "h": 227,
-  "vram_bytes": 508480,
+  "bpp": 16,
+  "vram_bytes": 254240,
   "quadros": 52,
   "quadros_por_digito": 5,
   "digito_disabled": 10,

@@ -59,6 +59,19 @@ DIGITO_GONE = 11            # o "GONE" que `set_finalDigit` toca
 HALF = 0.5
 MAX_TEX = 1024          # o limite do GS, repetido aqui so' para a mensagem
 
+# BITS POR PIXEL DO ATLAS. Era 32 (RGBA cru, 508.480 B) e e' o maior pedaco da
+# tela de Resultado. Em 16 bpp (RGBA5551) ele cai para 254.240 B -- 254.240 B
+# que faltavam para a ANIMACAO DO PERSONAGEM POR RANK caber no pool.
+#
+# POR QUE 16 E NAO "UM POUCO MENOR": a geometria do placar (x = 17,5,
+# dx = 32,5, os retangulos do atlas) vem do `ResultState.hx` L151 e do XML, e
+# encolher o atlas mudaria o TAMANHO do numero na tela -- isso e' fidelidade de
+# JOGO, nao de imagem. O 16 bpp mantem cada pixel no lugar e so' arredonda o
+# alpha para 1 bit: dos 524.288 px da folha, 159.584 sao opacos, 309.093
+# transparentes e 55.611 (10,6%) tem alpha intermediario -- e' o brilho/contorno
+# do digito que fica mais duro, nada muda de posicao nem de cor.
+BPP = 16
+
 
 # O empacotamento de quadros num atlas (ler o XML, cortar, prateleiras) e' o
 # mesmo em todas as pecas desta tela: mora em tools/atlas_frames.py.
@@ -135,9 +148,12 @@ def empacotar(assets, out):
     for p in pecas:
         atlas.paste(p["img"], (p["ax"], p["ay"]))
 
-    nome_atlas = "score_digitos.rgba"
+    # `to_ps2_bytes` e' o MESMO conversor dos personagens: 16 bpp vira
+    # RGBA5551 little-endian, que e' o que `upload_raw_psm(..., GS_PSM_16)` le'.
+    import pacote_personagem as _pp
+    nome_atlas = "score_digitos16.rgba"
     with open(os.path.join(out, nome_atlas), "wb") as f:
-        f.write(atlas.tobytes())
+        f.write(_pp.to_ps2_bytes(atlas, BPP))
 
     # Ordem ESTAVEL na tabela: digito 0..9 x quadro 0..4, depois DISABLED e GONE.
     # E' a mesma que a funcao `res_score_indice` do C usa.
@@ -151,7 +167,8 @@ def empacotar(assets, out):
     dado = {
         "atlas": "resultado/" + nome_atlas,
         "w": largura, "h": atlas_h,
-        "vram_bytes": largura * atlas_h * 4,
+        "bpp": BPP,
+        "vram_bytes": largura * atlas_h * (BPP // 8),
         "quadros": len(frames),
         "quadros_por_digito": QUADROS_POR_DIGITO,
         "digito_disabled": DIGITO_DISABLED,
@@ -197,8 +214,9 @@ def main():
     with open(PLANO, "w", encoding="utf-8") as f:
         json.dump(plano, f, indent=1, ensure_ascii=False)
         f.write("\n")
-    print("placar: %d quadros num atlas %dx%d, %d B de VRAM"
-          % (dado["quadros"], dado["w"], dado["h"], dado["vram_bytes"]))
+    print("placar: %d quadros num atlas %dx%d a %d bpp, %d B de VRAM"
+          % (dado["quadros"], dado["w"], dado["h"], dado["bpp"],
+             dado["vram_bytes"]))
     print("  atlas: %s" % dado["atlas"])
     print("  origem: %s" % dado["linha"])
     return 0

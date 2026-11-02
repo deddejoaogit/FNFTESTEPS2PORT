@@ -450,8 +450,25 @@ def make_rank_img(w, h, vertical):
     return bytes(out)
 
 
+def rgba_para_16(buf):
+    """RGBA cru -> RGBA5551 little-endian (o que `upload_raw_psm` le' em 16 bpp).
+
+    Mesma conta do `pacote_personagem.to_ps2_bytes`, sem numpy: o harness roda
+    com o Python do sistema, que nao tem as bibliotecas de /tmp/pylibs.
+    """
+    out = bytearray(len(buf) // 2)
+    for i in range(0, len(buf), 4):
+        r, g, b, a = buf[i], buf[i + 1], buf[i + 2], buf[i + 3]
+        v = ((r >> 3) & 0x1F) | (((g >> 3) & 0x1F) << 5) | \
+            (((b >> 3) & 0x1F) << 10) | ((1 if a >= 128 else 0) << 15)
+        o = (i // 4) * 2
+        out[o] = v & 0xFF
+        out[o + 1] = (v >> 8) & 0xFF
+    return bytes(out)
+
+
 def resultado_score():
-    """O atlas do PLACAR, do plano commitado: (arquivo, w, h, frames)."""
+    """O atlas do PLACAR, do plano commitado: (arquivo, w, h, frames, bpp)."""
     caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "assets-data", "resultado-plan.json")
     if not os.path.isfile(caminho):
@@ -460,10 +477,10 @@ def resultado_score():
     sc = d.get("score")
     if not sc:
         return None
-    return sc["atlas"], sc["w"], sc["h"], sc["frames"]
+    return sc["atlas"], sc["w"], sc["h"], sc["frames"], sc.get("bpp", 32)
 
 
-def make_score_atlas(w, h, frames):
+def make_score_atlas(w, h, frames, bpp=32):
     """Atlas sintetico do placar: cada quadro com a COR do (digito, quadro).
 
     Nao e' so' "tem pixel": o vermelho e' o digito e o verde e' o quadro da
@@ -479,7 +496,10 @@ def make_score_atlas(w, h, frames):
                 out[o + 1] = 20 + f["quadro"] * 40
                 out[o + 2] = 200
                 out[o + 3] = 255
-    return bytes(out)
+    # O plano diz em quantos bits o atlas vai para a VRAM: o arquivo sintetico
+    # tem de sair no MESMO formato do empacotador, senao o jogo le' metade do
+    # arquivo (ou o dobro) e o harness prova a coisa errada.
+    return rgba_para_16(bytes(out)) if bpp == 16 else bytes(out)
 
 
 def resultado_tallies():

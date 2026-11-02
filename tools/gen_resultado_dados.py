@@ -144,6 +144,7 @@ def gerar():
     a("    unsigned short w, h;")
     a("    const char    *arquivo;")
     a("    unsigned int   vram_bytes;")
+    a("    unsigned char  bpp;             /* 16 = RGBA5551 (GS_PSM_16) */")
     a("    float          x, y, dx;        /* 640x360: 17,5 / 152,5 / 32,5 */")
     a("    unsigned char  slots, quadros_por_digito;")
     a("    unsigned char  digito_disabled, digito_gone;")
@@ -151,7 +152,8 @@ def gerar():
     a("} res_score_t;")
     a("")
     a("static const res_score_t g_res_score = {")
-    a("    %3du, %3du, \"%s\", %6du," % (sc["w"], sc["h"], sc["atlas"], sc["vram_bytes"]))
+    a("    %3du, %3du, \"%s\", %6du, %2du," % (sc["w"], sc["h"], sc["atlas"],
+                                             sc["vram_bytes"], sc.get("bpp", 32)))
     a("    %.1ff, %.1ff, %.1ff, %du," % (sc["x"], sc["y"], sc["dx"], sc["slots"]))
     a("    %du, %du, %du," % (sc["quadros_por_digito"], sc["digito_disabled"],
                             sc["digito_gone"]))
