@@ -3145,14 +3145,57 @@ erro. O evento `gameover_sem_audio` — que declarava "esta tela não tem som" �
   foi desenhado (e o sweep reprovava por isso). Agora ele sai também a cada 300
   quadros de gameplay, e os harnesses leem o **último** valor.
 
-## Próximo passo planejado: a CINEMÁTICA DE RANK da Freeplay (planejado, medido)
+## Fechado: a CINEMÁTICA DE RANK da Freeplay (arte empacotada, tela ligada, harness)
 
-Quando o jogador termina uma música e volta para a Freeplay com um rank **novo**,
-o original não entra direto na lista: roda `rankAnimStart` (`FreeplayState.hx`
-L1069-1145), `rankDisplayNew` (L1147-1225) e `rankAnimSlam` (L1230-1292), com o
-`fadeAnim` da cápsula (`SongMenuItem.hx` L400-437). O port hoje faz só o
-`dj.fistPumpIntro()` e entra na lista. É a última peça de interface que falta, e
-o que ela precisa está **todo medido**:
+**FECHADO nesta build.** Quando o jogador termina uma música e volta para a
+Freeplay com um rank **pessoal**, o port agora roda `rankAnimStart`
+(`FreeplayState.hx` L1069-1145), `rankDisplayNew` (L1147-1225) e
+`rankAnimSlam` (L1230-1292), com o `fadeAnim` da cápsula (`SongMenuItem.hx`
+L400-437) — as duas câmeras, os zooms com os easings do `FlxEase`, o `rankBg`,
+o selo crescendo de 20 para 0,9, as duas faíscas de 5 quadros em ADD, a vinheta,
+o tremor do `IntervalShake` (nove tiques de 1/30 s na cápsula e quatorze de
+1/24 s no pouso), o ângulo sorteado das vizinhas e a lista travada
+(`Interacting`) nos 2,2 s.
+
+Medido no harness (`tools/run_rank_anim_harness.sh`, 7002 quadros):
+
+| grandeza | valor medido | o que a fonte manda |
+|---|---|---|
+| texturas | `freeplay_cine,7,186566` | as três abriram, 186.566 B |
+| fases | `0 1 2 3 4` | 500 / 600 / 900 / 1100 / 1600 ms |
+| zoom da `rankCamera` | `1850 1812 1500 1519 800` | 1,85; sineIn em 300 ms; **1,5** exato em 900 ms; backIn em 1100 ms; **0,8** no pouso |
+| cápsula (décimos de px) | `1670:1470` → `1570:1270` → `1569:1269` → `1602:1178` | centro; tranco de −10/−20; queda `quartIn`; `originalPos` = (160,244 , 117,8) |
+| fim | `freeplay_rank_fim,132,0` | termina em 2,2 s, 132 elementos desenhados, 0 ms de atraso |
+
+O portão também está provado pelo outro lado: o harness da Freeplay (que chega
+ao resultado pelo Practice) cobra `freeplay_rank_pedido,0` e **zero** inícios —
+`isScoreValid = !isPracticeMode && !isBotPlayMode` (`ResultState.hx` L938), e o
+`fromResults` com `playRankAnim` só vai quando o rank sobe.
+
+**Dois defeitos apareceram no caminho, os dois medidos e corrigidos:**
+
+* o **x da lista** usava `intendedX(i - sel)` e a fonte usa
+  `intendedX(index - curSelected)` com `index` **1-based** (`changeSelection`,
+  L2943) — a lista inteira estava **25,2 px à esquerda** e o `originalPos` da
+  cinemática não casaria com o lugar de onde a cápsula saiu;
+* o **alpha do vértice** no GS vale 0..128 (0x80 = 1,0) e o código multiplicava
+  por 255: a meia-transparência da entrada (`alpha = 0,5`) saía **opaca**.
+
+**Divergências que sobraram, com o número:**
+
+* o `FlxTrail` do `fadeAnim` é 1 amostra visível (alpha 0,01; as outras nascem
+  com alpha negativo e o `redrawTrailSprites` as revive sem desenho) e o `delay`
+  do campo é `Int`, então vale 0 e todo quadro entra. O port desenha essa
+  amostra e some, como a fonte;
+* `FlxSpriteGroup.angle` gira cada filho em volta do **próprio** `origin`
+  (`angleTransform`, `FlxSpriteGroup.hx` L1017) e o port faz o mesmo, com o eixo
+  no centro do quadro (`centerOrigin` do `resetHelpers`);
+* o selo (`FreeplayRank`) tem `updateHitbox()` depois do `scale.set(0,9)`, o
+  que desloca o desenho em `0,05 × frameWidth` = **1,3 px** em 640x360. O port
+  empacota a arte já a 0,9 e desenha no canto; a diferença é 1,3 px e está
+  registrada aqui, não escondida.
+
+O que a cinemática **usa** de dado já levantado antes desta build:
 
 | elemento | fonte | número medido |
 |---|---|---|
@@ -3171,7 +3214,10 @@ o que ela precisa está **todo medido**:
 
 Dado que falta **não é arte nem som**: os dois Sparrows, a vinheta, o
 `sparkle` (256×256, 10 quadros) e os 5 `.ogg` de `preload/sounds/ranks/` estão
-todos no clone. O que falta é o **encanamento** de três coisas:
+todos no clone. O encanamento das três coisas abaixo **entrou** nesta build; o
+que ficou de fora são os SONS de `ranks/` (o áudio da tela é o próximo passo,
+e o `.ogg`→PCM é o mesmo caminho de `empacotar_audio.py`) e o `sparkle`/
+`favHeart`, que são da cápsula na lista e não da cinemática:
 
 1. os parâmetros que o Resultado passa para a Freeplay —
    `fromResults {songId, difficultyId, oldRank, newRank, playRankAnim}`
@@ -3184,9 +3230,12 @@ todos no clone. O que falta é o **encanamento** de três coisas:
    diferentes em volta da cápsula — no port o desenho é um passe só, então isto é
    uma mudança no caminho de desenho da Freeplay, não um sprite novo.
 
-Ordem de implementação sugerida, uma causa por build: (a) `fromResults` + o
-`rankBg` + as duas câmeras sem zoom; (b) os zooms e os easeings; (c) `sparks`,
-`sparksADD`, `rankVignette` e o `fadeAnim`; (d) os sons.
+VRAM da cinemática: **186.566 B** (33.280 + 38.086 + 115.200), com as faíscas a
+um quadro por vez na VRAM (5 subidas de 33 KB em 208 ms). Somando a cápsula
+(161.568), o fundo (413.280), os 27 títulos (122.740), o selo (6.624) e o DJ
+(277.500), a tela de Freeplay usa **1.168.278 B** dos 2.383.872 do pool — os
+21 palcos (pior 1.736.192 B) não convivem com ela, e não precisam: a Freeplay
+roda com o palco solto.
 
 ## O que ainda falta, com o motivo medido (estado nesta build)
 
@@ -3241,6 +3290,7 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
+| os SONS da cinemática de rank | a cinemática em si está **fechada** (arte, câmeras, zooms, posições, selo, faíscas, vinheta e o fim em 2,2 s, tudo medido no harness). O que ficou de fora são os cinco `.ogg` de `preload/sounds/ranks/`: `rankinbad`/`rankinnormal`/`rankinperfect` em +0,1 s e `loss`/`good`/`great`/`excellent`/`perfect` no slam (`FreeplayState.hx` L1190-1197 e L1232-1246) | empacotar em PCM 48 kHz como `tools/empacotar_audio.py` já faz com o resto, e tocar pelo mesmo `audio_mix` (é o próximo passo, e não bloqueia a tela) |
 | o `sparkle` da capsula e o coração de favorito | `SongMenuItem.hx` L156-166 (`sparkle`, 10 quadros, escala 0,8, `BlendMode.ADD`, alpha 0,7, invisível ate' um `FlxTimer` de 1,2-4,5 s o sortear em volta do selo) e L208/L218 (`favIcon`/`favIconBlurred`) | arte empacotada (10 quadros de 31 a 59 px) + o sorteio do `sparkleEffect`. E' efeito decorativo; o selo em si ja' esta' com ADD, alpha e cinza do original |
 | o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
 
