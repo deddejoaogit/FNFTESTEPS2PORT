@@ -3318,6 +3318,14 @@ outra tela/versão. O port já desenha exatamente esse fundo e essas posições
 (`src/main.c`, bloco "SOBREPOSIÇÃO DA PAUSA"), então o que faltava não era arte:
 era a arte não existir nessa tela.
 
+Uma quarta linha **saiu nesta build**: *"os SONS da cinemática de rank"*. Ela
+dizia que faltavam os oito `.ogg` de `preload/sounds/ranks/` e que empacotá-los
+era "o próximo passo". Foi feito — e o buraco era maior do que a linha dizia: o
+preview da tela (`playCurSongPreview`: 20 % do instrumental em laço com dois
+fades de 2 s) e os três `playOnce` de menu também estavam fora. Ver *"Fechado:
+o ÁUDIO DA FREEPLAY"* e *"Fechado: os `playOnce` de menu"*, no fim do documento.
+O que continua fora **desta tela**, agora com nome e motivo, são os sons de
+**favorito** (`fav`/`unfav`: a função não existe no port) e os das **opções**.
 A mesma verificação vale para as *cápsulas da Freeplay*: `shared/images/` do
 clone esparso tem 27 entradas e **nenhuma** pasta `freeplay`. Não é "arte que o
 empacotador não pegou": o clone precisa de `git sparse-checkout add`.
@@ -3334,7 +3342,6 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1960,0` no fim da primeira música e `save_estado,1,1960` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
-| os SONS da cinemática de rank | a cinemática em si está **fechada** (arte, câmeras, zooms, posições, selo, faíscas, vinheta e o fim em 2,2 s, tudo medido no harness). O que ficou de fora são os cinco `.ogg` de `preload/sounds/ranks/`: `rankinbad`/`rankinnormal`/`rankinperfect` em +0,1 s e `loss`/`good`/`great`/`excellent`/`perfect` no slam (`FreeplayState.hx` L1190-1197 e L1232-1246) | empacotar em PCM 48 kHz como `tools/empacotar_audio.py` já faz com o resto, e tocar pelo mesmo `audio_mix` (é o próximo passo, e não bloqueia a tela) |
 | o `sparkle` da capsula e o coração de favorito | `SongMenuItem.hx` L156-166 (`sparkle`, 10 quadros, escala 0,8, `BlendMode.ADD`, alpha 0,7, invisível ate' um `FlxTimer` de 1,2-4,5 s o sortear em volta do selo) e L208/L218 (`favIcon`/`favIconBlurred`) | arte empacotada (10 quadros de 31 a 59 px) + o sorteio do `sparkleEffect`. E' efeito decorativo; o selo em si ja' esta' com ADD, alpha e cinza do original |
 | o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, 19 arquivos) criam coisas que **nao estao no JSON** -- os `mist1..5` do `limoRideErect` sao `FlxBackdrop` criados por script -- e mexem em alpha/blend por evento (relampago do `phillyBlazin`, luzes do `sserafim`, `spookyMansionErect` trocando quem aparece) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts so' o **estado inicial** de blend/alpha dos props do JSON, extraido por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. O resto esta' contado: 77 linhas de `alpha`/`blend` fora do estado inicial nos 19 arquivos |
 
