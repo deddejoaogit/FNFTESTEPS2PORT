@@ -341,6 +341,19 @@ def char_frame_bytes(bpp):
     return sum(w * h * (bpp // 8) for w, h in dims)
 
 
+# O `sserafim` e' o UNICO palco com SEIS personagens: o script dele cria tres
+# dancarinas fora dos tres slots (`addCharacter(yunjin, CharacterType.OTHER)`,
+# sserafim.hxc L146-164). O orcamento tem de contar as seis, senao o palco
+# enche a VRAM e as tres ultimas carregadas sao DESCARTADAS em tempo de
+# execucao (`char_sem_vram`) -- dancarina faltando, e so' no console.
+# Medido no `spritemap1.json` de cada uma, na escala do empacotador (0,5), com
+# o passo de 64 px do `cp_tex_bytes`:
+#   yunjin  270x332 passo 320 = 212.480 B
+#   chaewon 197x330 passo 256 = 168.960 B
+#   eunchae 324x266 passo 384 = 204.288 B
+EXTRAS_PALCO = {"sserafim": 585728}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bpp", type=int, default=16, choices=(16, 32))
@@ -372,7 +385,9 @@ def main():
         if not props:
             rows.append((sid, None, 0, 0, None))
             continue
-        sc = max_scale(sid, limit, bpp)
+        # O limite DESTE palco: quem tem personagem extra paga por ele.
+        limite_palco = limit - EXTRAS_PALCO.get(sid, 0)
+        sc = max_scale(sid, limite_palco, bpp)
         rows.append((sid, sc, stage_bytes(sid, sc, bpp), len(props),
                      max(w * h for _, (w, h) in props)))
     rows.sort(key=lambda r: -(r[2] or 0))

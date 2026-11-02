@@ -5257,6 +5257,31 @@ entrada com texto e uma dúzia de eventos de música.
 5. **`sserafimDark`** (L413-421) e o `SserafimShader`: brilho/contraste/matiz por
    pixel; mesma classe de falta de plataforma do `wiggle.frag` (ver acima).
 
+### A conta de VRAM que as dançarinas mudam (medida, não estimada)
+
+As três dançarinas ocupam VRAM como qualquer personagem, e o orçamento do
+palco foi fechado ANTES delas. `tools/vram_budget.py` passou a cobrar o extra
+(`EXTRAS_PALCO = {"sserafim": 585728}`, a soma medida dos três canvases) e
+`tools/orcamento_vram.py` passou a pedir os três `chp4` na música do
+`sserafim`. O efeito, medido:
+
+| | antes | depois |
+|---|---|---|
+| personagens contados | 3 (bf, gf, dad) | **6** (+ yunjin, chaewon, eunchae) |
+| VRAM para o palco | 1.337.520 B | **751.792 B** |
+| escala dos 13 props do `sserafim` | 12,9 % | **9,7 %** |
+
+Sem essa correção o palco encheria a VRAM e as três ULTIMAS texturas carregadas
+(as próprias dançarinas, que entram depois dos três slots) seriam descartadas em
+tempo de execução (`char_sem_vram`) — invisível no harness, onde os pacotes são
+sintéticos e minúsculos, e visível no console como dançarina faltando.
+
+O trade é o combinado: **a imagem cede, o jogo não**. Se a perda nos props do
+`sserafim` incomodar, o caminho é empacotar as TRÊS DANÇARINAS numa escala
+menor (0,35 em vez de 0,5 cai de 585.728 B para ~287.000 B, e o
+`ch_escala_mundo` recompõe o tamanho na tela pelo `escala` do pacote) em vez de
+encolher o palco inteiro.
+
 **Conferência de desenho pendente (1 linha):** a auditoria da faixa visível do
 harness acusou **1 linha fora** (`y 381,7..392,0` contra a faixa `56..391`) no
 `spaghetti`, num prop grande (w = 3 239,8) com o corte do `band_clip` em

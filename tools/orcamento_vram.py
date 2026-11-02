@@ -133,6 +133,15 @@ def main():
     print("  VRAM total ................ %9d B" % VRAM_TOTAL)
     print("  fixos (2 FB + tex2 + fonte + gftex16) %9d B" % fixos)
 
+    # O `sserafim` e' o UNICO palco com SEIS personagens: o script dele cria tres
+    # dancarinas FORA dos tres slots (`addCharacter(yunjin, CharacterType.OTHER)`
+    # e as outras duas, sserafim.hxc L146-164). Elas custam VRAM como qualquer
+    # personagem, e sem conta-las aqui o orcamento mentiria: o palco encheria a
+    # VRAM e as tres ULTIMAS carregadas seriam descartadas em tempo de execucao
+    # (`char_sem_vram`) -- dancarina faltando, e so' no console.
+    EXTRAS = {"sserafim": ("sserafim-yunjin", "sserafim-chaewon",
+                           "sserafim-eunchae")}
+
     pior = None
     falhas = 0
     linhas = []
@@ -152,6 +161,12 @@ def main():
             cid = chars.get(papel)
             if not cid:
                 continue
+            caminho = os.path.join(chars_dir, cid + ".chp4")
+            if not os.path.isfile(caminho):
+                faltando.append(cid)
+                continue
+            pessoas += cp_tex_bytes(*ler_chp4(caminho))
+        for cid in EXTRAS.get(stage, ()):
             caminho = os.path.join(chars_dir, cid + ".chp4")
             if not os.path.isfile(caminho):
                 faltando.append(cid)
