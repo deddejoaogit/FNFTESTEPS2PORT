@@ -539,6 +539,99 @@ int main(void)
         CHECK_EQ(sp.strike_offset, 8);   /* L27: o offset de repouso, sem sorteio */
     }
 
+    printf("== script do palco: o CEU da mansao (spookyMansion, o palco de 3 musicas) ==\n");
+    {
+        ss_t sm;
+        int a = -1, f = -1;
+        ss_init(&sm, "spookyMansion");
+        CHECK_EQ(sm.ativo, 1);
+        CHECK(sm.i_bg >= 0 && strcmp(bs_props[sm.i_bg].name, "halloweenBG") == 0);
+        /* a animacao achada PELO NOME, e os numeros vem do pacote, nao daqui */
+        CHECK(sm.bg_anim >= 0);
+        CHECK(strcmp(bs_prop_anims[bs_props[sm.i_bg].anim_first + sm.bg_anim].name,
+                     "lightning") == 0);
+        CHECK_EQ(sm.bg_quadros, 30);          /* `thunder00..thunder29` */
+        CHECK_NEAR(sm.bg_fps, 24.0f);
+        /* em repouso o script NAO manda no quadro: quem escolhe e' o dado
+           (`startingAnimation: "idle"`, 6 quadros, sem loop) */
+        CHECK_EQ(ss_prop_frame(&sm, sm.i_bg, &a, &f), 0);
+        CHECK_EQ(a, -1);
+        CHECK_EQ(f, -1);
+        /* e nao inventa alpha de prop, alpha de personagem nem cor: o script
+           da mansao nao-erect nao escreve nenhum dos tres (o ERECT escreve
+           alpha, e o blazin escreve cor) */
+        CHECK(ss_prop_alpha(&sm, sm.i_bg) < 0.0f);
+        CHECK(ss_alpha_papel(&sm, SS_BF) < 0.0f);
+        {
+            unsigned char rgb[3] = { 9, 9, 9 };
+            CHECK_EQ(ss_cor_papel(&sm, SS_BF, rgb), 0);
+            CHECK_EQ(rgb[0], 9);
+        }
+
+        /* L80-83: `beat == 4` na `spookeez`, SEM som -- e sem precisar dos tres
+           personagens (a versao nao-erect nao tem a guarda do L102 do erect) */
+        CHECK_EQ(ss_beat(&sm, 4, "spookeez", 0), 1);
+        CHECK_EQ(sm.som, 0);
+        CHECK_EQ(sm.scared_pedido, 1);
+        CHECK_EQ(sm.strike_beat, 4);
+        CHECK(sm.strike_offset >= 8 && sm.strike_offset <= 24);
+        /* L33: o `animation.play('lightning')` comeca do PRIMEIRO quadro */
+        CHECK_EQ(ss_prop_frame(&sm, sm.i_bg, &a, &f), 1);
+        CHECK_EQ(a, sm.bg_anim);
+        CHECK_EQ(f, 0);
+        /* 0,5 s depois: quadro 12 (24 fps); 1,25 s: o ultimo (29) e trava la */
+        avanca(&sm, 0.5f);
+        CHECK_EQ(ss_prop_frame(&sm, sm.i_bg, &a, &f), 1);
+        CHECK_EQ(f, 12);
+        avanca(&sm, 0.75f);
+        CHECK_EQ(ss_prop_frame(&sm, sm.i_bg, &a, &f), 1);
+        CHECK_EQ(f, 29);                       /* `looped: false` -> para no fim */
+        avanca(&sm, 5.0f);
+        CHECK_EQ(ss_prop_frame(&sm, sm.i_bg, &a, &f), 1);
+        CHECK_EQ(f, 29);
+        /* e um prop que nao e' o halloweenBG continua no dado */
+        {
+            ss_t so;
+            ss_init(&so, "spookyMansion");
+            CHECK(so.i_bg == bs_stage_props[so.palco].first);   /* unico prop */
+        }
+
+        /* L87-90: `bool(10)` + `beat > strike + offset`, COM som do trovao.
+           Roda 200 beats: tem de cair mais de um, sempre entre thunder_1/2 e
+           sempre com o banco do trovao. */
+        {
+            ss_t s2;
+            int i, n = 0, som_ruim = 0, banco_ruim = 0, fora = 0;
+            ss_init(&s2, "spookyMansion");
+            for (i = 5; i < 205; i++) {
+                int d = ss_beat(&s2, i, "south", 0);   /* outra musica do palco */
+                if (!d) continue;
+                n++;
+                if (s2.som < 1 || s2.som > 2) som_ruim++;
+                if (s2.som_banco != SS_SOM_TROVAO) banco_ruim++;
+                if (s2.strike_beat != i) fora++;
+                s2.som = 0;                     /* o main.c consome */
+            }
+            CHECK(n >= 5);                      /* 10% de 200 beats */
+            CHECK_EQ(som_ruim, 0);
+            CHECK_EQ(banco_ruim, 0);
+            CHECK_EQ(fora, 0);
+        }
+
+        /* o retry/countdown volta ao estado do L23-24 (beat 0, offset 8) e
+           desarma a animacao que estivesse tocando */
+        {
+            ss_t s3;
+            ss_init(&s3, "spookyMansion");
+            ss_beat(&s3, 4, "spookeez", 0);
+            ss_reiniciar(&s3);
+            CHECK_EQ(s3.strike_beat, 0);
+            CHECK_EQ(s3.strike_offset, 8);
+            CHECK_NEAR(s3.bg_t0, -1.0f);
+            CHECK_EQ(ss_prop_frame(&s3, s3.i_bg, &a, &f), 0);
+        }
+    }
+
     printf("== script do palco: o TREM do phillyTrain (L95-166) ==\n");
     {
         ss_t sp;

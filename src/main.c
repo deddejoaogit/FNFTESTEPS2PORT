@@ -1483,6 +1483,35 @@ static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,fl
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
  r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+/* O PROP GIRADO: o `angle` do flixel. Dois scripts de palco giram sprite --
+   `tankmanBattlefield.hxc` L60 (`tankRolling.angle = tankAngle - 90 + 15`, o
+   tanque dando volta no campo) e `phillyStreets.hxc` L200/L310/L340 (as
+   `rotations` dos carros parados no sinal). Gira em volta do CENTRO do quadro,
+   que e' o `centerOrigin` do `FlxSprite.resetHelpers`.
+   Sem `dl_sprite` e sem recorte de faixa, de proposito: um quadrilatero girado
+   nao e' retangulo, e o precedente no port e' o `rk_quad` da cinematica de
+   rank. O GS recorta o que sai da tela de qualquer jeito. */
+static qword_t *palco_sprite_girado(qword_t*q,float x,float y,float w,float h,
+                                    int tw,int th,float ang,unsigned char a,
+                                    int pintado,
+                                    unsigned char cr,unsigned char cg,unsigned char cb){
+ static const float dxs[4]={-0.5f,0.5f,0.5f,-0.5f};
+ static const float dys[4]={-0.5f,-0.5f,0.5f,0.5f};
+ static const float RK_PI_F=3.14159265358979f;
+ float px[4],py[4],cx,cy,sn,cs;
+ int i;
+ cx=x+w*0.5f;cy=y+h*0.5f;
+ sn=sinf(ang*(RK_PI_F/180.0f));cs=cosf(ang*(RK_PI_F/180.0f));
+ for(i=0;i<4;i++){
+  float lx=dxs[i]*w,ly=dys[i]*h;
+  px[i]=cx+lx*cs-ly*sn;py[i]=cy+lx*sn+ly*cs;
+ }
+ g_frame_texture_quads++;
+ if(!pintado){cr=cg=cb=0x80;}
+ return sprite_quad_uv_cor(q,px,py,0.5f,0.5f,(float)tw-0.5f,(float)th-0.5f,
+                           a,cr,cg,cb);
+}
+
 static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align);
 
 /* =====================================================================
@@ -1574,6 +1603,7 @@ static int g_palco_criado_visto=0;
 /* E o mesmo para a COR de prop que o script poe (`phillyTrain` L149): um evento
    na primeira vez, com o R do dado, que e' o que muda de cor para cor. */
 static int g_palco_cor_prop_visto=0;
+static int g_palco_giro_visto=0;
 
 /* =====================================================================
    O SCRIPT DO PALCO (engine/stage_script.c): os eventos que o `.hxc` do palco
@@ -1587,13 +1617,16 @@ static float palco_ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_script
 static int palco_ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_script, prop_abs, anim, frame); }
 static float palco_ov_cor_alpha(int cor_abs) { return ss_cor_alpha(&g_script, cor_abs); }
 static int palco_ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_script, prop_abs, rgb); }
+static float palco_ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_script, prop_abs, y_dado); }
+static int palco_ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_script, prop_abs, graus); }
 
 /* Declarado aqui porque `palco_carregar` (que roda antes desta definicao) ja'
    precisa calar o trem ao trocar de palco. */
 static void palco_trem_som_para(void);
 
 static const sl_script_t g_script_hook = {
-    palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha, palco_ov_prop_cor
+    palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha,
+    palco_ov_prop_cor, palco_ov_y, palco_ov_ang
 };
 
 
@@ -3797,24 +3830,36 @@ static void palco_script_anda(const char *stage, float t, int step)
     /* O `onBeatHit` (spookyMansionErect L155-174): QUATRO passos por beat
        (`Constants.STEPS_PER_BEAT`), e o `ss_beat` ignora beat repetido -- quem
        chama ve o mesmo `step` em varios quadros. */
-    /* Quem tem `onBeatHit` portado: o spooky (o flash) e o trem (as luzes e a
-       passagem). A guarda tem de listar OS DOIS -- com so' o `i_bgl` o trem
+    /* Quem tem `onBeatHit` portado: o spooky (o flash da mansao erect), a
+       mansao NAO-erect (a animacao `lightning` do ceu) e o trem (as luzes e a
+       passagem). A guarda tem de listar OS TRES -- com so' o `i_bgl` o trem
        nunca recebia beat nenhum, e o palco ficava parado a musica inteira. */
-    if (step >= 0 && (g_script.i_bgl >= 0 || g_script.i_train >= 0)) {
+    if (step >= 0 &&
+        (g_script.i_bgl >= 0 || g_script.i_bg >= 0 || g_script.i_train >= 0)) {
         int beat = step / 4;
         if (ss_beat(&g_script, beat, g_play_song ? g_play_song->id : "",
                     palco_tem_personagens())) {
-            /* O `palco_flash` e' o do spooky; o do trem e' outro evento, com o
-               numero de vagoes que ainda faltam. */
+            /* Cada palco com o NOME do seu evento: o do trem leva o numero de
+               vagoes que ainda faltam, o da mansao nao-erect leva o som do
+               trovao (0 no raio sincronizado da `spookeez`) e o flash do erect
+               leva o som pendente. */
             if (g_script.i_train >= 0)
                 telemetry_event("palco_trem", beat, g_script.trem_carros);
+            else if (g_script.i_bg >= 0)
+                telemetry_event("palco_trovao", beat, (int)g_script.som);
             else
                 telemetry_event("palco_flash", beat, (int)g_script.som);
             if (g_script.som > 0) palco_som_toca(g_script.som_banco, g_script.som);
             g_script.som = 0;
-            if (t > 0.0f && g_script.i_bgl >= 0)
-                palco_scared_toca((long)(t * 1000.0f));
         }
+    }
+    /* O `playAnimation('scared')` do bf/gf. Quem pede e' o script (o flash do
+       erect e o raio da mansao nao-erect), e quem sabe se o personagem TEM a
+       animacao e' o `palco_scared_toca` (`hasAnimation` do original). Fora do
+       `if` do beat: o pedido vale para o mesmo quadro, como no original. */
+    if (g_script.scared_pedido) {
+        g_script.scared_pedido = 0;
+        if (t > 0.0f) palco_scared_toca((long)(t * 1000.0f));
     }
     dt = t - g_script.t;
     if (dt <= 0.0f) return;
@@ -3984,7 +4029,25 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
          /* A COR do prop quando o script pinta (`lightWindow.color` do
             `phillyTrain`, L149): o GS multiplica a textura pela cor do vertice
             e 0x80 vale 1,0, a MESMA conversao usada nos personagens. */
-         if (L->it[i].pintado) {
+         if (L->it[i].ang != 0.0f) {
+             /* GIRADO (o tanque e os carros): um quadrilatero, com a cor do
+                script quando ela existe. */
+             unsigned char cr = 0x80, cg = 0x80, cb = 0x80;
+             if (L->it[i].pintado) {
+                 cr = (unsigned char)((L->it[i].rgb[0] * 0x80u + 127u) / 255u);
+                 cg = (unsigned char)((L->it[i].rgb[1] * 0x80u + 127u) / 255u);
+                 cb = (unsigned char)((L->it[i].rgb[2] * 0x80u + 127u) / 255u);
+             }
+             q = palco_sprite_girado(q, L->it[i].x0, L->it[i].y0, L->it[i].w,
+                                     L->it[i].h, L->it[i].tex_w, L->it[i].tex_h,
+                                     L->it[i].ang, a, L->it[i].pintado,
+                                     cr, cg, cb);
+             if (!g_palco_giro_visto) {
+                 g_palco_giro_visto = 1;
+                 telemetry_event("palco_giro", L->it[i].prop,
+                                 (int)(L->it[i].ang * 10.0f));
+             }
+         } else if (L->it[i].pintado) {
              unsigned char cr = (unsigned char)((L->it[i].rgb[0] * 0x80u + 127u) / 255u);
              unsigned char cg = (unsigned char)((L->it[i].rgb[1] * 0x80u + 127u) / 255u);
              unsigned char cb = (unsigned char)((L->it[i].rgb[2] * 0x80u + 127u) / 255u);

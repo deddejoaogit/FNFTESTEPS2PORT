@@ -57,6 +57,30 @@
 #define SS_FLASH_OFF_MIN   8
 #define SS_FLASH_OFF_MAX   24
 
+/* ---- spookyMansion.hxc (o palco da mansao NAO-erect: spookeez, south e
+        monster -- o erect e' outra variacao e o script dele e' outro) ----
+     L23-24  `lightningStrikeBeat = 0`, `lightningStrikeOffset = 8`
+     L26-49  doLightningStrike(playSound, beat):
+               `if (playSound) FunkinSound.playOnce(Paths.soundRandom(
+                  'thunder_', 1, 2), 1.0)`
+               `getNamedProp('halloweenBG').animation.play('lightning')`
+               `lightningStrikeBeat = beat`
+               `lightningStrikeOffset = FlxG.random.int(8, 24)`
+               bf: `hasAnimation('scared') && animation.name != 'cheer'` ->
+                   `playAnimation('scared', true, true)`
+               gf: `hasAnimation('scared')` -> `playAnimation('scared', ...)`
+     L72-91  onBeatHit: `beat == 4` na `spookeez` -> strike SEM som; e
+             `FlxG.random.bool(10) && beat > strikeBeat + strikeOffset` ->
+             strike COM som
+     L124-131 onCountdownStart: zera beat/offset   (idem onSongRetry L115-122)
+   DIFERENCAS em relacao ao ERECT, de proposito:
+     - nao ha' `if (getBoyfriend() == null ...) return`: aqui o ceu anima e o
+       trovao toca mesmo sem os tres personagens em cena (o erect sai fora
+       antes de tudo). Por isso o ramo da mansao NAO usa `tem_personagens`.
+     - nao ha' luzes de alpha: quem pisca e' a ANIMACAO `lightning` do
+       `halloweenBG`, um `play` de 30 quadros a 24 fps (o dado do pacote:
+       `bs_prop_anims[]`, `lightning 5..34`). */
+
 /* ---- phillyTrain.hxc ----
      L95-99   estado do trem: trainCars 8, cooldown 0, trainFrameTiming 0
      L100-110 onUpdate: enquanto `trainMoving`, acumula `elapsed` e anda o trem
@@ -143,6 +167,18 @@ static int acha_prop(int si, const char *nome)
     return -1;
 }
 
+/* Indice da ANIMACAO `nome` dentro do prop `prop_abs`, ou -1. E' o
+   `hasAnimation()`/`animation.play('lightning')` do original. */
+static int acha_anim(int prop_abs, const char *nome)
+{
+    const bs_prop_t *p = &bs_props[prop_abs];
+    int k;
+    for (k = 0; k < p->anim_count; k++) {
+        if (strcmp(bs_prop_anims[p->anim_first + k].name, nome) == 0) return k;
+    }
+    return -1;
+}
+
 static int acha_cor(int si, const char *nome)
 {
     int k;
@@ -173,6 +209,11 @@ void ss_init(ss_t *ss, const char *palco_id)
        spooky "encontrava" o prop 0 e o flash mexia no prop errado. */
     ss->i_bgl = ss->i_stl = -1;
     ss->i_train = ss->i_lights = -1;
+    ss->i_bg = ss->bg_anim = -1;
+    ss->bg_t0 = -1.0f;
+    ss->bg_quadros = 0;
+    ss->bg_fps = 24.0f;
+    ss->scared_pedido = 0;
     ss->rng = SS_SEMENTE;
     if (ss->palco < 0) return;
 
@@ -207,6 +248,24 @@ void ss_init(ss_t *ss, const char *palco_id)
            `train.x -= 400`, L127). O `ss_reiniciar` deixa -1 = "o dado manda",
            entao quem preenche aqui e' o dado de verdade. */
         ss->trem_x = bs_props[ss->i_train].x;
+        return;
+    }
+
+    /* ---- spookyMansion (a animacao `lightning` do halloweenBG) ---- */
+    if (strcmp(bs_stage_props[ss->palco].id, "spookyMansion") == 0) {
+        ss->i_bg = acha_prop(ss->palco, "halloweenBG");
+        if (ss->i_bg < 0) return;
+        ss->bg_anim = acha_anim(ss->i_bg, "lightning");
+        /* A animacao TEM de existir no pacote: sem ela o script nao tem o que
+           tocar. O nome e' o do JSON do palco (`animations[].name`), entao um
+           pacote sem ela e' dado ausente, e o palco fica sem script. */
+        if (ss->bg_anim < 0) return;
+        ss->bg_quadros = bs_prop_anims[bs_props[ss->i_bg].anim_first + ss->bg_anim].count;
+        ss->bg_fps = bs_prop_anims[bs_props[ss->i_bg].anim_first + ss->bg_anim].fps;
+        if (ss->bg_quadros <= 0) return;
+        if (ss->bg_fps <= 0.0f) ss->bg_fps = 24.0f;
+        ss->ativo = 1;
+        ss_reiniciar(ss);
         return;
     }
 
@@ -255,6 +314,11 @@ void ss_reiniciar(ss_t *ss)
     ss->flash_fase = 0;
     ss->a_bgl = ss->a_stl = -1.0f;
     ss->a_char[SS_BF] = ss->a_char[SS_DAD] = ss->a_char[SS_GF] = 1.0f;
+    /* A animacao `lightning` do halloweenBG: -1 = nenhum raio ainda, entao o
+       prop toca o `startingAnimation` do JSON (o `idle`, que nao repete e
+       para no ultimo quadro -- criterio do `sl_prop_frame`). */
+    ss->bg_t0 = -1.0f;
+    ss->scared_pedido = 0;
     ss->strike_beat = 0;                 /* L26: `lightningStrikeBeat = 0` */
     ss->strike_offset = SS_FLASH_OFF_MIN; /* L27: `lightningStrikeOffset = 8` */
     ss->ultimo_beat = -1;
@@ -316,6 +380,28 @@ static void ss_raio(ss_t *ss)
     ss->cor[SS_GF][0] = ss->cor[SS_GF][1] = ss->cor[SS_GF][2] = SS_ESCURO;
 }
 
+/* `doLightningStrike` (spookyMansion.hxc L26-49), na ordem da fonte: som,
+   animacao, `strikeBeat`, `strikeOffset` sorteado, e os `scared` do bf e da gf.
+   `pede_som` = 0 no raio sincronizado da `spookeez` (L82 `false`). */
+static void ss_mansao_raio(ss_t *ss, int beat, int pede_som)
+{
+    if (pede_som) {
+        /* L30: `Paths.soundRandom('thunder_', 1, 2)` */
+        ss->som = 1 + ss_rnd_int(ss, 0, 1);
+        ss->som_banco = SS_SOM_TROVAO;
+    }
+    /* L33: `halloweenBG.animation.play('lightning')` -- reinicia do primeiro
+       quadro da animacao a cada raio. */
+    ss->bg_t0 = ss->t;
+    ss->strike_beat = beat;              /* L35 */
+    ss->strike_offset = ss_rnd_int(ss, SS_FLASH_OFF_MIN, SS_FLASH_OFF_MAX);  /* L36 */
+    /* L38-46: os dois `playAnimation('scared', true, true)`. Quem decide se o
+       personagem TEM a animacao e' o main.c (`ch_anim_i`), que e' o
+       `hasAnimation()` do original -- aqui so' o pedido, como o `hair_pedido`
+       do trem. */
+    ss->scared_pedido = 1;
+}
+
 /* `doLightningStrike` (L100-119) do spookyMansionErect: as duas luzes em 1, os
    tres personagens em 0, a sequencia armada e o offset sorteado. */
 static void ss_flash_comeca(ss_t *ss)
@@ -330,10 +416,12 @@ static void ss_flash_comeca(ss_t *ss)
        do som (L106) e antes de qualquer outra coisa, como no original. */
     ss->strike_offset = ss_rnd_int(ss, SS_FLASH_OFF_MIN, SS_FLASH_OFF_MAX);
     ss->strike_beat = ss->ultimo_beat;
+    ss->scared_pedido = 1;      /* L38-46 `playAnimation('scared')` no bf e na gf */
 }
 
 static void ss_trem_comeca(ss_t *ss);
 static void ss_trem_anda(ss_t *ss);
+static void ss_mansao_raio(ss_t *ss, int beat, int pede_som);
 
 /* O `onBeatHit` (L155-174). A ordem dos sorteios e' a da fonte:
    1) `FlxG.random.bool(10)` -- sorteado em TODO beat, mesmo quando o segundo
@@ -372,6 +460,25 @@ int ss_beat(ss_t *ss, int beat, const char *song_id, int tem_personagens)
         /* L142-149: em TODO `beat % 4 == 0` (inclusive o 0) as luzes trocam de
            cor. O `lightShader.reset()` da mesma linha e' shader: nao portado. */
         if (beat % 4 == 0) ss->luz_cor = ss_rnd_int(ss, 0, SS_COR_LUZES - 1);
+        return disparou;
+    }
+
+    /* ---- spookyMansion L72-91 (a versao NAO-erect, a que tres musicas
+       jogam: spookeez, south, monster) ---- */
+    if (ss->i_bg >= 0) {
+        /* L80-83: `beat == 4` na `spookeez` -> strike SEM som. Este `if` nao
+           sorteia nada alem do offset, e nao depende dos personagens. */
+        if (beat == SS_FLASH_BEAT_ESP && song_id && strcmp(song_id, "spookeez") == 0) {
+            ss_mansao_raio(ss, beat, 0);
+            disparou = 1;
+        }
+        /* L87-90: `FlxG.random.bool(10) && beat > strikeBeat + strikeOffset`.
+           O sorteio acontece SEMPRE (primeiro operando do `&&`). */
+        chance = ss_rnd_bool(ss, SS_FLASH_CHANCE);
+        if (chance && beat > ss->strike_beat + ss->strike_offset) {
+            ss_mansao_raio(ss, beat, 1);
+            disparou = 1;
+        }
         return disparou;
     }
 
@@ -566,6 +673,18 @@ float ss_prop_x(const ss_t *ss, int prop_abs, float x_dado)
 int ss_prop_frame(const ss_t *ss, int prop_abs, int *anim, int *frame)
 {
     int q;
+    /* spookyMansion: a `lightning` do `halloweenBG`. Ela NAO repete (o JSON diz
+       `looped: false` e o flixel para no ultimo quadro), entao o quadro e' o
+       tempo desde o raio, travado no ultimo -- e o proximo raio reinicia. */
+    if (ss->ativo && prop_abs == ss->i_bg && ss->bg_t0 >= 0.0f) {
+        float dt = ss->t - ss->bg_t0;
+        if (dt < 0.0f) dt = 0.0f;
+        q = (int)(dt * ss->bg_fps);
+        if (q >= ss->bg_quadros) q = ss->bg_quadros - 1;
+        if (anim) *anim = ss->bg_anim;
+        if (frame) *frame = q;
+        return 1;
+    }
     if (!ss->ativo || prop_abs != ss->i_light || !ss->raio_ativo) return 0;
     /* `animation.play('strike')` reinicia do quadro 0 a cada raio, 24 fps, e a
        animacao do dado e' em loop (30 quadros). Em 1,5 s de raio o flixel passa
@@ -594,6 +713,21 @@ int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb)
     rgb[1] = ss_cores_luzes[ss->luz_cor][1];
     rgb[2] = ss_cores_luzes[ss->luz_cor][2];
     return 1;
+}
+
+float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado)
+{
+    (void)ss;
+    (void)prop_abs;
+    return y_dado;
+}
+
+int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus)
+{
+    (void)ss;
+    (void)prop_abs;
+    (void)graus;
+    return 0;
 }
 
 int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb)

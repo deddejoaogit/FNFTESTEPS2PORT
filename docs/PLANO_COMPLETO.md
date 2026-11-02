@@ -4859,3 +4859,83 @@ do `tools/build_pendrive.sh` subiu de 16 para **18** arquivos) e +1 pacote
 
 **O que ainda falta nesta tela**: só os sons do **menu de opções**
 (`OffsetMenu.hx` L418/L422) — a tela em si continua stub.
+
+## Fechado: o céu da mansão (`spookyMansion.hxc`, o palco das três músicas da semana 2)
+
+O `spookyMansionErect` já tinha o flash das duas luzes. Mas o palco que as três
+músicas da semana 2 **realmente jogam** (`spookeez`, `south`, `monster`) é o
+`spookyMansion` **sem** o `Erect`, e o script dele é **outro arquivo**
+(`preload/scripts/stages/spookyMansion.hxc`, 132 linhas contra as 255 do erect).
+Até esta build o port não rodava script nenhum nesses três palcos: nenhum raio
+caía, nenhum trovão tocava e o bf/a gf nunca faziam `scared`. Era o maior
+buraco de conteúdo alcançável que sobrou depois do trem.
+
+**O que o script manda** (`spookyMansion.hxc`, linha por linha):
+
+| Linha | O que faz | No port |
+|---|---|---|
+| L23-24 | `lightningStrikeBeat = 0`, `lightningStrikeOffset = 8` | `ss_reiniciar` |
+| L30 | `Paths.soundRandom('thunder_', 1, 2)` | banco `SS_SOM_TROVAO`, slot `1 + int(0,1)` |
+| L33 | `getNamedProp('halloweenBG').animation.play('lightning')` | `ss_prop_frame` devolve a animação e o quadro |
+| L35-36 | `strikeBeat = beat`, `offset = int(8, 24)` | idem, na mesma ordem de sorteio |
+| L38-46 | bf/gf `playAnimation('scared', true, true)` (bf só se não estiver em `cheer`) | `scared_pedido` + `palco_scared_toca` |
+| L80-83 | `beat == 4` na `spookeez` → raio **sem** som | ramo do `ss_beat` |
+| L87-90 | `bool(10) && beat > strikeBeat + strikeOffset` → raio **com** som | idem |
+| L124-131 | `onCountdownStart`/`onSongRetry` zeram beat e offset | `ss_reiniciar` |
+
+**Três diferenças em relação ao erect, que o código respeita de propósito:**
+
+1. A versão não-erect **não** tem a guarda `if (bf == null || gf == null || dad
+   == null) return` (que é do erect, L102). Aqui o céu anima e o trovão toca
+   mesmo sem os três personagens em cena — por isso este ramo **não** consulta
+   `tem_personagens`, e o teste cobre exatamente isso (`ss_beat(..., 0)`).
+2. Não há luz de alpha nenhuma: quem pisca é a **animação** `lightning` do
+   `halloweenBG` — 30 quadros a 24 fps, `looped: false` no JSON, então para no
+   último quadro e o próximo raio reinicia. Os números vêm do pacote
+   (`bs_prop_anims`), achados pelo nome: `bg_quadros`/`bg_fps` são lidos de lá,
+   não escritos à mão.
+3. Não há `RuntimeRainShader` (só o erect tem).
+
+**O bug que apareceu junto:** o `ss_reiniciar` gravava a cor de repouso do
+`phillyBlazin` (bf/dad `0xDEDEDE`, gf `0x888888`, L114-117) para **todo** palco
+com script, e `ss_cor_papel` devolvia 1 sempre que o script estava ativo. Ou
+seja: no `phillyTrain` e no `spookyMansionErect` os três personagens vinham
+desenhados com um `color` de vértice que **nenhuma linha** do `.hxc` deles
+escreve (`0xDE` → `0x6F` no GS, 87 % do brilho). Nenhum teste pegava porque
+todos os testes de cor chamavam o blazin, e a telemetria `char_cor` só dispara
+uma vez por personagem. Agora existe `cor_ligada`, ligado **só** no ramo do
+blazin; `ss_cor_papel` exige ele; o teste novo cobra 0 nos outros dois e 1 no
+blazin.
+
+**Medido no harness** (`FNF_START_SONG=spookeez FNF_START_DIFF=1`, 3 000
+quadros, `PS2H_STRICT=1`): `PASSOU`, 3 002 quadros, 31 959 pacotes, nenhum
+estouro, todo asset abriu. Telemetria:
+
+```
+E,37011456,state,8,14
+E,37011456,palco_script,1,16
+E,37011456,palco_entra,16,1
+E,37011456,palco_alpha,117,100
+E,37011456,palco_draw,1,0
+E,572768256,palco_trovao,4,0
+E,572768256,char_scared,1,0
+E,572768256,char_scared,0,0
+```
+
+`palco_trovao,4,0` é o `beat == 4` da `spookeez`: o **segundo** campo é o som e
+é **0**, como manda o `false` do L82. Os dois `char_scared` são o bf e a gf
+(o `dad` não faz `scared` nesse script). `palco_draw,1` é o palco inteiro: a
+mansão não-erect tem **um** prop (`halloweenBG`) — os outros quatro são do
+erect.
+
+**O que ainda não dá para medir aqui**: a `spookeez` do harness tem 10 s de
+áudio sintético (`gen_harness_assets.py`), então só cabem ~30 batidas e o raio
+aleatório de 10 % não é obrigado a cair nessa janela. O caminho aleatório é
+provado no teste de PC (`test/test_stage_script.c`: 200 batidas, ≥5 raios,
+som sempre 1..2, banco sempre o do trovão, nenhum raio no mesmo beat, e o
+retry voltando a `beat 0`/`offset 8`).
+
+**O que não é portado, e por quê**: `HapticUtil.vibrate` (L55, L105: o controle
+do PS2 não tem rumble acionado pelo jogo neste port) e a pré-carga dos dois
+trovões (`FunkinMemory.cacheSound`, L19-20) — os dois PCM já vão no pendrive e
+são abertos na hora de tocar.

@@ -165,7 +165,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         sl_item_t *it = &out[n];
         int anim;
         int prop_abs = st->first + i;
-        float fase, x0, y0, w, h, alpha, px;
+        float fase, x0, y0, w, h, alpha, px, py, ang = 0.0f;
 
         /* O SCRIPT DO PALCO manda no alpha e no x quando mexe neste prop
            (`phillyBlazin.hxc`: os tres do relampago nascem com alpha 0 e sao
@@ -175,6 +175,8 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (alpha < 0.0f) alpha = p->alpha;
         px = p->x;
         if (g_script && g_script->x) px = g_script->x(prop_abs, p->x);
+        py = p->y;
+        if (g_script && g_script->y) py = g_script->y(prop_abs, p->y);
 
         /* Prop com alpha 0 e' invisivel no original (9 dos 169: freaks,
            clouds2, paper, os caminhoses do sserafim...) -- ou esta' apagado
@@ -186,7 +188,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
            porque o scrollFactor menor que 1 desloca o prop em relacao ao
            canto da camera, nao ao centro. */
         x0 = SL_VIEW_W * 0.5f + (px - cam_x * p->scrollx + 640.0f * p->scrollx - 640.0f) * sc;
-        y0 = SL_VIEW_H * 0.5f + (p->y - cam_y * p->scrolly + 360.0f * p->scrolly - 360.0f) * sc;
+        y0 = SL_VIEW_H * 0.5f + (py - cam_y * p->scrolly + 360.0f * p->scrolly - 360.0f) * sc;
         /* O tamanho NA TELA vem de src_w/src_h (o tamanho do quadro no espaco
            do original) VEZES o `scale` do prop, nao de sw/sh. Duas escalas
            diferentes, e trocar uma pela outra ja' custou duas vezes:
@@ -234,6 +236,8 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
                           ? g_script->cor(prop_abs, it->rgb) : 0;
         if (!it->pintado) { it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80; }
         it->blend = p->blend;
+        if (g_script && g_script->ang) g_script->ang(prop_abs, &ang);
+        it->ang = ang;
         it->criado = -1;
         it->tile = 0.0f;
         it->tile_off = 0.0f;
@@ -263,6 +267,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
         it->prop = -1;
         it->cor = cf + i;
+        it->ang = 0.0f;
         it->anim = 0; it->frame = 0;
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = 0; it->tex_h = 0;
@@ -300,6 +305,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
         it->prop = -1;
         it->cor = -1;
+        it->ang = 0.0f;
         it->criado = cf + k;
         it->anim = 0;
         it->frame = 0;

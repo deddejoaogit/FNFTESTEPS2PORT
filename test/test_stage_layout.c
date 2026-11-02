@@ -86,6 +86,8 @@ static float ov_x(int prop_abs, float x_dado) { return ss_prop_x(&g_tss, prop_ab
 static int ov_frame(int prop_abs, int *anim, int *frame) { return ss_prop_frame(&g_tss, prop_abs, anim, frame); }
 static float ov_cor(int cor_abs) { return ss_cor_alpha(&g_tss, cor_abs); }
 static int ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g_tss, prop_abs, rgb); }
+static float ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_tss, prop_abs, y_dado); }
+static int ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_tss, prop_abs, graus); }
 
 int main(void)
 {
@@ -904,7 +906,8 @@ int main(void)
            (registrado por `sl_set_script`). Aqui o teste registra os callbacks
            ligados a um `ss_t` de verdade e cobra o resultado no LAYOUT -- que
            e' onde o alpha/x/quadro viram desenho. */
-        static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor };
+        static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
+                                          ov_y, ov_ang };
         sl_item_t it[SL_MAX_ITENS];
         int n;
 
@@ -1017,7 +1020,8 @@ int main(void)
            anda. As `lights` ganham a COR do L149 no item -- se ela nao
            chegasse aqui, o prop sairia branco e a troca de cor por beat nao
            apareceria na tela. */
-        static const sl_script_t hook2 = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor };
+        static const sl_script_t hook2 = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
+                                           ov_y, ov_ang };
         sl_item_t it[SL_MAX_ITENS];
         int n, achou_trem = 0, achou_luz = 0;
         ss_init(&g_tss, "phillyTrain");

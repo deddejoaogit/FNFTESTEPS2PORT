@@ -36,6 +36,25 @@
  *   L123 / L150                 a gf toca `hairBlow` / `hairFall`
  *   L169-176 / L190-203         fim da musica para o trem; retry reseta
  *
+ * O quarto e' o `spookyMansion` (SEM o `Erect`), que e' OUTRO arquivo e o que
+ * as tres musicas da semana 2 realmente jogam -- `spookeez`, `south` e
+ * `monster` usam este palco, nao o erect:
+ *
+ *   spookyMansion.hxc L23-24    `lightningStrikeBeat = 0`, offset = 8
+ *   L30                         `Paths.soundRandom('thunder_', 1, 2)`
+ *   L33                         `halloweenBG.animation.play('lightning')`
+ *                               (30 quadros a 24 fps, `looped: false`)
+ *   L35-36                      `strikeBeat = beat`, offset = int(8,24)
+ *   L38-46                      bf/gf `playAnimation('scared')` (o bf nao se
+ *                               estiver em `cheer`)
+ *   L80-83 / L87-90             o raio da `beat == 4` da `spookeez`, sem som,
+ *                               e o `bool(10)` com `beat > strike+offset`
+ *
+ * Diferenca que o codigo respeita: o NAO-erect nao tem a guarda
+ * `if (bf == null ...) return` (que e' do erect) -- aqui o ceu anima e o trovao
+ * toca mesmo sem os tres personagens, entao este ramo NAO usa
+ * `tem_personagens`.
+ *
  * O QUE NAO E' PORTADO, E POR QUE
  * - Os shaders: o `RuntimeRainShader` do spooky (L26, L38-42, L102-104,
  *   L136-140) e o `BuildingEffectShader` das `lights` do phillyTrain (L39-40,
@@ -115,7 +134,18 @@ typedef struct {
     float a_bgl, a_stl; /* alpha das duas luzes */
     float a_char[3];    /* alpha dos personagens (1 = normal) */
 
-    /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L26-27) --- */
+    /* ---- O CEU DA MANSao (`spookyMansion.hxc`, o palco de spookeez/south/
+       monster): o raio nao acende luz nenhuma, ele toca a ANIMACAO `lightning`
+       do prop `halloweenBG` (30 quadros a 24 fps, uma vez) e pede `scared` no
+       bf e na gf. */
+    int i_bg;           /* prop `halloweenBG` (ABS em bs_props[]), -1 = sem  */
+    int bg_anim;        /* indice da animacao `lightning` DENTRO do prop       */
+    int bg_quadros;     /* quantos quadros ela tem (do pacote)                 */
+    float bg_fps;       /* fps dela (do JSON/pacote)                          */
+    float bg_t0;        /* instante do ultimo raio; < 0 = nenhum ainda         */
+    int scared_pedido;  /* 1 = bf/gf devem tocar `scared`; o main.c consome    */
+
+    /* --- o `onBeatHit` do spooky: `lightningStrikeBeat/Offset` (L23-24) --- */
     int strike_beat;
     int strike_offset;
     int ultimo_beat;    /* o ultimo beat que chegou (dispara uma vez por beat) */
@@ -206,6 +236,15 @@ int ss_cor_papel(const ss_t *ss, int papel, unsigned char *rgb);
  * (L146-149): o GS multiplica a textura pela cor do vertice, entao um `.color`
  * do flixel cabe sem shader. */
 int ss_prop_cor(const ss_t *ss, int prop_abs, unsigned char *rgb);
+
+/* Y do prop em unidades do ORIGINAL, ou `y_dado`. E' o `sprite.y` do flixel:
+   os carros do `phillyStreets` andam numa curva (`FlxTween.quadPath`) e o
+   tanque do `tankmanBattlefield` num circulo (L62). */
+float ss_prop_y(const ss_t *ss, int prop_abs, float y_dado);
+
+/* Angulo do prop em GRAUS (o `sprite.angle`). Devolve 1 quando o script gira o
+   sprite e escreve `*graus`; 0 quando o prop nao e' girado por ele. */
+int ss_prop_ang(const ss_t *ss, int prop_abs, float *graus);
 
 /* Os bancos de som de `palco_som_toca`, e o numero dentro do banco vai em
  * `ss->som`. */

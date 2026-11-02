@@ -70,6 +70,13 @@ typedef struct {
     int criado;
     float tile;     /* periodo da repeticao em px do original; 0 = sem repetir */
     float tile_off; /* deslocamento do `scroll` no instante t, em px do original */
+    /* O `angle` do sprite, em GRAUS, vindo do script do palco (o
+       `tankRolling.angle` do tankmanBattlefield.hxc L60 e as `rotations` dos
+       carros do phillyStreets.hxc). 0 = sem rotacao, que e' o caso de todos os
+       props que o JSON posiciona. O flixel gira em volta do CENTRO do quadro
+       (`centerOrigin` no `resetHelpers` do FlxSprite), e e' o que o desenho
+       faz. */
+    float ang;
 } sl_item_t;
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */
@@ -135,6 +142,13 @@ typedef struct {
     float (*cor_alpha)(int cor_abs);
     /* Cor do prop (0..255 por canal). Devolve 1 quando pinta. */
     int   (*cor)(int prop_abs, unsigned char *rgb);
+    /* Y do prop em unidades do ORIGINAL, ou o proprio `y_dado`. Sem este
+       callback o script so' mexia no x, e os carros do `phillyStreets` andam
+       numa curva de Bezier (x E y mudam por quadro). */
+    float (*y)(int prop_abs, float y_dado);
+    /* Angulo do prop em GRAUS. Devolve 1 e escreve `*graus` quando o script
+       gira o sprite. */
+    int   (*ang)(int prop_abs, float *graus);
 } sl_script_t;
 
 void sl_set_script(const sl_script_t *script);
