@@ -12,8 +12,72 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 
 OUT=${1:-build/pendrive}
-ASSETS=/home/user/PS2Projects/google_drive
-ELF=build/FNF_PS2.ELF
+ASSETS=${ASSETS:-/home/user/PS2Projects/google_drive}
+ELF=${ELF:-build/FNF_PS2.ELF}
+
+# ==========================================================================
+# PRE-REQUISITOS, TODOS DE UMA VEZ
+# Antes este script parava no PRIMEIRO arquivo que faltava (`set -e` + exit 1
+# dentro do laco), e quem rodava numa maquina nova descobria a lista de
+# pendencias uma por execucao -- 15 arquivos de arte, os 46 .chp4, os 21 palcos,
+# os 27 stems, o cartao do HUD e o ELF. Agora ele mede TUDO primeiro e diz, de
+# uma vez, o que falta e qual comando resolve cada item. Nada e' copiado antes
+# disso, entao um pendrive pela metade nao chega a existir.
+# ==========================================================================
+FALTA_PRE=""
+pre_arq() {                       # pre_arq <caminho> <o que e'> <como resolver>
+    if [ ! -f "$1" ]; then
+        FALTA_PRE="$FALTA_PRE\n  - $2: $1\n      $3"
+    fi
+}
+pre_dir() {
+    if [ ! -d "$1" ]; then
+        FALTA_PRE="$FALTA_PRE\n  - $2: $1\n      $3"
+    fi
+}
+for f in title_alphabet.rgba title_prompt_l.rgba title_prompt_r.rgba \
+         title_logoBumpin.frames title_gfDanceTitle.frames title_newgrounds.rgba \
+         font.rgba font.widths menu_sfx.pcm menu_cache.rle \
+         bf_frames.lz4f gf_frames.lz4f \
+         mainstage_tutorial_parallax.rgba \
+         tutorial_hud_official_320x256_gsalpha.rgba \
+         audio_stems.pcm freakyMenu_48000.pcm; do
+    pre_arq "$ASSETS/$f" "asset de runtime" \
+        "aponte ASSETS=<pasta dos assets convertidos> (o LEIA-ME tem o link do Drive)"
+done
+pre_arq "$ELF" "o binario do jogo" \
+    "sh compilar.sh (ou tools/build_pendrive.sh aceita ELF=<caminho>)"
+
+NCH=0
+if [ -d build/packs/chars ]; then
+    NCH=$(ls build/packs/chars/*.chp4 2>/dev/null | wc -l)
+fi
+if [ "$NCH" -lt 46 ]; then
+    FALTA_PRE="$FALTA_PRE\n  - personagens: $NCH de 46 em build/packs/chars\n      tools/achatar_tudo.sh <clone funkin.assets> build/packs"
+fi
+if [ ! -d build/packs/stages ]; then
+    FALTA_PRE="$FALTA_PRE\n  - palcos: build/packs/stages nao existe\n      python3 tools/pacotar_palcos.py --out build/packs"
+fi
+NSTEM=0
+if [ -d "${STEMS_SRC:-build/packs/stems}" ]; then
+    NSTEM=$(ls "${STEMS_SRC:-build/packs/stems}"/*/stems.pcm 2>/dev/null | wc -l)
+fi
+if [ "$NSTEM" -lt 27 ]; then
+    FALTA_PRE="$FALTA_PRE\n  - audio das musicas: $NSTEM de 27 stems\n      python3 tools/empacotar_stems.py --assets <clone funkin.assets>"
+fi
+NCHART=$(ls build/charts/*.chart 2>/dev/null | wc -l)
+if [ "$NCHART" -lt 81 ]; then
+    FALTA_PRE="$FALTA_PRE\n  - charts: $NCHART de 81 em build/charts\n      sh test/run_tests.sh (gera e valida os 81)"
+fi
+if [ -n "$FALTA_PRE" ]; then
+    echo "== FALTAM PRE-REQUISITOS (nada foi copiado) ==" >&2
+    printf "%b\n" "$FALTA_PRE" >&2
+    echo >&2
+    echo "  O pendrive precisa dos quatro: os assets de runtime do Drive, os 46" >&2
+    echo "  personagens, os 21 palcos, os 81 charts, os 27 stems e o ELF." >&2
+    exit 1
+fi
+echo "== pre-requisitos ok: 16 assets, $NCH personagens, $NSTEM stems, $NCHART charts, ELF =="
 
 rm -rf "$OUT"
 mkdir -p "$OUT/FNFPS2/assets/songs"

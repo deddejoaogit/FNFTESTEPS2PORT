@@ -5633,3 +5633,29 @@ música, 3 dificuldades, 81 charts) é jogável do começo ao Resultado**, no jo
 real, com o HUD, a contagem, as notas, a pausa, o game over e o resultado de
 cada uma. O que continua fora está na tabela "O que ainda falta" — e nenhum item
 de lá impede uma música de terminar.
+
+# A ÚLTIMA MILHA: o pendrive e a rodada no console
+
+Duas coisas mudaram nesta revisão, e as duas existem pelo mesmo motivo: o
+trabalho que falta **não é código**, é rodar.
+
+**1. `tools/build_pendrive.sh` mede tudo ANTES de copiar.** Antes ele parava no
+primeiro arquivo ausente (`set -e` + `exit 1` dentro do laço), então quem rodava
+numa máquina nova descobria a lista de pendências uma por execução — 16 assets de
+runtime, 46 `.chp4`, 21 palcos, 81 charts, 27 stems e o ELF. Agora ele conta os
+seis grupos, imprime o que falta com o **comando que resolve cada um** e só
+começa a copiar quando não falta nada. Medido nesta árvore (sem o clone de arte):
+`0 de 46 personagens`, `0 de 27 stems`, `ELF ausente` — e nenhum arquivo copiado.
+
+**2. `docs/TESTE_NO_CONSOLE.md`** é o roteiro da rodada no hardware: o que o jogo
+grava (`FNF_COLHEITA.txt`, os despejos `FNF_SCREEN_*.rgba.txt`, o save), os cinco
+tipos de linha do log (`#`, `F`, `E`, `P`, `IO`) e **qual linha responde cada
+pergunta que o PC não responde** — `chart_layout` (o `usbhdfsd` abre
+`songs/<id>/<d>.chart`?), o último campo das linhas `F` (underrun: é I/O, não o
+mixer), `tutorial_audio_end` contra o `song_end_sample` (deriva do audsrv),
+`cut_pool_min`/`cut_sem_vram` (o pico de VRAM da cutscene no GS de verdade),
+`save_gravado,1992,0` (o `mc0:`) e o despejo de tela (as cores, sem filmar a TV).
+
+É a regra 3 do `REGRAS.md` levada a sério: o harness do PC não prova I/O nem
+tempo. O que ele prova está medido acima; o que só o console prova está listado
+lá, com a linha de log que fecha cada item.

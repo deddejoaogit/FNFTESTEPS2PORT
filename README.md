@@ -1,66 +1,98 @@
-# FNFTESTEPS2PORT — motor do port completo de FNF para PS2
+# FNF para PlayStation 2 — o port, o que está pronto e o que falta
 
-Este repositório é o **motor** do port, com as partes que dá para
-construir e medir sem o console. Tudo que está aqui compila e roda no PC
-com `make test`; nada aqui foi declarado "pronto" sem uma verificação que
-possa ser repetida.
+Port completo do **Friday Night Funkin'** (v0.8.6) para o PS2, em C com o
+`ps2sdk` oficial: **27 músicas, 81 charts (3 dificuldades), 46 personagens,
+21 palcos, 35 note kinds**.
 
-## O que existe e está testado
+Tudo o que este documento afirma foi **medido**, e o comando que mede está
+escrito junto. O que não roda neste ambiente (o console, o cartão de memória, o
+clone de arte de 2,5 GB) está na última secção, com nome e motivo — nunca
+escondido atrás de "quase pronto".
 
-| módulo | linhas | o que resolve | verificação |
-|---|---:|---|---|
-| `src/engine/conductor.{c,h}` | 330 | relógio musical a partir das **amostras ouvidas**, BPM por seção, bop de câmera (decay 0.95, intensidade 1.015), seguir de câmera, **as 13 curvas** | 77 asserções |
-| `src/engine/judgement.{c,h}` | 230 | pontuação, vida, erro, combo, precisão, julgamento e rank, com os números oficiais do v0.8.6 | 54 asserções |
-| `src/engine/chart.{c,h}` | 340 | carga de **FCH3** (os 81 charts já convertidos) e de FNC2; eventos entregues **uma vez cada, em ordem** | 60 asserções |
-| `src/engine/vram_cache.{c,h}` | 290 | alocador de VRAM com despejo LRU, apelido de folha, fixação contada e **guarda de limite** | 56 asserções |
-| `src/engine/asset_bank.{c,h}` | 200 | carregamento por cena: entra do pendrive, sai ao terminar, nada reservado para sempre | 90 asserções |
-| `src/engine/bootlog.{c,h}` | 190 | marcos escritos na hora, **fase dentro do quadro**, cão de guarda, detecção de morte anterior | 23 asserções |
-| `tools/prep_assets.py` | 470 | fatia folhas, reduz, quantiza para 16 bpp, empacota em `CFZ4`, mede e reduz até caber | selftest próprio |
-| `tools/check_charts.py` | 120 | valida uma pasta de charts FCH3 (checksum, ordem, contagem de notas) | roda nos 81 do pendrive |
+---
 
-**Total: 360 asserções, todas passando.** Os números de cada módulo estão
-nos comentários de cabeçalho, com a linha do fonte oficial de onde saíram.
+## O jogo é jogável de ponta a ponta
 
-## Como rodar
+O fluxo do original está inteiro: **título → menu principal → STORY MODE
+(semanas, músicas emendando) ou FREEPLAY (cápsulas, dificuldade, preview de
+20 %, favorito, cinemática de rank) → música (contagem, notas, HUD, vida,
+placar, combo, splashes, note kinds) → pausa → game over (com retry) →
+Resultado (rank, selo, arte) → volta ao menu.** O save de 1 992 B grava, lê e
+recusa arquivo estragado (CRC).
 
-```bash
-make test                                  # bateria do motor (gcc, sem PS2)
-python3 tools/check_charts.py --dir charts/ # confere os 81 charts
-python3 tools/prep_assets.py --selftest     # prova a preparação de imagem
-python3 tools/prep_assets.py --orcamento    # tabela de VRAM por palco
+E isso vale para **todas** as músicas, até o fim:
+
+```
+$ python3 tools/maratona_harness.py --todas
+81 rodada(s) em 119,5 s
+MARATONA: PASSOU -- as 81 rodada(s) chegaram ao Resultado pelo fim do chart,
+com a faixa visivel intacta
 ```
 
-Dependências do preparo de imagem: `pip install pillow numpy lz4`.
+Cada rodada vai do primeiro ao último evento do chart (mais a cutscene de 30,4 s
+e a sequência do fim, quando é a `spaghetti`), com o autoplay apertando as notas
+do próprio chart, e cobra `state,9` (o Resultado), `play_result`, **0 retângulo
+e 0 linha** fora da faixa visível, e a ausência de erro de VRAM/retry.
 
-## Documentos
+## O que está no jogo, com o número de cada parte
+
+| Área | Estado | Medida |
+|---|---|---|
+| Músicas / charts / dificuldades | **27 / 81 / 3**, todas jogáveis até o Resultado | maratona acima |
+| Personagens | **46/46** empacotados do clone de arte | `assets-data/characters` + `build/packs/chars` |
+| Palcos | **21/21** (84 props) + piso em perspectiva, poeira, céu que rola | `src/stage_dados.h` |
+| Scripts de palco | **18/18** portados (eventos, timers, tweens, `FlxEase`, 5 sprites criados por script, trem em laço, luzes, carros em Bézier) | `src/engine/stage_script.c` |
+| Note kinds | **35** no dado, 34 usados nos charts | `assets-data/notekinds.json` |
+| Cutscene do `sserafim` | 631 quadros de geometria assada, 30,4 s, skip em ENTER/A, fades, câmera | `src/engine/ss_cutscene.c` |
+| Fim da música do `sserafim` | `endStuff` → SEEYOU1 → SEEYOU2 → `endSong(true)` em 9,000 s | `cut_fim_quadros,237,240` |
+| Áudio | anel de 8 B/amostra (Inst L/R + Vox L/R), 48 kHz; mixer soma as duas faixas | `src/audio_ring.c`, `src/engine/audio_mix.c` |
+| VRAM | orçamento por palco/personagem medido, LRU com despejo, folga mínima registrada | `tools/vram_budget.py`, `cut_pool_min` |
+| Otimização (Fase 5) | custo por quadro medido nas 81 combinações | `build/sweep/custo.txt`, média **121/100** uploads de personagem por quadro |
+
+## Como construir e testar
+
+```sh
+sh test/run_tests.sh          # TUDO: 31 suites de PC + harness do jogo real (~10 min)
+make                          # o ELF do PS2 (precisa do ps2sdk)
+sh tools/build_pendrive.sh    # monta a pasta do pendrive (recusa se faltar algo)
+```
+
+O `test/run_tests.sh` roda, entre outras coisas:
+
+* as suites de PC de cada motor (chart, julgamento, VRAM, palco, cutscene…);
+* o **harness do jogo real**: o `main.c` de verdade, ligado contra o código de
+  `draw`/`packet` do ps2sdk, com zona de guarda e limite de pacote;
+* ASan + UBSan no jogo inteiro (1 401 quadros, zero erro e zero vazamento);
+* o **sweep** das 81 combinações e o sweep v5 dos note kinds;
+* a **maratona** das 27 músicas até o Resultado;
+* o **fim do `sserafim`** (a cadeia SEEYOU inteira, 14 000 quadros);
+* Story, Freeplay, Game Over, Resultado, pausa, save e o áudio (anel, mixer,
+  autoteste do empacotador de stems).
+
+## Os documentos
 
 | arquivo | conteúdo |
 |---|---|
-| `docs/DIAGNOSTICO_PASSO66.md` | por que trava no passo 66, o instrumento para confirmar e a correção que torna o defeito impossível |
-| `docs/ORCAMENTO_VRAM.md` | toda a conta de VRAM, com fórmula, e o que cada número decide |
-| `docs/MODELO_CARREGAMENTO.md` | o que apagar do `main.c`, o patch que entra no lugar |
+| `docs/PLANO_COMPLETO.md` | **o plano e o diário do port**, item por item, com o número medido de cada um (~5 500 linhas) |
+| `docs/TESTE_NO_CONSOLE.md` | o roteiro da rodada no PS2 e o que cada linha do log responde |
+| `HARNESS.md` / `HARNESS_TOOLCHAIN.md` | o harness do PC: o que ele prova e o que **não** prova |
+| `google_drive/handoff/REGRAS.md` | as 10 regras de trabalho que este projeto segue |
 
-## Estado honesto do port completo
+## O que falta — e por quê (nada é mistério)
 
-Feito e medido:
+| Falta | Motivo | O que resolve |
+|---|---|---|
+| os 27 `stems.pcm` no pendrive | a ferramenta está pronta e testada (`tools/empacotar_stems.py`), mas o áudio de origem está no clone de arte de 2,5 GB, que **não está neste ambiente**. Hoje só o Tutorial tem arquivo | `python3 tools/empacotar_stems.py --assets <clone>` (≈1,08 GB, ~46,8 min de música) |
+| as telas de OPTIONS / MERCH / CREDITS | o `.hx` e a arte do menu de opções não estão neste ambiente; implementar sem eles seria inventar layout (regra 4) | o fonte/arte do `OffsetMenu`/`OptionsMenu`, ou uma captura do original |
+| 175 trechos de shader nos scripts de palco | o GS de pipeline fixa **não tem** estágio de fragmento (`wiggle.frag`, chuva, blur, color grade). O resto dos 666 trechos que mudam estado está portado | decisão de arte: degradar a imagem ou desenhar o efeito com sprites |
+| `HapticUtil.vibrate` | o pad do PS2 **tem** rumble (`padSetActDirect`); o que falta é o padrão (intensidade/duração) do `HapticUtil` de PC | o `HapticUtil.hx` ou uma captura do original |
+| `MULTIPLY`/`SCREEN` | o GS só faz `NORMAL` e `ADD`; 3 de 16 props pedem as outras duas. O port **conta** cada caso (`palco_blend`) em vez de fingir | um segundo passe com o frame buffer como textura |
+| o cartão de memória real (`mc0:`) | formato, gravação, CRC e leitura rodam no PC; o `mcInit()` e os IRX do cartão são do console | um PS2 com cartão |
+| **a rodada no hardware** | o harness prova link, desenho e conta — **não** prova I/O do `usbhdfsd`, tempo de leitura nem o `audsrv` no console (regra 3) | ligar o pendrive e devolver o `FNF_COLHEITA.txt`, como em `docs/TESTE_NO_CONSOLE.md` |
 
-* motor de tempo, pontuação e chart — **independentes do console**;
-* modelo de carregamento com despejo e liberação, provado no PC;
-* preparação de imagem com orçamento automático, provada no PC;
-* instrumento de boot com resolução de fase.
+## O que este port **não** faz (de propósito)
 
-Falta, e depende do console/toolchain:
-
-1. **rodar no PS2** — o travamento do passo 66 tem hipótese e instrumento,
-   mas a confirmação é no hardware;
-2. ligar `asset_bank` e `bootlog` no `main.c` (o patch está em
-   `docs/MODELO_CARREGAMENTO.md`, são ~30 linhas);
-3. estado de jogo genérico consumindo os eventos do chart (o mapa de
-   eventos está em `src/engine/chart.h`, os tipos são os reais do v0.8.6);
-4. as telas: seleção de música, pausa, resultado;
-5. converter as imagens dos 46 personagens e 21 palcos com
-   `tools/prep_assets.py`, agora que o orçamento por textura é conhecido.
-
-O gargalo do projeto nunca foi a lógica do jogo — é o laço de verificação.
-Cada item acima tem, nesta base, uma forma de ser verificado no PC antes
-de gastar uma viagem ao console.
+Nenhum evento do original foi removido, encurtado, adiantado ou simplificado:
+mesmos zooms, mesmas trocas de personagem, mesmos bops de palco, mesmos easings,
+mesmas animações, mesmos efeitos, na mesma ordem e no mesmo tempo. Onde a arte
+não cabia, a **imagem** cedeu (escala, recorte, degradação) — o jogo, não.
