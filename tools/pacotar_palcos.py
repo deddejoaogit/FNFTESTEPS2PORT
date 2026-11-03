@@ -171,6 +171,26 @@ def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
 
     canvas = [(cw, ch) for _p, _n, _a, _f, cw, ch in prepared]
     nframes = [len(fr) for _p, _n, _a, fr, cw, ch in prepared]
+    # OS SPRITES DO SCRIPT pagam VRAM no MESMO pool: entram na busca da escala
+    # com o tamanho nativo deles. Sem isso o palco saia com uma escala que
+    # cabia nos props e ESTOURAVA no primeiro `sp_criado` -- o ceu do
+    # phillyBlazin e a poeira e o piso do sserafim ficavam de fora em silencio.
+    # Os que apontam para a MESMA imagem pagam uma vez so' (o `Paths.image` do
+    # original tambem devolve o mesmo FlxGraphic para a mesma chave).
+    _vistos = set()
+    for c in criados:
+        base = (c.get("asset") or c.get("nome") or "").rsplit("/", 1)[-1]
+        if base in _vistos:
+            continue
+        _vistos.add(base)
+        canvas.append((int(c["src_w"]), int(c["src_h"])))
+        nframes.append(1)
+        if c.get("asset_cutscene"):
+            cut = c["asset_cutscene"].rsplit("/", 1)[-1]
+            if cut not in _vistos:
+                _vistos.add(cut)
+                canvas.append((int(c["src_w"]), int(c["src_h"])))
+                nframes.append(1)
     f = min(_stage_scale(canvas, limit),
             vb.ram_scale_limit(canvas, nframes, vb.ram_limit_per_stage()))
     if f * max(cw for cw, _ in canvas) > 1024 or f * max(ch for _, ch in canvas) > 1024:
@@ -236,6 +256,15 @@ def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
             problems.append("%s/%s: e' um atlas do Animate, nao uma imagem"
                             % (sid, nome))
             continue
+        carga_base = (c.get("asset") or nome).rsplit("/", 1)[-1]
+        if os.path.isfile(os.path.join(stage_dir, carga_base + ".cfz4")):
+            # Ja' empacotado por OUTRA entrada com a mesma imagem (dust1 e
+            # dust3 sao as duas o dustMid).
+            criados_plan.append({"name": nome, "asset": c["asset"],
+                                 "pack": carga_base + ".cfz4",
+                                 "sw": max(1, int(round(c["src_w"] * f))),
+                                 "sh": max(1, int(round(c["src_h"] * f)))})
+            continue
         img = pp.Image.open(carga[0]).convert("RGBA")
         if img.size != (int(c["src_w"]), int(c["src_h"])):
             # O JSON diz o tamanho nativo e o periodo da repeticao usa esse
@@ -252,19 +281,45 @@ def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
             continue
         scaled = img if (sw, sh) == img.size else img.resize((sw, sh), pp.Image.NEAREST)
         bloco = lz4.block.compress(pp.to_ps2_bytes(scaled, bpp), store_size=False)
-        destino = os.path.join(stage_dir, nome + ".cfz4")
-        keep.add(nome + ".cfz4")
+        destino = os.path.join(stage_dir, carga_base + ".cfz4")
+        keep.add(carga_base + ".cfz4")
         parts = pp.write_packs([bloco], sw * sh * (bpp // 8), destino)
         for extra in glob.glob(destino + ".part*"):
             keep.add(os.path.basename(extra))
         written += sum(t for _p, t, _f, _n in parts)
         vram += sw * sh * (bpp // 8)
         criados_plan.append({"name": nome, "asset": c["asset"],
-                             "tex": "stages/%s/%s.cfz4" % (sid, nome),
+                             "tex": "stages/%s/%s.cfz4" % (sid, carga_base),
                              "sw": sw, "sh": sh,
                              "src_w": int(c["src_w"]), "src_h": int(c["src_h"])})
         print("  %-22s %-16s sprite de script %4dx%-4d -> %3dx%-3d"
               % (sid, nome, img.size[0], img.size[1], sw, sh))
+
+        # A SEGUNDA IMAGEM do mesmo sprite: o `PerspectiveSprite` troca o
+        # graphic na cutscene (`loadGraphic(floor-cutscene)`, sserafim.hxc L617).
+        # Mesmo tamanho, mesma escala, outro arquivo.
+        if c.get("asset_cutscene"):
+            kind2, carga2 = pp.resolve(assets, c["asset_cutscene"])
+            if kind2 is None:
+                problems.append("%s/%s: cutscene: %s" % (sid, nome, carga2))
+            else:
+                base2 = c["asset_cutscene"].rsplit("/", 1)[-1]
+                img2 = pp.Image.open(carga2[0]).convert("RGBA")
+                if img2.size != img.size:
+                    problems.append("%s/%s: o `%s` e' %dx%d e o principal e' "
+                                    "%dx%d -- a formula usa o tamanho do "
+                                    "principal" % (sid, nome, base2,
+                                                   img2.size[0], img2.size[1],
+                                                   img.size[0], img.size[1]))
+                else:
+                    esc2 = img2 if (sw, sh) == img2.size else img2.resize((sw, sh), pp.Image.NEAREST)
+                    bloco2 = lz4.block.compress(pp.to_ps2_bytes(esc2, bpp), store_size=False)
+                    with open(os.path.join(stage_dir, base2 + ".cfz4"), "wb") as fh:
+                        fh.write(bloco2)
+                    keep.add(base2 + ".cfz4")
+                    written += len(bloco2)
+                    print("  %-22s %-16s   + a versao da cutscene: %s"
+                          % (sid, base2, base2 + ".cfz4"))
 
     if vram > limit:
         problems.append("%s: %d B de textura contra %d B de orcamento"

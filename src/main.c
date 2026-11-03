@@ -1582,6 +1582,7 @@ static sp_t g_pool;   /* texturas do palco + as de tela que dividem a VRAM */
    inventario dos 18 scripts mede 5 `new Flx...` no total (2 palcos). 8 da'
    folga, e o excesso e' contado no log em vez de estourar o vetor. */
 #define PALCO_MAX_CRIADOS 8
+#define PALCO_MAX_CHAOS   2
 #define PALCO_RAM_MAX    (4u*1024u*1024u)   /* TABELAS dos props abertos, na RAM */
 
 typedef struct {
@@ -1618,6 +1619,18 @@ typedef struct {
     int cresidente[PALCO_MAX_CRIADOS];
     int ctentou[PALCO_MAX_CRIADOS];
     int cdesenhos;                           /* quads de sprite de script    */
+    /* O PISO EM PERSPECTIVA (`bs_chaos[]`): um por palco hoje (o sserafim).
+       Duas imagens, as duas do mesmo tamanho -- a da musica e a da cutscene --
+       e UM lugar no pool: o pacote e' trocado no lugar quando a cutscene entra
+       e quando sai (`loadGraphic(floor | cutscene/floor-cutscene)`). */
+    int nch;                                 /* pisos do palco               */
+    int chfirst;                             /* primeiro em bs_chaos[]       */
+    pst_pack_t chst[PALCO_MAX_CHAOS];
+    texbuffer_t chtex[PALCO_MAX_CHAOS];
+    int chresidente[PALCO_MAX_CHAOS];
+    int chtentou[PALCO_MAX_CHAOS];
+    int chcut;                               /* 1 = a textura e' a da cutscene */
+    int chdesenhos;
     unsigned int ram_bytes;
     unsigned int falhas;
     unsigned int uploads;
@@ -1638,6 +1651,7 @@ static int g_palco_add_visto=0;
    partida quando o primeiro pedaco deles vai para a tela. Antes desta build o
    port nao desenhava nenhum -- o fundo do `blazin` faltava inteiro. */
 static int g_palco_criado_visto=0;
+static int g_palco_chao_visto=0;
 /* E o mesmo para a COR de prop que o script poe (`phillyTrain` L149): um evento
    na primeira vez, com o R do dado, que e' o que muda de cor para cor. */
 static int g_palco_cor_prop_visto=0;
@@ -1693,9 +1707,22 @@ static void palco_soltar(void)
         g_palco.cresidente[i] = 0;
         g_palco.ctentou[i] = 0;
     }
+    /* E o piso em perspectiva, com o mesmo cuidado do fd zero. */
+    for (i = 0; i < PALCO_MAX_CHAOS; i++) {
+        if (g_palco_fds_ok && g_palco.chst[i].fd >= 0)
+            pst_fechar(&g_palco.chst[i]);
+        else if (!g_palco_fds_ok)
+            g_palco.chst[i].fd = -1;
+        g_palco.chresidente[i] = 0;
+        g_palco.chtentou[i] = 0;
+    }
     g_palco.nc = 0;
     g_palco.cfirst = 0;
     g_palco.cdesenhos = 0;
+    g_palco.nch = 0;
+    g_palco.chfirst = 0;
+    g_palco.chcut = 0;
+    g_palco.chdesenhos = 0;
     g_palco_fds_ok = 1;
     g_palco.ram_bytes = 0;
     g_palco.desenhou = -1;
@@ -1780,6 +1807,16 @@ static void palco_carregar(const char *stage)
 
     g_palco.nc = bs_stage_criado_count[si];
     g_palco.cfirst = bs_stage_criado_first[si];
+    g_palco.nch = bs_stage_chao_count[si];
+    g_palco.chfirst = bs_stage_chao_first[si];
+    g_palco.chcut = 0;
+    g_palco.chdesenhos = 0;
+    {int ck;
+     for (ck = 0; ck < PALCO_MAX_CHAOS; ck++) {
+         g_palco.chst[ck].fd = -1;
+         g_palco.chresidente[ck] = 0;
+         g_palco.chtentou[ck] = 0;
+     }}
     if (g_palco.nc > PALCO_MAX_CRIADOS) {
         telemetry_event("palco_criado_excesso", g_palco.nc, PALCO_MAX_CRIADOS);
         g_palco.nc = PALCO_MAX_CRIADOS;
@@ -1920,6 +1957,17 @@ static int palco_criado_pronto(int k)
     int rc;
     if (k < 0 || k >= g_palco.nc) return -1;
     if (g_palco.cst[k].fd >= 0) return 0;
+    /* MESMA IMAGEM, OUTRA ENTRADA (dust1 e dust3 sao as duas o dustMid): o
+       `Paths.image` do original devolve o mesmo FlxGraphic, entao o pacote e o
+       lugar no pool sao os da PRIMEIRA entrada. `palco_criado_textura` copia o
+       texbuffer; aqui so' e' preciso nao abrir o arquivo outra vez. */
+    {int j;
+     for (j = 0; j < k; j++) {
+         if (g_palco.cst[j].fd >= 0 &&
+             !strcmp(bs_criados[g_palco.cfirst + j].tex,
+                     bs_criados[g_palco.cfirst + k].tex))
+             return 0;
+     }}
     if (g_palco.ctentou[k]) return -2;
     g_palco.ctentou[k] = 1;
     c = &bs_criados[g_palco.cfirst + k];
@@ -1953,6 +2001,17 @@ static texbuffer_t *palco_criado_textura(int k)
     unsigned int addr = 0;
     int rc;
     if (g_palco.cresidente[k]) return t;
+    /* Mesma imagem de uma entrada anterior: o mesmo lugar no pool. */
+    {int j;
+     for (j = 0; j < k; j++) {
+         if (g_palco.cresidente[j] &&
+             !strcmp(bs_criados[g_palco.cfirst + j].tex,
+                     bs_criados[g_palco.cfirst + k].tex)) {
+             g_palco.ctex[k] = g_palco.ctex[j];
+             g_palco.cresidente[k] = 2;   /* 2 = apelido, nao dono do lugar */
+             return t;
+         }
+     }}
     rc = sp_criado(&g_pool, g_palco.cfirst + k, &addr);
     if (rc < 0) {
         g_palco.falhas++;
@@ -1981,6 +2040,91 @@ static texbuffer_t *palco_criado_textura(int k)
     upload_raw_psm(t, g_palco_frame, c->sw, c->sh, GS_PSM_16);
     g_palco.cresidente[k] = 1;
     g_palco.uploads++;
+    return t;
+}
+
+/* ================= O PISO EM PERSPECTIVA (`bs_chaos[]`) ==================
+   O `PerspectiveSprite` do sserafim (sserafim.hxc L96-102, L520-523 e L617).
+   Duas imagens do MESMO tamanho -- `sserafim/floor` durante a musica e
+   `sserafim/floor-cutscene` enquanto a cutscene roda --, e por isso UM lugar
+   no pool: quando o script troca o graphic (`loadGraphic`), o port troca o
+   pacote e reenvia a textura. Um upload por troca, dois na musica inteira. */
+static int palco_chao_pronto(int k, int cut)
+{
+    char path[128];
+    const bs_chao_t *c;
+    int rc;
+    if (k < 0 || k >= g_palco.nch || k >= PALCO_MAX_CHAOS) return -1;
+    c = &bs_chaos[g_palco.chfirst + k];
+    /* Ja' e' a imagem pedida? Nada a fazer. */
+    if (g_palco.chst[k].fd >= 0 && g_palco.chcut == cut) return 0;
+    if (g_palco.chst[k].fd >= 0) {
+        /* Outra imagem: fecha a atual (o lugar no pool fica) e abre a nova. */
+        g_palco.ram_bytes -= g_palco.chst[k].ram;
+        pst_fechar(&g_palco.chst[k]);
+        g_palco.chresidente[k] = 0;
+    }
+    snprintf(path, sizeof(path), "mass:/FNFPS2/assets/%s",
+             cut ? c->tex_cut : c->tex);
+    rc = palco_pack_abrir_em(path, &g_palco.chst[k], g_palco.chfirst + k,
+                             "palco_chao_falha");
+    if (rc != 0) {
+        g_palco.falhas++;
+        g_palco.chtentou[k] = 1;
+        return -3;
+    }
+    if (g_palco.chst[k].count != 1 ||
+        g_palco.chst[k].frame_bytes !=
+            (unsigned int)c->sw * (unsigned int)c->sh * 2u) {
+        g_palco.falhas++;
+        telemetry_event("palco_chao_falha", g_palco.chfirst + k, -4);
+        g_palco.ram_bytes -= g_palco.chst[k].ram;
+        pst_fechar(&g_palco.chst[k]);
+        g_palco.chtentou[k] = 1;
+        return -4;
+    }
+    g_palco.chcut = cut;
+    return 0;
+}
+
+static texbuffer_t *palco_chao_textura(int k, int cut)
+{
+    const bs_chao_t *c = &bs_chaos[g_palco.chfirst + k];
+    texbuffer_t *t = &g_palco.chtex[k];
+    unsigned int addr = 0;
+    int rc;
+    if (k < 0 || k >= g_palco.nch || k >= PALCO_MAX_CHAOS) return 0;
+    if (g_palco.chresidente[k] && g_palco.chcut == cut) return t;
+    if (!g_palco.chresidente[k]) {
+        rc = sp_chao(&g_pool, g_palco.chfirst + k, &addr);
+        if (rc < 0) {
+            g_palco.falhas++;
+            telemetry_event("palco_chao_sem_vram", g_palco.chfirst + k,
+                            (int)sp_livre(&g_pool));
+            return 0;
+        }
+        t->address = addr;
+        t->width = (c->sw + 63) & ~63;
+        t->psm = GS_PSM_16;
+        setup_texture_dims(t, c->sw, c->sh);
+        g_palco.chresidente[k] = 1;
+    }
+    if (palco_chao_pronto(k, cut) != 0) return 0;
+    if (g_palco.chst[k].frame_bytes > g_palco_frame_cap) {
+        if (g_palco_frame) free(g_palco_frame);
+        g_palco_frame = (unsigned char *)memalign(128, g_palco.chst[k].frame_bytes);
+        g_palco_frame_cap = g_palco_frame ? g_palco.chst[k].frame_bytes : 0;
+        if (!g_palco_frame) { g_palco.falhas++; return 0; }
+    }
+    if (pst_quadro(&g_palco.chst[k], 0, g_palco_frame) != PST_OK) {
+        g_palco.falhas++;
+        telemetry_event("palco_chao_falha", g_palco.chfirst + k, -10);
+        return 0;
+    }
+    setup_texture_dims(t, c->sw, c->sh);
+    upload_raw_psm(t, g_palco_frame, c->sw, c->sh, GS_PSM_16);
+    g_palco.uploads++;
+    telemetry_event("palco_chao", g_palco.chfirst + k, cut);
     return t;
 }
 
@@ -4029,15 +4173,28 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
             if (a > 0x80) a = 0x80;
             q = bind_texture_filter(q, tx, 1);
             if (L->it[i].blend == 1) q = gs_blend_add(q);
+            /* A COR do sprite (`dust.color = 0xff...` no sserafim L470-473):
+               o GS multiplica a textura pela cor do vertice, que e' o que o
+               `color` do flixel faz. Sem script, branco (0x80). */
             if (L->it[i].tile <= 0.0f) {
-                q = sprite_region_alpha(q, L->it[i].x0, L->it[i].y0,
-                                        L->it[i].w, L->it[i].h,
-                                        0.0f, 0.0f,
-                                        (float)cr->sw, (float)cr->sh, a);
+                if (L->it[i].pintado)
+                    q = sprite_dims_alpha_cor(q, L->it[i].x0, L->it[i].y0,
+                                              L->it[i].w, L->it[i].h,
+                                              (float)cr->sw, (float)cr->sh,
+                                              L->it[i].rgb[0], L->it[i].rgb[1],
+                                              L->it[i].rgb[2], a, 0);
+                else
+                    q = sprite_region_alpha(q, L->it[i].x0, L->it[i].y0,
+                                            L->it[i].w, L->it[i].h,
+                                            0.0f, 0.0f,
+                                            (float)cr->sw, (float)cr->sh, a);
                 g_palco.cdesenhos++;
             } else {
-                /* Pixels de tela por unidade do original neste item. */
-                float scl = L->it[i].w / cr->w;
+                /* Pixels de tela por unidade do original neste item. Vem da
+                   conta do layout (`it->esc`), e nao de `w / largura`: um
+                   backdrop tem o `x0` alinhado na borda da tela e o `w` do
+                   tamanho da tela, entao essa divisao mentiria. */
+                float scl = L->it[i].esc;
                 float per = L->it[i].tile * scl;      /* periodo na tela  */
                 float x = L->it[i].x0 + L->it[i].tile_off * scl;
                 float lim0 = L->it[i].x0, lim1 = L->it[i].x0 + L->it[i].w;
@@ -4056,10 +4213,19 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
                         if (a1 <= a0) continue;
                         u0 = (a0 - x) / per * (float)cr->sw;
                         u1 = (a1 - x) / per * (float)cr->sw;
-                        q = sprite_region_alpha(q, a0, L->it[i].y0,
-                                                a1 - a0, L->it[i].h,
-                                                u0, 0.0f, u1 - u0,
-                                                (float)cr->sh, a);
+                        if (L->it[i].pintado)
+                            q = sprite_region_alpha_cor(q, a0, L->it[i].y0,
+                                                        a1 - a0, L->it[i].h,
+                                                        u0, 0.0f, u1 - u0,
+                                                        (float)cr->sh, a,
+                                                        L->it[i].rgb[0],
+                                                        L->it[i].rgb[1],
+                                                        L->it[i].rgb[2]);
+                        else
+                            q = sprite_region_alpha(q, a0, L->it[i].y0,
+                                                    a1 - a0, L->it[i].h,
+                                                    u0, 0.0f, u1 - u0,
+                                                    (float)cr->sh, a);
                         g_palco.cdesenhos++;
                     }
                 }
@@ -4069,6 +4235,39 @@ static qword_t *palco_fatia(qword_t *q, palco_lista_t *L, int zmin, int zmax)
                 g_palco_criado_visto = 1;
                 telemetry_event("palco_criado_desenho", L->it[i].criado,
                                 g_palco.cdesenhos);
+            }
+            L->desenhados++;
+            continue;
+        }
+        /* O PISO EM PERSPECTIVA: quatro cantos por quadro.
+           `sl_chao_cantos` e' a formula do `PerspectiveSprite.updateSkew`
+           transcrita (matriz afim), e o desenho e' o mesmo quadrilatero com UV
+           do `rk_quad` da cinematica de rank. Antes do prop de cor porque so'
+           um item cai aqui e o `continue` fecha o caso. */
+        if (L->it[i].chao >= 0) {
+            texbuffer_t *tx;
+            float px[4], py[4];
+            int k = L->it[i].chao - g_palco.chfirst;
+            unsigned char a = (unsigned char)(L->it[i].alpha * 128.0f + 0.5f);
+            if (k < 0 || k >= g_palco.nch) { continue; }
+            tx = palco_chao_textura(k, g_palco.chcut);
+            if (!tx) { continue; }
+            if (!sl_chao_cantos(L->it[i].cb_x, L->it[i].cb_y,
+                                L->it[i].ct_x, L->it[i].ct_y,
+                                L->it[i].w, L->it[i].h, px, py)) { continue; }
+            if (a > 0x80) a = 0x80;
+            q = bind_texture_filter(q, tx, 1);
+            /* UV do quadro inteiro do pacote (sw x sh), meio texel dentro:
+               e' a mesma convencao de `palco_sprite_girado`. */
+            q = sprite_quad_uv_cor(q, px, py, 0.5f, 0.5f,
+                                   (float)L->it[i].tex_w - 0.5f,
+                                   (float)L->it[i].tex_h - 0.5f,
+                                   a, 0x80, 0x80, 0x80);
+            g_palco.chdesenhos++;
+            if (!g_palco_chao_visto) {
+                g_palco_chao_visto = 1;
+                telemetry_event("palco_chao_desenho", L->it[i].chao,
+                                (int)px[0]);
             }
             L->desenhados++;
             continue;

@@ -44,6 +44,7 @@ static const sl_item_t *item_por_nome(const sl_item_t *it, int n, const char *no
     for (i = 0; i < n; i++) {
         if (it[i].cor >= 0) continue;      /* retangulo de cor: nao tem prop */
         if (it[i].criado >= 0) continue;   /* sprite do script: idem */
+        if (it[i].chao >= 0) continue;     /* piso em perspectiva: idem */
         if (strcmp(bs_props[it[i].prop].name, nome) == 0) return &it[i];
     }
     return NULL;
@@ -58,12 +59,15 @@ static int item_z(const sl_item_t *it)
 {
     if (it->cor >= 0) return bs_cores[it->cor].z;
     if (it->criado >= 0) return bs_criados[it->criado].z;
+    if (it->chao >= 0) return bs_chaos[it->chao].z;
     return bs_props[it->prop].z;
 }
 static int item_ord(const sl_item_t *it)
 {
     if (it->cor >= 0) return bs_cores[it->cor].ord;
     if (it->criado >= 0) return ORD_CRIADO + it->criado;
+    /* O piso entra depois de todos os sprites de script (SL_ORD_CRIADO + 1). */
+    if (it->chao >= 0) return ORD_CRIADO + 0x100;
     return bs_props[it->prop].ord;
 }
 
@@ -757,7 +761,8 @@ int main(void)
            `blazin` simplesmente nao existe (o port desenhava 1 item onde o
            original desenha 2). */
         int soma = 0;
-        CHECK_EQ(BS_CRIADO_COUNT, 1);
+        /* 1 do `blazin` + 4 poeiras do `sserafim` (dust1..4). */
+        CHECK_EQ(BS_CRIADO_COUNT, 5);
         for (i = 0; i < BS_STAGE_PROPS_COUNT; i++) {
             CHECK_EQ(bs_stage_criado_first[i], soma);
             CHECK(bs_stage_criado_count[i] >= 0);
@@ -876,6 +881,105 @@ int main(void)
             CHECK_EQ(pcriado, 1);
             CHECK(ultimo >= 0);
             if (ultimo >= 0) CHECK(it[ultimo].criado < 0);  /* o da frente e' o prop */
+        }
+        /* ------------------------------------------------ sserafim: a poeira */
+        /* `sserafim.hxc` L110-144: quatro `FlxBackdrop` com `scale` e `color`
+           proprios. O periodo da repeticao e' a IMAGEM vezes o `scale`
+           (2048*1,5 = 3072), e o quad e' o tamanho da emenda, nao os 1280x720
+           do FlxG: quem cobre a tela e' a repeticao. */
+        {
+            static const float esperado[4][2] = {  /* (periodo, alpha) */
+                {3072.0f, 0.8f}, {3072.0f, 0.9f}, {4096.0f, 0.8f}, {7168.0f, 0.9f}
+            };
+            static const float vel[4] = {350.0f, -300.0f, -200.0f, -150.0f};
+            /* As cores do `dust.color` (L470-473) na cor do VERTICE do GS. */
+            static const unsigned char cor[4][3] = {
+                {76, 66, 63}, {70, 54, 50}, {55, 50, 46}, {68, 53, 48}
+            };
+            sl_item_t it[SL_MAX_ITENS];
+            int n = sl_collect("sserafim", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 2.0f,
+                               it, SL_MAX_ITENS);
+            int nd = 0, nchao = 0, z_dust = -1;
+            CHECK(n > 0);
+            for (i = 0; i < n; i++) {
+                if (it[i].chao >= 0) { nchao++; continue; }
+                if (it[i].criado < 0) continue;
+                CHECK(nd < 4);
+                if (nd >= 4) break;
+                CHECK_EQ(it[i].criado, 1 + nd);       /* 0 e' o ceu do blazin */
+                CHECK_NEAR(it[i].tile, esperado[nd][0]);
+                CHECK_NEAR(it[i].alpha, esperado[nd][1]);
+                CHECK_NEAR(it[i].tile_off, vel[nd] * 2.0f);
+                CHECK_EQ(it[i].pintado, 1);
+                CHECK_EQ(it[i].rgb[0], cor[nd][0]);
+                CHECK_EQ(it[i].rgb[1], cor[nd][1]);
+                CHECK_EQ(it[i].rgb[2], cor[nd][2]);
+                CHECK_EQ(it[i].z, 2000);
+                /* Alinhado na BORDA da tela (FlxBackdrop.hx L205): o x do
+                   sprite (-650) nao entra na posicao do primeiro tile, so' o
+                   deslocamento do scroll dentro do periodo. */
+                CHECK(it[i].x0 <= 0.5f);
+                CHECK(it[i].x0 >= -esperado[nd][0] * 0.5f - 0.5f);
+                if (z_dust < 0) z_dust = it[i].z;
+                nd++;
+            }
+            CHECK_EQ(nd, 4);
+            CHECK_EQ(nchao, 1);
+            /* A poeira fica ACIMA dos personagens (z 2000) e ACIMA do piso: e'
+               a camada de frente do palco. */
+            CHECK_EQ(z_dust, 2000);
+        }
+        /* O piso em perspectiva: `sserafim.hxc` L96-102. A conta e' a do
+           `PerspectiveSprite.updateSkew` (L97-125), e o teste chama a MESMA
+           funcao que o desenho usa. */
+        {
+            float px[4], py[4];
+            /* camera em (0,0): baixo (760,1375), cima (790,625), W 5362 H 754 */
+            CHECK_EQ(sl_chao_cantos(760.0f, 1375.0f, 790.0f, 625.0f,
+                                    5362.0f, 754.0f, px, py), 1);
+            /* ox = 760 - 2681 = -1921 ; oy = 1375 - 754 = 621
+               distX = 30 ; distY = 625 - 621 = 4
+               tx = 15 ; ty = 2 ; c = -30/754 ; d = 1 - 4/754 */
+            CHECK_NEAR(px[0], -1921.0f + 15.0f);            /* -1906 */
+            CHECK_NEAR(py[0], 621.0f + 2.0f);               /* 623   */
+            CHECK_NEAR(px[1], -1921.0f + 5362.0f + 15.0f);  /* 3456  */
+            CHECK_NEAR(py[1], 623.0f);
+            CHECK_NEAR(px[2], 3456.0f - 30.0f);             /* 3426  */
+            CHECK_NEAR(py[2], 621.0f + 754.0f * (1.0f - 4.0f / 754.0f) + 2.0f);
+            CHECK_NEAR(px[3], -1906.0f - 30.0f);            /* -1936 */
+            CHECK_NEAR(py[3], py[2]);
+            /* O lado de baixo tem de cair no ponto `bottom` do script a menos
+               do `ty` que o proprio original soma -- e' a diferenca entre a
+               formula da fonte e a intencao dela, e ela esta' documentada em
+               PerspectiveSprite.hxc ("pure eyeballing"). */
+            CHECK_NEAR(py[2], 1373.0f);
+            /* Altura zero nao pode dividir por zero. */
+            CHECK_EQ(sl_chao_cantos(0, 0, 0, 0, 10.0f, 0.0f, px, py), 0);
+        }
+        /* O scroll da camera entra nos DOIS pontos com a diferenca dos
+           scrollFactors: `ponto + cam*(1 - sf)`, com sf 1,05 embaixo e 0,93 em
+           cima (L107-110). Em cam.x = 400 os dois andam para lados diferentes. */
+        {
+            sl_item_t a[SL_MAX_ITENS], b[SL_MAX_ITENS];
+            const sl_item_t *ca = NULL, *cb = NULL;
+            int na = sl_collect("sserafim", 0.0f, 0.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                                a, SL_MAX_ITENS);
+            int nb = sl_collect("sserafim", 400.0f, 500.0f, 1.0f, 1.0f, 0, 0.5f, 0.0f,
+                                b, SL_MAX_ITENS);
+            for (i = 0; i < na; i++) if (a[i].chao >= 0) ca = &a[i];
+            for (i = 0; i < nb; i++) if (b[i].chao >= 0) cb = &b[i];
+            CHECK(ca != NULL && cb != NULL);
+            if (ca && cb) {
+                float sc = 0.5f;
+                /* baixo: 760 + 400*(1-1,05) = 740 ; tela = 320 + (740-400)*0,5 */
+                CHECK_NEAR(cb->cb_x, 320.0f + (740.0f - 400.0f) * sc);
+                /* cima: 790 + 400*(1-0,93) = 818 ; tela = 320 + (818-400)*0,5 */
+                CHECK_NEAR(cb->ct_x, 320.0f + (818.0f - 400.0f) * sc);
+                /* y: baixo 1375 + 500*(1-1,05) = 1350 ; cima 625 + 500*(1-0,93)=660 */
+                CHECK_NEAR(cb->cb_y, 180.0f + (1350.0f - 500.0f) * sc);
+                CHECK_NEAR(cb->ct_y, 180.0f + (660.0f - 500.0f) * sc);
+                CHECK_NEAR(ca->cb_x, 320.0f + 760.0f * sc);
+            }
         }
         /* VRAM: o sprite do script tem de caber na conta do palco. O numero do
            header e' a conta do hardware (TBW de 64 em 64, TBP0 a 256 B). */

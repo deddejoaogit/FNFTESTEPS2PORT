@@ -5242,6 +5242,80 @@ entrada com texto e uma dúzia de eventos de música.
 | a cutscene (L567-930) e a poeira em `FlxBackdrop` | — | depende da arte e de um gerenciador de timers |
 | `SserafimShader` (personagem e palco) | — | shader, declarado no log como os outros 175 |
 
+## Fechado: o PISO EM PERSPECTIVA e a POEIRA do `sserafim`
+
+Duas coisas que o `sserafim.hxc` põe na cena **fora do JSON do palco** e que o
+port não desenhava nem no jogo normal nem na cutscene. Agora as duas saem do
+dado, com a linha da fonte em cada campo (`assets-data/stage-criados.json`).
+
+### A poeira (`dust1..4`)
+
+Quatro `FlxBackdrop` (L110-144), cada um com posição, `scrollFactor`, `scale`,
+`alpha`, `color` e `velocity.x` próprios:
+
+| sprite | imagem | pos | sf | escala | alpha | cor | vel |
+|---|---|---|---|---|---|---|---|
+| dust1 | `dustMid` | (−650,−200) | 1,10 | 1,5 | 0,8 | `0x98847d` | +350 |
+| dust2 | `dustBack` | (−650,−250) | 1,15 | 1,5 | 0,9 | `0x8b6c63` | −300 |
+| dust3 | `dustMid` | (−650,−400) | 1,20 | 2,0 | 0,8 | `0x6e645c` | −200 |
+| dust4 | `dustBack` | (−650,−1300) | 1,25 | 3,5 | 0,9 | `0x886a60` | −150 |
+
+Três detalhes que o dado teve de carregar, e que estavam errados na primeira
+tentativa:
+
+1. **o período da repetição é a imagem VEZES o `scale`** (2048×1,5 = 3072 px do
+   original), não o `width` do sprite;
+2. **o `FlxBackdrop` alinha as emendas na BORDA da tela**, não no próprio `x`
+   (`FlxBackdrop.hx` L205). Com o `x` do sprite (−650) a faixa entre a borda e a
+   primeira emenda ficava vazia — e os quatro sprites nascem fora da tela;
+3. **`dust1/dust3` e `dust2/dust4` são DUAS imagens**, não quatro: o
+   `Paths.image` do original devolve o mesmo `FlxGraphic` para a mesma chave, e
+   o port passou a compartilhar o lugar no pool (`palco_criado_textura` copia o
+   texbuffer). `dustFront.png` existe na arte e **não é usado por script
+   nenhum**.
+
+A `cor` entra como cor de vértice do GS: a textura é multiplicada, que é
+exatamente o que o `color` do flixel faz.
+
+### O piso (`perspectiveFloor`)
+
+`PerspectiveSprite` (L96-102, `updateSkew` a cada quadro em L520-523): não é um
+quad reto, é um **quadrilátero afim** cuja matriz sai do scroll da câmera *com
+scrollFactors diferentes em cima e embaixo* (1,05 embaixo, 0,93 em cima, contra
+1,0 do sprite). A transcrição (`sl_chao_cantos`, `src/engine/stage_layout.c`):
+
+```
+distX = cima.x - baixo.x          distY = cima.y - (baixo.y - H)
+a=1  b=0  c=-distX/H  d=1-distY/H  tx=distX/2  ty=distY/2
+sprite.x = baixo.x - W/2          sprite.y = baixo.y - H
+```
+
+Conferida no teste contra os números da fonte (com a câmera em 0,0 os cantos dão
+(−1906,623), (3456,623), (3426,1373), (−1936,1373)) e contra a correção de
+câmera (em `cam.x=400`: baixo `760+400·(1−1,05)=740`, cima `790+400·(1−0,93)=818`).
+O `floor-cutscene` é a **mesma imagem em outro arquivo**, trocada por
+`loadGraphic` na cutscene: as duas ocupam o **mesmo lugar no pool** e o pacote é
+trocado no lugar (um upload em cada troca).
+
+### Medido no harness (`spaghetti`, 260 quadros)
+
+```
+palco_criados,4,18          as quatro poeiras entraram na lista do palco
+palco_chao,0,0              o piso subiu para a VRAM
+palco_chao_desenho,0,-1233  e foi desenhado (canto esquerdo de cima)
+palco_criado_desenho,1,1    a primeira poeira desenhou
+palco_draw,13,0             13 itens na tela naquele quadro (props + poeira + piso)
+```
+
+E no teste de PC (`test/test_stage_layout.c`), sem console: o período e o alpha
+das quatro poeiras, a cor de cada uma, o `tile_off = vel·t`, o alinhamento na
+borda, os quatro cantos do piso, a câmera entrando nos dois pontos com
+scrollFactors diferentes, e `H = 0` sem dividir por zero.
+
+**O que continua faltando neste palco**: a cutscene (L567-930) e a poeira na
+versão da cutscene (que é a MESMA poeira, escondida por `hideDust`). Ver a
+ordem de trabalho abaixo.
+
 **Nenhuma música perde evento por causa disto**: os 86 eventos de script do
 `spaghetti` chegam ao `ss_evento` e 86 são aplicados.
 
@@ -5250,6 +5324,9 @@ entrada com texto e uma dúzia de eventos de música.
 1. ~~slot OUTRO + as três dançarinas~~ — **feito** (papéis 3..5).
 2. ~~`sserafimKick` (animação + porta)~~ — **feito**.
 3. ~~`setGirlsSinging`~~ — **feito** (tipo por papel).
+3b. ~~a POEIRA e o PISO EM PERSPECTIVA~~ — **feito** (`bs_criados[]` e
+   `bs_chaos[]`, com o período, o alinhamento do `FlxBackdrop`, a cor de
+   vértice e a matriz afim do `PerspectiveSprite`). Ver a seção acima.
 4. **a cutscene** (L567-930): depende da arte que falta (`floor`, `dust*`,
    `sserafimCutscene`, `SEEYOU2`, `gameOver` do palco) e do `SserafimShader`.
    É o único item do palco que ainda não tem nem código nem arte neste

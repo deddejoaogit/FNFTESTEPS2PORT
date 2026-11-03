@@ -352,6 +352,14 @@ def char_frame_bytes(bpp):
 #   chaewon 197x330 passo 256 = 168.960 B
 #   eunchae 324x266 passo 384 = 204.288 B
 EXTRAS_PALCO = {"sserafim": 585728}
+# E o que o SCRIPT do `sserafim` desenha alem dos props (`bs_criados[]` e
+# `bs_chaos[]`): a poeira e o piso em perspectiva. Calculado na escala 0,141 do
+# palco com o passo de 64 px do `cp_tex_bytes`:
+#   dustMid / dustBack  289x180 -> passo 320 = 115.200 B  (x2 imagens)
+#   floor + floor-cutscene 757x106 -> passo 768 = 162.816 B (UM lugar no pool:
+#       as duas imagens do piso sao trocadas no lugar, nunca convivem)
+# total 393.216 B.
+EXTRAS_SCRIPT_PALCO = {"sserafim": 393216}
 
 
 def main():
@@ -386,7 +394,8 @@ def main():
             rows.append((sid, None, 0, 0, None))
             continue
         # O limite DESTE palco: quem tem personagem extra paga por ele.
-        limite_palco = limit - EXTRAS_PALCO.get(sid, 0)
+        limite_palco = (limit - EXTRAS_PALCO.get(sid, 0)
+                        - EXTRAS_SCRIPT_PALCO.get(sid, 0))
         sc = max_scale(sid, limite_palco, bpp)
         rows.append((sid, sc, stage_bytes(sid, sc, bpp), len(props),
                      max(w * h for _, (w, h) in props)))

@@ -64,6 +64,13 @@ extern "C" {
    a sua propria faixa: sao outra tabela de tamanhos e nao podem colidir com as
    chaves dos props nem com as de tela. */
 #define SP_CHAVE_CRIADO_BASE 0x2000u
+/* OS PISOS EM PERSPECTIVA (`bs_chaos[]`) tem a faixa propria: um piso ocupa
+   lugar de palco como qualquer prop e nao pode colidir com um criado de mesmo
+   indice. Uma chave so' por piso -- as DUAS imagens dele (a da musica e a da
+   cutscene) tem o mesmo tamanho e nunca aparecem juntas: o pacote e' trocado no
+   lugar, com um upload, quando a cutscene comeca e quando ela acaba. */
+#define SP_CHAVE_CHAO_BASE 0x3000u
+#define SP_CHAVE_CHAO(i) (SP_CHAVE_CHAO_BASE + (unsigned int)(i) + 1u)
 #define SP_CHAVE_CRIADO(i) (SP_CHAVE_CRIADO_BASE + (unsigned int)(i) + 1u)
 
 typedef struct {
@@ -88,7 +95,10 @@ int sp_stage_demand(const char *stage, unsigned int *bytes);
 /* Idem para um sprite do script do palco: tamanho de `bs_criado_vram_bytes[]`
    (o mesmo alinhamento do TBP0) e chave na faixa propria. */
 unsigned int sp_criado_bytes(int criado);
+/* Idem para os PISOS EM PERSPECTIVA (`bs_chaos[]`). */
+unsigned int sp_chao_bytes(int chao);
 int sp_criado(sp_t *p, int criado, unsigned int *endereco);
+int sp_chao(sp_t *p, int chao, unsigned int *endereco);
 
 /* Pede a textura do prop. Devolve 1 se ja' estava residente (NADA a enviar),
    0 se foi alocada agora (o chamador precisa enviar os pixels) e -1 se nao

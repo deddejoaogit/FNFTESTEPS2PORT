@@ -1168,11 +1168,21 @@ def build(root, charts_src=None):
             for c in cri.get("palcos", {}).get(st["id"], []):
                 sw = max(1, int(round(c["src_w"] * st["scale"])))
                 sh = max(1, int(round(c["src_h"] * st["scale"])))
-                destino = os.path.join(a, "stages", st["id"], c["nome"] + ".cfz4")
-                os.makedirs(os.path.dirname(destino), exist_ok=True)
-                with open(destino, "wb") as f:
-                    f.write(make_cfz4(1, sw * sh * 2, seed=13))
-                npalco += 1
+                # O NOME DO PACOTE e' o do ASSET, nao o da variavel: `dust1` e
+                # `dust3` sao as duas o `dustMid` (uma imagem, um FlxGraphic),
+                # e o `perspectiveFloor` tem ainda a versao da cutscene. E' a
+                # MESMA regra de tools/gen_stage_criados.py e de
+                # tools/pacotar_palcos.py -- os tres tem de concordar.
+                base = (c.get("asset") or c["nome"]).rsplit("/", 1)[-1]
+                for nome, semente in ((base, 13),
+                                      ((c.get("asset_cutscene") or "").rsplit("/", 1)[-1], 17)):
+                    if not nome:
+                        continue
+                    destino = os.path.join(a, "stages", st["id"], nome + ".cfz4")
+                    os.makedirs(os.path.dirname(destino), exist_ok=True)
+                    with open(destino, "wb") as f:
+                        f.write(make_cfz4(1, sw * sh * 2, seed=semente))
+                    npalco += 1
 
     # PERSONAGENS: um pacote CHP4 por personagem, no caminho que o jogo le'
     # (assets/chars/<id>.chp4), com a tabela de animacoes junto dos quadros.

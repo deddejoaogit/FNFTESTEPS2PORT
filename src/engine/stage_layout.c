@@ -81,6 +81,27 @@ int sl_prop_frame(const bs_prop_t *p, int anim, float t)
 /* O estado do script do palco, registrado pelo main.c (ver stage_layout.h).
    Fica nulo nos testes e nos palcos sem script: nesse caso o DADO manda, que e'
    o comportamento que ja' existia. */
+int sl_chao_cantos(float bx, float by, float tx, float ty, float w, float h,
+                   float *px, float *py)
+{
+    float dx, dy, c, d, mtx, mty, ox, oy;
+    if (h == 0.0f || w <= 0.0f) return 0;
+    dx = tx - bx;
+    dy = ty - (by - h);
+    c = -dx / h;
+    d = 1.0f - dy / h;
+    mtx = dx * 0.5f;
+    mty = dy * 0.5f;
+    ox = bx - w * 0.5f;      /* PerspectiveSprite.hxc L123: baixo.x - W/2 */
+    oy = by - h;             /* L124: baixo.y - H                        */
+    /* a = 1 e b = 0 (L118-119): x = ox + lx + c*ly + tx ; y = oy + d*ly + ty */
+    px[0] = ox + mtx;                 py[0] = oy + mty;
+    px[1] = ox + w + mtx;             py[1] = oy + mty;
+    px[2] = ox + w + c * h + mtx;     py[2] = oy + d * h + mty;
+    px[3] = ox + c * h + mtx;         py[3] = oy + d * h + mty;
+    return 1;
+}
+
 static const sl_script_t *g_script;
 
 void sl_set_script(const sl_script_t *script)
@@ -165,6 +186,11 @@ static int sl_item_ord(const sl_item_t *it)
 {
     if (it->cor >= 0) return bs_cores[it->cor].ord;
     if (it->criado >= 0) return SL_ORD_CRIADO;
+    /* O piso entra na ordem de DEZENAS mais fina: no original ele e' um
+       `add()` como qualquer sprite e o desempate e' a ordem de adicao. Aqui o
+       tie-break e' o proprio indice, entao o piso fica depois dos props de
+       mesmo z -- que no sserafim nao existe (z 11 e' so' dele). */
+    if (it->chao >= 0) return SL_ORD_CRIADO + 1;
     return bs_props[it->prop].ord;
 }
 
@@ -264,6 +290,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         if (g_script && g_script->ang) g_script->ang(prop_abs, &ang);
         it->ang = ang;
         it->criado = -1;
+        it->chao = -1;
         it->tile = 0.0f;
         it->tile_off = 0.0f;
         n++;
@@ -302,6 +329,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80;
         it->blend = c->blend;
         it->criado = -1;
+        it->chao = -1;
         it->tile = 0.0f;
         it->tile_off = 0.0f;
         n++;
@@ -328,21 +356,92 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
            se um dia forem, o corte tem de ser o mesmo dos props. */
         if (x0 + w <= 0.0f || x0 >= SL_VIEW_W) continue;
         if (y0 + h <= 0.0f || y0 >= SL_VIEW_H) continue;
+        /* O periodo da repeticao (px do original) e o deslocamento do scroll
+           vem ANTES do alinhamento: o FlxBackdrop usa os dois. */
+        it->tile = cr->tile;                 /* ja' e' src_w * escala */
+        it->tile_off = cr->vel_x * t;
+        /* O FlxBackdrop NAO repete a partir do proprio x: ele alinha as
+           emendas na BORDA da tela (`modMin(sprite.x + frameWidth, tileSize,
+           viewMargins.left) - frameWidth`, FlxBackdrop.hx L205). Sem isto a
+           poeira do sserafim comecaria deslocada da esquerda e a faixa entre o
+           canto e a primeira emenda ficaria VAZIA sempre que o sprite caem
+           fora da tela -- que e' o caso dos quatro (x = -650). */
+        if (cr->backdrop && it->tile > 0.0f) {
+            float per = it->tile * sc;
+            float off;
+            if (per > 0.5f) {
+                /* Resto da divisao sem libm (este modulo roda no teste do PC
+                   sem -lm): `(int)` trunca para zero e o ajuste cobre o lado
+                   negativo. */
+                off = it->tile_off * sc;
+                off -= (float)(int)(off / per) * per;
+                if (off < 0.0f) off += per;
+                x0 = off - per;
+                w = SL_VIEW_W + per * 2.0f;
+            }
+        }
         it->prop = -1;
         it->cor = -1;
         it->ang = 0.0f;
         it->criado = cf + k;
+        it->chao = -1;
+        it->esc = sc;
+        it->pintado = cr->pintado;
+        it->rgb[0] = cr->rgb[0];
+        it->rgb[1] = cr->rgb[1];
+        it->rgb[2] = cr->rgb[2];
         it->anim = 0;
         it->frame = 0;
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = cr->sw; it->tex_h = cr->sh;
         it->z = cr->z;
         it->alpha = cr->alpha;
+        it->blend = cr->blend;
+        n++;
+     }
+    }
+
+    /* OS PISOS EM PERSPECTIVA (`bs_chaos[]`). Duas diferencas em relacao aos
+       props: os dois pontos de referencia vem do dado e sao corrigidos pelo
+       scroll da camera com a DIFERENCA dos scrollFactors, e a ordem de desenho
+       e' o `zIndex` do grupo (11 no sserafim, atras de tudo que e' personagem).
+       A camera aqui e' a mesma dos props: `cam_x`, `cam_y`, `sc`. */
+    {int cf = bs_stage_chao_first[si], cc = bs_stage_chao_count[si], k;
+     for (k = 0; k < cc && n < max; k++) {
+        const bs_chao_t *ch = &bs_chaos[cf + k];
+        sl_item_t *it = &out[n];
+        float cBx, cBy, cTx, cTy;
+        /* PerspectiveSprite.hxc L107-110: ponto + cam*(sfSprite - sfPonto).
+           O sprite tem scrollFactor 1,0 (o `setScrollFactors` mexe nos pontos,
+           nao nele). */
+        cBx = ch->bottom_x + cam_x * (1.0f - ch->bsf_x);
+        cBy = ch->bottom_y + cam_y * (1.0f - ch->bsf_y);
+        cTx = ch->top_x + cam_x * (1.0f - ch->tsf_x);
+        cTy = ch->top_y + cam_y * (1.0f - ch->tsf_y);
+        it->prop = -1;
+        it->cor = -1;
+        it->ang = 0.0f;
+        it->criado = -1;
+        it->chao = cf + k;
+        it->anim = 0;
+        it->frame = 0;
+        it->cb_x = SL_VIEW_W * 0.5f + (cBx - cam_x) * sc;
+        it->cb_y = SL_VIEW_H * 0.5f + (cBy - cam_y) * sc;
+        it->ct_x = SL_VIEW_W * 0.5f + (cTx - cam_x) * sc;
+        it->ct_y = SL_VIEW_H * 0.5f + (cTy - cam_y) * sc;
+        it->x0 = it->cb_x;
+        it->y0 = it->cb_y;
+        it->w = ch->src_w * sc;
+        it->h = ch->src_h * sc;
+        it->tex_w = ch->sw;
+        it->tex_h = ch->sh;
+        it->z = ch->z;
+        it->alpha = 1.0f;
         it->pintado = 0;
         it->rgb[0] = it->rgb[1] = it->rgb[2] = 0x80;
-        it->blend = cr->blend;
-        it->tile = cr->tile ? cr->src_w : 0.0f;
-        it->tile_off = cr->vel_x * t;
+        it->blend = 0;
+        it->tile = 0.0f;
+        it->tile_off = 0.0f;
         n++;
      }
     }

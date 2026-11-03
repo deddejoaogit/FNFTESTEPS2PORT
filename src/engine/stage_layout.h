@@ -70,6 +70,18 @@ typedef struct {
     int criado;
     float tile;     /* periodo da repeticao em px do original; 0 = sem repetir */
     float tile_off; /* deslocamento do `scroll` no instante t, em px do original */
+    /* O PISO EM PERSPECTIVA (`bs_chaos[]`): indice, ou -1. Quando >= 0 o
+       item NAO e' um retangulo: `cb_x/cb_y` e `ct_x/ct_y` sao os dois pontos
+       de referencia (baixo e cima) JA' em espaco de tela, e o desenho aplica a
+       matriz afim de `sl_chao_cantos`. `w`/`h` continuam sendo o tamanho do
+       quadro na tela. */
+    int chao;
+    float cb_x, cb_y, ct_x, ct_y;
+    /* Escala do mundo para a tela neste item (px de tela por unidade do
+       original). E' o `0,5 * zoom * bop`. O desenho do sprite de script
+       precisa dela para o periodo da repeticao: com o `x0` alinhado na borda
+       da tela, `w / largura_nativa` NAO e' mais essa escala. */
+    float esc;
     /* O `angle` do sprite, em GRAUS, vindo do script do palco (o
        `tankRolling.angle` do tankmanBattlefield.hxc L60 e as `rotations` dos
        carros do phillyStreets.hxc). 0 = sem rotacao, que e' o caso de todos os
@@ -78,6 +90,22 @@ typedef struct {
        faz. */
     float ang;
 } sl_item_t;
+
+/* OS QUATRO CANTOS do piso em perspectiva, em espaco de tela.
+ *
+ * A formula e' a do `PerspectiveSprite.updateSkew` (preload/scripts/stages/
+ * props/PerspectiveSprite.hxc L97-125), transcrita:
+ *
+ *   distX = cima.x - baixo.x
+ *   distY = cima.y - (baixo.y - H)
+ *   a = 1   b = 0   c = -distX/H   d = 1 - distY/H   tx = distX/2  ty = distY/2
+ *   sprite.x = baixo.x - W/2     sprite.y = baixo.y - H
+ *
+ * e o quadrilatero e' o da matriz aplicada ao quadro WxH. Ordem dos cantos:
+ * superior-esquerdo, superior-direito, inferior-direito, inferior-esquerdo.
+ * Devolve 0 quando a altura e' zero (o `H` divide). */
+int sl_chao_cantos(float bx, float by, float tx, float ty, float w, float h,
+                   float *px, float *py);
 
 /* Indice em bs_stage_props[] ou -1. Compara o id inteiro, nao o prefixo. */
 int sl_stage_find(const char *stage);
