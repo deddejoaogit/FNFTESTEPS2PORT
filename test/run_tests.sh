@@ -128,6 +128,14 @@ $CC $FLAGS test/test_stage_pool.c src/engine/stage_pool.c src/engine/stage_layou
 /tmp/fnf_test_pool
 echo
 
+# A CUTSCENE do sserafim: o pacote de quadros ASSADOS (o leitor, a geometria e
+# os cortes) e a linha do tempo dos ~20 FlxTimers de `sserafim.hxc` L567-930.
+# Roda sem libm, como o modulo: o render nao puxa `sqrt`/`sin` do sistema.
+echo "== cutscene do sserafim (quadros assados + linha do tempo) =="
+$CC $FLAGS test/test_ss_cutscene.c src/engine/ss_cutscene.c -o /tmp/fnf_test_sscut
+/tmp/fnf_test_sscut
+echo
+
 # Mixer de duas faixas: o `stems.pcm` traz instrumental e vozes em 4 canais
 # intercalados e o jogo soma as duas com saturacao. Era nesta conta que a saida
 # saia com o dobro do tamanho (audio no dobro da velocidade), entao ela tem

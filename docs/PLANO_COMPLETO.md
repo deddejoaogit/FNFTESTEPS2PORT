@@ -5334,6 +5334,39 @@ ordem de trabalho abaixo.
 5. **`sserafimDark`** (L413-421) e o `SserafimShader`: brilho/contraste/matiz por
    pixel; mesma classe de falta de plataforma do `wiggle.frag` (ver acima).
 
+### A CUTSCENE: o motor pronto, medido e testado (falta ligar no `main.c`)
+
+A cutscene é o último item do palco, e ele **não** é bloqueado pela arte como o
+plano dizia: a arte existe no clone (`sserafim/images/cutscene/`, `dust/`,
+`end/` e `sserafim/sounds/cutscene/` — os três `.ogg` de 7,5 s, 2,9 s e 31,2 s).
+O que existia era um problema de **representação**: o `Animation.json` do
+`cutsceneMain` tem 27 camadas, 42 símbolos e símbolos ANINHADOS, e rasterizar
+631 quadros daria mais de 1 GB.
+
+O que foi feito, e o que cada número é:
+
+| peça | o que é | medido |
+|---|---|---|
+| `tools/assar_cutscene_sserafim.py` | assa a **geometria**: por quadro, a lista de (retângulo do spritemap, matriz 2×3) | `cutsceneMain` 631 quadros, **16.929 quads** (26,83 por quadro), **239.930 B**; `gfGetUp` 124 q / 1.119 quads / 16.690 B; `bfGetUp` 129 q / 820 quads / 12.348 B (9 quadros vazios) |
+| a matriz | o `MX` do `achatar_animate` **não** serve: este documento só tem `M3D` (4×4), e o decodificador devolve identidade → tudo em (0,0), sem erro nenhum | conferido a olho nos PNGs (`--png-dir`) e contra o rasterizador (IoU **0,999**) |
+| `src/engine/ss_cutscene.{h,c}` | o leitor do pacote (com limites), a geometria dos quads, as curvas do `FlxEase` **sem libm** (Newton para `sqrt`, série para `sin`) e a linha do tempo | `test/test_ss_cutscene.c`: 6 marcos (t=0, 3 s, 1,5 s, 563/24, 650/24, 730/24) + varredura de 800 instantes |
+| texturas | `main` 448×218 = 195.328 B, `gf` 448×266 = 238.336 B, `bf` 448×176 = 157.696 B | **591.360 B** no total — quase exatamente o que as três dançarinas ocupam, e elas estão **invisíveis** durante a cutscene |
+
+A linha do tempo transcrita (`ssc_estado`), com a linha da fonte: zoom 0,5 →
+0,7 e câmera (660,−200) → (660,300) em 3 s `circOut`; flash branco e cobertura
+preta a 1 em **563/24 s**; cobertura a 0 em 3 s `sineOut` a partir de
+**650/24 s**, câmera em (1070,470) e zoom 0,55; as duas "get up" animam a partir
+de **710/24 s**; **730/24 s** é o `startCountdown()` — a cutscene acaba ali.
+
+**O que falta, com o nome do arquivo**: ligar o motor no estado 8 do `main.c`
+(carregar os três pacotes, rodar o relógio antes da contagem, desenhar os quads
+com a câmera e os dois fades, e atender o `CUTSCENE_ADVANCE` do "Skip"). O
+pacote, a linha do tempo e a geometria já estão provados no PC; o que **não**
+está provado é o caminho pacote → VRAM → tela, que só o harness (e o console)
+podem dizer. O plano de VRAM para isso é liberar as texturas dos personagens
+durante a cutscene (eles estão invisíveis por `setCutsceneVisibility`) e
+recarregá-los quando a música começa, porque 591 KB não cabem ao lado deles.
+
 ### A conta de VRAM que as dançarinas mudam (medida, não estimada)
 
 As três dançarinas ocupam VRAM como qualquer personagem, e o orçamento do

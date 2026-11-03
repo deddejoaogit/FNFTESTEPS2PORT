@@ -215,9 +215,18 @@ def assa(doc_atlas, nome, saida_dir, escala=None, bpp=16):
     caminho_quads = os.path.join(saida_dir, "%s.quads" % nome)
     with open(caminho_quads, "wb") as fh:
         fh.write(quadros_bin)
+
+    # A TEXTURA num CFZ4 de UM quadro: e' o formato que o palco ja' le'
+    # (cabecalho, tabela de (offset,tamanho) e o bloco LZ4). O `_raster` do
+    # achatador nao escreve arquivo -- quem escreve e' este trecho, com a mesma
+    # funcao do empacotador de personagem (`to_ps2_bytes` + lz4).
+    import lz4.block
+    import pacote_personagem as pp
     caminho_tex = os.path.join(saida_dir, "%s.cfz4" % nome)
-    aa.pack_from_render([(nome, 0, pequena)], [(0, 0, largura, altura)],
-                        1.0, bpp, caminho_tex)
+    bloco = lz4.block.compress(pp.to_ps2_bytes(pequena, bpp), store_size=False)
+    dados_pack, tamanho = pp.write_pack([bloco], largura * altura * (bpp // 8))
+    with open(caminho_tex, "wb") as fh:
+        fh.write(dados_pack)
 
     return {
         "nome": nome,
@@ -288,6 +297,8 @@ def main():
     ap.add_argument("--saida", default="build/packs/stages/sserafim/cut")
     ap.add_argument("--escala", type=float, default=None,
                     help="escala do atlas (padrao: a maior que cabe em 1024)")
+    ap.add_argument("--largura-max", type=int, default=1024,
+                    help="largura maxima da textura (o GS recusa acima de 1024)")
     ap.add_argument("--conferir", type=int, default=0,
                     help="rasteriza N quadros e compara com a referencia")
     ap.add_argument("--png-dir", default=None,
@@ -297,6 +308,8 @@ def main():
                     help="caminho do JSON do manifesto (padrao: <saida>/manifest.json)")
     args = ap.parse_args()
 
+    global MAX_LARGURA
+    MAX_LARGURA = args.largura_max
     manifesto = {"bpp": 16, "sprites": [], "fonte": args.arte}
     for nome, chave, classe in SPRITES:
         atlas = aa.Atlas(args.arte, chave)
