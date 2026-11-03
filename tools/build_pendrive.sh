@@ -48,12 +48,14 @@ done
 pre_arq "$ELF" "o binario do jogo" \
     "sh compilar.sh (ou tools/build_pendrive.sh aceita ELF=<caminho>)"
 
+CHARS_SRC=${CHARS_SRC:-build/packs/chars}
+CHARTS_SRC=${CHARTS_SRC:-build/charts}
 NCH=0
-if [ -d build/packs/chars ]; then
-    NCH=$(ls build/packs/chars/*.chp4 2>/dev/null | wc -l)
+if [ -d "$CHARS_SRC" ]; then
+    NCH=$(ls "$CHARS_SRC"/*.chp4 2>/dev/null | wc -l)
 fi
 if [ "$NCH" -lt 46 ]; then
-    FALTA_PRE="$FALTA_PRE\n  - personagens: $NCH de 46 em build/packs/chars\n      tools/achatar_tudo.sh <clone funkin.assets> build/packs"
+    FALTA_PRE="$FALTA_PRE\n  - personagens: $NCH de 46 em $CHARS_SRC\n      tools/achatar_tudo.sh <clone funkin.assets> build/packs"
 fi
 if [ ! -d build/packs/stages ]; then
     FALTA_PRE="$FALTA_PRE\n  - palcos: build/packs/stages nao existe\n      python3 tools/pacotar_palcos.py --out build/packs"
@@ -65,19 +67,51 @@ fi
 if [ "$NSTEM" -lt 27 ]; then
     FALTA_PRE="$FALTA_PRE\n  - audio das musicas: $NSTEM de 27 stems\n      python3 tools/empacotar_stems.py --assets <clone funkin.assets>"
 fi
-NCHART=$(ls build/charts/*.chart 2>/dev/null | wc -l)
+NCUTF=0
+CUT_SRC=${STAGES_SRC:-build/packs/stages}/sserafim/cut
+for n in main gf bf; do
+    for ext in quads cfz4; do
+        [ -f "$CUT_SRC/$n.$ext" ] && NCUTF=$((NCUTF+1))
+    done
+done
+# `end1` e `end2` NAO tem .quads: sao UM quadro cada (o `endStuff` do script:
+# SEEYOU1 e SEEYOU2). Sem eles o jogo registra `cut_fim_falta` e a sequencia
+# do fim aparece sem imagem nenhuma.
+for n in end1 end2; do
+    [ -f "$CUT_SRC/$n.cfz4" ] && NCUTF=$((NCUTF+1))
+done
+if [ "$NCUTF" -lt 8 ]; then
+    FALTA_PRE="$FALTA_PRE\n  - cutscene do sserafim: $NCUTF de 8 arquivos em $CUT_SRC\n      python3 tools/assar_cutscene_sserafim.py --saida $CUT_SRC"
+fi
+# O audio das telas (game over, pausa, resultado e os sons do script de palco).
+# Nao vem do Drive: e' PCM derivado da arte oficial por `tools/empacotar_audio.py`.
+# Antes isto so' falhava DEPOIS de copiar personagens, charts e stems -- agora
+# entra na mesma medicao.
+GO_SRC=${GO_SRC:-build/packs/audio}
+pre_dir "$GO_SRC" "audio das telas (game over/pausa/resultado/palco)" \
+    "python3 tools/empacotar_audio.py --assets <clone do funkin.assets>"
+NPCM=0
+[ -d "$GO_SRC" ] && NPCM=$(ls "$GO_SRC"/*.pcm 2>/dev/null | wc -l)
+if [ -d "$GO_SRC" ] && [ "$NPCM" -lt 31 ]; then
+    FALTA_PRE="$FALTA_PRE\n  - audio das telas: $NPCM de 31 PCMs em $GO_SRC\n      python3 tools/empacotar_audio.py --assets <clone do funkin.assets>"
+fi
+NCHART=$(ls "$CHARTS_SRC"/*.chart 2>/dev/null | wc -l)
 if [ "$NCHART" -lt 81 ]; then
-    FALTA_PRE="$FALTA_PRE\n  - charts: $NCHART de 81 em build/charts\n      sh test/run_tests.sh (gera e valida os 81)"
+    FALTA_PRE="$FALTA_PRE\n  - charts: $NCHART de 81 em $CHARTS_SRC\n      sh test/run_tests.sh (gera e valida os 81)"
 fi
 if [ -n "$FALTA_PRE" ]; then
     echo "== FALTAM PRE-REQUISITOS (nada foi copiado) ==" >&2
     printf "%b\n" "$FALTA_PRE" >&2
     echo >&2
-    echo "  O pendrive precisa dos quatro: os assets de runtime do Drive, os 46" >&2
-    echo "  personagens, os 21 palcos, os 81 charts, os 27 stems e o ELF." >&2
+    if [ -e "$OUT" ]; then
+        echo "  A pasta $OUT ja' existia de uma rodada anterior e NAO foi tocada." >&2
+    fi
+    echo "  O pendrive precisa de tudo: os assets de runtime do Drive, os 46" >&2
+    echo "  personagens, os 21 palcos (157 props), os 8 arquivos da cutscene, os" >&2
+    echo "  81 charts, os 27 stems, o audio das telas (31 PCMs) e o ELF." >&2
     exit 1
 fi
-echo "== pre-requisitos ok: 16 assets, $NCH personagens, $NSTEM stems, $NCHART charts, ELF =="
+echo "== pre-requisitos ok: 16 assets, $NCH personagens, $NSTEM stems, $NCHART charts, $NCUTF arquivos de cutscene, ELF =="
 
 rm -rf "$OUT"
 mkdir -p "$OUT/FNFPS2/assets/songs"
@@ -261,7 +295,7 @@ echo "== copiando os charts =="
 # conseguiu abrir songs/tutorial/normal.chart, mesmo com o arquivo la. O
 # harness offline abre o layout 0 sem problema, entao so o console pode dizer
 # qual vale -- por isso os quatro vao no pendrive e o jogo escolhe.
-for f in build/charts/*.chart; do
+for f in "$CHARTS_SRC"/*.chart; do
     b=$(basename "$f")            # tutorial-easy.chart
     diff=${b##*-}                 # easy.chart
     diff=${diff%.chart}           # easy
@@ -272,7 +306,7 @@ for f in build/charts/*.chart; do
     cp "$f" "$OUT/FNFPS2/assets/charts/$id-$diff.chart"
     cp "$f" "$OUT/FNFPS2/assets/charts/$id/$diff.chart"
 done
-echo "   $(ls build/charts | wc -l) charts x 4 layouts = $(( $(ls build/charts | wc -l) * 4 )) arquivos"
+echo "   $NCHART charts x 4 layouts = $(( NCHART * 4 )) arquivos"
 
 echo "== copiando o AUDIO das 27 musicas (songs/<id>/stems.pcm) =="
 # SEM ISTO SO' O TUTORIAL TEM SOM. O jogo abre `assets/songs/<id>/stems.pcm`
@@ -307,7 +341,6 @@ echo "== copiando os 46 personagens (assets/chars/<id>.chp4) =="
 # Sem estes arquivos o jogo ABRE e roda, mas nao desenha personagem nenhum:
 # cada papel vira `char_sem_pacote` no log. Eles nunca eram copiados aqui, e o
 # pendrive saia sem nenhum deles.
-CHARS_SRC=${CHARS_SRC:-build/packs/chars}
 if [ ! -d "$CHARS_SRC" ]; then
     echo "FALTA $CHARS_SRC -- rode tools/achatar_tudo.sh <clone-funkin.assets> $CHARS_SRC" >&2
     exit 1
@@ -340,7 +373,12 @@ mkdir -p "$OUT/FNFPS2/assets/stages"
 NPROP=0
 # A lista de props vem do PROPRIO cabecalho que o jogo compila
 # (src/stage_dados.h): o que faltar aqui e' o que faltaria na tela.
-for t in $(grep -o '"stages/[^"]*\.cfz4"' src/stage_dados.h | tr -d '"' | sort -u); do
+# O `grep -v '<'` nao e' enfeite: o cabecalho tem, num comentario, o EXEMPLO
+# `"stages/<stage>/<name>.cfz4"`, e sem filtrar isso o laco tentava copiar um
+# arquivo chamado literalmente `<name>.cfz4`, imprimia
+# `FALTA o prop stages/<stage>/<name>.cfz4` e ABORTAVA o pendrive sempre -- os
+# 21 palcos nunca chegavam ao cartao. Medido: 158 strings, 157 props de verdade.
+for t in $(grep -o '"stages/[^"]*\.cfz4"' src/stage_dados.h | tr -d '"' | grep -v '<' | sort -u); do
     if [ -f "$STAGES_SRC/${t#stages/}" ]; then
         mkdir -p "$OUT/FNFPS2/assets/$(dirname "$t")"
         cp "$STAGES_SRC/${t#stages/}" "$OUT/FNFPS2/assets/$t"
@@ -353,22 +391,21 @@ done
 echo "   $NPROP props em $(ls -d "$OUT/FNFPS2/assets/stages"/*/ | wc -l) palcos, $(du -sh "$OUT/FNFPS2/assets/stages" | cut -f1)"
 
 # A CUTSCENE DO sserafim (assets/stages/sserafim/cut/): os tres `.quads` de
-# geometria e os tres `.cfz4` de textura. NAO sao props de `stage_dados.h` -- o
+# geometria e os CINCO `.cfz4` de textura (main, gf, bf + `end1`/`end2`, as duas
+# imagens de UM quadro do `endStuff`). NAO sao props de `stage_dados.h` -- o
 # laco acima so' copia o que o cabecalho do jogo compila --, entao eles tem de
 # ser copiados AQUI. Sem eles a `spaghetti` roda, mas o intro de 30 s (a cena
 # inteira do script do palco) nao aparece: o jogo registra `cut_falta`.
 NCUT=0
-for n in main gf bf; do
-    for ext in quads cfz4; do
-        if [ -f "$STAGES_SRC/sserafim/cut/$n.$ext" ]; then
-            mkdir -p "$OUT/FNFPS2/assets/stages/sserafim/cut"
-            cp "$STAGES_SRC/sserafim/cut/$n.$ext" "$OUT/FNFPS2/assets/stages/sserafim/cut/"
-            NCUT=$((NCUT+1))
-        else
-            echo "FALTA a cutscene $STAGES_SRC/sserafim/cut/$n.$ext -- rode tools/assar_cutscene_sserafim.py --saida build/packs/stages/sserafim/cut" >&2
-            exit 1
-        fi
-    done
+for f in main.quads main.cfz4 gf.quads gf.cfz4 bf.quads bf.cfz4 end1.cfz4 end2.cfz4; do
+    if [ -f "$STAGES_SRC/sserafim/cut/$f" ]; then
+        mkdir -p "$OUT/FNFPS2/assets/stages/sserafim/cut"
+        cp "$STAGES_SRC/sserafim/cut/$f" "$OUT/FNFPS2/assets/stages/sserafim/cut/"
+        NCUT=$((NCUT+1))
+    else
+        echo "FALTA a cutscene $STAGES_SRC/sserafim/cut/$f -- rode tools/assar_cutscene_sserafim.py --saida build/packs/stages/sserafim/cut" >&2
+        exit 1
+    fi
 done
 echo "   $NCUT arquivo(s) da cutscene em assets/stages/sserafim/cut/"
 

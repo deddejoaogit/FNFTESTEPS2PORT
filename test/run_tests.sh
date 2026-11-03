@@ -936,14 +936,146 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     # As duas imagens tem de ter sido DESENHADAS: 3,95 s e 4,00 s a 60 fps.
     [ "${q0:-0}" -ge 200 ] && [ "${q1:-0}" -ge 200 ] || {
         echo "  FALHA: as imagens SEEYOU foram desenhadas em ${q0:-0} e ${q1:-0} quadros (esperado ~237 e ~240)"; exit 1; }
-    for erro in cut_fim_sem_vram cut_fim_tamanho cut_fim_falta cut_fim_sem_ram cut_fim_quadro palco_script_retry; do
+    # O PENDDRIVE TRABALHA NO COMECO DA CENA: os dois `.cfz4` do fim tem de
+    # estar na RAM antes de o evento chegar (senao o `end1` de 283 504 B seria
+    # lido nos ultimos 9 s da musica). Se o pre-carregamento falhasse, o jogo
+    # desenharia do mesmo jeito -- por isso o teste cobra `cut_fim_pre` e nao so'
+    # o desenho.
+    # `cut_fim_pre,<i>,<bytes>`: o tamanho esta' no 5o campo, e o indice no 4o.
+    pre0=$(awk -F, '$1=="E" && $3=="cut_fim_pre" && $4=="0" {v=$5} END{print v}' "$LOG" 2>/dev/null)
+    pre1=$(awk -F, '$1=="E" && $3=="cut_fim_pre" && $4=="1" {v=$5} END{print v}' "$LOG" 2>/dev/null)
+    [ -n "$pre0" ] && [ -n "$pre1" ] || {
+        grep -E "cut_fim_pre" "$LOG" | head -6
+        echo "  FALHA: os dois .cfz4 do fim nao foram pre-carregados ('$pre0', '$pre1')"; exit 1; }
+    [ "$pre0" -gt 10000 ] && [ "$pre1" -gt 5000 ] || {
+        echo "  FALHA: pre-carga suspeita: $pre0 e $pre1 bytes"; exit 1; }
+    for erro in cut_fim_sem_vram cut_fim_tamanho cut_fim_falta cut_fim_sem_ram cut_fim_quadro cut_fim_pre_falha palco_script_retry; do
         if grep -q ",$erro," "$LOG"; then grep ",$erro," "$LOG" | head -3; echo "  FALHA: evento '$erro' no fim do sserafim"; exit 1; fi
     done
+    echo "  pre-carga ....... $pre0 B e $pre1 B na RAM antes do evento"
     echo "  SEEYOU1 ......... $q0 quadros desenhados"
     echo "  SEEYOU2 ......... $q1 quadros desenhados"
     echo "  endSong(true) ... $fim amostras depois do endStuff (9,000 s), e o Resultado abriu"
     echo "  sem erro de VRAM, de tamanho de pacote ou de retry falso"
     echo "  FIM DO sserafim: PASSOU (a cadeia inteira, e nao so' o comeco dela)"
+
+    # O MONTADOR DO PENDRIVE. O pendrive e' o que vai para o console, e ele
+    # carrega arquivos que NENHUM teste de jogo abre: os 5 `.cfz4` da cutscene
+    # (incluindo `end1`/`end2`, as duas imagens de um quadro do `endStuff`, que
+    # o jogo pede em `assets/stages/sserafim/cut/`), os 46 `.chp4`, os 81
+    # charts em 4 layouts e os 27 stems. Um arquivo esquecido aqui nao aparece
+    # em lugar nenhum do harness -- so' no console, como `cut_fim_falta` ou
+    # musica sem som. Por isso o teste monta o pendrive DUAS vezes: uma com tudo
+    # (tem de sair com os 8 arquivos da cutscene) e outra sem o `end2.cfz4`
+    # (tem de RECUSAR, com o numero certo e sem copiar nada).
+    echo
+    echo "== montador do pendrive: os 8 arquivos da cutscene, e a recusa quando falta um =="
+    PEND=$(mktemp -d)
+    rm -rf build/pendrive_teste
+    mkdir -p "$PEND/assets" "$PEND/chars" "$PEND/charts" "$PEND/stems"
+    for f in title_alphabet.rgba title_prompt_l.rgba title_prompt_r.rgba \
+             title_logoBumpin.frames title_gfDanceTitle.frames title_newgrounds.rgba \
+             font.rgba font.widths menu_sfx.pcm menu_cache.rle \
+             bf_frames.lz4f gf_frames.lz4f \
+             mainstage_tutorial_parallax.rgba \
+             tutorial_hud_official_320x256_gsalpha.rgba \
+             audio_stems.pcm freakyMenu_48000.pcm; do
+        # o `menu_cache.rle` tem tamanho conferido pelo montador (1587561 B);
+        # os outros sao copiados e nada mais, entao um arquivo vazio serve.
+        if [ "$f" = menu_cache.rle ]; then
+            head -c 1587561 /dev/zero > "$PEND/assets/$f"
+        else
+            : > "$PEND/assets/$f"
+        fi
+    done
+    : > "$PEND/FNF.ELF"
+    for j in assets-data/characters/*.json; do
+        : > "$PEND/chars/$(basename "$j" .json).chp4"
+    done
+    cp build/charts/*.chart "$PEND/charts/"
+    for sid in $(python3 - <<'EOF'
+import glob, os
+ids = sorted({os.path.basename(f).rsplit("-", 1)[0] for f in glob.glob("build/charts/*.chart")})
+print(" ".join(ids))
+EOF
+    ); do
+        mkdir -p "$PEND/stems/$sid"
+        head -c 8 /dev/zero > "$PEND/stems/$sid/stems.pcm"
+    done
+    # O audio das telas (game over, pausa, resultado, script de palco) tem
+    # minimos que o montador cobra: 13 de game over, 2 de pausa, 16 do resultado.
+    mkdir -p "$PEND/audio"
+    for f in breakfast breakfast-pico; do : > "$PEND/audio/$f.pcm"; done
+    i=0; while [ $i -lt 16 ]; do : > "$PEND/audio/res_$i.pcm"; i=$((i+1)); done
+    i=0; while [ $i -lt 13 ]; do : > "$PEND/audio/go_$i.pcm"; i=$((i+1)); done
+    # Os 21 palcos: os props saem da MESMA lista que o montador usa (o proprio
+    # `src/stage_dados.h`), em arquivos vazios -- aqui se testa a COPIA, nao a
+    # arte. Os 8 da cutscene sao os nomes que o jogo pede; o `end1`/`end2` sao
+    # justamente os que faltavam no montador.
+    for t in $(grep -o '"stages/[^"]*\.cfz4"' src/stage_dados.h | tr -d '"' | grep -v '<' | sort -u); do
+        mkdir -p "$PEND/stages/$(dirname "${t#stages/}")"
+        : > "$PEND/stages/${t#stages/}"
+    done
+    mkdir -p "$PEND/stages/sserafim/cut"
+    for f in main.quads main.cfz4 gf.quads gf.cfz4 bf.quads bf.cfz4 end1.cfz4 end2.cfz4; do
+        : > "$PEND/stages/sserafim/cut/$f"
+    done
+    PEND_ENV="ASSETS=$PEND/assets ELF=$PEND/FNF.ELF CHARS_SRC=$PEND/chars CHARTS_SRC=$PEND/charts STEMS_SRC=$PEND/stems STAGES_SRC=$PEND/stages GO_SRC=$PEND/audio"
+    if ! env $PEND_ENV sh tools/build_pendrive.sh build/pendrive_teste > /tmp/fnf_pendrive.log 2>&1; then
+        tail -12 /tmp/fnf_pendrive.log
+        echo "  FALHA: o montador recusou um pendrive que tinha tudo"
+        rm -rf "$PEND" build/pendrive_teste
+        exit 1
+    fi
+    NCUT_OK=$(ls build/pendrive_teste/FNFPS2/assets/stages/sserafim/cut/ 2>/dev/null | wc -l)
+    for f in main.quads gf.quads bf.quads main.cfz4 gf.cfz4 bf.cfz4 end1.cfz4 end2.cfz4; do
+        if [ ! -f "build/pendrive_teste/FNFPS2/assets/stages/sserafim/cut/$f" ]; then
+            echo "  FALHA: o pendrive saiu sem $f -- o console registraria cut_fim_falta/cut_falta"
+            rm -rf "$PEND" build/pendrive_teste
+            exit 1
+        fi
+    done
+    # 157 props em 21 palcos: o numero e' do cabecalho do jogo (`stage_dados.h`),
+    # o mesmo de `test/run_tests.sh` cobra na suite de geometria. O bug do
+    # `<name>.cfz4` fazia o montador parar antes disto.
+    if ! grep -q "  157 props em 21 palcos" /tmp/fnf_pendrive.log; then
+        grep -E "props em|FALTA o prop" /tmp/fnf_pendrive.log | head -5
+        echo "  FALHA: os 21 palcos nao sairam inteiros (157 props) do montador"
+        rm -rf "$PEND" build/pendrive_teste
+        exit 1
+    fi
+    NSONGS_OK=$(ls -d build/pendrive_teste/FNFPS2/assets/songs/*/ 2>/dev/null | wc -l)
+    NCHART_OK=$(find build/pendrive_teste/FNFPS2/assets -name '*.chart' | wc -l)
+    NSFX_OK=$(ls build/pendrive_teste/FNFPS2/assets/songs/*/stems.pcm 2>/dev/null | wc -l)
+    echo "  pendrive completo ..... $NCUT_OK arquivos de cutscene, $NSONGS_OK musicas, $NSFX_OK stems, $NCHART_OK charts (81 x 4 layouts)"
+    rm -rf build/pendrive_teste
+    # Agora a recusa: uma copia dos palcos sem o `end2.cfz4`.
+    mkdir -p "$PEND/stages_bom"
+    cp -r "$PEND/stages/." "$PEND/stages_bom/"
+    rm -f "$PEND/stages_bom/sserafim/cut/end2.cfz4"
+    if env ASSETS="$PEND/assets" ELF="$PEND/FNF.ELF" CHARS_SRC="$PEND/chars" \
+           CHARTS_SRC="$PEND/charts" STEMS_SRC="$PEND/stems" STAGES_SRC="$PEND/stages_bom" \
+           GO_SRC="$PEND/audio" \
+           sh tools/build_pendrive.sh build/pendrive_teste > /tmp/fnf_pendrive_falta.log 2>&1; then
+        echo "  FALHA: o montador aceitou um pendrive sem end2.cfz4"
+        rm -rf "$PEND" build/pendrive_teste
+        exit 1
+    fi
+    if ! grep -q "cutscene do sserafim: 7 de 8" /tmp/fnf_pendrive_falta.log; then
+        tail -12 /tmp/fnf_pendrive_falta.log
+        echo "  FALHA: a recusa nao disse QUAL e quantos arquivos da cutscene faltam"
+        rm -rf "$PEND" build/pendrive_teste
+        exit 1
+    fi
+    if [ -e build/pendrive_teste ]; then
+        echo "  FALHA: o montador copiou arquivos mesmo com pre-requisito faltando"
+        rm -rf "$PEND" build/pendrive_teste
+        exit 1
+    fi
+    grep "cutscene do sserafim" /tmp/fnf_pendrive_falta.log | sed 's/^ *//; s/^/  recusa ................ /'
+    echo "  sem copiar nada"
+    rm -rf "$PEND" build/pendrive_teste
+    echo "  PENDRIVE: PASSOU (os 8 da cutscene, 27 musicas, 81x4 charts e a recusa explicada)"
 
     # MARATONA: cada musica jogada ATE' O FIM, no jogo real, cobrando o
     # Resultado. O sweep da' 1 200 quadros por musica (20 s) e o fim de uma

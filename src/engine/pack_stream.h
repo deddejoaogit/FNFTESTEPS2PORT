@@ -52,10 +52,22 @@ typedef struct {
     unsigned char *bloco;      /* buffer do bloco comprimido          */
     unsigned int  bloco_bytes;  /* quanto foi reservado em `bloco`    */
     unsigned int  ram;         /* bytes que este pacote custa na RAM  */
+    const unsigned char *mem;  /* != 0 quando o pacote veio da RAM    */
 } pst_pack_t;
 
 /* Abre `path`, le' o cabecalho e a TABELA, e para. Devolve 0 ou PST_ERR_*. */
 int pst_abrir(const char *path, pst_pack_t *p);
+
+/* O MESMO pacote, so' que os bytes JA' estao na RAM (nenhum arquivo aberto).
+ * Existe por causa do `endStuff` do sserafim: as duas imagens do fim da musica
+ * sao lidas no instante do evento, e no console essa leitura (283 504 B no
+ * pendrive USB 1.1) cai exatamente nos ultimos 9 s da musica. Aqui o jogo copia
+ * os `.cfz4` COMPRIMIDOS (39 951 + 10 102 B) para a RAM no comeco da cutscene e
+ * descomprime na hora do evento -- sem tocar no pendrive quando o audio esta'
+ * terminando. Nada e' decodificado aqui: `pst_quadro` faz o mesmo trabalho.
+ * O buffer tem de continuar vivo enquanto o pacote for usado (o chamador e'
+ * dono dele; `pst_fechar` NAO o libera). */
+int pst_abrir_mem(const unsigned char *dados, unsigned int bytes, pst_pack_t *p);
 
 /* Le' o bloco do quadro `frame`, descomprime em dst[0..frame_bytes).
    Devolve 0 ou PST_ERR_*. */

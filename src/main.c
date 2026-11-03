@@ -2334,6 +2334,14 @@ static float g_cut_som_t0 = -1.0f;          /* instante em que ele comecou  */
    medida no pool durante a cena (311 296 B). `cut_fim_um()` libera o outro
    antes de pedir o lugar, entao o pico e' 283 504 B.
 
+   QUANDO O PENDRIVE TRABALHA: no comeco da cutscene, nao no fim da musica.
+   `cut_fim_prefetch()` le' os dois `.cfz4` COMPRIMIDOS (39 951 + 10 102 B) para
+   a RAM junto com a cena; no evento o `cut_fim_um()` so' descomprime. Antes, o
+   `end1` (283 504 B descomprimido) era lido do usbhdfsd no +0 s do `endStuff`,
+   ou seja nos ultimos 9 s da musica -- exatamente quando o anel de audio nao
+   pode parar. Se o pre-carregamento falhar (`cut_fim_pre_falha`), `cut_fim_um`
+   volta a ler do arquivo: o comportamento degrada, nunca quebra.
+
    O RELOGIO e' o vsync somado (o mesmo de `cut_anda`), nao o da musica: no fim
    do chart o audio pode acabar ANTES dos 9 s, e com o relogio da musica a
    sequencia pararia no meio. */
@@ -2344,11 +2352,24 @@ static int g_cut_fim_ok[CUT_FIM_N];
 static int g_cut_fim_fase = 0;              /* 0 = nao armado; 1..3 = degraus */
 static int g_cut_fim_soltas = 0;            /* as duas ja' sairam da VRAM    */
 static int g_cut_fim_endsong = 0;           /* pedido de `endSong(true)`     */
+/* Os dois `.cfz4` do fim LIDOS PARA A RAM NO COMECO DA CUTSCENE, ainda
+   COMPRIMIDOS (39 951 + 10 102 B na arte real). Sem isto, o `end1` (283 504 B
+   ja' descomprimido) seria lido do pendrive no instante do evento -- nos
+   ULTIMOS 9 s da musica, quando o anel de audio nao pode parar. A RAM e' barata:
+   os 50 KB comprimidos contra os 283 KB de VRAM que nao cabem juntos. Se o
+   pre-carregamento falhar, `cut_fim_um` volta a ler do arquivo: degrada, nunca
+   quebra. */
+static unsigned char *g_cut_fim_pre[CUT_FIM_N];
+static unsigned int g_cut_fim_pre_n[CUT_FIM_N];
 static u32 g_cut_fim_amos = 0;              /* amostras desde o evento       */
 /* Quantos QUADROS cada imagem do fim foi desenhada. E' o que prova que o
    caminho `cut_fim_desenha` -> GS rodou, e nao so' que a textura subiu: no
    original o `SEEYOU1` fica 3,95 s e o `SEEYOU2` 4 s na tela. */
 static int g_cut_fim_quadros[CUT_FIM_N];
+/* Quantas vezes cada imagem passou pelo `draw_rect_textured` (o caminho do GS),
+   somadas na sequencia. `cut_fim_quadros` ja' conta os quadros; este conta o
+   DESENHO, e no fim vira a linha `cut_fim_desenho,<n0>,<n1>`. */
+static int g_cut_fim_draws[CUT_FIM_N];
 /* `SEEYOU1.scale.set(0.67, 0.67)` + `updateHitbox()` (L686-687). O pacote ja'
    esta' em MEIO documento (a `camCutscene` cobre 1280x720 nos 640x360 do port),
    entao o desenho usa 0,67 direto. */
@@ -2360,6 +2381,46 @@ static int g_cut_fim_quadros[CUT_FIM_N];
 /* Definidos mais abaixo, junto do resto da cena. */
 static void cut_som(const char *nome);
 static int cena_ler(const char *path, unsigned char **out, unsigned int *out_bytes);
+
+/* Le' os dois `.cfz4` do fim para a RAM (comprimidos). Idempotente e sem
+   inventar: qualquer falha vira `cut_fim_pre_falha,i,<erro>` e o `cut_fim_um`
+   continua com o caminho do arquivo. */
+static void cut_fim_prefetch(void)
+{
+    static const char *const nomes[CUT_FIM_N] = {"end1", "end2"};
+    char caminho[160];
+    int i;
+    for (i = 0; i < CUT_FIM_N; i++) {
+        int fd;
+        long fim;
+        unsigned char *buf;
+        unsigned int lido = 0;
+        if (g_cut_fim_pre[i]) continue;         /* ja' esta' na RAM */
+        snprintf(caminho, sizeof(caminho),
+                 "mass:/FNFPS2/assets/stages/sserafim/cut/%s.cfz4", nomes[i]);
+        fd = open(caminho, O_RDONLY);
+        if (fd < 0) { telemetry_event("cut_fim_pre_falha", i, -1); continue; }
+        fim = (long)lseek(fd, 0, SEEK_END);
+        if (fim <= 16) { close(fd); telemetry_event("cut_fim_pre_falha", i, -2); continue; }
+        buf = (unsigned char *)memalign(128, (unsigned int)fim);
+        if (!buf) { close(fd); telemetry_event("cut_fim_pre_falha", i, -3); continue; }
+        lseek(fd, 0, SEEK_SET);
+        while (lido < (unsigned int)fim) {
+            int r = read(fd, buf + lido, (int)((unsigned int)fim - lido));
+            if (r <= 0) break;
+            lido += (unsigned int)r;
+        }
+        close(fd);
+        if (lido != (unsigned int)fim) {
+            free(buf);
+            telemetry_event("cut_fim_pre_falha", i, -4);
+            continue;
+        }
+        g_cut_fim_pre[i] = buf;
+        g_cut_fim_pre_n[i] = lido;
+        telemetry_event("cut_fim_pre", i, (int)lido);
+    }
+}
 
 /* Devolve ao pool a imagem `i` (ou as duas, com i < 0). Idempotente. */
 static void cut_fim_soltar(int i)
@@ -2375,7 +2436,7 @@ static void cut_fim_soltar(int i)
     }
     if (i < 0) {
         g_cut_fim_fase = 0; g_cut_fim_amos = 0; g_cut_fim_soltas = 0;
-        for (k = 0; k < CUT_FIM_N; k++) g_cut_fim_quadros[k] = 0;
+        for (k = 0; k < CUT_FIM_N; k++) { g_cut_fim_quadros[k] = 0; g_cut_fim_draws[k] = 0; }
     }
 }
 
@@ -2399,7 +2460,10 @@ static int cut_fim_um(int i)
     cut_fim_soltar(i);                  /* a propria, se ficou de uma tentativa */
     snprintf(caminho, sizeof(caminho),
              "mass:/FNFPS2/assets/stages/sserafim/cut/%s.cfz4", nomes[i]);
-    rc = pst_abrir(caminho, &pk);
+    if (g_cut_fim_pre[i])
+        rc = pst_abrir_mem(g_cut_fim_pre[i], g_cut_fim_pre_n[i], &pk);
+    else
+        rc = pst_abrir(caminho, &pk);
     if (rc != PST_OK) { telemetry_event("cut_fim_falta", i, rc); return -1; }
     w = (unsigned int)cut_fim_tex_w[i];
     h = (unsigned int)cut_fim_tex_h[i];
@@ -2478,6 +2542,8 @@ static void cut_fim_anda(u32 advance)
                         (int)sp_livre(&g_pool));
         telemetry_event("cut_fim_quadros", g_cut_fim_quadros[0],
                         g_cut_fim_quadros[1]);
+        telemetry_event("cut_fim_desenho", g_cut_fim_draws[0],
+                        g_cut_fim_draws[1]);
     }
 }
 
@@ -2506,6 +2572,7 @@ static qword_t *cut_fim_desenha(qword_t *q)
     }
     q = bind_texture_filter(q, &g_cut_fim_tex[i], 1);
     g_cut_fim_quadros[i]++;
+    g_cut_fim_draws[i]++;
     return sprite_dims(q, x, y, w, h, cut_fim_tex_w[i], cut_fim_tex_h[i]);
 }
 
@@ -2537,8 +2604,13 @@ static void cut_soltar(void)
 {
     int i;
 
-    /* As duas imagens do `endStuff` moram no mesmo pool e saem junto. */
+    /* As duas imagens do `endStuff` moram no mesmo pool e saem junto; os dois
+       `.cfz4` comprimidos que ficaram na RAM tambem. */
     cut_fim_soltar(-1);
+    for (i = 0; i < CUT_FIM_N; i++) {
+        if (g_cut_fim_pre[i]) { free(g_cut_fim_pre[i]); g_cut_fim_pre[i] = 0; }
+        g_cut_fim_pre_n[i] = 0;
+    }
     for (i = 0; i < CUT_N; i++) cut_libera(i);
     if (g_cut_buf) { free(g_cut_buf); g_cut_buf = 0; g_cut_buf_bytes = 0; }
     if (g_cut_som_slot >= 0) { audio_ring_overlay_parar(g_cut_som_slot); g_cut_som_slot = -1; }
@@ -2675,6 +2747,9 @@ static void cut_entrar(void)
 {
     if (g_cut_modo != CUT_FORA || g_cut_feita) return;
     g_cut_feita = 1;
+    /* O pendrive trabalha AQUI, com a cena inteira (30 s) pela frente, e nao
+       nos ultimos 9 s da musica. */
+    cut_fim_prefetch();
     g_cut_modo = CUT_RODANDO;
     g_cut_skip_fase = 0;
     g_cut_skip_s = 0.0f;

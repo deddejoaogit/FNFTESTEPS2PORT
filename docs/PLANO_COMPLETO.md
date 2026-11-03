@@ -5617,14 +5617,15 @@ trecho.
 **Medido nesta rodada** (`--todas`, 81 rodadas):
 
 ```
-81 rodada(s) em 119,5 s
+81 rodada(s) em 234,7 s
 MARATONA: PASSOU -- as 81 rodada(s) chegaram ao Resultado pelo fim do chart,
 com a faixa visivel intacta
 ```
 
 A rodada mais longa é a `spaghetti` (13 182 quadros = 219,7 s de jogo, contando
 30,4 s de cutscene e 9 s de sequência do fim); a mais curta é o `tutorial`
-(4 201 quadros = 70 s). Todas as 81 chegaram ao Resultado com `play_result` e
+(4 633 quadros = 77,2 s — o `stems.pcm` dele tem 67,2 s para um chart de 60,0 s,
+e é o **áudio** que termina a música; ver a nota do orçamento, abaixo). Todas as 81 chegaram ao Resultado com `play_result` e
 **0 retângulo / 0 linha** fora da faixa visível. A passada de 27 músicas (só
 `normal`) custa 40 s e é a que roda na suíte; a de 81 fica como comando manual.
 
@@ -5659,3 +5660,128 @@ mixer), `tutorial_audio_end` contra o `song_end_sample` (deriva do audsrv),
 É a regra 3 do `REGRAS.md` levada a sério: o harness do PC não prova I/O nem
 tempo. O que ele prova está medido acima; o que só o console prova está listado
 lá, com a linha de log que fecha cada item.
+
+## O orçamento da maratona é o do ÁUDIO, não o do chart (medido)
+
+A maratona reprovava `tutorial/1` com "sem Resultado" — **e a música estava
+certa**. O `stems.pcm` do Tutorial tem 3 221 504 amostras (67,2 s) para um chart
+que termina em 2 880 000 (60,0 s). O jogo não termina a música no último passo
+do chart: termina quando o arquivo de áudio acaba (`g_tutorial_audio_finished`),
+que é o que o original faz com o `Conductor`. Com o orçamento tirado do chart, a
+rodada acabava **41 quadros antes** do `state,9` e reprovava uma música correta.
+
+O orçamento agora é `max(song_end_sample, tamanho do stems / 8)`. Medido:
+`tutorial/1` passou a 4 633 quadros / 77,2 s / `resultado 5`, e as 27 músicas
+fecharam em 27/27.
+
+## O montador do pendrive ganhou teste — e o teste achou dois defeitos
+
+Até agora o `tools/build_pendrive.sh` não tinha teste nenhum: ele era o único
+pedaço do projeto que ninguém executava de ponta a ponta, porque faltava a arte.
+Testá-lo não precisa de arte — precisa de **nomes**. O bloco novo da suíte monta
+um pendrive falso (16 arquivos de runtime, 46 `.chp4`, 81 charts, 27 stems, 157
+props, os 8 da cutscene, o áudio das telas com os mínimos que o montador cobra) e
+cobra o resultado. Na primeira execução ele achou dois defeitos reais:
+
+1. **Os 21 palcos nunca eram copiados.** A lista de props sai do
+   `src/stage_dados.h` por `grep '"stages/*.cfz4"'`, e o cabeçalho tem, num
+   comentário, o **exemplo** `"stages/<stage>/<name>.cfz4"`. O laço pegava esse
+   exemplo, procurava um arquivo chamado literalmente `<name>.cfz4`, imprimia
+   `FALTA o prop stages/<stage>/<name>.cfz4` e abortava — **sempre**, em
+   qualquer máquina. Ou seja: o pendrive do console não chegava a ser montado com
+   palco nenhum. Correção: `grep -v '<'` (158 strings → **157 props de verdade**,
+   em 21 palcos).
+2. **O `end1`/`end2` do `endStuff` não eram copiados.** O bloco da cutscene
+   copiava só `main`/`gf`/`bf` (3 `.quads` + 3 `.cfz4`). As duas imagens de um
+   quadro do fim da música existem em `build/packs/stages/sserafim/cut/` e o jogo
+   as pede em `cut_fim_um()`; sem elas a sequência do fim roda **sem imagem** e o
+   log diz `cut_fim_falta`. Correção: a lista explícita dos **8** arquivos
+   (`main`, `gf`, `bf` com `.quads` e `.cfz4`, mais `end1.cfz4` e `end2.cfz4`).
+   O mesmo grupo entrou na pré-checagem, que agora conta `8 de 8` **antes** de
+   copiar qualquer coisa.
+
+O teste roda duas vezes: com tudo (cobra os 8 arquivos, 157 props, 27 músicas,
+324 charts) e **sem o `end2.cfz4`** (cobra a recusa com o número certo —
+`cutscene do sserafim: 7 de 8` — e que **nada** foi copiado). Também foi ele que
+mostrou que a pré-checagem de personagens ignorava `CHARS_SRC` e que os charts
+não tinham override; os dois agora são variáveis (`CHARS_SRC`, `CHARTS_SRC`),
+como `STEMS_SRC`/`STAGES_SRC`/`GO_SRC`.
+
+## A maratona com sanitizadores
+
+`tools/maratona_harness.py --bin build/fnf_harness_asan` aponta a maratona ao
+binário com ASan+UBSan (o timeout do subprocesso subiu de 300 s para 900 s, o
+sanitizador é ~3× mais lento). A suíte roda as duas músicas mais profundas assim
+— `spaghetti` (13 182 quadros, 30,4 s de cutscene, a sequência do fim) e
+`monster` (10 928) —: **8,9 s, 0 retângulo, 0 linha, nenhum erro de sanitizador**.
+
+## O pendrive trabalha no começo da cena, não nos últimos 9 s
+
+O `endStuff` precisa de duas imagens (SEEYOU1 753×752 e SEEYOU2 1080×75) que no
+original já estão na RAM desde o `createCutsceneSprites`. No port elas **não
+cabem juntas na VRAM** (324 544 B contra a menor folga medida na cena, 311 296 B),
+então eram lidas do pendrive no instante do evento: 283 504 B descomprimidos de
+`end1` no `+0 s` e 41 040 B de `end2` no `+4 s`.
+
+Isso cai exatamente nos **últimos 9 segundos da música**, quando o anel de áudio
+não pode parar — e o `usbhdfsd` é o único leitor disponível no console. A correção
+custa 50 053 B de **RAM** e nada de VRAM: `cut_fim_prefetch()` copia os dois
+`.cfz4` **comprimidos** (39 951 + 10 102 B) para a RAM no começo da cutscene, e o
+`cut_fim_um()` só descomprime no evento. Para isso o `pack_stream` ganhou
+`pst_abrir_mem()` — o MESMO leitor, sobre um buffer em vez de um `fd` (o
+`test_pack_stream.c` cobra byte a byte que os dois caminhos dão o mesmo quadro,
+a mesma RAM e as mesmas recusas nomeadas).
+
+A degradação é segura por construção: se o pré-carregamento falhar
+(`cut_fim_pre_falha,<i>,<erro>`), `cut_fim_um()` volta a ler do arquivo — o
+comportamento antigo. **Medido** no jogo real (harness, `spaghetti`, 14 002
+quadros):
+
+```
+E,…,cut_fim_pre,0,39951            os dois na RAM no começo da cena
+E,…,cut_fim_pre,1,10102
+E,…,cut_fim_textura,0,283504       já descomprimido, sem tocar no pendrive
+E,…,cut_endstuff,1,311808          folga do pool com o end1
+E,…,cut_fim_textura,1,41040
+E,…,cut_endstuff2,1,554240
+E,…,cut_endstuff_apaga,595456,0
+E,…,cut_endstuff_fim,432000,595456 9,000 s
+E,…,cut_fim_quadros,237,240        quantos quadros cada uma ficou na tela
+E,…,cut_fim_desenho,237,240        quantas vezes cada uma foi DESENHADA
+E,…,endstuff_endsong,12596,8049154
+E,…,state,9,12699                  o Resultado
+```
+
+`cut_fim_desenho` é novo e existe para não confundir "a textura subiu" com "o
+sprite foi desenhado": 237 + 240 quadros a 60 fps são os 3,95 s e 4,00 s do
+original.
+
+## O áudio que a captura reabria era o do Tutorial
+
+A captura de tela (L2+R2) pausa o transporte, lê o frame buffer e reabre o áudio
+posicionado na amostra certa. Ela reabria sempre **`assets/audio_stems.pcm`** — o
+áudio do Tutorial — mesmo quando a música em cena era outra. Resultado: depois de
+uma captura em qualquer música, o som virava o do Tutorial até o fim.
+
+O caminho do áudio que está tocando agora fica em `g_audio_fonte` (`src/main.c`
+L559; preenchido ao abrir o stems da música, L9244-9258), e a retomada da captura
+reusa esse caminho, com o `audio_stems.pcm` só como último recurso quando ele
+está vazio. O log diz qual dos dois foi usado: `play_audio_path,<fd>,<bytes>`
+(`fd >= 0` é o arquivo da música).
+
+## A rodada de verificação que fechou esta etapa
+
+Tudo o que está abaixo saiu de execuções reais nesta árvore, na ordem em que foi
+feito — não é lista de intenções:
+
+| comando | resultado |
+|---|---|
+| `sh test/run_tests.sh` | **ALL SUITES PASSED** (31 suites de PC + harness + sweep 81 v3/v5 + fim do `sserafim` + pendrive + maratona 27 + maratona com ASan + story + sanitizadores) |
+| `python3 tools/maratona_harness.py --todas` | **81/81** até o Resultado, 234,7 s, 0 retângulo / 0 linha fora |
+| `python3 tools/maratona_harness.py --bin build/fnf_harness_asan --musicas spaghetti,tutorial` | 2/2 com ASan + UBSan, nenhum erro |
+| `sh tools/build_pendrive.sh` (sem a arte) | recusa com a lista completa: 16 assets, 46 personagens, 27 stems, 31 PCMs de tela, 8 da cutscene, ELF — e **nada copiado** |
+| `sh tools/run_harness.sh` / `run_harness_asan.sh` (compilam `src/main.c` e todos os módulos com `-Wall -Wextra`) | **0 avisos**; o build do EE (`ee-gcc`) não existe neste ambiente, então o mesmo não está medido para o alvo |
+
+O que continua **sem** prova aqui é o que precisa do console: I/O do `usbhdfsd`,
+`audsrv` por 3 minutos, VRAM do GS de verdade e o `mc0:`. Está tudo listado, com
+a linha de log que responde cada item, em `docs/TESTE_NO_CONSOLE.md`.

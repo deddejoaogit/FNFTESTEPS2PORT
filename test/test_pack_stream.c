@@ -121,6 +121,64 @@ int main(void)
     pst_fechar(&p);
     CHECK_EQ(pst_quadro(&p, 0, saida), PST_ERR_ABRIR);   /* fechado: nao le' */
 
+    /* ---- o MESMO pacote lido da RAM (`pst_abrir_mem`) --------------------
+       E' o caminho do `endStuff` do sserafim: os dois `.cfz4` do fim da musica
+       vao para a RAM COMPRIMIDOS no comeco da cutscene (39 951 + 10 102 B na
+       arte real) e descomprimem no instante do evento, para nao ler 283 504 B
+       do pendrive nos ultimos 9 s da musica. Aqui se cobra que ele de' o mesmo
+       byte e a mesma recusa que o caminho do arquivo -- nao e' um atalho sem
+       validacao. */
+    {
+        pst_pack_t pf, pm;
+        unsigned int ram_ram;
+        CHECK_EQ(pst_abrir(CAMINHO, &pf), PST_OK);
+        CHECK_EQ(pst_abrir_mem(pacote, n, &pm), PST_OK);
+        CHECK_EQ(pm.count, pf.count);
+        CHECK_EQ(pm.frame_bytes, pf.frame_bytes);
+        CHECK_EQ(pm.bytes, pf.bytes);
+        CHECK_EQ(pm.ram, pf.ram);        /* mesma tabela, mesmo bloco */
+        CHECK(pm.fd < 0);                /* nenhum arquivo aberto       */
+        for (q = 0; q < NQ; q += 11u) {
+            for (i = 0; i < QB; i++) esperado[i] = (unsigned char)((q * 31u + i * 7u) & 0xffu);
+            CHECK_EQ(pst_quadro(&pf, q, saida), PST_OK);
+            CHECK_EQ(pst_quadro(&pm, q, saida), PST_OK);
+            CHECK(memcmp(esperado, saida, QB) == 0);
+        }
+        CHECK_EQ(pst_quadro(&pm, NQ, saida), PST_ERR_QUADRO);
+        ram_ram = pm.ram;
+        pst_fechar(&pm);
+        CHECK_EQ(pst_quadro(&pm, 0, saida), PST_ERR_ABRIR);  /* fechado: nao le' */
+        /* O buffer e' do CHAMADOR: fechar NAO o invalida, entao reabrir do
+           mesmo buffer tem de funcionar (e' assim que o `endStuff` usa). */
+        CHECK_EQ(pst_abrir_mem(pacote, n, &pm), PST_OK);
+        CHECK_EQ(pst_quadro(&pm, 1, saida), PST_OK);
+        for (i = 0; i < QB; i++) esperado[i] = (unsigned char)((1u * 31u + i * 7u) & 0xffu);
+        CHECK(memcmp(esperado, saida, QB) == 0);
+        pst_fechar(&pm);
+
+        /* Recusas do caminho da RAM, com erro nomeado. */
+        CHECK_EQ(pst_abrir_mem(0, n, &pm), PST_ERR_CABECALHO);
+        CHECK_EQ(pst_abrir_mem(pacote, 0u, &pm), PST_ERR_CABECALHO);
+        CHECK_EQ(pst_abrir_mem(pacote, 16u, &pm), PST_ERR_CABECALHO);
+        /* Tabela cortada no meio: 32 quadros de tabela para 64 anunciados. */
+        CHECK_EQ(pst_abrir_mem(pacote, 16u + 8u * (NQ / 2u), &pm), PST_ERR_TABELA);
+        pacote[0] = 'X';
+        CHECK_EQ(pst_abrir_mem(pacote, n, &pm), PST_ERR_CABECALHO);
+        pacote[0] = 'C';
+        /* Bloco LZ4 corrompido dentro do buffer: erro, nunca meio quadro. */
+        {
+            unsigned char guardado = pacote[tab_off[3] + 4u];
+            pacote[tab_off[3] + 4u] = (unsigned char)(guardado ^ 0xFFu);
+            if (pst_abrir_mem(pacote, n, &pm) == PST_OK) {
+                CHECK_EQ(pst_quadro(&pm, 3, saida), PST_ERR_LZ4);
+                pst_fechar(&pm);
+            }
+            pacote[tab_off[3] + 4u] = guardado;
+        }
+        pst_fechar(&pf);
+        printf("  RAM: mesmos quadros, mesma RAM (%u B) e as mesmas recusas\n", ram_ram);
+    }
+
     /* ---- todo arquivo estragado e' recusado, com erro nomeado ------------ */
     {
         static unsigned char ruim[sizeof pacote];

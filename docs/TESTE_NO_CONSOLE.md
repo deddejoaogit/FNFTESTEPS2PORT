@@ -135,6 +135,15 @@ evento.
 6. **O `mc0:` grava o save de 1 992 B?** (`save_gravado,1992,0`).
 7. **As cores estão certas?** o despejo `FNF_SCREEN_*.rgba.txt` responde sem
    filmar a TV.
+8. **Os dois `.cfz4` do fim da música foram para a RAM no começo da cena?**
+   O `end1` (283 504 B descomprimido) é lido do pendrive **no começo da
+   cutscene**, comprimido (39 951 B), junto com o `end2` (10 102 B) — nunca nos
+   últimos 9 s da música, quando o anel de áudio não pode parar. A prova no log
+   é `cut_fim_pre,0,39951` e `cut_fim_pre,1,10102` no início da cena; se vier
+   `cut_fim_pre_falha,<i>,<erro>`, o jogo cai no caminho antigo (lê no evento) e
+   mesmo assim desenha. O que o console decide é **se o fallback foi usado** e
+   **se a leitura dos 50 KB no começo da cena** atrasou algum pacote de palco
+   (linhas `F` com `fps` baixo logo depois de `cut_cena,1`).
 
 ## 5. Como mandar o resultado
 
@@ -144,4 +153,4 @@ piso em perspectiva, poeira, os dois sons do chute e a sequência do fim). Se o
 arquivo passar de ~40 MB, mande só as linhas `E,`, `#` e `IO,` — o resto é
 despejo de desenho.
 
-Com esses dois arquivos, as sete perguntas acima deixam de ser hipótese.
+Com esses dois arquivos, as oito perguntas acima deixam de ser hipótese.

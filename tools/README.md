@@ -75,6 +75,33 @@ an audio shorter than the chart is reported as such instead of being padded to
 hide it. `tools/build_pendrive.sh` refuses to build a pendrive without the 27
 stems (and copies `STEMS.txt` next to them).
 
+## `build_pendrive.sh` — o cartão do console, medido antes de copiar
+
+Monta a pasta do pendrive (o layout que `src/main.c` abre em `mass:/FNFPS2/`).
+Antes de copiar **qualquer** arquivo ele mede os sete grupos: 16 assets de
+runtime, 46 `.chp4`, 21 palcos (157 props), os 8 arquivos da cutscene do
+`sserafim`, os 81 charts, os 27 stems, o áudio das telas (31 PCMs) e o ELF. Se
+faltar algo, imprime o que falta com o comando que resolve cada item e não copia
+nada (uma pasta pela metade não chega a existir).
+
+```sh
+sh tools/build_pendrive.sh                       # monta em build/pendrive
+ASSETS=<pasta> ELF=<elf> STAGES_SRC=... \
+    CHARS_SRC=... CHARTS_SRC=... STEMS_SRC=... GO_SRC=... \
+    sh tools/build_pendrive.sh build/pendrive     # tudo por variável (testes)
+```
+
+Dois defeitos que só apareciam aqui — e que a suíte agora cobra:
+
+* o `grep` da lista de props pegava o **exemplo** `"stages/<stage>/<name>.cfz4"`
+  do comentário do `stage_dados.h` e abortava a cópia dos 21 palcos **sempre**
+  (correção: `grep -v '<'`; 158 strings → 157 props);
+* o `end1.cfz4`/`end2.cfz4` do `endStuff` não eram copiados (só `main`/`gf`/`bf`),
+  e no console a sequência do fim rodaria sem imagem (`cut_fim_falta`).
+
+O teste monta o pendrive duas vezes — com tudo e **sem o `end2.cfz4`** — e cobra
+o resultado e a recusa (`cutscene do sserafim: 7 de 8`, nada copiado).
+
 ## `maratona_harness.py` — cada música ATÉ O FIM
 
 O sweep dá 1 200 quadros por música; o fim nunca era exercitado. Este roda cada
@@ -87,7 +114,16 @@ auditoria da faixa visível e a ausência de `palco_script_retry`,
 python3 tools/maratona_harness.py            # 27 músicas, normal  (~40 s)
 python3 tools/maratona_harness.py --todas    # 81 rodadas          (~120 s)
 python3 tools/maratona_harness.py --musicas monster,guns
+python3 tools/maratona_harness.py --bin build/fnf_harness_asan   # com ASan+UBSan
 ```
 
 Medido: `--todas` → 81/81 até o Resultado, 0 retângulo / 0 linha fora.
-A passada de 27 roda dentro de `test/run_tests.sh`.
+A passada de 27 roda dentro de `test/run_tests.sh`, que também roda as duas
+músicas mais longas com o binário de sanitizadores (`--bin`; o timeout do
+subprocesso sobe de 300 s para 900 s, porque o ASan é ~3× mais lento).
+
+O orçamento de quadros é **o do áudio**, não o do chart:
+`max(song_end_sample, duração do stems.pcm)`. O `stems` do Tutorial tem 67,2 s
+para um chart de 60,0 s, e é o fim do arquivo que termina a música — com o
+orçamento do chart a rodada acabava 41 quadros antes do `state,9` e reprovava
+uma música que estava certa (medido: `tutorial/1` passou a 4 633 quadros).

@@ -24,7 +24,7 @@ E isso vale para **todas** as músicas, até o fim:
 
 ```
 $ python3 tools/maratona_harness.py --todas
-81 rodada(s) em 119,5 s
+81 rodada(s) em 234,7 s
 MARATONA: PASSOU -- as 81 rodada(s) chegaram ao Resultado pelo fim do chart,
 com a faixa visivel intacta
 ```
@@ -44,7 +44,7 @@ e 0 linha** fora da faixa visível, e a ausência de erro de VRAM/retry.
 | Scripts de palco | **18/18** portados (eventos, timers, tweens, `FlxEase`, 5 sprites criados por script, trem em laço, luzes, carros em Bézier) | `src/engine/stage_script.c` |
 | Note kinds | **35** no dado, 34 usados nos charts | `assets-data/notekinds.json` |
 | Cutscene do `sserafim` | 631 quadros de geometria assada, 30,4 s, skip em ENTER/A, fades, câmera | `src/engine/ss_cutscene.c` |
-| Fim da música do `sserafim` | `endStuff` → SEEYOU1 → SEEYOU2 → `endSong(true)` em 9,000 s | `cut_fim_quadros,237,240` |
+| Fim da música do `sserafim` | `endStuff` → SEEYOU1 → SEEYOU2 → `endSong(true)` em 9,000 s; os dois `.cfz4` do fim vão para a RAM **no começo da cena** (não no último segundo) | `cut_fim_pre,0,39951` · `cut_fim_desenho,237,240` · `cut_endstuff_fim,432000` |
 | Áudio | anel de 8 B/amostra (Inst L/R + Vox L/R), 48 kHz; mixer soma as duas faixas | `src/audio_ring.c`, `src/engine/audio_mix.c` |
 | VRAM | orçamento por palco/personagem medido, LRU com despejo, folga mínima registrada | `tools/vram_budget.py`, `cut_pool_min` |
 | Otimização (Fase 5) | custo por quadro medido nas 81 combinações | `build/sweep/custo.txt`, média **121/100** uploads de personagem por quadro |
@@ -52,7 +52,7 @@ e 0 linha** fora da faixa visível, e a ausência de erro de VRAM/retry.
 ## Como construir e testar
 
 ```sh
-sh test/run_tests.sh          # TUDO: 31 suites de PC + harness do jogo real (~10 min)
+sh test/run_tests.sh          # TUDO: 31 suites de PC + harness do jogo real + o montador do pendrive (~10 min)
 make                          # o ELF do PS2 (precisa do ps2sdk)
 sh tools/build_pendrive.sh    # monta a pasta do pendrive (recusa se faltar algo)
 ```
@@ -67,7 +67,13 @@ O `test/run_tests.sh` roda, entre outras coisas:
 * a **maratona** das 27 músicas até o Resultado;
 * o **fim do `sserafim`** (a cadeia SEEYOU inteira, 14 000 quadros);
 * Story, Freeplay, Game Over, Resultado, pausa, save e o áudio (anel, mixer,
-  autoteste do empacotador de stems).
+  autoteste do empacotador de stems);
+* o **montador do pendrive** (`tools/build_pendrive.sh`), montado duas vezes:
+  com tudo (tem de sair com os 8 arquivos da cutscene, 157 props, 27 músicas,
+  324 charts) e **sem o `end2.cfz4`** (tem de recusar, dizer `7 de 8` e não
+  copiar nada). Foi esse teste que achou dois defeitos que só apareceriam no
+  console: o `<name>.cfz4` de exemplo do `stage_dados.h` abortava a cópia dos 21
+  palcos **sempre**, e o `end1`/`end2` do `endStuff` nunca eram copiados.
 
 ## Os documentos
 
