@@ -123,14 +123,23 @@ def prepara(musicas):
     return r.returncode == 0
 
 
-def uma(sid, dif):
+def uma(sid, dif, binario=None):
     chart = os.path.join(RAIZ, "FNFPS2", "assets", "songs", sid, ["easy", "normal", "hard"][dif] + ".chart")
     if not os.path.isfile(chart):
         return None, "sem chart"
     fim = fim_do_chart(chart)
     if not fim:
         return None, "chart ilegivel"
-    segundos = fim / float(RATE)
+    # O JOGO TERMINA A MUSICA PELO AUDIO, NAO PELO CHART: o fim natural chega
+    # quando o `stems.pcm` acaba. Um stems mais LONGO que o chart (o do Tutorial
+    # tem 67,2 s para um chart de 60,0 s) faz a rodada precisar dos segundos do
+    # AUDIO -- medido: com o orcamento do chart a rodada terminava 41 quadros
+    # antes do `state,9` e reprovava uma musica que estava certa.
+    stems = os.path.join(RAIZ, "FNFPS2", "assets", "songs", sid, "stems.pcm")
+    fim_audio = 0
+    if os.path.isfile(stems):
+        fim_audio = os.path.getsize(stems) // 8
+    segundos = max(fim, fim_audio) / float(RATE)
     if e_sserafim(sid):
         segundos += CUTSCENE_SSERAFIM + FIM_SSERAFIM
     segundos += CONTAGEM + MARGEM
@@ -150,7 +159,7 @@ def uma(sid, dif):
         "PS2H_INPUT_AMOSTRAS": teclas,
     })
     t0 = time.time()
-    r = subprocess.run([BIN], cwd=PROJECT, env=env, capture_output=True, text=True, timeout=300)
+    r = subprocess.run([binario or BIN], cwd=PROJECT, env=env, capture_output=True, text=True, timeout=900)
     dt = time.time() - t0
     saida = r.stdout + r.stderr
     res = {
@@ -200,6 +209,8 @@ def main():
     ap.add_argument("--dificuldade", type=int, default=1, choices=[0, 1, 2])
     ap.add_argument("--todas", action="store_true", help="27 x 3 dificuldades")
     ap.add_argument("--sem-preparo", action="store_true")
+    ap.add_argument("--bin", default="", help="binario do harness (padrao build/fnf_harness); "
+                                              "use build/fnf_harness_asan para rodar com sanitizadores")
     args = ap.parse_args()
 
     ids = [s for s in args.musicas.split(",") if s] or cancoes()
@@ -215,7 +226,7 @@ def main():
     for sid in ids:
         for dif in difs:
             total += 1
-            res, erro = uma(sid, dif)
+            res, erro = uma(sid, dif, args.bin or None)
             nome = "%s/%d" % (sid, dif)
             if erro:
                 falhas.append((nome, erro))

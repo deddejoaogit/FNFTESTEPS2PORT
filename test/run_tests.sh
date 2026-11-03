@@ -961,6 +961,22 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     fi
     tail -3 /tmp/fnf_maratona.log
 
+    # A MARATONA COM SANITIZADORES. As 27 custariam ~2 min; as duas mais longas
+    # (a `spaghetti`, com cutscene e sequencia do fim, e a `monster`, 182 s de
+    # jogo) exercitam os caminhos profundos -- o fim da musica, a troca de
+    # palco, o reload dos pacotes -- com ASan e UBSan olhando cada byte.
+    if [ -x build/fnf_harness_asan ]; then
+        echo
+        echo "== maratona com ASan + UBSan: as duas musicas mais longas =="
+        if ! python3 tools/maratona_harness.py --bin build/fnf_harness_asan \
+                --sem-preparo --musicas spaghetti,monster > /tmp/fnf_maratona_asan.log 2>&1; then
+            grep -E "FALHA|FALHARAM|ERROR|runtime error" /tmp/fnf_maratona_asan.log | head -10
+            echo "  FALHA: a maratona com sanitizadores nao passou"
+            exit 1
+        fi
+        tail -3 /tmp/fnf_maratona_asan.log
+    fi
+
     # O passe v5 deixa os charts do harness em FCH5; o Teste de Story e o de
     # sanitizadores abaixo esperam o v3 que o console roda. Volta o formato.
     FNF_SWEEP_FMT=v3 python3 tools/preparar_sweep.py --forcar >/dev/null || exit 1
