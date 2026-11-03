@@ -1,5 +1,22 @@
 # FNF PS2 — a pasta do jogo (build 0.2.159)
 
+## O jeito simples: uma pasta, um clique
+
+**https://drive.google.com/drive/folders/1nQScMtyxBXxDVZ2fyQRgE_KYkZCz2QPX**
+
+Abra a pasta → **Ctrl+A** (selecionar os 24) → botão direito → **Baixar**.
+O Google Drive monta **um único zip** (`FNF PS2 - pendrive completo.zip`, ~1,7 GB). Extraia esse zip na raiz do pendrive: ele já traz `FNF_PS2.ELF` e a pasta `FNFPS2/` no lugar certo.
+
+> Se o Drive reclamar de tamanho e dividir em dois zips, extraia os dois na mesma pasta e mande mesclar.
+
+Já tem os 7 do jogo? Então selecione só os **16 de áudio** dentro da pasta.
+
+### Por que 24 partes e não um arquivo só?
+
+O limite de envio daqui é **100 MB por arquivo**; por isso cada parte fica em ~85 MB. O zip único de 1,45 GB foi montado e testado localmente (23 entradas, todas íntegras), mas não pode ser enviado. O download, do seu lado, continua sendo um clique só.
+
+Os links individuais seguem abaixo, caso algum falhe.
+
 São **24 arquivos**: 7 partes do jogo + 16 partes de áudio + este guia.
 Baixe todos e **extraia na mesma pasta** (todos têm a mesma raiz `FNFPS2/`).
 
