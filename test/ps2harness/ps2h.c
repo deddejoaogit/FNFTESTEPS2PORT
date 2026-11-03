@@ -1284,6 +1284,15 @@ void *__wrap_draw_rect_textured(void *q, int context, void *v)
         float out = 0.0f;
         if (lo < topo) out += topo - lo;
         if (hi > base) out += hi - base;
+        if (out > 100000.0f) {
+            static int _dbg = 0;
+            if (_dbg < 8) {
+                fprintf(stderr, "DBGGIG x %.1f..%.1f y %.1f..%.1f u %.1f..%.1f v %.1f..%.1f cor %08x estado %d\n",
+                        y[0], y[6], y[1], y[7], y[4], y[10], y[5], y[11],
+                        *(const unsigned int *)((const float *)v + 12), g_ui_state_dbg);
+                _dbg++;
+            }
+        }
         if (out > 0.0f) {
             int slot = -1, k;
             for (k = 0; k < h_band_n; k++) {

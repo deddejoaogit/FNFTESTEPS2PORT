@@ -180,6 +180,14 @@ typedef struct {
     /* O `idleSuffix` do Bopper (school.hxc L19: o `freaks` da `roses` toca
        `danceLeft-scared`). Devolve "" quando o prop nao tem sufixo. */
     const char *(*sufixo)(int prop_abs);
+    /* ALPHA de um sprite do SCRIPT (`bs_criados[]`, indice ABSOLUTO).
+       Existe separado do `alpha` porque sao tabelas diferentes -- o `alpha`
+       acima indexa `bs_props[]` -- e porque o script mexe nos dois de formas
+       diferentes: nos props com FlxTween (`truckLight1.alpha = ...`), nos
+       criados com `visible = true/false` (as quatro poeiras do sserafim e o
+       `hideDust` da cutscene, sserafim.hxc L931-939). Devolve < 0 para "o
+       dado manda". */
+    float (*criado_alpha)(int criado_abs);
 } sl_script_t;
 
 void sl_set_script(const sl_script_t *script);

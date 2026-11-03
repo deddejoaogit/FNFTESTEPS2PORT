@@ -71,6 +71,18 @@ void vc_soltar(vc_t *c, unsigned int chave);
 /* 1 se a chave esta' fixa, 0 se nao. Para o teste e para a telemetria. */
 int vc_esta_fixo(const vc_t *c, unsigned int chave);
 
+/* ESQUECE UMA CHAVE, e devolve o espaco AGORA (1 se ela existia, 0 se nao).
+   Diferenca para vc_soltar: soltar so' tira a fixacao e o bloco continua
+   ocupando VRAM ate' o proximo pedido precisar dele. Ha' um caso em que isso
+   nao serve: a CUTSCENE do sserafim precisa de 773 KB de textura enquanto os
+   seis personagens estao INVISIVEIS por `setCutsceneVisibility`, e o cache nao
+   tem como saber sozinho que eles vao querer o lugar de volta. Liberar a chave
+   e' o que transforma "personagem escondido" em espaco livre determinista, e
+   nao em "talvez o despejo escolha ele". Quem libera e' quem sabe que a
+   textura nao sera' desenhada neste trecho; a chave pode ser pedida de novo
+   depois, com o mesmo endereco ou outro. */
+int vc_liberar(vc_t *c, unsigned int chave);
+
 /* Esquece tudo que nao for fixo. Usar ao trocar de cena. */
 void vc_limpar(vc_t *c);
 

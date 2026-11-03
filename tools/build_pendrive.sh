@@ -171,7 +171,8 @@ for f in "$GO_SRC"/*.pcm; do
         # phillyBlazin.hxc L187). Vao para assets/stage/, que e' onde o
         # `palco_som_toca` do main.c procura -- pasta nova porque nao sao som de
         # tela nenhuma, sao evento de palco.
-        lightning*|thunder*|train*|doorkick*) cp "$f" "$OUT/FNFPS2/assets/stage/"; NPALCO=$((NPALCO+1)) ;;
+        lightning*|thunder*|train*|doorkick*|startcutscene*|cutend*)
+            cp "$f" "$OUT/FNFPS2/assets/stage/"; NPALCO=$((NPALCO+1)) ;;
         res_*|scroll_menu*|confirm_menu*|cancel_menu*|fav.pcm|unfav.pcm|tickle_fight*)
             cp "$f" "$OUT/FNFPS2/assets/result/"; NRES=$((NRES+1)) ;;
         *) cp "$f" "$OUT/FNFPS2/assets/gameover/"; NGO=$((NGO+1)) ;;
@@ -208,6 +209,35 @@ for f in build/charts/*.chart; do
     cp "$f" "$OUT/FNFPS2/assets/charts/$id/$diff.chart"
 done
 echo "   $(ls build/charts | wc -l) charts x 4 layouts = $(( $(ls build/charts | wc -l) * 4 )) arquivos"
+
+echo "== copiando o AUDIO das 27 musicas (songs/<id>/stems.pcm) =="
+# SEM ISTO SO' O TUTORIAL TEM SOM. O jogo abre `assets/songs/<id>/stems.pcm`
+# (`sr_stems_path`) e cai no `assets/audio_stems.pcm` plano -- que e' o audio do
+# Tutorial -- quando nao acha o da musica. O pendrive saia sem nenhum dos 27 e
+# ninguem notava no harness, onde o PCM e' gerado sinteticamente.
+# Formato (o que o mixer le', nao uma escolha): 8 bytes por amostra,
+# [InstL, InstR, VoxL, VoxR] int16 little-endian a 48 kHz. Quem gera e'
+# `tools/empacotar_stems.py`; o manifesto vai junto para o console poder ser
+# conferido sem adivinhar.
+STEMS_SRC=${STEMS_SRC:-build/packs/stems}
+NSTEM=0
+FALTA_STEM=""
+for j in assets-data/songs/*-metadata.json; do
+    sid=$(basename "$j" -metadata.json)
+    if [ -f "$STEMS_SRC/$sid/stems.pcm" ]; then
+        cp "$STEMS_SRC/$sid/stems.pcm" "$OUT/FNFPS2/assets/songs/$sid/stems.pcm"
+        NSTEM=$((NSTEM+1))
+    else
+        FALTA_STEM="$FALTA_STEM $sid"
+    fi
+done
+if [ -n "$FALTA_STEM" ]; then
+    echo "FALTAM os stems:$FALTA_STEM" >&2
+    echo "   rode: python3 tools/empacotar_stems.py --assets <clone do funkin.assets>" >&2
+    exit 1
+fi
+[ -f "$STEMS_SRC/STEMS.txt" ] && cp "$STEMS_SRC/STEMS.txt" "$OUT/FNFPS2/assets/songs/STEMS.txt"
+echo "   $NSTEM stems, $(du -sh "$STEMS_SRC" | cut -f1)"
 
 echo "== copiando os 46 personagens (assets/chars/<id>.chp4) =="
 # Sem estes arquivos o jogo ABRE e roda, mas nao desenha personagem nenhum:
@@ -258,6 +288,26 @@ for t in $(grep -o '"stages/[^"]*\.cfz4"' src/stage_dados.h | tr -d '"' | sort -
 done
 echo "   $NPROP props em $(ls -d "$OUT/FNFPS2/assets/stages"/*/ | wc -l) palcos, $(du -sh "$OUT/FNFPS2/assets/stages" | cut -f1)"
 
+# A CUTSCENE DO sserafim (assets/stages/sserafim/cut/): os tres `.quads` de
+# geometria e os tres `.cfz4` de textura. NAO sao props de `stage_dados.h` -- o
+# laco acima so' copia o que o cabecalho do jogo compila --, entao eles tem de
+# ser copiados AQUI. Sem eles a `spaghetti` roda, mas o intro de 30 s (a cena
+# inteira do script do palco) nao aparece: o jogo registra `cut_falta`.
+NCUT=0
+for n in main gf bf; do
+    for ext in quads cfz4; do
+        if [ -f "$STAGES_SRC/sserafim/cut/$n.$ext" ]; then
+            mkdir -p "$OUT/FNFPS2/assets/stages/sserafim/cut"
+            cp "$STAGES_SRC/sserafim/cut/$n.$ext" "$OUT/FNFPS2/assets/stages/sserafim/cut/"
+            NCUT=$((NCUT+1))
+        else
+            echo "FALTA a cutscene $STAGES_SRC/sserafim/cut/$n.$ext -- rode tools/assar_cutscene_sserafim.py --saida build/packs/stages/sserafim/cut" >&2
+            exit 1
+        fi
+    done
+done
+echo "   $NCUT arquivo(s) da cutscene em assets/stages/sserafim/cut/"
+
 echo "== copiando o ELF =="
 if [ ! -f "$ELF" ]; then
     echo "FALTA $ELF -- baixe do Drive (id 17-GBt7YM8fkc4ZBP9Xo5g-ksAy_qN9Jl)" >&2
@@ -286,6 +336,9 @@ FNF PS2 -- COMO INSTALAR
 
    Dentro dela tem de existir TUDO isto:
        FNFPS2/assets/               os 16 arquivos soltos + songs/ + charts/
+       FNFPS2/assets/songs/<id>/    o chart e o `stems.pcm` de cada musica
+                                    (27 stems + STEMS.txt: sem eles so' o
+                                    Tutorial tem som)
        FNFPS2/assets/chars/         um .chp4 por personagem (46)
        FNFPS2/assets/stages/        uma pasta por palco, um .cfz4 por prop
        FNFPS2/assets/gameover/      o audio da tela de game over (13 .pcm)

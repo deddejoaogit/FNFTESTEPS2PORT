@@ -93,6 +93,11 @@ static int ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_cor(&g
 static float ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_tss, prop_abs, y_dado); }
 static int ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_tss, prop_abs, graus); }
 static const char *ov_sufixo(int prop_abs) { return ss_prop_sufixo(&g_tss, prop_abs); }
+/* O `criado_alpha` e' a tabela dos sprites do SCRIPT (`bs_criados[]`), com
+   indice ABSOLUTO -- a mesma assinatura que o `main.c` registra. Faltava nesta
+   lista e o teste nao compilava mais com -Werror: o campo novo do
+   `sl_script_t` tem de ser preenchido aqui tambem. */
+static float ov_criado_alpha(int criado_abs) { return ss_criado_alpha(&g_tss, criado_abs); }
 /* Avanca o `ss_t` de teste em passos de 1/60 s. */
 static void avanca_tss(float segundos)
 {
@@ -1018,7 +1023,8 @@ int main(void)
            ligados a um `ss_t` de verdade e cobra o resultado no LAYOUT -- que
            e' onde o alpha/x/quadro viram desenho. */
         static const sl_script_t hook = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
-                                          ov_y, ov_ang, ov_sufixo };
+                                          ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n;
 
@@ -1132,7 +1138,8 @@ int main(void)
            chegasse aqui, o prop sairia branco e a troca de cor por beat nao
            apareceria na tela. */
         static const sl_script_t hook2 = { ov_alpha, ov_x, ov_frame, ov_cor, ov_prop_cor,
-                                           ov_y, ov_ang, ov_sufixo };
+                                           ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n, achou_trem = 0, achou_luz = 0;
         ss_init(&g_tss, "phillyTrain");
@@ -1204,7 +1211,8 @@ int main(void)
            que se cobra e' que o ITEM do layout saia com o angulo e o y do
            script, e nao com os do JSON. */
         static const sl_script_t hook3 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n, b, saiu = 0;
         ss_init(&g_tss, "phillyStreets");
@@ -1246,7 +1254,8 @@ int main(void)
     printf("== layout: o TANQUE do tankmanBattlefield (x, y e angulo do script) ==\n");
     {
         static const sl_script_t hook4 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n;
         ss_init(&g_tss, "tankmanBattlefield");
@@ -1285,7 +1294,8 @@ int main(void)
            passaria 190 px acima do lugar (o `160` do JSON contra os 350..380 do
            `resetFastCar`, L88). */
         static const sl_script_t hook6 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n, i, achou = 0, b;
         ss_init(&g_tss, "limoRide");
@@ -1332,7 +1342,8 @@ int main(void)
            troca o sufixo, e o layout tem de entregar a animacao 2/3 -- a cor
            das duas variantes e' a mesma arte, o que muda e' o desenho. */
         static const sl_script_t hook5 = { ov_alpha, ov_x, ov_frame, ov_cor,
-                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo };
+                                           ov_prop_cor, ov_y, ov_ang, ov_sufixo,
+                                          ov_criado_alpha };
         sl_item_t it[SL_MAX_ITENS];
         int n, i, achou = -1;
         for (i = 0; i < 2; i++) {

@@ -426,6 +426,38 @@ int main(void)
         ok(s->scroll_t < 1.0f, "scroll: no duration tweens");
     }
 
+    /* ---- `mode:'stage'` multiplica a BASE, nao o zoom corrente ----------
+       O `spaghetti` tem 267 ZoomCamera com mode 'stage' e zoom 1,8. Com a base
+       certa cada um da' 0,5 * 1,8 = 0,9 (o palco `sserafim` tem cameraZoom
+       0,50). Multiplicando o zoom CORRENTE a serie compoe 1,8 por evento e
+       explode: medido no harness, 267 eventos levavam o zoom a 2 122 271 488
+       (e `NaN` em alguns quadros), e com ele o `h` dos props ia a 2^27 linhas
+       -- 11,4 milhoes de linhas fora da faixa visivel na auditoria. Aqui a
+       prova e' numerica e nao depende do chart real. */
+    chart_events_init(7200u);
+    chart_events_reset(0.5f, 1.0f);       /* o cameraZoom do sserafim */
+    {
+        chart_event_t ev;
+        memset(&ev, 0, sizeof ev);
+        ev.type = CHART_EV_ZOOM_CAMERA;
+        ev.a = 1u;                         /* mode 'stage' */
+        ev.b = CHART_B_EASE_ABSENT;        /* duracao 0: vale no mesmo quadro */
+        ev.p1 = 1800u;
+        chart_events_apply(&ev);
+        s = chart_events_state();
+        near(s->zoom, 0.9f, "stage: 0,5 * 1,8 = 0,9");
+        chart_events_apply(&ev);
+        s = chart_events_state();
+        near(s->zoom, 0.9f, "o segundo evento stage NAO compoe (nao vira 1,62)");
+        near(s->zoom_base, 0.5f, "e a base continua o zoom do palco");
+
+        /* O mesmo evento em modo ABSOLUTO (a == 0) salta para 1,8. */
+        ev.a = 0u;
+        chart_events_apply(&ev);
+        near(chart_events_state()->zoom, 1.8f, "absoluto: o zoom e' o valor do chart");
+        near(chart_events_state()->zoom_base, 0.5f, "e a base nao muda com um absoluto");
+    }
+
     load(SPAGHETTI);
     chart_events_reset(1.1f, 1.0f);
     {

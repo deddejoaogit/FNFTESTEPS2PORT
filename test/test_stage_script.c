@@ -1268,6 +1268,72 @@ int main(void)
         CHECK_EQ(sf.ssf_n, 0);
         CHECK_NEAR(ss_ssf_flash_alpha(&sf), 1.0);   /* o flash nao e' resetado */
 
+        /* ---- A CUTSCENE (L583-625): `setCutsceneVisibility` e a mascara ---- */
+        {
+            ss_init(&sf, "sserafim");
+            /* No instante zero o script ainda NAO entrou na cutscene: vale o
+               dado para todos os props e a GF de verdade esta' em cena. */
+            CHECK_EQ(sf.ssf_cut, 0);
+            CHECK_EQ(sf.ssf_gf, 1);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_GF), -1.0f);
+            CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_truck), -1.0f);
+            CHECK_NEAR(ss_criado_alpha(&sf, -1), -1.0f);
+            /* ESTADO 1 (dentro): `setGirlsVisible([false x5])` -> mascara 0,
+               as cinco fora de cena, e os quatro props que a cena esconde. */
+            ss_ssf_cutscene(&sf, 1);
+            CHECK_EQ(sf.ssf_cut, 1);
+            CHECK_EQ(sf.ssf_mostra, 0u);
+            CHECK_EQ(sf.ssf_gf, 0);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_YUNJIN), 0);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_CHAEWON), 0);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_DAD), 0.0f);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_BF), 0.0f);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_GF), 0.0f);
+            if (sf.i_ssf_truck >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_truck), 0.0f);
+            if (sf.i_ssf_btab >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_btab), 0.0f);
+            if (sf.i_ssf_bstool >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_bstool), 0.0f);
+            if (sf.i_ssf_fstool >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_fstool), 0.0f);
+            /* Os dois que a cena MOSTRA continuam no alpha do dado (1,0). */
+            if (sf.i_ssf_bts >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_bts), -1.0f);
+            if (sf.i_ssf_burger >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_burger), -1.0f);
+            /* ESTADO 2 (depois): `setGirlsVisible(baseVisible)` = 0x01 (so' a
+               yunjin) e os dois "de cutscene" apagados. A GF CONTINUA fora --
+               quem a traz de volta e' o chute final. */
+            ss_ssf_cutscene(&sf, 2);
+            CHECK_EQ(sf.ssf_cut, 2);
+            CHECK_EQ(sf.ssf_mostra, 1u);
+            CHECK_EQ(sf.ssf_gf, 0);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_YUNJIN), 1);
+            CHECK_EQ(ss_dancarina_visivel(&sf, SS_DC_CHAEWON), 0);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_GF), 0.0f);
+            if (sf.i_ssf_bts >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_bts), 0.0f);
+            if (sf.i_ssf_burger >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_burger), 0.0f);
+            if (sf.i_ssf_truck >= 0) CHECK_NEAR(ss_prop_alpha(&sf, sf.i_ssf_truck), -1.0f);
+            /* Reaplicar o MESMO estado nao mexe na mascara: entre 563/24 e
+               730/24 o chart ainda pode mandar um `sserafimShow`, e o
+               `setCutsceneVisibility` do original so' roda nos marcos. */
+            e.a = 0x1Du;
+            CHECK_EQ(ss_evento(&sf, "sserafimShow", &e), 1);
+            ss_ssf_cutscene(&sf, 2);
+            CHECK_EQ(sf.ssf_mostra, 0x1Du);
+            /* O chute final e' o unico que traz a GF de verdade (L238-240). */
+            e.p0 = 1;
+            CHECK_EQ(ss_evento(&sf, "sserafimKick", &e), 1);
+            CHECK_EQ(sf.ssf_gf, 1);
+            CHECK_NEAR(ss_alpha_papel(&sf, SS_GF), -1.0f);
+            /* A COBERTURA forcada (o tween de 1 -> 0 em 3 s): manda enquanto a
+               cena roda e volta ao script quando ela sai. */
+            ss_ssf_cutscene(&sf, 1);
+            ss_ssf_cobertura(&sf, 0.25f);
+            CHECK_NEAR(ss_ssf_cob_alpha(&sf), 0.25f);
+            /* O desenho do prop consulta `ss_cor_alpha` (o `solidCover` e' um
+               prop de COR): as duas respostas tem de coincidir. */
+            if (sf.i_ssf_cob >= 0) CHECK_NEAR(ss_cor_alpha(&sf, sf.i_ssf_cob), 0.25f);
+            ss_ssf_cutscene(&sf, 2);
+            CHECK_NEAR(ss_ssf_cob_alpha(&sf), 0.0f);
+            if (sf.i_ssf_cob >= 0) CHECK_NEAR(ss_cor_alpha(&sf, sf.i_ssf_cob), 0.0f);
+        }
+
         /* ---- AS TRES DANCARINAS (L146-164 e L289-303) ---- */
         {
             float x = 0.0f, y = 0.0f, sc = 0.0f;

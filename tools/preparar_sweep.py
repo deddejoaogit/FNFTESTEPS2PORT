@@ -42,6 +42,41 @@ def pcm(segundos, freq=196):
     return bytes(out)
 
 
+def fim_do_chart(caminho):
+    """A amostra em que a musica ACABA, lida do proprio chart (offset 32).
+
+    E' o mesmo numero que o jogo usa para o fim da musica
+    (`chart_info_t.song_end_sample`), e o unico dado honesto de duracao que
+    existe no repositorio: o audio de verdade nao esta' aqui.
+    """
+    try:
+        with open(caminho, "rb") as f:
+            cab = f.read(36)
+    except OSError:
+        return 0
+    if len(cab) < 36 or cab[:4] not in (b"FCH3", b"FCH4", b"FCH5"):
+        return 0
+    return struct.unpack_from("<I", cab, 32)[0]
+
+
+def stems_esparso(caminho, amostras):
+    """Cria o `stems.pcm` com a DURACAO certa e conteudo ZERO, como esparso.
+
+    Por que existe: o `stems` curto do sweep (20 s) fazia o relogio da musica
+    PARAR quando o audio acabava -- `music_clock` e' limitado por
+    `audio_submitted` -- e tudo que o chart tem depois disso nunca era
+    exercitado. Medido na `spaghetti`: o relogio parava em 3 225 600 amostras
+    (67 s) e o `sserafimEnd` (167,3 s) nunca chegava; a rodada de 14 002 quadros
+    "passava" sem tocar metade da musica.
+
+    O arquivo e' esparso (truncate): o disco gasta uns poucos KB e o leitor
+    recebe zeros, que em PCM estereo 16 bits e' silencio. O que se testa aqui
+    e' o TEMPO, nao o som -- e o som de verdade vem do pacote de dados.
+    """
+    with open(caminho, "wb") as f:
+        f.truncate(int(amostras) * 8)
+
+
 def mapa_musica_palco():
     """song id -> stage id, do playData de cada musica (a mesma fonte do registro).
 
@@ -173,6 +208,11 @@ def main():
     # audio curto do sweep -- o evento da philly-nice cai em 13,7 s e o audio de
     # 20 s cortava a musica antes dele.
     ap.add_argument("--musicas", default="")
+    # --completo: o `stems` de cada musica passa a ter a DURACAO DO CHART
+    # (arquivo esparso, conteudo zero). Sem isto o relogio da musica para no fim
+    # do audio curto e metade do chart nunca roda -- foi assim que o `sserafimEnd`
+    # (167 s) nunca chegou numa rodada de 14 002 quadros.
+    ap.add_argument("--completo", action="store_true")
     args = ap.parse_args()
 
     mapa = mapa_musica_palco()
@@ -192,6 +232,7 @@ def main():
         return 1
     problemas = 0
     ncharts = 0
+    ncompletos = 0
     for sid in ids:
         for diff in ("easy", "normal", "hard"):
             rc = chart(RAIZ, sid, diff, args.forcar)
@@ -201,12 +242,32 @@ def main():
                 print("  %s/%s: falha ao converter (%d)" % (sid, diff, rc))
                 problemas += 1
         stems = os.path.join(RAIZ, "songs", sid, "stems.pcm")
-        if not os.path.isfile(stems) or args.forcar:
-            os.makedirs(os.path.dirname(stems), exist_ok=True)
+        os.makedirs(os.path.dirname(stems), exist_ok=True)
+        if args.completo:
+            # Duracao do chart, nao um numero escolhido a mao.
+            amostras = 0
+            for diff in ("hard", "normal", "easy"):
+                amostras = fim_do_chart(os.path.join(RAIZ, "songs", sid,
+                                                     diff + ".chart"))
+                if amostras:
+                    break
+            if not amostras:
+                print("  %s: chart sem fim legivel" % sid)
+                problemas += 1
+                continue
+            if (not os.path.isfile(stems)
+                    or os.path.getsize(stems) != amostras * 8):
+                stems_esparso(stems, amostras)
+                ncompletos += 1
+        elif not os.path.isfile(stems) or args.forcar:
             with open(stems, "wb") as f:
                 f.write(pcm(args.segundos))
-    print("  sweep: %d musicas, %d charts, stems de %.0f s, %d problema(s)"
-          % (len(ids), ncharts, args.segundos, problemas))
+    if args.completo:
+        print("  sweep: %d musicas, %d charts, %d stems com a duracao do chart, "
+              "%d problema(s)" % (len(ids), ncharts, ncompletos, problemas))
+    else:
+        print("  sweep: %d musicas, %d charts, stems de %.0f s, %d problema(s)"
+              % (len(ids), ncharts, args.segundos, problemas))
     return 1 if problemas else 0
 
 

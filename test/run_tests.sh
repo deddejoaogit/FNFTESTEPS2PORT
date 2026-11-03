@@ -286,6 +286,44 @@ echo "== song_registry is generated from assets-data/ =="
 python3 tools/gen_song_registry.py --check
 echo
 
+# O AUDIO DAS 27 MUSICAS: o formato do `stems.pcm` (8 bytes por amostra,
+# Inst+Vox int16 48 kHz) e' lido pelo `amix_somar` do jogo. Se a ordem dos
+# canais ou o entrelacamento mudar aqui, o console toca lixo -- e o harness nao
+# pega, porque la' o PCM e' gerado. O autoteste confere amostra por amostra.
+echo "== stems das 27 musicas: formato do empacotador =="
+python3 tools/empacotar_stems.py --autoteste || exit 1
+
+# AS DUAS IMAGENS DO FIM DO `sserafim`: se os pacotes existirem (eles vem do
+# clone de arte, que nao esta' em todo ambiente), o cabecalho compilado
+# (`src/engine/cut_fim_dados.h`) tem de bater com eles. Largura/altura erradas
+# aqui nao dao erro em lugar nenhum: `upload_raw_psm` sobe uma textura de outra
+# forma e o `.cfz4` de 1 quadro nao carrega tamanho proprio -- o jogo desenha UV
+# fora da textura e ninguem ve' a causa no log. O jogo tambem confere em tempo de
+# execucao (`cut_fim_tamanho`), mas aqui a conta e' barata e roda antes.
+python3 - <<'PYCHK' || exit 1
+import os, re, struct
+hdr = open("src/engine/cut_fim_dados.h", encoding="utf-8").read()
+w = [int(v) for v in re.search(r"cut_fim_tex_w\[[^]]*\]\s*=\s*\{([^}]*)\}", hdr).group(1).split(",")]
+h = [int(v) for v in re.search(r"cut_fim_tex_h\[[^]]*\]\s*=\s*\{([^}]*)\}", hdr).group(1).split(",")]
+n = int(re.search(r"CUT_FIM_IMAGENS\s+(\d+)", hdr).group(1))
+assert len(w) == len(h) == n, "o header declara %d tamanhos para %d imagens" % (len(w), n)
+base = "build/packs/stages/sserafim/cut"
+vistos = 0
+for i, nome in enumerate(("end1", "end2")):
+    cam = os.path.join(base, nome + ".cfz4")
+    if not os.path.isfile(cam):
+        continue                     # sem o clone de arte: nada a conferir
+    vistos += 1
+    magic, ver, cnt, fb = struct.unpack("<4sIII", open(cam, "rb").read(16))
+    assert magic == b"CFZ4" and ver == 1, "%s nao e' um CFZ4 v1 (%r v%d)" % (cam, magic, ver)
+    assert cnt == 1, "%s tem %d quadros; o header declara UMA imagem" % (cam, cnt)
+    assert fb == w[i] * h[i] * 2, ("%s: %d B no pacote, %dx%d= %d B no header"
+                                   % (cam, fb, w[i], h[i], w[i] * h[i] * 2))
+print("  cut_fim_dados.h: %d de %d pacote(s) conferido(s)%s"
+      % (vistos, n, "" if vistos else " (sem o clone de arte)"))
+PYCHK
+echo
+
 # A tabela de palcos tem de ser a renderizacao do plano commitado, e o plano
 # tem de ser o que o empacotador viu nos pixels reais. Sem isto, o C pode
 # prometer 15 quadros onde o pacote tem 30 -- e o prop congela no console.
@@ -862,6 +900,51 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
         exit 1
     fi
     tail -4 /tmp/fnf_sweep_v5.log
+    # O FIM DA MUSICA DO sserafim: a CADEIA INTEIRA (`endStuff` -> SEEYOU1 ->
+    # SEEYOU2 -> `endSong(true)` -> Resultado). E' a parte do port que mais
+    # vezes quebrou -- o fim natural do arquivo vencia a sequencia, o detector
+    # de retry disparava falso, o `ZoomCamera mode:'stage'` compunha ate'
+    # estourar -- e nenhum teste curto a alcanca: precisa da cutscene de 30,4 s,
+    # da musica inteira (~12 mil quadros) e do audio com a duracao do CHART.
+    # Custa ~40 s e trava o comportamento: os dois degraus aparecem 4 s e 8 s
+    # depois do evento, e o `endSong(true)` sai em 9,000 s.
+    echo
+    echo "== o fim da musica do sserafim: a sequencia SEEYOU inteira =="
+    FNF_SWEEP_FMT=v5 python3 tools/preparar_sweep.py --completo --musicas spaghetti >/dev/null || exit 1
+    RAIZ=build/harness_assets
+    CHART="$RAIZ/FNFPS2/assets/songs/spaghetti/normal.chart"
+    TECLAS=$(python3 tools/harness_presses.py "$CHART" --pular 0 2>/dev/null) || TECLAS=""
+    rm -f "$RAIZ/FNFPS2/FNF_COLHEITA.txt"
+    out=$(FNF_START_SONG=spaghetti FNF_START_DIFF=1 PS2H_FRAMES=14000 PS2H_ROOT="$RAIZ" \
+          PS2H_WATCHDOG=600 PS2H_INPUT_AMOSTRAS="$TECLAS" \
+          timeout 600 build/fnf_harness 2>&1)
+    rc=$?
+    [ $rc -eq 0 ] || { echo "$out" | tail -20; echo "  FALHA: o harness saiu com $rc no fim do sserafim"; exit 1; }
+    echo "$out" | grep -q "RESULTADO: PASSOU" || { echo "$out" | tail -20; echo "  FALHA: o harness nao passou no fim do sserafim"; exit 1; }
+    LOG="$RAIZ/FNFPS2/FNF_COLHEITA.txt"
+    campo() { awk -F, -v n="$1" -v c="$2" '$1=="E" && $3==n {v=$c} END{print v}' "$LOG" 2>/dev/null; }
+    fim=$(campo cut_endstuff_fim 4)
+    q0=$(campo cut_fim_quadros 4)
+    q1=$(campo cut_fim_quadros 5)
+    [ "$fim" = "432000" ] || { grep -E "cut_endstuff|cut_fim" "$LOG" | head -12; echo "  FALHA: o endSong(true) do script nao saiu em 9,000 s (veio '$fim')"; exit 1; }
+    campo endstuff_endsong 4 >/dev/null; [ -n "$(campo endstuff_endsong 4)" ] || { echo "  FALHA: o endStuff nao pediu o endSong"; exit 1; }
+    [ -n "$(awk -F, '$1=="E" && $3=="state" && $4=="9"' "$LOG")" ] || { echo "  FALHA: o jogo nao chegou ao Resultado depois do fim"; exit 1; }
+    # A CUTSCENE tem de ter rodado: sem ela a musica comeca 30,4 s mais cedo e o
+    # fim chega dentro dos 14 000 quadros do mesmo jeito -- o teste passaria sem
+    # testar o caminho que ele existe para testar.
+    [ "$(campo cut_cena 4)" = "1" ] || { echo "  FALHA: a cutscene do sserafim nao rodou"; exit 1; }
+    # As duas imagens tem de ter sido DESENHADAS: 3,95 s e 4,00 s a 60 fps.
+    [ "${q0:-0}" -ge 200 ] && [ "${q1:-0}" -ge 200 ] || {
+        echo "  FALHA: as imagens SEEYOU foram desenhadas em ${q0:-0} e ${q1:-0} quadros (esperado ~237 e ~240)"; exit 1; }
+    for erro in cut_fim_sem_vram cut_fim_tamanho cut_fim_falta cut_fim_sem_ram cut_fim_quadro palco_script_retry; do
+        if grep -q ",$erro," "$LOG"; then grep ",$erro," "$LOG" | head -3; echo "  FALHA: evento '$erro' no fim do sserafim"; exit 1; fi
+    done
+    echo "  SEEYOU1 ......... $q0 quadros desenhados"
+    echo "  SEEYOU2 ......... $q1 quadros desenhados"
+    echo "  endSong(true) ... $fim amostras depois do endStuff (9,000 s), e o Resultado abriu"
+    echo "  sem erro de VRAM, de tamanho de pacote ou de retry falso"
+    echo "  FIM DO sserafim: PASSOU (a cadeia inteira, e nao so' o comeco dela)"
+
     # O passe v5 deixa os charts do harness em FCH5; o Teste de Story e o de
     # sanitizadores abaixo esperam o v3 que o console roda. Volta o formato.
     FNF_SWEEP_FMT=v3 python3 tools/preparar_sweep.py --forcar >/dev/null || exit 1

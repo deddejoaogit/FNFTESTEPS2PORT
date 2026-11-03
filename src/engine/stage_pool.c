@@ -86,6 +86,31 @@ int sp_stage_demand(const char *stage, unsigned int *bytes)
     return 0;
 }
 
+/* A MENOR FOLGA DO POOL desde o ultimo `sp_limpar`. E' o numero que responde
+   "o palco coube?" com MEDIDA em vez de soma de tabela: `sp_limpar` zera a
+   marca, todo pedido desconta o que sobrou e quem chama le no fim da musica
+   (o `main.c` regista `pool_min`). Zero significa que o pool encheu.
+   Antes disto, "cabe" vinha de somar os bytes dos props no Python, o que
+   ignora quando cada um esta' residente de fato. */
+static unsigned int g_pool_min_folga;
+static int g_pool_min_visto;
+
+void sp_min_folga_reset(sp_t *p)
+{
+    g_pool_min_visto = 0;
+    g_pool_min_folga = p ? sp_livre(p) : 0u;
+}
+
+unsigned int sp_min_folga(const sp_t *p)
+{
+    return g_pool_min_visto ? g_pool_min_folga : (p ? sp_livre(p) : 0u);
+}
+
+int sp_min_folga_encheu(void)
+{
+    return g_pool_min_visto && g_pool_min_folga == 0u;
+}
+
 int sp_chave(sp_t *p, unsigned int chave, unsigned int bytes, unsigned int *endereco)
 {
     int r;
@@ -96,6 +121,11 @@ int sp_chave(sp_t *p, unsigned int chave, unsigned int bytes, unsigned int *ende
         if (r >= 0 && endereco) *endereco = bytes_off / 4u;   /* bytes -> palavras */
     }
     if (r < 0) p->falhas++;
+    {
+        unsigned int l = sp_livre(p);
+        if (!g_pool_min_visto || l < g_pool_min_folga) g_pool_min_folga = l;
+        g_pool_min_visto = 1;
+    }
     return r;
 }
 
@@ -123,9 +153,15 @@ int sp_esta_fixo(const sp_t *p, unsigned int chave)
     return p ? vc_esta_fixo(&p->cache, chave) : 0;
 }
 
+int sp_liberar(sp_t *p, unsigned int chave)
+{
+    return p ? vc_liberar(&p->cache, chave) : 0;
+}
+
 void sp_limpar(sp_t *p)
 {
     if (p) vc_limpar(&p->cache);
+    sp_min_folga_reset(p);
 }
 
 unsigned int sp_livre(const sp_t *p)

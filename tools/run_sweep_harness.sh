@@ -140,7 +140,17 @@ for sid in $LISTA; do
         if [ -f "$CHART" ]; then
             TECLAS=$(python3 tools/harness_presses.py "$CHART" --pular 0 2>/dev/null) || TECLAS=""
         fi
-        out=$(FNF_START_SONG="$sid" FNF_START_DIFF="$diff" PS2H_FRAMES="$FRAMES" \
+        # ORCAMENTO DE QUADROS POR MUSICA. A `spaghetti` (palco `sserafim`) abre
+        # com a CUTSCENE de 30,4 s, que o original roda ANTES da contagem -- o
+        # `event.cancel()` do onCountdownStart para a musica ali. Com 1.200
+        # quadros a rodada terminava dentro da cutscene e cobrava audio e notas
+        # de uma musica que ainda nao comecou. 3.400 quadros = 30,4 s de
+        # cutscene + ~5 s de contagem + ~20 s de musica, com folga.
+        FRAMES_SONG=$FRAMES
+        case "$sid" in
+          spaghetti) FRAMES_SONG=3400 ;;
+        esac
+        out=$(FNF_START_SONG="$sid" FNF_START_DIFF="$diff" PS2H_FRAMES="$FRAMES_SONG" \
               PS2H_ROOT="$ROOT" PS2H_WATCHDOG=300 PS2H_INPUT_AMOSTRAS="$TECLAS" \
               timeout 300 "$BIN" 2>&1)
         rc=$?

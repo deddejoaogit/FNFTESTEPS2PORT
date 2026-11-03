@@ -171,6 +171,14 @@ SONS_PALCO = [
     # 44,1 kHz -> 1,512 s (145.152 B) e 3,396 s (326.016 B) a 48 kHz.
     ("sserafim/sounds/doorKick1", "doorkick1", False),
     ("sserafim/sounds/doorKick2", "doorkick2", False),
+    # A CUTSCENE DE ABERTURA da `spaghetti` (`sserafim.hxc` L760-763 e
+    # L680-700): `cutscene/startCutscene` em 20/24 s, `cutscene/end1` no
+    # `endStuff` e `cutscene/end2` quatro segundos depois. Os nomes de saida
+    # levam o prefixo `cut` porque `end1`/`end2` sozinhos pareceriam o som de
+    # outra coisa em `assets/stage/`.
+    ("sserafim/sounds/cutscene/startCutscene", "startcutscene", False),
+    ("sserafim/sounds/cutscene/end1", "cutend1", False),
+    ("sserafim/sounds/cutscene/end2", "cutend2", False),
 ]
 
 

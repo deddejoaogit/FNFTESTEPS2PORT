@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "stage_dados.h"
+#include "stage_criados_dados.h"
 
 /* ---- AS CONSTANTES DO SCRIPT, com a linha de onde sairam ----
    phillyBlazin.hxc:
@@ -328,6 +329,10 @@ void ss_init(ss_t *ss, const char *palco_id)
     ss->i_fastcar = -1;
     ss->i_ssf_tl1 = ss->i_ssf_tl2 = ss->i_ssf_blc = ss->i_ssf_blw = ss->i_ssf_cob = -1;
     ss->i_ssf_door = -1;
+    ss->i_ssf_truck = ss->i_ssf_btab = ss->i_ssf_bts = -1;
+    ss->i_ssf_bstool = ss->i_ssf_fstool = ss->i_ssf_burger = -1;
+    ss->ssf_cut = 0;
+    ss->ssf_cob_a = -1.0f;
     ss->som_vol = 100;
     ss->i_freaks = -1;
     ss->sufixo_medo = 0;
@@ -475,6 +480,16 @@ void ss_init(ss_t *ss, const char *palco_id)
            `ss_cor_alpha`. */
         ss->i_ssf_cob = acha_cor(ss->palco, "solidCover");
         ss->i_ssf_door = acha_prop(ss->palco, "truckDoor");
+        /* Os cinco props que o `setCutsceneVisibility` (L599-625) esconde e os
+           dois que ele mostra. Sem os cinco, a cutscene nao tem como limpar a
+           cena; sem os dois, os props da cutscene ficariam sempre visiveis (o
+           JSON deles e' alpha 1). */
+        ss->i_ssf_truck = acha_prop(ss->palco, "truck");
+        ss->i_ssf_btab = acha_prop(ss->palco, "backTables");
+        ss->i_ssf_bts = acha_prop(ss->palco, "backTablesCutscene");
+        ss->i_ssf_bstool = acha_prop(ss->palco, "backStools");
+        ss->i_ssf_fstool = acha_prop(ss->palco, "frontStool");
+        ss->i_ssf_burger = acha_prop(ss->palco, "burgerCutscene");
         /* Sem os dois caminhoes e as duas luzes de fundo o script nao tem o que
            acender. A cobertura e' opcional para o resto funcionar, mas o
            `sserafimCover` sem ela nao faz nada (e' o dado que falta). */
@@ -488,8 +503,13 @@ void ss_init(ss_t *ss, const char *palco_id)
            ficam FORA de cena ate' o primeiro `sserafimShow` (13,2 s na
            `spaghetti`). Os bits sao os do `setGirlsVisible` L289-303. */
         ss->ssf_mostra = 1u;
+        /* A GF de verdade: no original ela esta' visivel ate' o
+           `setCutsceneVisibility(true)` do comeco da contagem. Quem a apaga e'
+           `ss_ssf_cutscene(1)`, no mesmo instante em que a cena entra. */
+        ss->ssf_gf = 1;
         ss_reiniciar(ss);
         ss->ssf_mostra = 1u;
+        ss->ssf_gf = 1;
         return;
     }
 
@@ -573,6 +593,8 @@ void ss_reiniciar(ss_t *ss)
         ss->ssf_n = 0;
         /* L374: `getNamedProp('solidCover').alpha = 0.0`. */
         ss->ssf_cob_visivel = 0;
+        ss->ssf_cob_a = -1.0f;
+        ss->ssf_cut = 0;
         ss->ssf_fim = 0;
     }
 
@@ -1157,7 +1179,12 @@ int ss_evento(ss_t *ss, const char *nome, const ss_ev_t *ev)
            tocando -- o instante guardado e' o do evento. */
         ss->dc_anim[SS_DC_YUNJIN] = ss->ssf_kick_final ? 2 : 1;
         ss->dc_t0[SS_DC_YUNJIN] = ss->t;
-        if (ss->ssf_kick_final) ss->dc_kick_fim = (int)(ss->t * 1000.0f);
+        if (ss->ssf_kick_final) {
+            ss->dc_kick_fim = (int)(ss->t * 1000.0f);
+            /* L238-240: "and show the REAL gf" -- a unica coisa na musica
+               inteira que traz a namorada de volta para a cena. */
+            ss->ssf_gf = 1;
+        }
         ss->som = ss->ssf_kick_final ? 2 : 1;
         ss->som_banco = SS_SOM_DOORKICK;
         ss->som_vol = 100;
@@ -1520,9 +1547,92 @@ int ss_update(ss_t *ss, float elapsed)
     return caiu;
 }
 
+/* AS DUAS METADES DA CUTSCENE. `setCutsceneVisibility(false)` (L599-625) nao
+   desfaz o `(true)`: ele devolve a cena da MUSICA, com as poeiras acesas e o
+   caminhao visivel. Por isso a resposta depende do estado (0/1/2) e nao de um
+   booleano -- ver o comentario de `ss_ssf_cutscene` no .h. */
+static float ss_cut_prop_alpha(const ss_t *ss, int prop_abs)
+{
+    if (!ss->ssf_ativo || ss->ssf_cut == 0) return -1.0f;
+    /* Os CINCO que a cutscene esconde (`getNamedProp(x).visible = !inCutscene`).
+       A `truckDoor` entra junto: o `setCutsceneVisibility` (L612) a apaga nos
+       DOIS estados, e quem a religa e' o quadro 23 do chute final. */
+    if (prop_abs == ss->i_ssf_truck || prop_abs == ss->i_ssf_btab ||
+        prop_abs == ss->i_ssf_bstool || prop_abs == ss->i_ssf_fstool ||
+        (ss->ssf_cut == 1 && prop_abs == ss->i_ssf_door)) {
+        return (ss->ssf_cut == 1) ? 0.0f : -1.0f;
+    }
+    /* Os dois que a cutscene MOSTRA (`visible = inCutscene`, L619-620). Durante
+       a cutscene vale o alpha do dado (1,0 nos dois); depois dela ficam
+       desligados ate' o fim da musica, porque o script nunca os religa. */
+    if (prop_abs == ss->i_ssf_bts || prop_abs == ss->i_ssf_burger)
+        return (ss->ssf_cut == 1) ? -1.0f : 0.0f;
+    return -1.0f;
+}
+
+static const char *const ss_dust_nomes[4] = {"dust1", "dust2", "dust3", "dust4"};
+
+void ss_ssf_cutscene(ss_t *ss, int estado)
+{
+    int antes;
+    if (!ss) return;
+    if (estado < 0) estado = 0;
+    if (estado > 2) estado = 2;
+    antes = ss->ssf_cut;
+    ss->ssf_cut = estado;
+    if (estado != 1) ss->ssf_cob_a = -1.0f;
+    /* A MASCARA DAS CINCO, que e' o que `setCutsceneVisibility` (L599-625)
+       escreve de fato: `setGirlsVisible([!inCutscene x5])` na entrada e
+       `setGirlsVisible(baseVisible)` na saida, com `baseVisible` =
+       [true,false,false,false,false] (L28). Sem isto a `yunjin` continuava
+       dancando com o caminhao em cima dela.
+       So' quando o ESTADO MUDA: o script do original chama a funcao uma vez por
+       marco, e reaplicar a mascara a cada quadro apagaria o `sserafimShow` que
+       o chart manda depois de 563/24. */
+    if (estado == antes) return;
+    if (estado == 1) {
+        ss->ssf_mostra = 0u;          /* as cinco fora de cena            */
+        ss->ssf_gf = 0;               /* `getGirlfriend()?.visible = false` */
+    } else if (estado == 2) {
+        ss->ssf_mostra = 1u;          /* baseVisible: so' a yunjin        */
+        ss->ssf_gf = 0;
+    }
+}
+
+void ss_ssf_cobertura(ss_t *ss, float alpha)
+{
+    if (ss) ss->ssf_cob_a = alpha;
+}
+
+float ss_criado_alpha(const ss_t *ss, int criado_abs)
+{
+    int i;
+    if (!ss->ativo || !ss->ssf_ativo || criado_abs < 0) return -1.0f;
+    /* `hideDust(!inCutscene)` (L615 -> L931-939): as quatro poeiras ficam
+       invisiveis durante a cutscene. Os indices vem do DADO
+       (`bs_criados[].stage`/`name`), e nao de numeros escritos aqui. */
+    if (ss->ssf_cut != 1) return -1.0f;
+    /* Os quatro nomes sao os das variaveis do script (`var dust1:FlxBackdrop`
+       ... `dust4`, L94-97) -- o dado do palco carrega o mesmo nome. */
+    for (i = 0; i < 4; i++) {
+        const char *alvo = ss_dust_nomes[i];
+        int k;
+        for (k = 0; k < bs_stage_criado_count[ss->palco]; k++) {
+            int abs_idx = bs_stage_criado_first[ss->palco] + k;
+            const bs_criado_t *c = &bs_criados[abs_idx];
+            if (abs_idx == criado_abs && c->name && strcmp(c->name, alvo) == 0)
+                return 0.0f;
+        }
+    }
+    return -1.0f;
+}
+
 float ss_prop_alpha(const ss_t *ss, int prop_abs)
 {
+    float cut;
     if (!ss->ativo || prop_abs < 0) return -1.0f;
+    cut = ss_cut_prop_alpha(ss, prop_abs);
+    if (cut >= 0.0f) return cut;
     /* spookyMansionErect: as duas luzes do flash. Em repouso o alpha e' o do
        dado (0,0001, do `buildStage`), nao um 0 escrito aqui. */
     if (prop_abs == ss->i_bgl) return ss->a_bgl < 0.0f ? -1.0f : ss->a_bgl;
@@ -1560,6 +1670,10 @@ float ss_ssf_flash_alpha(const ss_t *ss)
 float ss_ssf_cob_alpha(const ss_t *ss)
 {
     if (!ss->ativo || !ss->ssf_ativo || ss->i_ssf_cob < 0) return -1.0f;
+    /* O alpha FORCADO pela cutscene (o `FlxTween` de 1 -> 0 em 3 s) manda
+       quando existe -- e' a MESMA regra de `ss_cor_alpha` para este prop, que
+       e' quem o desenho consulta: as duas tem de responder igual. */
+    if (ss->ssf_cob_a >= 0.0f) return ss->ssf_cob_a;
     return ss->ssf_cob_visivel ? 1.0f : 0.0f;
 }
 
@@ -1648,8 +1762,12 @@ float ss_cor_alpha(const ss_t *ss, int cor_abs)
     if (cor_abs == ss->i_lighten) return ss->raio_ativo ? ss->a_lighten : 0.0f;
     /* sserafim: a cobertura preta (`solidCover`, `#000000` 10000x10000, z 9999,
        scroll 0) -- L284-287 e o `endStuff` L686. */
-    if (ss->ssf_ativo && cor_abs == ss->i_ssf_cob)
+    if (ss->ssf_ativo && cor_abs == ss->i_ssf_cob) {
+        /* O alpha FORCADO pela cutscene (o `FlxTween` de 1 -> 0 em 3 s de
+           L872-879) manda quando existe: ele nao e' evento do chart. */
+        if (ss->ssf_cob_a >= 0.0f) return ss->ssf_cob_a;
         return ss->ssf_cob_visivel ? 1.0f : 0.0f;
+    }
     return -1.0f;
 }
 
@@ -1773,6 +1891,10 @@ float ss_alpha_papel(const ss_t *ss, int papel)
     if (ss->ssf_ativo) {
         if (papel == SS_DAD && !(ss->ssf_mostra & 0x02u)) return 0.0f;
         if (papel == SS_BF && !(ss->ssf_mostra & 0x10u)) return 0.0f;
+        /* A GF nao esta na mascara (o proprio script diz que a visibilidade
+           dela "ISNT stored here", L300-301): ela tem o campo proprio e a
+           unica linha que a religa e' o chute final (L240). */
+        if (papel == SS_GF && !ss->ssf_gf) return 0.0f;
         return -1.0f;
     }
     if (ss->i_bgl < 0) return -1.0f;          /* so' o spooky mexe nisso */

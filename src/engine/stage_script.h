@@ -303,9 +303,24 @@ typedef struct {
     unsigned int ssf_cores[SS_SSF_MAX];
     float ssf_durs[SS_SSF_MAX], ssf_ints[SS_SSF_MAX];
     int ssf_cob_visivel;        /* `solidCover.alpha` = 1 enquanto 1        */
+    /* A CUTSCENE (L599-625): 0 = ainda nao rodou, 1 = dentro, 2 = depois. */
+    int ssf_cut;
+    /* Alpha FORCADO da cobertura, < 0 = o do script. A cutscene o anima de 1
+       para 0 em 3 s, e isso nao e' evento do chart. */
+    float ssf_cob_a;
+    /* Os props que o `setCutsceneVisibility` liga e desliga. -1 = o palco nao
+       os tem (todo palco que nao seja o sserafim). */
+    int i_ssf_truck, i_ssf_btab, i_ssf_bts, i_ssf_bstool, i_ssf_fstool;
+    int i_ssf_burger;
     int ssf_flash_ms;           /* `camGame.flash(0xFFFFFFFF, ms)` pedido   */
     float ssf_flash_t0;         /* instante em que o flash foi pedido       */
     int ssf_fim;                /* `endStuff` chegou (L680)                 */
+    /* A NAMORADA DE VERDADE (`getGirlfriend()`) no sserafim. O
+       `setCutsceneVisibility` (L599-625) a apaga nos DOIS estados (a linha do
+       `visible = false` esta' fora do if/else, L623), e a UNICA coisa que a
+       religa e' o `sserafimKick` com `final = true` (L238: "and show the REAL
+       gf"). Antes deste campo o port desenhava a GF a musica inteira. */
+    int ssf_gf;                 /* 1 = a GF de verdade aparece              */
     int ssf_kick_pedido;        /* `sserafimKick`: 1 = ha' um pedido novo    */
     int ssf_kick_final;         /* o `final` do evento (kick1 ou kick2)     */
     unsigned int ssf_canta;     /* mascara de `sserafimSing`               */
@@ -369,6 +384,33 @@ int ss_prop_frame(const ss_t *ss, int prop_abs, int *anim, int *frame);
 
 /* Alpha do retangulo de cor `cor_abs` (indice em bs_cores[]), ou -1. */
 float ss_cor_alpha(const ss_t *ss, int cor_abs);
+
+/* Alpha de um sprite do script `criado_abs` (indice absoluto em bs_criados[]),
+ * ou -1 = o dado manda. Hoje so' as QUATRO POEIRAS do sserafim, que o
+ * `hideDust` (L931-939) apaga durante a cutscene e acende depois. */
+float ss_criado_alpha(const ss_t *ss, int criado_abs);
+
+/* ---- A CUTSCENE DO sserafim (`setCutsceneVisibility`, L599-625) ----
+ * O script troca a cena inteira: esconde `truck`, `truckDoor`, `backTables`,
+ * `backStools` e `frontStool`, esconde as quatro poeiras, mostra
+ * `backTablesCutscene` e `burgerCutscene` e troca o graphic do
+ * `perspectiveFloor` para `cutscene/floor-cutscene`. Isso vale por TRES
+ * estados, e nao por um booleano, porque o "fora da cutscene" e' diferente do
+ * "nunca passou por ela":
+ *   0 = a cutscene ainda nao rodou   -> vale o alpha do DADO
+ *   1 = dentro da cutscene           -> cena da cutscene ligada
+ *   2 = depois da cutscene           -> cena da cutscene desligada
+ * No original o estado 0 so' existe ate' `introCutscene`; depois dela, o
+ * `setCutsceneVisibility(false)` chama o mesmo `setGirlsVisible(baseVisible)`
+ * de sempre. A diferenca entre 0 e 2 aparece nos dois props que o JSON deixa
+ * VISIVEIS e que a cutscene apaga: `backTablesCutscene` e `burgerCutscene`
+ * (alpha 1 no JSON, e o script so' os desliga no `(false)`).
+ * `ativo` = 1 quando a cutscene esta' rodando agora (estado 1). */
+void ss_ssf_cutscene(ss_t *ss, int estado);
+/* O alpha FORCADO da cobertura preta (`solidCover`), ou -1 = o do script.
+ * A cutscene anima esse alpha por conta propria (`FlxTween` de 1 para 0 em 3 s
+ * em 650/24, L872-879) e esse tween nao e' um evento do chart. */
+void ss_ssf_cobertura(ss_t *ss, float alpha);
 
 /* ---- O `onBeatHit` (spookyMansionErect L155-174) ----
  * Chamado uma vez por beat, na ordem da fonte. `song_id` e' o id da musica (o

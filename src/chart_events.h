@@ -116,6 +116,15 @@ typedef struct {
     /* ZoomCamera. The tween runs on zoom_t from 0 to 1 over the event's own
        duration and ease, both of which travel with the event. */
     float zoom, zoom_from, zoom_to, zoom_t;
+    /* O ZOOM DO PALCO, que e' a base de um ZoomCamera com `mode:'stage'`
+       (a == 1). Ele NAO pode ser o zoom corrente: cada evento do tipo stage
+       multiplica esta base, e usar o zoom corrente faz a serie COMPOR
+       (0,5 -> 0,9 -> 1,62 -> 2,916 ... -> 1e9). Medido no `spaghetti`:
+       267 eventos stage levavam o zoom a 2 122 271 488 e o `h` dos props a
+       2^27, o que estourava a faixa visivel em 11,4 milhoes de linhas. O
+       zoom do palco e' o que `chart_events_reset` recebeu e so' muda com um
+       novo reset (a musica seguinte). */
+    float zoom_base;
     u32   zoom_ease, zoom_ease_dir;
     float zoom_dur_s;
 
@@ -193,6 +202,17 @@ void chart_events_bind(const chart_info_t *info);
  * calls, and what a caller uses to reset the bop to the original's defaults.
  */
 void chart_events_set_bop(float intensity, float rate, float offset);
+
+/*
+ * Puts the camera zoom at `zoom` WITHOUT a tween, as if the camera had been left
+ * there by something outside the chart. It is what the sserafim cutscene needs
+ * when it ends: the original finishes with `tweenCameraZoom(0.55, 3, circOut)`
+ * (sserafim.hxc L795-797) and the next ZoomCamera event tweens FROM 0.55, not
+ * from the song's zoom. `from` is moved too (a relative zoom tweens from where
+ * the camera actually is). A 'stage' mode zoom (a == 1) does NOT use `from`:
+ * it multiplies `zoom_base`, the stage's own zoom, which only a reset moves.
+ */
+void chart_events_forcar_zoom(float zoom);
 
 /*
  * Apply one event. This is all of the module's knowledge of what an event

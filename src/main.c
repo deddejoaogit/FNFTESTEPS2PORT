@@ -29,6 +29,7 @@
 #include "engine/stage_pool.h"
 #include "engine/audio_mix.h"
 #include "engine/pack_stream.h"
+#include "engine/ss_cutscene.h"
 #include "engine/shake.h"
 #include "engine/stage_layout.h"
 #include "engine/stage_script.h"
@@ -549,6 +550,13 @@ static float g_go_espera_ms_alvo=0.0f; /* FADE_TIMER do confirmDeath (ms)       
    estaticas e nao tem acesso ao local, e o audio do game over so' pode comecar
    se o audsrv subiu. */
 static int g_audio_ok=0;
+/* O CAMINHO do audio que esta' no anel de musica. A captura de tela
+   (SELECT+R3) fecha e reabre o transporte para nao gravar com o usbhdfsd
+   ocupado, e antes ela reabria SEMPRE `assets/audio_stems.pcm` -- o audio do
+   Tutorial. Numa das outras 26 musicas a captura trocava a faixa no meio da
+   musica: o chart continuava o certo e o som virava o do Tutorial. Guardar o
+   caminho aqui e' o que faz a captura devolver a MESMA faixa. */
+static char g_audio_fonte[192];
 /* `g_go_fade` (quadros do fade para preto) ja' existe no bloco acima. */
 /* FADE-IN DE 1 s DO `resetPlaying` (GameOverSubState.hx L393): no original ele
    e' criado no fim do fade de 2 s, com o PlayState JA' reiniciado, e clareia a
@@ -654,6 +662,10 @@ static const char *pause_rotulo(int acao)
  }
 }
 
+/* A cutscene do sserafim precisa ser desmontada por `PLAY_REINICIAR_MUSICA` e
+   por `palco_soltar`, que ficam ANTES da definicao dela neste arquivo. */
+static void cut_parar_tudo(void);
+
 /* Dois caminhos fazem exatamente a mesma coisa a partir de dois lugares (o
    Restart Song da pausa e o reinicio do game over), e por isso eles saem daqui
    em vez de duas copias que podem divergir: zerar o transporte, o relogio, o
@@ -691,6 +703,7 @@ static const char *pause_rotulo(int acao)
     /* A vida comeca em HEALTH_STARTING (= HEALTH_MAX/2 = 1,0) e a interpolada \
        nasce igual a ela; o pulo dos icones comeca do zero. */ \
     g_vida_lerp=1.0f;g_icone_ultimo_passo=-1;g_icone_desenhos=0;g_vida_zero_visto=0; \
+    cut_parar_tudo(); \
     {int _l;for(_l=0;_l<ICONE_LADOS;_l++)hi_bop_reset(&g_icone_bop[_l]);} \
   }while(0)
 /* Volta a tocar do ponto em que a pausa pegou. */
@@ -1377,10 +1390,37 @@ static int band_clip_phys(float y0,float y1,float v0,float v1,float*yy0,float*yy
     A conta do log mostra: h=335.00 com vh=205.56, escala 1.6297, quando a
     correta eh 406.893/256 = 1.5892 -- 2,55% de esticamento. */
  if(y0<top){float f=(top-oy0)/h;y0=top;v0=ov0+(ov1-ov0)*f;}
- if(y1>base){float f=(base-oy0)/h;if(f>1.0f)f=1.0f;y1=oy0+h*f;v1=ov0+(ov1-ov0)*f;}
+ if(y1>base){float f=(base-oy0)/h;if(f>1.0f)f=1.0f;y1=oy0+h*f;v1=ov0+(ov1-ov0)*f;
+  /* O `oy0 + h*f` erra por 1e-5 e a linha saia 391,00002 -- o GS arredonda
+     para 1/16 de pixel e o pixel estava certo, mas a auditoria contava o
+     retangulo. O recorte e' uma CLAMP: nao ha' valor legitimo acima da base. */
+  if(y1>base)y1=base;}
+ if(y0<top)y0=top;
  if(y1<=y0)return 0;
  *yy0=y0;*yy1=y1;*vv0=v0;*vv1=v1;
  return 1;
+}
+
+/* RECORTA UM QUAD JA' MONTADO. Os `sprite_*` recortam enquanto constroem, mas
+   o TEXTO monta o `texrect_t` a mao (glifos com `FONT_CELL_W`): sem isto um
+   glifo meia linha abaixo da faixa saia inteiro para o GS e a auditoria contava
+   a linha. O GS corta pelo scissor, entao o pixel estava certo -- o que estava
+   errado era a geometria. O `v` da textura anda com a mesma fracao do `y`, para
+   a letra nao esticar (mesma conta do `band_clip_phys`).
+   Devolve 0 quando o quad ficou inteiro fora: quem desenha pula. */
+static int band_clip_rect(texrect_t *r)
+{
+    float y0=r->v0.y,y1=r->v1.y,cy0,cy1,cv0,cv1,h,tv0,tv1;
+    if(!g_band_on)return 1;
+    if(!band_clip_phys(y0,y1,0.0f,1.0f,&cy0,&cy1,&cv0,&cv1))return 0;
+    h=y1-y0;
+    if(h>0.0f){
+        tv0=r->t0.v;tv1=r->t1.v;
+        r->t0.v=tv0+(tv1-tv0)*((cy0-y0)/h);
+        r->t1.v=tv0+(tv1-tv0)*((cy1-y0)/h);
+    }
+    r->v0.y=cy0;r->v1.y=cy1;
+    return 1;
 }
 
 static int band_clip_v(float py0,float py1,float v0,float v1,
@@ -1412,9 +1452,10 @@ static void band_clip_texel(float v0,float v1,float*lo,float*hi){
 
 static qword_t *sprite_dims_alpha(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char a){texrect_t v;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
+ if(cy1>1e5f||cy0<-1e5f)telemetry_event("rect_clip_ruim",(int)cy0,(int)cy1);
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(0x80,0x80,0x80,a); dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
 static qword_t *sprite_dims(qword_t*q,float x,float y,float w,float h,int tw,int th){return sprite_dims_alpha(q,x,y,w,h,tw,th,0x80);}
 
 /* O MESMO sprite_dims, ESPELHADO na horizontal.
@@ -1430,7 +1471,7 @@ static qword_t *sprite_dims_flip(qword_t*q,float x,float y,float w,float h,int t
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(0x80,0x80,0x80,0x80); dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
 /* O MESMO sprite_dims, com COR no vertice. E' o `color` do flixel: no GS o
    vertice multiplica a textura (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0, por
@@ -1442,12 +1483,12 @@ static qword_t *sprite_dims_cor(qword_t*q,float x,float y,float w,float h,int tw
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(cr,cg,cb,0x80);dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(cr,cg,cb,0x80); dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 static qword_t *sprite_dims_flip_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t v;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(cr,cg,cb,0x80);dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(cr,cg,cb,0x80); dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
 /* COR e ALPHA no mesmo vertice: e' o que o `spookyMansionErect` precisa (o
    flash apaga os personagens por 0,06 s e depois os traz de volta em 1,5 s) e o
@@ -1456,18 +1497,18 @@ static qword_t *sprite_dims_alpha_cor(qword_t*q,float x,float y,float w,float h,
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(bandeira,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(cr,cg,cb,a);dl_sprite(x,y,w,h,bandeira?(float)tw:0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
+ v.color=rgba(cr,cg,cb,a); dl_sprite(x,y,w,h,bandeira?(float)tw:0.0f,0.0f,(float)tw,(float)th,a,&v);return draw_rect_textured(q,0,&v);}
 
 static qword_t *sprite_region(qword_t*q,float x,float y,float w,float h,float u,float v,float uw,float vh){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
- r.color=rgba(0x80,0x80,0x80,0x80);dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
+ r.color=rgba(0x80,0x80,0x80,0x80); dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
 static qword_t *sprite_region_phys(qword_t*q,float x,float y0,float w,float hp,float u,float v,float uw,float vh,unsigned char a){texrect_t r;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(y0,y0+hp,v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
- r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+ r.color=rgba(0x80,0x80,0x80,a); dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 /* Igual a sprite_region_alpha, mas com COR no vertice: e' o `color` do sprite
    do flixel (o `flavour` do TallyCounter). No GS o vertice multiplica a textura
    (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0 -- por isso a cor do flixel
@@ -1476,7 +1517,7 @@ static qword_t *sprite_region_cor(qword_t*q,float x,float y,float w,float h,floa
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
- r.color=rgba(cr,cg,cb,0x80);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
+ r.color=rgba(cr,cg,cb,0x80); dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,0x80,&r);return draw_rect_textured(q,0,&r);}
 /* Alpha E cor no vertice, ao mesmo tempo: e' o que o `ranking` da Freeplay
    precisa (`ranking.alpha = isSelected ? 1 : 0,7` e
    `ranking.color = isSelected ? 0xFFFFFFFF : 0xFFAAAAAA`, updateSelected
@@ -1486,7 +1527,7 @@ static qword_t *sprite_region_alpha_cor(qword_t*q,float x,float y,float w,float 
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
- r.color=rgba(cr,cg,cb,a);dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+ r.color=rgba(cr,cg,cb,a); dl_sprite(x,cy0,w,cy1-cy0,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 /* O QUADRILATERO DA CINEMATICA DE RANK: textura, angulo em GRAUS em volta do
    proprio centro, alpha e cor no vertice, e o zoom do `rankCamera` por cima.
    E' assim que o flixel desenha um sprite com `angle`: gira em volta de
@@ -1520,7 +1561,7 @@ static qword_t *sprite_region_alpha(qword_t*q,float x,float y,float w,float h,fl
  if(!band_clip_v(vy(y),vy(y+h),v,v+vh,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;r.v0.x=FNX_INI(x);r.v0.y=FNX_INI(cy0);r.v0.z=0;r.v1.x=FNX_FIM(x+w);r.v1.y=FNX_FIM(cy1);r.v1.z=0;
  band_clip_texel(cv0,cv1,&r.t0.v,&r.t1.v);r.t0.u=u+.5f;r.t1.u=u+uw-.5f;
- r.color=rgba(0x80,0x80,0x80,a);dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
+ r.color=rgba(0x80,0x80,0x80,a); dl_sprite(x,y,w,h,u,cv0,uw,cv1-cv0,a,&r);return draw_rect_textured(q,0,&r);}
 /* O PROP GIRADO: o `angle` do flixel. Dois scripts de palco giram sprite --
    `tankmanBattlefield.hxc` L60 (`tankRolling.angle = tankAngle - 90 + 15`, o
    tanque dando volta no campo) e `phillyStreets.hxc` L200/L310/L340 (as
@@ -1672,6 +1713,10 @@ static int palco_ov_prop_cor(int prop_abs, unsigned char *rgb) { return ss_prop_
 static float palco_ov_y(int prop_abs, float y_dado) { return ss_prop_y(&g_script, prop_abs, y_dado); }
 static int palco_ov_ang(int prop_abs, float *graus) { return ss_prop_ang(&g_script, prop_abs, graus); }
 static const char *palco_ov_sufixo(int prop_abs) { return ss_prop_sufixo(&g_script, prop_abs); }
+/* Os SPRITES DO SCRIPT (`bs_criados[]`): o `hideDust` da cutscene do sserafim
+   apaga as quatro poeiras por `visible`, e o layout tem de saber disso -- sem
+   este gancho o dust continuava desenhado por cima da cena. */
+static float palco_ov_criado_alpha(int criado_abs) { return ss_criado_alpha(&g_script, criado_abs); }
 
 /* Declarado aqui porque `palco_carregar` (que roda antes desta definicao) ja'
    precisa calar o trem ao trocar de palco. */
@@ -1679,7 +1724,8 @@ static void palco_trem_som_para(void);
 
 static const sl_script_t g_script_hook = {
     palco_ov_alpha, palco_ov_x, palco_ov_frame, palco_ov_cor_alpha,
-    palco_ov_prop_cor, palco_ov_y, palco_ov_ang, palco_ov_sufixo
+    palco_ov_prop_cor, palco_ov_y, palco_ov_ang, palco_ov_sufixo,
+    palco_ov_criado_alpha
 };
 
 
@@ -1726,7 +1772,17 @@ static void palco_soltar(void)
     g_palco_fds_ok = 1;
     g_palco.ram_bytes = 0;
     g_palco.desenhou = -1;
-    if (g_palco.stage) sp_limpar(&g_pool);   /* devolve os props ao pool */
+    /* As tres texturas da cutscene moram no MESMO pool dos props: sem isto elas
+       vazariam entre musicas (o slot nao tem dono depois do `sp_limpar`). */
+    cut_parar_tudo();
+    /* A MENOR FOLGA que o pool teve nesta musica, MEDIDA (nao somada de
+       tabela). E' o numero que decide se um palco cabe com a cutscene dentro --
+       e o que a proxima reducao de escala tem de olhar. */
+    if (g_palco.stage) {
+        telemetry_event("pool_min", (int)sp_min_folga(&g_pool),
+                        sp_min_folga_encheu());
+        sp_limpar(&g_pool);                  /* devolve os props ao pool */
+    }
     g_palco.stage = 0;
     g_palco.n = 0;
     g_palco_ok = 0;
@@ -2126,6 +2182,838 @@ static texbuffer_t *palco_chao_textura(int k, int cut)
     g_palco.uploads++;
     telemetry_event("palco_chao", g_palco.chfirst + k, cut);
     return t;
+}
+
+/* ======================================================================
+   A CUTSCENE DO sserafim: os quadros ASSADOS e a linha do tempo
+   (sserafim.hxc L583-597 e L735-830, `engine/ss_cutscene.{h,c}`)
+
+   O que roda aqui e' o que o script faz nos primeiros 730/24 s da `spaghetti`:
+   a contagem regressiva e' CANCELADA (`onCountdownStart` chama
+   `event.cancel()`) e no lugar dela entra uma cena de 30,4 s com camera, fades,
+   cobertura e tres sprites de atlas Animate. O `startCountdown()` de verdade so'
+   acontece no fim (L819-830), e dali em diante o jogo e' o de sempre.
+
+   A ARTE. Os tres atlas tem simbolos ANINHADOS e 631 quadros no maior:
+   rasterizar daria mais de 1 GB. O que esta' no pendrive e' a GEOMETRIA de cada
+   quadro (lista de retangulo + matriz 2x3, 14 B por quad) mais UMA textura por
+   atlas. O gerador e' `tools/assar_cutscene_sserafim.py` e o formato esta' em
+   `engine/ss_cutscene.h`.
+
+   A ANIMACAO NAO REPETE. O `cutsceneMain` tem 631 quadros a 24 fps (26,3 s) e a
+   cena so' precisa dele ate' 563/24 (23,5 s), quando o sprite sai de cena; o
+   `getup` do GF/BF tem 123 quadros (5,1 s) comecando em 710/24 (29,6 s) e
+   atravessa o comeco da musica. Um laco replayaria a cena do comeco no meio da
+   musica, entao o quadro e' `min(fps*t, ultimo)` e nao modulo -- ver
+   `ssc_quadro_em`/`ssc_quadro_rotulo`.
+
+   A VRAM. As tres texturas somam ~591 KB (448 px de largura cada) e os seis
+   personagens do palco estao INVISIVEIS durante a cena inteira
+   (`setCutsceneVisibility` esconde as cinco garotas e o BF, L598-603). Mesmo
+   assim eles NAO sao liberados: quem cede o lugar sao os PROPS do palco, que
+   sao recarregaveis do pendrive a qualquer momento (`sp_limpar` -> o primeiro
+   desenho de cada prop pede o quadro de novo). Assim a volta da cena nao custa
+   nenhum reload de personagem -- so' o re-streaming dos props visiveis, que e'
+   o caminho que a musica ja' usa quando um prop entra pela primeira vez.
+
+   QUEM FICA NA TELA DEPOIS DA CENA. O `sserafimCutscene` sai em 563/24, mas os
+   dois "get up" NAO: nada no script os apaga depois disso, e o unico lugar que
+   os esconde e' o `sserafimKick` com `final = true` (L236-243, "hide the
+   cutscene characters if theyre present"). Por isso `cut_sair` devolve ao pool
+   SO' a textura do `main`, e as do GF/BF ficam ate' o chute final.
+
+   O QUE AINDA NAO ESTA' AQUI (declarado no plano, nao escondido):
+     - o color grade do `SserafimShader` (`setDarkenAmt`, `setAdjustColor`) --
+       o PS2 nao tem o estagio de fragmento que ele usa;
+     - `HapticUtil.vibrate` (o pad do PS2 tem motor, mas o padrao do
+       `HapticUtil` de PC nao esta' disponivel aqui -- ver O RUMBLE no plano);
+     - o `FlxText` "Skip [ X ]" e' desenhado com a fonte do port, sem a borda.
+   ====================================================================== */
+#define CUT_N 3
+#define CUT_MAIN 0
+#define CUT_GF   1
+#define CUT_BF   2
+/* O modo da cena:
+     0 FORA    -- nada da cena na tela
+     1 RODANDO -- a linha do tempo manda (0 .. 730/24)
+     2 PULADA  -- o `playCutsceneFromRestart` (L716-733): camera indo para
+                  0,55/(1070,470) em 1 s `circOut`, os dois congelados no
+                  quadro 23
+     3 DEPOIS  -- a cena acabou (natural ou pulada): os dois "get up" continuam
+                  tocando por cima da musica ate' o chute final */
+#define CUT_FORA     0
+#define CUT_RODANDO  1
+#define CUT_PULADA   2
+#define CUT_DEPOIS   3
+/* Os tres papeis da cena na lista de desenho do palco. Ficam ACIMA dos seis
+   papeis de personagem (0..5) para nunca serem confundidos com um deles:
+   `cena_desenha` recusa qualquer `papel >= CH_CENA_PAPEIS`. */
+#define CH_PAPEL_CUT0 6
+#define CH_PAPEL_CUT1 7
+#define CH_PAPEL_CUT2 8
+#define CH_PAPEL_CUT(i) (CH_PAPEL_CUT0 + (i))
+
+static const char *const g_cut_nome[CUT_N] = {"main", "gf", "bf"};
+/* `setPosition` do script (L630-648), em unidades do original. */
+static const float g_cut_pos[CUT_N][2] = {
+    {-395.0f, 10.0f}, {655.0f, -104.0f}, {1220.0f, 531.0f}
+};
+/* `scrollFactor.set(...)` dos tres (L632, L639, L646). */
+static const float g_cut_scroll[CUT_N] = {0.94f, 0.95f, 0.99f};
+/* `zIndex` escrito a mao no script: `sserafimCutscene` e `sserafimGf` em 25,
+   `sserafimBf` em 305 (L634, L641, L647). */
+static const int g_cut_z[CUT_N] = {25, 25, 305};
+/* `sserafimGf.alpha = 0.5` (L640); os outros dois nascem opacos. A GF fica em
+   50% durante a cena inteira: e' o que o original desenha. */
+static const float g_cut_alpha[CUT_N] = {1.0f, 0.5f, 1.0f};
+
+static pst_pack_t g_cut_pack[CUT_N];        /* a textura (CFZ4 de 1 quadro) */
+static ssc_pack_t g_cut_q[CUT_N];           /* a geometria (.quads)         */
+static unsigned char *g_cut_qmem[CUT_N];    /* o arquivo .quads na RAM      */
+static texbuffer_t g_cut_tex[CUT_N];
+static unsigned char *g_cut_buf = 0;        /* um quadro descomprimido      */
+static unsigned int g_cut_buf_bytes = 0;
+static ssc_quad_t g_cut_quads[SSC_MAX_QUADS];
+static int g_cut_fds_ok = 0;
+static int g_cut_ok = 0;                    /* 1 = os tres pacotes estao na VRAM */
+static int g_cut_tentou = 0;
+/* O ESTADO da cena: `g_cut_modo` e' CUT_*, `g_cut_feita` e' o
+   `hasPlayedCutscene` do script (L44-64: reseta em TODO `onCreate`, ou seja,
+   uma vez por partida -- nao e' save, e' da sessao). */
+static int g_cut_modo = CUT_FORA;
+static int g_cut_feita = 0;
+static u32 g_cut_amostras = 0;              /* relogio da cena, em amostras  */
+static ssc_estado_t g_cut_e;                /* a linha do tempo no instante atual */
+static int g_cut_quadros_desenho = 0;       /* quads desenhados no ultimo quadro */
+/* O zoom com que o palco foi desenhado neste quadro (o do chart, ou o da cena
+   quando ela manda na camera). `palco_abre` recebe ele em vez do `g_tut_zoom`. */
+static float g_cut_zoom_desenho = 1.0f;
+static int g_cut_quadro_log[CUT_N] = {-1, -1, -1};
+/* O RELOGIO DO "GET UP": instante da cena em que a animacao do `getup` valeu
+   zero. Natural: 710/24. Pulada: o instante do pulo menos 23/24 (o
+   `curFrame = 23` do L731-732) -- assim o quadro 23 sai no pulo E a animacao
+   continua de onde parou. */
+static float g_cut_getup_t0 = SSC_T_GETUP_ANIM;
+/* A CAMERA DEPOIS DA CENA. O original termina com a camera em (1070,470) e
+   zoom 0,55 e ela FICA ali ate' o proximo evento de camera do chart (o
+   `startCountdown` nao mexe nela). */
+static float g_cut_zoom_final = 0.55f;
+static float g_cut_cam_final_x = 1070.0f, g_cut_cam_final_y = 470.0f;
+static float g_cut_pulada_s = 0.0f;         /* tempo desde o pulo           */
+/* O SEGURA-CAMERA: depois da cena a camera FICA em (1070,470)/0,55 ate' o
+   proximo evento de camera do chart. `g_cut_cam_seq0` e' o `cam_seq` do
+   `chart_events` no instante em que a cena acabou: assim que ele mudar, quem
+   manda na camera e' o chart outra vez. */
+static int g_cut_cam_segura = 0;
+static unsigned int g_cut_cam_seq0 = 0u;
+static float g_cut_pulada_z0 = 0.5f, g_cut_pulada_x0 = 660.0f, g_cut_pulada_y0 = -200.0f;
+/* O "Skip" (L529-552 e L905-930): 0 = nao pedido, 1 = aviso aparecendo,
+   2 = armado (o `canSkipCutscene`), 3 = fade para preto, 4 = fade de volta. */
+static int g_cut_skip_fase = 0;
+static float g_cut_skip_s = 0.0f;
+static int g_cut_som_slot = -1;             /* `startCutscene` no ar        */
+static float g_cut_som_t0 = -1.0f;          /* instante em que ele comecou  */
+
+/* ---------------------------------------------------------- O FIM DA MUSICA
+   `endStuff()` (sserafim.hxc L680-706), armado pelo evento `sserafimEnd` -- o
+   ULTIMO evento do chart da `spaghetti`:
+     +0      `FunkinSound.playOnce(cutscene/end1)`; SEEYOU1 visivel
+     +0,05   `solidCover.alpha = 1`, `camHUD.visible = false`, pausa proibida
+     +4      SEEYOU1 some, SEEYOU2 aparece, toca `cutscene/end2`
+     +8      as duas somem
+     +9      `PlayState.instance.endSong(true)`
+   As duas imagens (`end/end1` 753x752 e `end/end2` 1080x75) sao assadas por
+   `tools/assar_cutscene_sserafim.py` no MESMO diretorio da cena e cabem no
+   mesmo pool, nas chaves SP_CHAVE_CUT(CUT_N + i). O tamanho delas vem de
+   `engine/cut_fim_dados.h`, publicado pelo gerador: o `.cfz4` nao guarda
+   largura nem altura, e escrever 377/540 a mao aqui seria um numero inventado.
+
+   UMA IMAGEM DE CADA VEZ, de proposito: no original os dois sprites nunca
+   aparecem juntos (o `end1` some exatamente quando o `end2` entra), e manter os
+   dois na VRAM ao mesmo tempo custaria 324 544 B -- mais do que a menor folga
+   medida no pool durante a cena (311 296 B). `cut_fim_um()` libera o outro
+   antes de pedir o lugar, entao o pico e' 283 504 B.
+
+   O RELOGIO e' o vsync somado (o mesmo de `cut_anda`), nao o da musica: no fim
+   do chart o audio pode acabar ANTES dos 9 s, e com o relogio da musica a
+   sequencia pararia no meio. */
+#include "engine/cut_fim_dados.h"
+#define CUT_FIM_N CUT_FIM_IMAGENS
+static texbuffer_t g_cut_fim_tex[CUT_FIM_N];
+static int g_cut_fim_ok[CUT_FIM_N];
+static int g_cut_fim_fase = 0;              /* 0 = nao armado; 1..3 = degraus */
+static int g_cut_fim_soltas = 0;            /* as duas ja' sairam da VRAM    */
+static int g_cut_fim_endsong = 0;           /* pedido de `endSong(true)`     */
+static u32 g_cut_fim_amos = 0;              /* amostras desde o evento       */
+/* Quantos QUADROS cada imagem do fim foi desenhada. E' o que prova que o
+   caminho `cut_fim_desenha` -> GS rodou, e nao so' que a textura subiu: no
+   original o `SEEYOU1` fica 3,95 s e o `SEEYOU2` 4 s na tela. */
+static int g_cut_fim_quadros[CUT_FIM_N];
+/* `SEEYOU1.scale.set(0.67, 0.67)` + `updateHitbox()` (L686-687). O pacote ja'
+   esta' em MEIO documento (a `camCutscene` cobre 1280x720 nos 640x360 do port),
+   entao o desenho usa 0,67 direto. */
+#define CUT_FIM_ESCALA 0.67f
+/* Margens do `end2` (L697): `FlxG.width - 40 - w`, `FlxG.height - 40 - h`,
+   medidas no DOCUMENTO (1280x720) e divididas por 2, como a `camCutscene`. */
+#define CUT_FIM_MARGEM 40.0f
+
+/* Definidos mais abaixo, junto do resto da cena. */
+static void cut_som(const char *nome);
+static int cena_ler(const char *path, unsigned char **out, unsigned int *out_bytes);
+
+/* Devolve ao pool a imagem `i` (ou as duas, com i < 0). Idempotente. */
+static void cut_fim_soltar(int i)
+{
+    int k0 = (i < 0) ? 0 : i;
+    int k1 = (i < 0) ? CUT_FIM_N - 1 : i;
+    int k;
+    for (k = k0; k <= k1 && k < CUT_FIM_N; k++) {
+        if (g_cut_fim_tex[k].address)
+            sp_liberar(&g_pool, SP_CHAVE_CUT(CUT_N + k));
+        g_cut_fim_tex[k].address = 0;
+        g_cut_fim_ok[k] = 0;
+    }
+    if (i < 0) {
+        g_cut_fim_fase = 0; g_cut_fim_amos = 0; g_cut_fim_soltas = 0;
+        for (k = 0; k < CUT_FIM_N; k++) g_cut_fim_quadros[k] = 0;
+    }
+}
+
+/* Abre `end<i>.cfz4`, descomprime e sobe para a VRAM. Qualquer falta e'
+   REPORTADA e a sequencia roda sem a imagem -- nunca com endereco inventado. */
+static int cut_fim_um(int i)
+{
+    static const char *const nomes[CUT_FIM_N] = {"end1", "end2"};
+    char caminho[160];
+    pst_pack_t pk;
+    unsigned char *buf;
+    unsigned int addr = 0;
+    unsigned int w, h;
+    int rc, k;
+    if (i < 0 || i >= CUT_FIM_N) return -1;
+    /* A OUTRA sai ANTES de pedir lugar: as duas nunca aparecem juntas no
+       original (o `end1` some quando o `end2` entra) e as duas ao mesmo tempo
+       custariam 324 544 B -- mais do que a menor folga medida no pool
+       (311 296 B). Assim o pico e' 283 504 B. */
+    for (k = 0; k < CUT_FIM_N; k++) if (k != i) cut_fim_soltar(k);
+    cut_fim_soltar(i);                  /* a propria, se ficou de uma tentativa */
+    snprintf(caminho, sizeof(caminho),
+             "mass:/FNFPS2/assets/stages/sserafim/cut/%s.cfz4", nomes[i]);
+    rc = pst_abrir(caminho, &pk);
+    if (rc != PST_OK) { telemetry_event("cut_fim_falta", i, rc); return -1; }
+    w = (unsigned int)cut_fim_tex_w[i];
+    h = (unsigned int)cut_fim_tex_h[i];
+    /* O `.cfz4` de 1 quadro nao tem cabecalho de tamanho: o header gerado e o
+       pacote tem de concordar, senao desenha UV fora da textura. */
+    if (pk.count != 1u || pk.frame_bytes != w * h * 2u) {
+        telemetry_event("cut_fim_tamanho", i, (int)pk.frame_bytes);
+        pst_fechar(&pk);
+        return -1;
+    }
+    buf = (unsigned char *)memalign(128, pk.frame_bytes);
+    if (!buf) { pst_fechar(&pk); telemetry_event("cut_fim_sem_ram", i, 0); return -1; }
+    if (pst_quadro(&pk, 0, buf) != PST_OK) {
+        free(buf); pst_fechar(&pk);
+        telemetry_event("cut_fim_quadro", i, -1);
+        return -1;
+    }
+    if (sp_chave(&g_pool, SP_CHAVE_CUT(CUT_N + i), pk.frame_bytes, &addr) < 0) {
+        free(buf); pst_fechar(&pk);
+        telemetry_event("cut_fim_sem_vram", i, (int)sp_livre(&g_pool));
+        return -1;
+    }
+    g_cut_fim_tex[i].address = addr;
+    g_cut_fim_tex[i].width = (w + 63u) & ~63u;
+    g_cut_fim_tex[i].psm = GS_PSM_16;
+    setup_texture_dims(&g_cut_fim_tex[i], (int)w, (int)h);
+    FlushCache(0);
+    upload_raw_psm(&g_cut_fim_tex[i], buf, (int)w, (int)h, GS_PSM_16);
+    free(buf);
+    pst_fechar(&pk);
+    g_cut_fim_ok[i] = 1;
+    telemetry_event("cut_fim_textura", i, (int)(w * h * 2u));
+    return 0;
+}
+
+/* O relogio da sequencia. `advance` em amostras de 48 kHz (vsync). */
+static void cut_fim_anda(u32 advance)
+{
+    float t;
+    if (!g_script.ativo || !g_script.ssf_fim) return;
+    if (!g_cut_fim_fase) {
+        g_cut_fim_fase = 1;                 /* `endStuff()` comeca AQUI      */
+        g_cut_fim_amos = 0;
+        g_cut_fim_soltas = 0;
+        cut_fim_um(0);
+        cut_som("cutend1");
+        telemetry_event("cut_endstuff", g_cut_fim_ok[0], (int)sp_livre(&g_pool));
+        return;
+    }
+    if (g_cut_fim_fase >= 3) return;
+    g_cut_fim_amos += advance;
+    t = (float)g_cut_fim_amos / 48000.0f;
+    if (g_cut_fim_fase == 1 && t >= 4.0f) {
+        g_cut_fim_fase = 2;
+        cut_fim_um(1);
+        cut_som("cutend2");
+        telemetry_event("cut_endstuff2", g_cut_fim_ok[1], (int)sp_livre(&g_pool));
+    }
+    if (t >= 8.0f && !g_cut_fim_soltas) {
+        /* As duas somem em 8 s (L700): a VRAM volta antes do `endSong`. */
+        int k;
+        for (k = 0; k < CUT_FIM_N; k++) cut_fim_soltar(k);
+        g_cut_fim_soltas = 1;
+        telemetry_event("cut_endstuff_apaga", (int)sp_livre(&g_pool), 0);
+    }
+    if (t >= 9.0f) {
+        /* `PlayState.instance.endSong(true)` (L704). O transporte e o audio sao
+           variaveis de `main()`: aqui so' se PEDE a parada, e o laco de quadro
+           faz o mesmo que faz no fim natural do arquivo (parar o audsrv, fechar
+           o transporte, `g_tutorial_audio_finished = 1`) -- a transicao para o
+           resultado passa a ser a MESMA das outras musicas, e nao uma segunda
+           copia que pode divergir. */
+        g_cut_fim_fase = 3;
+        g_cut_fim_endsong = 1;
+        telemetry_event("cut_endstuff_fim", (int)g_cut_fim_amos,
+                        (int)sp_livre(&g_pool));
+        telemetry_event("cut_fim_quadros", g_cut_fim_quadros[0],
+                        g_cut_fim_quadros[1]);
+    }
+}
+
+/* Desenha as imagens do fim na `camCutscene` -- por cima de tudo, inclusive do
+   preto do `solidCover`, que e' `camGame`. */
+static qword_t *cut_fim_desenha(qword_t *q)
+{
+    float t, w, h, x, y;
+    int i;
+    if (!g_cut_fim_fase) return q;
+    t = (float)g_cut_fim_amos / 48000.0f;
+    if (t < 0.05f) return q;                /* o `FlxTimer` de 0,05 s (L683) */
+    if (t < 4.0f) i = 0;                    /* SEEYOU1                       */
+    else if (t < 8.0f) i = 1;               /* SEEYOU2 (L693-698)            */
+    else return q;                          /* as duas somem em 8 s (L700)   */
+    if (!g_cut_fim_ok[i] || !g_cut_fim_tex[i].address) return q;
+    w = (float)cut_fim_tex_w[i] * CUT_FIM_ESCALA;
+    h = (float)cut_fim_tex_h[i] * CUT_FIM_ESCALA;
+    if (i == 0) {
+        /* `screenCenter()` (L688): centro da tela. */
+        x = SL_VIEW_W * 0.5f - w * 0.5f;
+        y = SL_VIEW_H * 0.5f - h * 0.5f;
+    } else {
+        x = (1280.0f - CUT_FIM_MARGEM) * 0.5f - w;
+        y = (720.0f - CUT_FIM_MARGEM) * 0.5f - h;
+    }
+    q = bind_texture_filter(q, &g_cut_fim_tex[i], 1);
+    g_cut_fim_quadros[i]++;
+    return sprite_dims(q, x, y, w, h, cut_fim_tex_w[i], cut_fim_tex_h[i]);
+}
+
+static int cut_hud_oculto(void) { return g_cut_modo == CUT_RODANDO; }
+
+/* A CENA ESTA' VIVA (desenha os "get up")? Vale nos modos 1, 2 e 3. */
+static int cut_vivo(void) { return g_cut_modo != CUT_FORA; }
+
+/* A cena esta' NO AR (a contagem esta' cancelada e a musica nao comeca)? */
+static int cut_no_ar(void) { return g_cut_modo == CUT_RODANDO || g_cut_modo == CUT_PULADA; }
+
+/* Fecha UM pacote e devolve o lugar no pool. */
+static void cut_libera(int i)
+{
+    if (i < 0 || i >= CUT_N) return;
+    if (g_cut_fds_ok) pst_fechar(&g_cut_pack[i]);
+    else g_cut_pack[i].fd = -1;
+    if (g_cut_qmem[i]) { free(g_cut_qmem[i]); g_cut_qmem[i] = 0; }
+    memset(&g_cut_q[i], 0, sizeof(g_cut_q[i]));
+    if (g_cut_tex[i].address) sp_liberar(&g_pool, SP_CHAVE_CUT(i));
+    g_cut_tex[i].address = 0;
+    g_cut_quadro_log[i] = -1;
+    g_cut_fds_ok = 1;
+}
+
+/* Fecha os tres, devolve a RAM dos `.quads`, o lugar das texturas no pool e o
+   som. Idempotente: pode ser chamado antes de qualquer carga. */
+static void cut_soltar(void)
+{
+    int i;
+
+    /* As duas imagens do `endStuff` moram no mesmo pool e saem junto. */
+    cut_fim_soltar(-1);
+    for (i = 0; i < CUT_N; i++) cut_libera(i);
+    if (g_cut_buf) { free(g_cut_buf); g_cut_buf = 0; g_cut_buf_bytes = 0; }
+    if (g_cut_som_slot >= 0) { audio_ring_overlay_parar(g_cut_som_slot); g_cut_som_slot = -1; }
+    g_cut_som_t0 = -1.0f;
+    g_cut_ok = 0;
+    g_cut_tentou = 0;
+    g_cut_quadros_desenho = 0;
+}
+
+/* A cena inteira sai de cena: usado quando o palco e' solto (fim de musica,
+   retry, volta para o menu). */
+static void cut_parar_tudo(void)
+{
+    cut_soltar();
+    g_cut_modo = CUT_FORA;
+    g_cut_feita = 0;
+    g_cut_skip_fase = 0;
+    g_cut_skip_s = 0.0f;
+    g_cut_amostras = 0;
+    g_cut_getup_t0 = SSC_T_GETUP_ANIM;
+    g_cut_pulada_s = 0.0f;
+    g_cut_quadros_desenho = 0;
+}
+
+/* ESQUECE A VRAM DO PALCO sem fechar os pacotes: os props voltam a ser pedidos
+   no primeiro desenho. E' o que abre espaco para as tres texturas da cutscene
+   sem tirar nenhum personagem da VRAM (eles estao invisiveis, mas o reload
+   custaria um LZ4 por personagem na volta).
+   Sem zerar `residente[]`/`cresidente[]`/`chresidente[]` o desenho continuaria
+   apontando para endereco que agora e' de outro dono -- arte trocada na tela,
+   sem log nenhum. */
+static void palco_esquecer_vram(void)
+{
+    int i;
+    for (i = 0; i < PALCO_MAX_PROPS; i++) { g_palco.residente[i] = 0; g_palco.quadro[i] = -1; }
+    for (i = 0; i < PALCO_MAX_CRIADOS; i++) g_palco.cresidente[i] = 0;
+    for (i = 0; i < PALCO_MAX_CHAOS; i++) g_palco.chresidente[i] = 0;
+    sp_limpar(&g_pool);
+}
+
+/* Troca a imagem do piso em perspectiva (`loadGraphic(floor | cutscene/floor-cutscene)`,
+   L617). Um lugar no pool, dois pacotes: `palco_chao_pronto` fecha o que estava
+   aberto e abre o outro, e `chresidente[k] = 0` forca o reenvio no desenho. */
+static void cut_chao(int cut)
+{
+    int k;
+    for (k = 0; k < g_palco.nch && k < PALCO_MAX_CHAOS; k++) {
+        palco_chao_pronto(k, cut);
+        g_palco.chresidente[k] = 0;
+    }
+}
+
+/* Os sons da cena (`cutscene/startCutscene` em 20/24 e os dois do `endStuff`).
+   O anel de overlay toca um PCM de 48 kHz por vez, com o volume do
+   `FunkinSound.load(..., 1.0)` do original. */
+static void cut_som(const char *nome)
+{
+    char caminho[192];
+    int fd, slot;
+    if (!g_audio_ok) { telemetry_event("cut_som_sem_audio", 0, 0); return; }
+    snprintf(caminho, sizeof(caminho), "%s/stage/%s.pcm", FNF_ASSET_ROOT, nome);
+    fd = open(caminho, O_RDONLY);
+    if (fd < 0) { telemetry_event("cut_som_falta", 0, 0); return; }
+    if (g_cut_som_slot >= 0) { audio_ring_overlay_parar(g_cut_som_slot); g_cut_som_slot = -1; }
+    slot = audio_ring_overlay_vol(fd, 100);
+    if (slot < 0) { close(fd); telemetry_event("cut_som_sem_slot", 0, 0); return; }
+    g_cut_som_slot = slot;
+    telemetry_event("cut_som", (int)g_cut_amostras, slot);
+}
+
+/* Abre os tres `.quads` + os tres `.cfz4` e poe as texturas na VRAM.
+   Devolve 0 quando os tres entraram; qualquer falta e' REPORTADA com o indice,
+   e a cena roda com o que deu (nunca com um endereco inventado). */
+static int cut_carregar(void)
+{
+    int i;
+    char caminho[160];
+    cut_soltar();
+    g_cut_tentou = 1;
+    for (i = 0; i < CUT_N; i++) {
+        unsigned int qbytes = 0;
+        unsigned int qw = 0, qh = 0;
+        unsigned int addr = 0;
+        int rc;
+        snprintf(caminho, sizeof(caminho),
+                 "mass:/FNFPS2/assets/stages/sserafim/cut/%s.quads", g_cut_nome[i]);
+        rc = cena_ler(caminho, &g_cut_qmem[i], &qbytes);
+        if (rc != 0) { telemetry_event("cut_falta", i, rc); return -1; }
+        rc = ssc_abrir(&g_cut_q[i], g_cut_qmem[i], qbytes);
+        if (rc != SSC_OK) { telemetry_event("cut_pacote_ruim", i, rc); return -1; }
+        snprintf(caminho, sizeof(caminho),
+                 "mass:/FNFPS2/assets/stages/sserafim/cut/%s.cfz4", g_cut_nome[i]);
+        rc = pst_abrir(caminho, &g_cut_pack[i]);
+        if (rc != PST_OK) { telemetry_event("cut_textura_falta", i, rc); return -1; }
+        g_cut_fds_ok = 1;
+        qw = (unsigned int)g_cut_q[i].tex_w;
+        qh = (unsigned int)g_cut_q[i].tex_h;
+        /* A textura e' UM quadro do tamanho que o cabecalho do `.quads` declara.
+           Divergencia aqui e' pacote de outra versao: recusa em vez de desenhar
+           UV fora da textura. */
+        if (g_cut_pack[i].count != 1u || g_cut_pack[i].frame_bytes != qw * qh * 2u) {
+            telemetry_event("cut_textura_tamanho", i, (int)g_cut_pack[i].frame_bytes);
+            return -1;
+        }
+        if (g_cut_pack[i].frame_bytes > g_cut_buf_bytes) {
+            if (g_cut_buf) free(g_cut_buf);
+            g_cut_buf = (unsigned char *)memalign(128, g_cut_pack[i].frame_bytes);
+            g_cut_buf_bytes = g_cut_buf ? g_cut_pack[i].frame_bytes : 0u;
+        }
+        if (!g_cut_buf) { telemetry_event("cut_sem_ram", i, 0); return -1; }
+        if (pst_quadro(&g_cut_pack[i], 0, g_cut_buf) != PST_OK) {
+            telemetry_event("cut_textura_falha", i, -10);
+            return -1;
+        }
+        if (sp_chave(&g_pool, SP_CHAVE_CUT(i), g_cut_pack[i].frame_bytes, &addr) < 0) {
+            telemetry_event("cut_sem_vram", i, (int)sp_livre(&g_pool));
+            return -1;
+        }
+        g_cut_tex[i].address = addr;
+        g_cut_tex[i].width = (qw + 63u) & ~63u;
+        g_cut_tex[i].psm = GS_PSM_16;
+        setup_texture_dims(&g_cut_tex[i], qw, qh);
+        FlushCache(0);
+        upload_raw_psm(&g_cut_tex[i], g_cut_buf, qw, qh, GS_PSM_16);
+        telemetry_event("cut_textura", i, (int)g_cut_pack[i].frame_bytes);
+    }
+    g_cut_ok = 1;
+    return 0;
+}
+
+/* A cena comeca: `onCountdownStart` (L585-597) cancela a contagem e chama
+   `introCutscene` (L735). */
+static void cut_entrar(void)
+{
+    if (g_cut_modo != CUT_FORA || g_cut_feita) return;
+    g_cut_feita = 1;
+    g_cut_modo = CUT_RODANDO;
+    g_cut_skip_fase = 0;
+    g_cut_skip_s = 0.0f;
+    g_cut_amostras = 0;
+    g_cut_getup_t0 = SSC_T_GETUP_ANIM;
+    g_cut_som_t0 = -1.0f;
+    g_cut_quadros_desenho = 0;
+    /* `event.cancel()`: a contagem NAO anda e a musica nao comeca. O relogio do
+       chart fica em 0 (nada de nota descendo) e nenhum evento do chart roda --
+       o cursor do chart so' avanca quando a musica existe. */
+    g_countdown_left = 0;
+    g_countdown_step = 0;
+    g_chart_clock = 0;
+    ssc_estado(0.0f, &g_cut_e);
+    /* `setCutsceneVisibility(true)` (L598-603) e o `doAnim()` do atlas
+       principal (L758). */
+    ss_ssf_cutscene(&g_script, 1);
+    ss_ssf_cobertura(&g_script, g_cut_e.cover);
+    cut_chao(1);
+    palco_esquecer_vram();
+    cut_carregar();
+    telemetry_event("cut_cena", g_cut_ok, (int)sp_livre(&g_pool));
+}
+
+/* A CENA DE ABERTURA da `spaghetti` entra AQUI, no relogio do quadro, e nao na
+   troca de estado. Duas condicoes de dado, nenhuma inventada:
+     1) a musica e' a `spaghetti` -- o script do palco `sserafim` e' o unico dos
+        21 que tem `introCutscene` (`onCountdownStart`, L585-597);
+     2) o palco `sserafim` ja' esta' CARREGADO (`palco_atual()`), porque
+        `palco_carregar` chama `palco_soltar` -> `cut_parar_tudo` -- e e' isso
+        que apagava a cena no mesmo quadro em que ela era carregada.
+   `g_cut_feita` e' o `hasPlayedCutscene` do script (L56-64: nasce FALSE no
+   `onCreate` de cada partida, ou seja, o retry toca a cena de novo), e
+   `cut_parar_tudo` o zera junto com o resto. */
+static void cut_tentar_entrar(void)
+{
+    const char *stg;
+    if (g_cut_feita || g_cut_modo != CUT_FORA) return;
+    if (!g_play_song || !g_play_song->stage) return;
+    if (strcmp(g_play_song->stage, "sserafim")) return;
+    stg = palco_atual();
+    if (!stg || strcmp(stg, "sserafim")) return;
+    cut_entrar();
+}
+
+/* A cena termina (natural em 730/24, ou pulada): `startCountdown()`. */
+static void cut_sair(int pulada)
+{
+    int k;
+    if (g_cut_modo != CUT_RODANDO && g_cut_modo != CUT_PULADA) return;
+    g_cut_skip_fase = 0;
+    g_cut_skip_s = 0.0f;
+    /* O `setCutsceneVisibility(false)` de 563/24 ja' foi aplicado pela linha do
+       tempo; chamar de novo aqui e' inofensivo (so' age quando o estado muda). */
+    ss_ssf_cutscene(&g_script, 2);
+    ss_ssf_cobertura(&g_script, -1.0f);
+    /* O atlas principal sai em 563/24 e nao volta: o lugar dele no pool volta
+       agora. Os dois "get up" FICAM (ver o comentario do topo). */
+    cut_libera(CUT_MAIN);
+    cut_chao(0);
+    for (k = 0; k < g_palco.nch && k < PALCO_MAX_CHAOS; k++) g_palco.chresidente[k] = 0;
+    if (pulada) {
+        /* `playCutsceneFromRestart()` (L716-733) chama `setCutsceneVisibility(false)`
+           -- ja' feito -- e o `endStuff`-nada: os dois voltam visiveis e a
+           camera vai para 0,55/(1070,470) em 1 s `circOut` (o tween de camera
+           roda no modo CUT_PULADA, no desenho). */
+        g_cut_pulada_s = 0.0f;
+        g_cut_pulada_z0 = g_cut_e.zoom;
+        g_cut_pulada_x0 = g_cut_e.cam_x;
+        g_cut_pulada_y0 = g_cut_e.cam_y;
+        g_cut_getup_t0 = (float)g_cut_amostras / 48000.0f - (23.0f / 24.0f);
+        g_cut_modo = CUT_PULADA;
+    } else {
+        g_cut_modo = CUT_DEPOIS;
+    }
+    /* A CAMERA fica onde o tween a deixou (o original nao a reposiciona no
+       `startCountdown`). O zoom entra no `chart_events` para o proximo evento de
+       zoom partir DELE, e a POSICAO fica segurada aqui ate' o proximo evento de
+       camera -- senao o `follow` do port levaria a camera para o personagem no
+       quadro seguinte, e o original fica em (1070,470). */
+    chart_events_forcar_zoom(g_cut_zoom_final);
+    g_cut_cam_segura = 1;
+    g_cut_cam_seq0 = chart_events_state()->cam_seq;
+    /* `startCountdown()` (PlayState.hx L2578-2592): a contagem comeca agora. */
+    g_countdown_left = g_countdown_beat * 5;
+    if (g_countdown_left <= 0) g_countdown_left = (s32)(4u * TUT_SAMPLES_PER_STEP) * 5;
+    g_countdown_step = 0;
+    g_chart_clock = -g_countdown_left;
+    telemetry_event(pulada ? "cut_pulada" : "cut_fim",
+                    (int)g_cut_amostras, (int)sp_livre(&g_pool));
+    /* O estado do SCRIPT no fim da cena (mascara das cinco, a GF de verdade e
+       o estado da visibilidade da cutscene): e' o que decide quando os dois
+       "get up" saem da VRAM, e o log so' serve se disser por que. */
+    telemetry_event("cut_fim_script", (int)g_script.ssf_mostra,
+                    g_script.ssf_gf | (g_script.ssf_cut << 8));
+    /* A MENOR FOLGA do pool ate' aqui -- ou seja, com as TRES texturas da cena
+       residentes junto com os props que a cena mostra. E' o numero que diz se
+       a resolucao do atlas assado cabe (ver tools/assar_cutscene_sserafim.py). */
+    telemetry_event("cut_pool_min", (int)sp_min_folga(&g_pool),
+                    sp_min_folga_encheu());
+    /* Quantos quads a cena desenhou no total: e' a medida do custo dela (o
+       pacote do `main` chega a 195 KB de geometria por quadro no pico). */
+    telemetry_event("cut_quads", g_cut_quadros_desenho, (int)g_cut_amostras);
+}
+
+/* O relogio da cena, `advance` em amostras de 48 kHz -- o mesmo vsync que a
+   contagem regressiva usa. Nos modos 2 e 3 ele continua andando, porque os dois
+   "get up" continuam animando por cima da musica. */
+static void cut_anda(u32 advance)
+{
+    float t;
+    if (g_cut_modo == CUT_FORA) return;
+    g_cut_amostras += advance;
+    t = (float)g_cut_amostras / 48000.0f;
+    /* O chute final troca os dois "get up" pelos personagens de verdade
+       (L236-243): e' o instante em que as duas texturas voltam para o pool. */
+    if (g_cut_modo == CUT_DEPOIS && g_script.ssf_gf) {
+        cut_libera(CUT_GF);
+        cut_libera(CUT_BF);
+        g_cut_modo = CUT_FORA;
+        telemetry_event("cut_libera", (int)g_cut_amostras,
+                        g_script.ssf_gf | (g_script.ssf_cut << 8));
+        return;
+    }
+    if (g_cut_modo == CUT_RODANDO) {
+        ssc_estado(t, &g_cut_e);
+        /* O `startCutScene` em 20/24 (L760-763) e a troca de estado das props em
+           563/24 (`setCutsceneVisibility(false)`, L1206-1218). */
+        if (g_cut_som_t0 < 0.0f && t >= (20.0f / 24.0f)) {
+            g_cut_som_t0 = t;
+            cut_som("startcutscene");
+        }
+        ss_ssf_cutscene(&g_script, (t < SSC_T_CENA_FIM) ? 1 : 2);
+        ss_ssf_cobertura(&g_script, g_cut_e.cover);
+        /* O PCM tem 31,154 s: parar depois disso evita que ele atravesse a
+           musica caso o arquivo venha mais longo. */
+        if (g_cut_som_t0 >= 0.0f && g_cut_som_slot >= 0 && t - g_cut_som_t0 > 31.2f) {
+            audio_ring_overlay_parar(g_cut_som_slot);
+            g_cut_som_slot = -1;
+        }
+        if (g_cut_e.acabou) cut_sair(0);
+        return;
+    }
+    if (g_cut_modo == CUT_PULADA) {
+        g_cut_pulada_s += (float)advance / 48000.0f;
+        if (g_cut_pulada_s >= 1.0f) { g_cut_pulada_s = 1.0f; g_cut_modo = CUT_DEPOIS; }
+    }
+}
+
+/* O primeiro dos DOIS toques no botao de avancar (L529-552) mostra o aviso e
+   arma o skip meio segundo depois; o segundo pula (L545-552 -> `skipCutscene`,
+   L905-930). */
+static void cut_skip_pede(void)
+{
+    if (g_cut_modo != CUT_RODANDO) return;
+    if (g_cut_skip_fase == 0) {
+        g_cut_skip_fase = 1;
+        g_cut_skip_s = 0.0f;
+        telemetry_event("cut_skip_aviso", (int)g_cut_amostras, 0);
+        return;
+    }
+    if (g_cut_skip_fase == 2) {
+        g_cut_skip_fase = 3;
+        g_cut_skip_s = 0.0f;
+        telemetry_event("cut_skip", (int)g_cut_amostras, 0);
+    }
+}
+
+/* O relogio do aviso e dos dois fades do skip. */
+static void cut_skip_anda(u32 advance)
+{
+    float dt = (float)advance / 48000.0f;
+    if (g_cut_modo != CUT_RODANDO) return;
+    switch (g_cut_skip_fase) {
+    case 1:                     /* `skipText` aparece em 0,5 s (quadOut) */
+        g_cut_skip_s += dt;
+        if (g_cut_skip_s >= 0.5f) { g_cut_skip_s = 0.0f; g_cut_skip_fase = 2; }
+        break;
+    case 3:                     /* `camCutscene.fade(preto, 0,5, false)` */
+        g_cut_skip_s += dt;
+        if (g_cut_skip_s >= 0.5f) {
+            /* `cutsceneTimerManager.clear()` + `cutsceneSounds.stop()` +
+               `startCountdown()` (L915-926). O `fadeOut(0.5)` do som nao tem
+               equivalente no anel de overlay: ele PARA aqui, no mesmo instante
+               -- divergencia declarada no plano. */
+            if (g_cut_som_slot >= 0) {
+                audio_ring_overlay_parar(g_cut_som_slot);
+                g_cut_som_slot = -1;
+            }
+            g_cut_skip_s = 0.0f;
+            g_cut_skip_fase = 4;
+            cut_sair(1);
+        }
+        break;
+    case 4:                     /* `camCutscene.fade(preto, 0,5, true)` */
+        g_cut_skip_s += dt;
+        if (g_cut_skip_s >= 0.5f) { g_cut_skip_s = 0.0f; g_cut_skip_fase = 0; }
+        break;
+    default:
+        break;
+    }
+}
+
+/* O alpha da tela preta do skip: 0 -> 1 (fase 3) e 1 -> 0 (fase 4). A fase 4
+   roda DEPOIS de a cena sair (o `fade in` do L917 vem junto do
+   `startCountdown`), por isso ela e' checada fora do `cut_modo`. */
+static float cut_skip_alpha(void)
+{
+    float k;
+    if (g_cut_skip_fase == 3) {
+        k = g_cut_skip_s / 0.5f;
+        return k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+    }
+    if (g_cut_skip_fase == 4) {
+        k = 1.0f - g_cut_skip_s / 0.5f;
+        return k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+    }
+    return 0.0f;
+}
+
+/* O alpha do aviso "Skip [ X ]" (o `skipText`): quadOut de 0 a 1 em 0,5 s na
+   fase 1, 1 nas fases 2 e 3. */
+static float cut_skip_texto_alpha(void)
+{
+    if (g_cut_skip_fase == 1) {
+        float k = g_cut_skip_s / 0.5f, u;
+        if (k <= 0.0f) return 0.0f;
+        if (k >= 1.0f) return 1.0f;
+        u = 1.0f - k;
+        return 1.0f - u * u;          /* FlxEase.quadOut */
+    }
+    if (g_cut_skip_fase == 2 || g_cut_skip_fase == 3) return 1.0f;
+    return 0.0f;
+}
+
+/* A CAMERA da cena. Devolve 1 e escreve zoom/scroll quando a cena manda na
+   camera; devolve 0 no modo 3, em que a camera e' a do chart outra vez. */
+static int cut_camera(float *zoom, float *cx, float *cy)
+{
+    if (g_cut_modo == CUT_RODANDO) {
+        *zoom = g_cut_e.zoom;
+        *cx = g_cut_e.cam_x;
+        *cy = g_cut_e.cam_y;
+        return 1;
+    }
+    if (g_cut_modo == CUT_PULADA) {
+        /* `tweenCameraZoom(0.55, 1, true, circOut)` e
+           `tweenCameraToPosition(1070, 470, 1, circOut)` (L723-724). */
+        float k = ssc_circ_out(g_cut_pulada_s >= 1.0f ? 1.0f : g_cut_pulada_s);
+        *zoom = g_cut_pulada_z0 + (g_cut_zoom_final - g_cut_pulada_z0) * k;
+        *cx = g_cut_pulada_x0 + (g_cut_cam_final_x - g_cut_pulada_x0) * k;
+        *cy = g_cut_pulada_y0 + (g_cut_cam_final_y - g_cut_pulada_y0) * k;
+        return 1;
+    }
+    return 0;
+}
+
+/* Desenha UM dos tres sprites da cena. */
+static qword_t *cut_desenha(qword_t *q, int i)
+{
+    const ssc_pack_t *p;
+    int n, k, frame, total = 0;
+    float esc, sf, sc, cam_x, cam_y, zoom;
+    unsigned char a;
+    if (i < 0 || i >= CUT_N) return q;
+    if (!cut_vivo() || !g_cut_ok || !g_cut_tex[i].address) return q;
+    if (i == CUT_MAIN) {
+        /* So' na cena: `setCutsceneVisibility(false)` o apaga em 563/24. */
+        if (g_cut_modo != CUT_RODANDO || !g_cut_e.principal_visivel) return q;
+        /* `doAnim()` = `animation.play("", true)`: a linha inteira. */
+        frame = ssc_quadro_em(&g_cut_q[i], g_cut_e.t_principal);
+    } else {
+        /* `resetAnim()` (650/24) = `play("static")`; `doAnim()` (710/24) =
+           `play("getup")`. O relogio do getup continua depois da cena: o
+           `getup` de 123 quadros so' acaba 5,1 s depois de comecar, ja' dentro
+           da musica. Antes do `doAnim` o rotulo e' o `static`, de um quadro. */
+        float t = (float)g_cut_amostras / 48000.0f - g_cut_getup_t0;
+        int getup = 1;
+        if (g_cut_modo == CUT_RODANDO) {
+            /* `sserafimGf/Bf.visible`: nascem invisiveis (L637/L648) e o
+               `setCutsceneVisibility(false)` os liga em 563/24. */
+            if (i == CUT_GF ? !g_cut_e.gf_visivel : !g_cut_e.bf_visivel) return q;
+            getup = (i == CUT_GF) ? g_cut_e.anim_gf : g_cut_e.anim_bf;
+        }
+        if (t < 0.0f) t = 0.0f;
+        frame = ssc_quadro_rotulo(&g_cut_q[i], getup ? "getup" : "static", t);
+    }
+    if (frame < 0) return q;
+    p = &g_cut_q[i];
+    if (frame >= p->n_frames) frame = p->n_frames - 1;
+    n = ssc_quads(p, frame, g_cut_quads, SSC_MAX_QUADS, &total);
+    if (n <= 0) return q;
+    if (total > n) telemetry_event("cut_quads_corte", i, total);
+    a = (unsigned char)(g_cut_alpha[i] * 128.0f + 0.5f);
+    if (a == 0) return q;
+    if (a > 0x80) a = 0x80;
+    esc = (float)p->escala1000 / 1000.0f;
+    sf = g_cut_scroll[i];
+    zoom = g_cut_e.zoom;
+    cam_x = g_cut_e.cam_x;
+    cam_y = g_cut_e.cam_y;
+    /* `cut_camera` devolve 0 no modo 3 (a camera volta a ser a do chart), mas
+       este bloco so' desenha os sprites da cena, e nesse modo o valor nao e'
+       usado. Ler o retorno em vez de o descartar: o teste de estilo do
+       repositorio recusa `(void)` em frente a uma chamada. */
+    if (g_cut_modo == CUT_PULADA && !cut_camera(&zoom, &cam_x, &cam_y))
+        telemetry_event("cut_cam_modo", g_cut_modo, 0);
+    else if (g_cut_modo == CUT_DEPOIS) { zoom = g_cut_zoom_final; cam_x = g_cut_cam_final_x; cam_y = g_cut_cam_final_y; }
+    sc = 0.5f * zoom;
+    q = bind_texture_filter(q, &g_cut_tex[i], 1);
+    for (k = 0; k < n; k++) {
+        float px[4], py[4], sx[4], sy[4];
+        int c;
+        const unsigned char *r;
+        float u0, v0, u1, v1;
+        if (!ssc_cantos(p, &g_cut_quads[k], g_cut_pos[i][0], g_cut_pos[i][1], px, py))
+            continue;
+        /* A MESMA conta de tela dos props do palco (stage_layout.c):
+           `320 + (mundo - cam*scroll + 640*scroll - 640) * 0.5 * zoom`. */
+        for (c = 0; c < 4; c++) {
+            sx[c] = SL_VIEW_W * 0.5f + (px[c] - cam_x * sf + 640.0f * sf - 640.0f) * sc;
+            sy[c] = SL_VIEW_H * 0.5f + (py[c] - cam_y * sf + 360.0f * sf - 360.0f) * sc;
+        }
+        r = p->rects + (unsigned int)g_cut_quads[k].sprite * 8u;
+        u0 = (float)((unsigned int)r[0] | ((unsigned int)r[1] << 8)) * esc;
+        v0 = (float)((unsigned int)r[2] | ((unsigned int)r[3] << 8)) * esc;
+        u1 = u0 + (float)((unsigned int)r[4] | ((unsigned int)r[5] << 8)) * esc;
+        v1 = v0 + (float)((unsigned int)r[6] | ((unsigned int)r[7] << 8)) * esc;
+        /* Meio texel dentro, como o piso em perspectiva: sem isso a borda de
+           cada retangulo puxa o vizinho do spritemap. */
+        q = sprite_quad_uv_cor(q, sx, sy, u0 + 0.5f, v0 + 0.5f,
+                               u1 - 0.5f, v1 - 0.5f, a, 0x80, 0x80, 0x80);
+        g_cut_quadros_desenho++;
+    }
+    if (g_cut_quadro_log[i] != frame) {
+        g_cut_quadro_log[i] = frame;
+        telemetry_event("cut_quadro", i, frame);
+    }
+    return q;
 }
 
 /* Troca de tela: quem manda na VRAM e' o estado.
@@ -3870,7 +4758,7 @@ static qword_t *icone_desenha(qword_t *q, float vida_lerp)
                 r2.t0.u = (float)g_icone_pack[lado].w - 0.5f;
                 r2.t1.u = 0.5f;
                 r2.color = rgba(0x80, 0x80, 0x80, 0x80);
-                dl_sprite(dx, dy, dw, dh, (float)g_icone_pack[lado].w, cv0,
+                 dl_sprite(dx, dy, dw, dh, (float)g_icone_pack[lado].w, cv0,
                           -(float)g_icone_pack[lado].w, cv1 - cv0, 0x80, &r2);
                 q = draw_rect_textured(q, 0, &r2);
             }
@@ -4041,7 +4929,15 @@ static void palco_script_anda(const char *stage, float t, int step)
         ss_set_song(&g_script, g_play_song ? g_play_song->id : "");
         if (!g_script.ativo) return;
     }
-    if (t < g_script.t) {
+    /* O RELOGIO VOLTOU PARA tras = `onSongRetry`. Mas o relogio da musica nao
+       era monotono no fim do arquivo e isso disparava um "retry" FALSO 24
+       quadros depois do `endStuff` (medido: `palco_script_retry` 24 quadros
+       depois de `cut_endstuff`), o que apagava o `ssf_fim` e travava a
+       sequencia SEEYOU no primeiro degrau. Duas condicoes: o relogio voltou E
+       voltou para o COMECO (um retry de verdade recomeca em ~0). Assim o fim
+       do arquivo -- onde `music_clock` e' fixado no fim do chart -- nao pode
+       ser confundido com um recomeco. */
+    if (t < g_script.t && t < 0.25f) {
         ss_reiniciar(&g_script);
         palco_trem_som_para();        /* `onSongRetry` -> `trainSound.stop()` */
         /* O `onSongRetry` do sserafim refaz `resetClear()`: a yunjin volta
@@ -5160,6 +6056,7 @@ static qword_t *cena_desenha(qword_t *q,int papel,const bs_slot_t *slot,int pass
     if(!g_cena_alpha_visto[papel]){g_cena_alpha_visto[papel]=1;
      telemetry_event("char_alpha",papel,(int)a);}
    }
+
    if(a==0){/* invisivel: o original mantem o sprite, mas nada aparece */desenhou=1;}
    else if(temcor||a!=0x80){
     int flip=(ci>=0&&ch_chars[ci].flipx)?1:0;
@@ -6670,7 +7567,7 @@ static void resmus_passo(int rank,int pct_alvo)
 static qword_t *text_draw_alpha(qword_t*q,const char*s,float x,float y,float scale,int align,unsigned char alpha){int len=(int)strlen(s),i;float total=0,cursor;
  for(i=0;i<len;i++){unsigned char ch=(unsigned char)s[i];if(ch<32||ch>127)ch='?';total+=g_font_widths[ch-32]*0.5f*scale;}
  if(align==1)x-=total*0.5f;else if(align==2)x-=total;cursor=x;
- for(i=0;i<len;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n,advance;if(ch<32||ch>127)ch='?';n=ch-32;advance=g_font_widths[n];v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y));v.v0.z=0;v.v1.x=FNX_FIM(cursor+FONT_DRAW_W*scale);v.v1.y=FNX_FIM(vy(y)+FONT_DRAW_H*scale);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+0.5f;v.t0.v=(n/16)*FONT_CELL_H+0.5f;v.t1.u=(n%16+1)*FONT_CELL_W-0.5f;v.t1.v=(n/16+1)*FONT_CELL_H-0.5f;v.color=rgba(0x80,0x80,0x80,alpha);q=draw_rect_textured(q,0,&v);cursor+=advance*0.5f*scale;}return q;}
+ for(i=0;i<len;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n,advance;if(ch<32||ch>127)ch='?';n=ch-32;advance=g_font_widths[n];v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y));v.v0.z=0;v.v1.x=FNX_FIM(cursor+FONT_DRAW_W*scale);v.v1.y=FNX_FIM(vy(y)+FONT_DRAW_H*scale);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+0.5f;v.t0.v=(n/16)*FONT_CELL_H+0.5f;v.t1.u=(n%16+1)*FONT_CELL_W-0.5f;v.t1.v=(n/16+1)*FONT_CELL_H-0.5f;v.color=rgba(0x80,0x80,0x80,alpha);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=advance*0.5f*scale;}return q;}
 static qword_t *text_draw(qword_t*q,const char*s,float x,float y,float scale,int align){return text_draw_alpha(q,s,x,y,scale,align,128);}
 /* FlxEase.cubeInOut, que e' a curva do tween de alpha da contagem
    (Countdown.showCountdownGraphic: var fadeEase = FlxEase.cubeInOut). */
@@ -6839,7 +7736,7 @@ static int story_font_alpha_decode(const unsigned char*src,u32 src_bytes,unsigne
 static int tutorial_vcr_restore(void){u32 fp;int r=story_font_alpha_decode(g_menu_sfx_pixels+241920u+22656u,7672u,g_font_pixels,160u*120u);if(r<0)return r;for(fp=0;fp<160u*120u;fp++){unsigned int a=g_font_pixels[fp*4u+3];g_font_pixels[fp*4u+3]=(unsigned char)((a*128u+127u)/255u);}FlushCache(0);return 0;}
 static int g_menu_remembered=0;  /* FIDELIDADE 0.2.96: rememberedSelectedIndex do original */
 static int g_story_vcr_vbase=0;
-static qword_t*story_vcr_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=9.375f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-3));v.v0.z=0;v.v1.x=FNX_FIM(cursor+10);v.v1.y=FNX_FIM(vy(y-3)+20);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+static qword_t*story_vcr_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=9.375f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-3));v.v0.z=0;v.v1.x=FNX_FIM(cursor+10);v.v1.y=FNX_FIM(vy(y-3)+20);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
 /* PlayState.updateScoreText() + FlxStringUtil.formatMoney(v,false,true):
    "Score: N" com virgula a cada tres digitos. Devolve o comprimento, porque
    hud_score_line() recebe contagem explicita (ela nao mede a string). */
@@ -6867,7 +7764,7 @@ static qword_t*hud_score_line(qword_t*q,const char*s,int count,float x,float y,i
    na camHUD no original (PlayState.hx L2026, L959-960), entao o zoom do HUD os
    escala como qualquer outra peca. Aqui isso vira: posicao pelo hz_*, avanco e
    altura do glifo x zoom. Com zoom 1,0 os numeros sao identicos aos de antes. */
- float adv=4.6875f*g_hud_zoom,total=adv*count,cursor,x0=hz_x(x),yb=hz_y(y-1.5f);if(align==1)x0-=total*.5f;else if(align==2)x0-=total;cursor=x0;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(yb));v.v0.z=0;v.v1.x=FNX_FIM(cursor+5.0f*g_hud_zoom);v.v1.y=FNX_FIM(vy(yb)+10.0f*g_hud_zoom);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+ float adv=4.6875f*g_hud_zoom,total=adv*count,cursor,x0=hz_x(x),yb=hz_y(y-1.5f);if(align==1)x0-=total*.5f;else if(align==2)x0-=total;cursor=x0;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(yb));v.v0.z=0;v.v1.x=FNX_FIM(cursor+5.0f*g_hud_zoom);v.v1.y=FNX_FIM(vy(yb)+10.0f*g_hud_zoom);v.v1.z=0;v.t0.u=(n%16)*10+.5f;v.t0.v=g_story_vcr_vbase+(n/16)*20+.5f;v.t1.u=(n%16+1)*10-.5f;v.t1.v=g_story_vcr_vbase+(n/16+1)*20-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
 static qword_t*story_vcr(qword_t*q,const char*s,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){const char*p=s,*e;float yy=y;while(1){e=strchr(p,'\n');q=story_vcr_line(q,p,e?(int)(e-p):(int)strlen(p),x,yy,align,r,g,b,a);if(!e)break;p=e+1;yy+=16;}return q;}
 static unsigned char*menu_idle_blend(int mi,int af,int phase){
  const unsigned int*a=g_menu_frame_rw[mi][0][af],*b=g_menu_frame_rw[mi][0][(af+1)%3];u32 bytes=a[1]*a[2]*4u,j;unsigned int wb=(unsigned int)phase,wa=3u-wb;
@@ -7736,7 +8633,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0&&!g_paused){
    /* A musica so' comeca depois da contagem: no original startSong() e'
       chamado quando o Conductor chega em 0 (PlayState.hx:1144-1151). */
-   if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&g_countdown_left<=0&&audio_ring_level()>=65536){
+   if(g_tutorial_scene_ready&&audio_playing&&!audio_started&&g_countdown_left<=0&&!cut_no_ar()&&audio_ring_level()>=65536){
     audio_started=1;clock_hold=0;music_clock_tick=begin;music_clock_fraction=0;transport_state=2;
     telemetry_event("tutorial_audio_start",(int)frame_no,(int)audio_ring_level());
    }
@@ -7804,9 +8701,30 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    u32 advance=(u32)(scaled/(u64)kBUSCLK);
    music_clock_fraction=scaled%(u64)kBUSCLK;
    music_clock_tick=begin;
+   /* A CUTSCENE entra aqui: o palco ja' foi carregado pelo desenho do estado 8
+      (ver `cut_tentar_entrar`). Na troca de estado nao funciona -- `palco_soltar`
+      apaga a cena no mesmo quadro. */
+   if(ui_state==8&&transition_frame==0)cut_tentar_entrar();
+   /* DEPOIS da cena os dois "get up" continuam animando por cima da musica,
+      mas a CONTAGEM ja' esta' correndo: por isso este `cut_anda` roda FORA da
+      cadeia abaixo (que para tudo enquanto a cena esta' no ar). Ele so' olha o
+      chute final, que devolve as duas texturas ao pool. */
+   if(ui_state==8&&g_cut_modo==CUT_DEPOIS)cut_anda(advance);
+   /* O FIM DA MUSICA (`endStuff`, evento `sserafimEnd`) roda no mesmo relogio de
+      vsync e NAO depende do modo da cena: ele chega com a musica tocando e vai
+      ate' o `endSong` em +9 s, muito depois de a cutscene ter saido. */
+   if(ui_state==8&&!g_paused)cut_fim_anda(advance);
    if(g_paused){
     /* Pausado: nada avanca. O substate do original para o PlayState inteiro
        (shouldSubstatePause), entao relogio, contagem e musica ficam parados. */
+   }else if(ui_state==8&&cut_no_ar()){
+    /* A CUTSCENE do sserafim (`onCountdownStart` cancela a contagem): o relogio
+       dela anda no vsync, que e' a base do `FlxTimer`/`FlxTween` do original.
+       A contagem fica parada e a musica nao comeca ate' `startCountdown()`.
+       So' nos modos em que a cena esta' NO AR: no CUT_DEPOIS a contagem ja'
+       roda (o `cut_anda` de cima cuida dele). */
+    cut_skip_anda(advance);
+    cut_anda(advance);
    }else if(ui_state==8&&g_countdown_left>0){
     g_countdown_left-=(s32)advance;
     if(g_countdown_left<0)g_countdown_left=0;
@@ -7837,7 +8755,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(ps2h_song_clock_hook)ps2h_song_clock_hook(g_chart_clock<0?0u:(u32)g_chart_clock);
   heard=music_clock;
   frame_mark("F.CLOCK",(int)music_clock);
-  if(ui_state==8&&audio_started&&g_chart_status==0){
+  /* `g_chart_clock>=0`: durante a contagem ele e' NEGATIVO, e
+     `(u32)g_chart_clock` de um negativo vale ~4,29e9 -- ou seja, o laco
+     considerava vencido TODO evento restante da musica e entrava tudo de uma
+     vez. Foi assim que o `sserafimKick final` disparou no quadro seguinte ao
+     fim da cutscene (e mostraria a GF de verdade e a porta do caminhao 40 s
+     antes da hora em qualquer musica). */
+  if(ui_state==8&&audio_started&&g_chart_status==0&&g_chart_clock>=0){
    const chart_event_t *event;
    while(g_chart_cursor<g_chart_info.event_count){
     event=chart_event(g_chart_cursor);if(!event||event->sample>(u32)g_chart_clock)break;
@@ -7897,6 +8821,13 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(!aplicado){
       g_ev_script++;
       if(!(g_ev_avisou&2u)){g_ev_avisou|=2u;telemetry_event("evento_sem_script",(int)event->type,(int)event->sample);}
+      /* POR QUE nao foi aplicado: bit0 = o NOME chegou (tabela de strings do
+         chart), bit1 = o script do palco esta' ativo, bit2 = o `ssf_ativo`.
+         Sem estes bits, `evento_sem_script` era indistinguivel entre "chart v3,
+         que nao carrega nome" e "palco sem script" -- e um chart v3 na raiz do
+         harness custou uma rodada inteira (14 002 quadros) para ser achado. */
+      telemetry_event("ss_ev_falhou",(nome_ev?1:0)|(g_script.ativo<<1)|
+                      (g_script.ssf_ativo<<2),(int)g_script.ssf_cut);
      }
     }else if(event->type==CHART_EV_CHANGE_CHARACTER||event->type==CHART_EV_ALT_IDLE_ANIM){
      g_ev_sem_efeito++;
@@ -7974,7 +8905,17 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   /* Fim da musica -> resultado, depois de uma pausa curta para o ultimo quadro
      aparecer. O original tambem nao corta na hora: ha' a transicao de saida
      do PlayState antes do ResultState. */
-  if(ui_state==8&&g_tutorial_audio_finished&&transition_frame==0){
+  /* A GUARDA DO `endStuff`. Quando o palco pediu o fim (`sserafimEnd`), quem
+     manda no fim da musica e' a sequencia de 9 s do script, que termina com
+     `PlayState.instance.endSong(true)`. Sem esta guarda o fim NATURAL do
+     arquivo (o stems acaba 67 ms depois do ultimo evento: medido, 8 052 374
+     amostras de audio contra 8 049 145 do chart) levava para o resultado no
+     primeiro segundo da sequencia, e as duas imagens SEEYOU e o
+     `endSong(true)` do script nunca apareceriam -- ou seja, o script teria
+     codigo morto. Medido antes da correcao: `state,9` 104 quadros depois de
+     `tutorial_audio_end`, sem `cut_endstuff2`. */
+  if(ui_state==8&&g_tutorial_audio_finished&&transition_frame==0&&
+     !(g_cut_fim_fase>0&&g_cut_fim_fase<3)){
    g_result_wait++;
    if(g_result_wait==90&&target_state<0){
     fnf_rank_t rk=fnf_play_rank(&g_play);
@@ -7998,14 +8939,26 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     }
    }
   }
+  /* `endSong(true)` do `endStuff`: mesmo desfecho do fim natural do arquivo. */
+  if(ui_state==8&&g_cut_fim_endsong){
+   g_cut_fim_endsong=0;
+   audsrv_stop_audio();audio_playing=0;audio_started=0;g_tutorial_audio_finished=1;transport_state=4;
+   telemetry_event("endstuff_endsong",(int)frame_no,(int)g_chart_clock);
+   custo_emite();
+  }
   if(ui_state==8&&audio_started&&audio_ring_eof()&&ring_bytes==0&&queued_bytes==0){
    audsrv_stop_audio();audio_playing=0;audio_started=0;g_tutorial_audio_finished=1;transport_state=4;
    /* O fim da musica e' o fim do CHART (song_end_sample), nao
       TUTORIAL_AUDIO_SAMPLES, que e' a duracao do Tutorial escrita no codigo.
       Para outra musica aquela constante seria o tempo errado, e o resultado
       sairia com o relogio de outra faixa. */
-   music_clock=g_chart_info.song_end_sample?g_chart_info.song_end_sample:TUTORIAL_AUDIO_SAMPLES;
-   heard=music_clock;
+   {u32 fim=g_chart_info.song_end_sample?g_chart_info.song_end_sample:TUTORIAL_AUDIO_SAMPLES;
+    /* O relogio do chart NUNCA anda para tras: `heard` pode ter passado do fim
+       do chart (o stems real termina 3 229 amostras depois: 8 052 374 contra
+       8 049 145) e fixar o fim aqui fazia o tempo DESCER. Ver o comentario do
+       `onSongRetry` em `palco_script_anda`. */
+    if(fim>music_clock)music_clock=fim;
+    heard=music_clock;}
    telemetry_event("tutorial_audio_end",(int)music_clock,(int)frame_no);
    custo_emite();
   }
@@ -8213,16 +9166,23 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       so' tem o stems do Tutorial -- cai no arquivo plano que o port usava,
       sem esconder a diferenca: a telemetria diz qual dos dois abriu. */
    audio_fd=-1;
+   g_audio_fonte[0]=0;
    if(g_play_song){
     char ap[192];
-    if(sr_stems_path(ap,(unsigned)sizeof(ap),FNF_ASSET_ROOT,g_play_song)>0)audio_fd=open(ap,O_RDONLY);
+    if(sr_stems_path(ap,(unsigned)sizeof(ap),FNF_ASSET_ROOT,g_play_song)>0){
+     audio_fd=open(ap,O_RDONLY);
+     if(audio_fd>=0)snprintf(g_audio_fonte,sizeof(g_audio_fonte),"%s",ap);
+    }
     telemetry_event("play_audio_path",audio_fd,(int)sizeof(ap));
    }
    /* A reserva so' vale para o Tutorial, que e' a musica a que aquele arquivo
       pertence. Usar o stems do Tutorial para tocar Bopeebo seria tocar a musica
       errada com o chart certo -- pior do que admitir que falta o audio. */
-   if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")==0)
+   if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")==0){
     audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);
+    if(audio_fd>=0)snprintf(g_audio_fonte,sizeof(g_audio_fonte),"%s",
+                            "mass:/FNFPS2/assets/audio_stems.pcm");
+   }
    if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")!=0)
     telemetry_event("play_audio_ausente",0,(int)g_play_level);
    capture_status("TUT_PCM_OPEN_DONE",(int)frame_no,audio_fd);
@@ -8249,7 +9209,16 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
        Freeplay toca `cancelMenu` e so' fecha depois que o fade termina. Parar
        no meio mataria o som; parar DEPOIS do `ui_state==6` mataria o
        `freakyMenu` que acabou de comecar (foi o defeito de uma versao). */
-    freeplay_audio_sair();}palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
+    freeplay_audio_sair();}palco_ui_entrou(&gftex,&stagetex,&tex,ui_state);telemetry_event("state",ui_state,(int)frame_no);if(ui_state==8){g_play_zoom=cena_zoom_do_palco(g_play_song);g_play_scroll=sr_scroll(g_play_song,story_diff);telemetry_event("cena_inicio",(int)(g_play_zoom*1000.0f),(int)(g_play_scroll*1000.0f));g_tut_cam_focus=0;g_tut_cam_ready=0;g_tut_zoom=g_play_zoom;g_tut_scroll=g_play_scroll;g_bf_sing=g_gf_sing=-1;g_tut_bop=1.0f;chart_events_reset(g_official_mainstage_camera_zoom,1.0f);/* Batida = 4 passos do chart; 5 batidas antes da musica, como Countdown.hx. */g_countdown_beat=(s32)(4u*g_play_samples_per_step);if(g_countdown_beat<=0)g_countdown_beat=(s32)(4u*TUT_SAMPLES_PER_STEP);g_countdown_left=g_countdown_beat*5;g_countdown_step=0;g_chart_clock=-g_countdown_left;telemetry_event("countdown_begin",(int)g_countdown_beat,(int)g_countdown_left);capture_status("TUT_STATE_ACTIVE",(int)frame_no,g_tutorial_audio_status);}/* A CENA DE ABERTURA da `spaghetti` NAO ENTRA AQUI. Ela dependia deste ponto,
+   e o ponto estava errado: `palco_carregar` (que roda no primeiro DESENHO do
+   estado 8, porque `g_palco.stage` ainda e' o do menu) chama `palco_soltar`,
+   que chama `cut_parar_tudo` -- a cena era carregada e apagada no MESMO
+   quadro. Medido no harness com a arte real: `cut_textura`/`cut_cena` no log e
+   nenhum `cut_fim` depois; a contagem nunca foi cancelada, a musica comecou e
+   o jogador morreu durante o que deveria ser a cutscene.
+   Agora quem chama e' o relogio do quadro (mais abaixo), DEPOIS de o palco
+   estar carregado -- ver o bloco `cut_entrar()` la'. */
+transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/* O original SNAPA a camera para o item lembrado, nao varre: L242
    selectItem() dispara onChange (MenuList.hx L341, sem guarda) que move
    camFollow para o item selecionado ANTES de resetCamStuff()/snapToTarget()
    (L258 + L343-345). Por isso menu_cam_y ja nasce no alvo. */menu_cam_y=40.0f+160.0f*(float)g_menu_remembered;menu_placeholder=0;menu_anim_tick=-1;if(previous_state==1||previous_state==11){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);}telemetry_event("menu_restore",0,g_title_audio_fd>=0); }setup_texture_dims(&stagetex,512,256);memcpy(g_up_bounce,g_menu_pixels+MENU_FRAMES_BYTES,512u*256u*4u);upload_raw(&stagetex,g_up_bounce,512,256);}else if(ui_state==9){palco_soltar();audsrv_stop_audio();audio_playing=0;audio_started=0;transport_state=0;g_result_wait=0;g_result_drawn=0;resmus_parar();telemetry_event("result_enter",(int)fnf_play_rank(&g_play),fnf_play_clear_percent(&g_play));
@@ -8426,8 +9395,18 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      mostra o menu. O primeiro quadro depois de abrir nao aceita entrada --
      e' o `justOpened` do original, que existe para o mesmo START que abriu nao
      fechar na hora. */
+  /* O PULO DA CUTSCENE (`controls.CUTSCENE_ADVANCE`, L529-552): ENTER no
+     teclado e `A` no controle -- no PS2, CROSS. O PRIMEIRO toque so' mostra o
+     aviso e arma o pulo meio segundo depois; o SEGUNDO pula. A pausa esta'
+     fora do ar enquanto a cena roda (`mayPauseGame = false`, L750). */
+  if(ui_state==8&&transition_frame==0&&g_cut_modo==CUT_RODANDO){
+   if(pressed&PAD_CROSS)cut_skip_pede();
+  }
   if(ui_state==8&&transition_frame==0&&g_tutorial_scene_ready&&!g_play.dead){
-   if(!g_paused&&(pressed&PAD_START)&&!(g_held&PAD_SELECT)&&!g_tutorial_audio_finished){
+   /* `mayPauseGame` e' false so' no `introCutscene` e volta a true no
+      `startCountdown` -- ou seja, a pausa fica proibida apenas enquanto a CENA
+      roda, e nao durante o tween de camera do fim do pulo. */
+   if(!g_paused&&g_cut_modo!=CUT_RODANDO&&(pressed&PAD_START)&&!(g_held&PAD_SELECT)&&!g_tutorial_audio_finished){
     g_paused=1;g_pause_sel=0;g_pause_frame=0;g_pause_mode=0;g_pause_drawn=0;
     audsrv_stop_audio();audio_playing=0;audio_ring_stop();transport_state=3;
     telemetry_event("pause_open",(int)music_clock,(int)frame_no);
@@ -8756,7 +9735,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
 tutorial_packs_free();story_assets_ready=0;target_state=7;transition_frame=1;transitions++;}else if(selection==1){/* FREEPLAY: monta a lista do registro e abre a tela. */
     freeplay_build();g_fp_sel=0;g_fp_diff=freeplay_diff_valida(g_fp_n?g_fp[0]:0,story_diff);g_fp_active=0;g_fp_play_song=0;
     telemetry_event("freeplay_open",g_fp_n,0);target_state=11;transition_frame=1;transitions++;}
-else{menu_placeholder=selection;if(menu_font_restore()==0){setup_texture_dims(&fonttex,FONT_W,FONT_H);upload_raw(&fonttex,g_font_pixels,FONT_W,FONT_H);}}}}menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
+else{menu_placeholder=selection;telemetry_event("menu_sem_tela",selection,0);if(menu_font_restore()==0){setup_texture_dims(&fonttex,FONT_W,FONT_H);upload_raw(&fonttex,g_font_pixels,FONT_W,FONT_H);}}}}menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
   }else if(transition_frame==0&&ui_state==7){if(pressed&PAD_UP){int sr;story_level=(story_level+8)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_DOWN){int sr;story_level=(story_level+1)%9;sr=story_titles_restore();if(sr==0)story_upload_title(&tex,story_level);telemetry_event("story_title_restore",story_level,sr);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_LEFT){story_diff=(story_diff+2)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}else if(pressed&PAD_RIGHT){story_diff=(story_diff+1)%3;story_diff_tween=0;telemetry_event("story_diff_tween",story_diff,0);g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(pressed&PAD_CIRCLE){target_state=6;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){/* Campanha: monta a playlist da semana e comeca na primeira musica
      (StoryMenuState.hx L571-598). Antes era `story_level==0`, entao so' a
      semana do Tutorial podia ser jogada. */
@@ -8993,7 +9972,13 @@ if(ui_state!=6){q=draw_clear(q,0,0,0,SCREEN_W,SCREEN_H,(ui_state==0||ui_state==1
      fora da area de jogo, que e o defeito que o teste relatou. */
    q=sprite_region_phys(q,dx,y0r,(float)fr[1],(float)fr[2],
                         0.0f,0.0f,(float)fr[1],(float)fr[2],fa2);}}}
-  q=draw_primitive_override(q,0);}}}if(menu_placeholder){q=rect(q,70,71,570,291,12,10,18);q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,selection==1?"FREEPLAY":selection==2?"MERCH":selection==3?"OPTIONS":"CREDITS",320,136,1.4f,1);q=text_draw(q,"COMING IN NEXT STAGE",320,181,.9f,1);q=text_draw(q,"CIRCLE  RETURN",320,226,.9f,1);}
+  q=draw_primitive_override(q,0);}}}/* AS TELAS QUE O PORT AINDA NAO TEM (MERCH, OPTIONS, CREDITS). Antes esta
+      caixa escrevia "COMING IN NEXT STAGE" -- texto que NAO existe no original,
+      ou seja, invencao (ver REGRAS.md, regra 4). Ele saiu. O que fica e' o NOME
+      do item (que vem do proprio menu do original) e a dica de controle, que e'
+      do port e existe em todas as telas de erro dele. Sem a tela de destino, o
+      caminho honesto e' dizer no log que ela falta: `menu_sem_tela`. */
+   if(menu_placeholder){q=rect(q,70,71,570,291,12,10,18);q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,selection==1?"FREEPLAY":selection==2?"MERCH":selection==3?"OPTIONS":"CREDITS",320,150,1.4f,1);q=text_draw(q,"CIRCLE  RETURN",320,215,.9f,1);}
 /* A marca de versao NAO pode ficar aqui. No estado 6 as cinco
    texturas guardam os cinco itens do menu, e mt[0] e justamente a
    fonttex, que carrega a imagem do item STORY MODE. Desenhar texto
@@ -9149,6 +10134,19 @@ else if(g_cam_t<1.0f){
  cena_shake_passo();
 cx=g_tut_cam_x;cy=g_tut_cam_y;
  if(sc>0.0f){cx-=g_shake.x/sc;cy-=g_shake.y/sc;}
+ /* A CUTSCENE manda na camera enquanto roda: `tweenCameraZoom` e
+    `tweenCameraToPosition` do original escrevem em `camGame.zoom`/`camGame.scroll`,
+    que e' exatamente o que o desenho do palco e dos props usa. `cz` existe
+    porque `palco_abre` recebe o zoom e nao pode ver o `g_tut_zoom` do chart. */
+ {float cz=g_tut_zoom;if(cut_camera(&cz,&cx,&cy))sc=.5f*cz*g_tut_bop;
+  /* O SEGURA-CAMERA do fim da cutscene: (1070,470) com zoom 0,55 ate' o
+     `cam_seq` do chart mudar (o proximo `FocusCamera`/`ZoomCamera`). */
+  if(g_cut_cam_segura){
+   if(chart_events_state()->cam_seq!=g_cut_cam_seq0)g_cut_cam_segura=0;
+   else{cx=g_cut_cam_final_x;cy=g_cut_cam_final_y;cz=g_cut_zoom_final;
+        sc=.5f*cz*g_tut_bop;g_cut_zoom_desenho=cz;}
+  }
+  g_cut_zoom_desenho=cz;}
 float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
@@ -9191,8 +10189,13 @@ float x,y,w,h;
     const char *stg=palco_atual();
     int bt2=cena_passo();     /* o passo do chart: e' ele que decide quando dancar */
     long ms2=(long)(g_chart_clock<0?0:(u32)(g_chart_clock/48));
-    int zz[6],ord[6]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD,
-                      CH_PAPEL_DC0,CH_PAPEL_DC1,CH_PAPEL_DC2},ai,bi,limite;
+    /* NOVE papeis: os seis personagens e os TRES sprites da cutscene do
+       sserafim, que o `refresh()` do palco ordena junto com todo o resto
+       (`sserafimCutscene`/`sserafimGf` em z 25 e `sserafimBf` em z 305,
+       sserafim.hxc L634/L641/L647). `ent` diz quantos entram na ordenacao. */
+    int zz[9],ord[9]={CH_PAPEL_GF,CH_PAPEL_BF,CH_PAPEL_DAD,
+                      CH_PAPEL_DC0,CH_PAPEL_DC1,CH_PAPEL_DC2,
+                      CH_PAPEL_CUT0,CH_PAPEL_CUT1,CH_PAPEL_CUT2},ai,bi,limite,ent=6;
     palco_lista_t pl;
     /* O zIndex do SLOT do palco, ou o que o NOTE KIND mandou (moveToBack/Front).
        O script faz `this.zIndex = 2000/3000; currentStage.refresh()`, e o
@@ -9214,24 +10217,31 @@ float x,y,w,h;
        para z igual. Em qualquer outro palco os tres papeis estao inativos e
        nao desenham nada. */
     zz[3]=zz[4]=zz[5]=1000;
+    /* OS TRES DA CUTSCENE entram na lista so' enquanto a cena esta' viva. Os
+       "get up" continuam em cena depois dela (ate' o chute final): e' o modo
+       CUT_DEPOIS que os mantem na lista, com o z do script. */
+    if(cut_vivo()){ent=9;zz[6]=g_cut_z[0];zz[7]=g_cut_z[1];zz[8]=g_cut_z[2];}
     /* O chute pedido pelo `sserafimKick` vira animacao ANTES do desenho. */
     cena_dancarinas_sync(ms2);
     /* z crescente, como o `FunkinGroup.refresh()` (SortUtil.byZIndex) que o
        Stage chama depois de adicionar todo mundo. A ordem de adicao do
        PlayState e' GF (L2207), BF (L2216) e DAD (L2225), e ela e' o desempate
        aqui porque o corte e' estavel. */
-    for(ai=1;ai<6;ai++){int zi=zz[ai],zo=ord[ai];
+    for(ai=1;ai<ent;ai++){int zi=zz[ai],zo=ord[ai];
      for(bi=ai-1;bi>=0&&zz[bi]>zi;bi--){zz[bi+1]=zz[bi];ord[bi+1]=ord[bi];}
      zz[bi+1]=zi;ord[bi+1]=zo;}
-    palco_abre(&pl,stg,cx,cy,g_tut_zoom,g_tut_bop,bt,bts,st);
+    palco_abre(&pl,stg,cx,cy,g_cut_zoom_desenho,g_tut_bop,bt,bts,st);
     /* A reserva composta e' o FUNDO: quando entra, vai antes de todos. */
     if(palco_reserva(&pl,stg)){q=bind_texture_filter(q,&stagetex,1);{float stx=320.0f+(STAGE_WIN_X-cx*STAGE_SCROLL+640.0f*STAGE_SCROLL-640.0f)*sc,sty=180.0f+(STAGE_WIN_Y-cy*STAGE_SCROLL+360.0f*STAGE_SCROLL-360.0f)*sc;q=sprite_dims(q,stx,sty,STAGE_WIN_W*sc,STAGE_WIN_H*sc,512,256);}}
     /* [props z < gf] gf [props z < dad] dad [props z < bf] bf [props z >= bf] */
     limite=-PALCO_Z_FIM;
-    for(ai=0;ai<6;ai++){
+    for(ai=0;ai<ent;ai++){
      const char *rp=ord[ai]==CH_PAPEL_GF?"gf":ord[ai]==CH_PAPEL_DAD?"dad":
                     (ord[ai]==CH_PAPEL_BF?"bf":NULL);
      q=palco_fatia(q,&pl,limite,zz[ai]);
+     /* Os tres da cutscene nao passam pelo `cena_desenha` (nao sao personagem
+        de `bs_chars[]`): o quadro vem do pacote assado, no mesmo z. */
+     if(ord[ai]>=CH_PAPEL_CUT0){q=cut_desenha(q,ord[ai]-CH_PAPEL_CUT0);limite=zz[ai];continue;}
      /* slot NULL = personagem que o SCRIPT criou (as tres dancarinas): a
         posicao vem do `ss_dancarina`, nao do bs_slots[]. */
      q=cena_desenha(q,ord[ai],rp?ch_slot(stg,rp):NULL,bt2,ms2,cx,cy,sc);
@@ -9259,14 +10269,50 @@ float x,y,w,h;
      ordem das cameras do original (camGame antes da camHUD). */
   if(ui_state==8){
    float fa=ss_ssf_flash_alpha(&g_script);
+   if(g_cut_modo==CUT_RODANDO){
+    /* O `camGame.fade` da cutscene: PRETO de 3 s na entrada (L765) e o flash
+       BRANCO de 30/24 s no batidao de 563/24 (L1204). Os dois sao `FlxCamera.fade`
+       -- o mesmo desenho do `flashScreen` do chart, so' que com a cor trocada. */
+    float fp=g_cut_e.fade_preto;
+    if(g_cut_e.fade_branco>fa)fa=g_cut_e.fade_branco;
+    if(fp>0.0f){
+     int av=(int)(fp*128.0f+0.5f);
+     if(av<0)av=0;
+     if(av>128)av=128;
+     q=quad_cor(q,0,0,SCREEN_W,SCREEN_H-1,0x00,0x00,0x00,(unsigned char)av);
+    }
+   }
    if(fa>0.0f){
     int av=(int)(fa*128.0f+0.5f);
     if(av<0)av=0;
     if(av>128)av=128;
     q=quad_cor(q,0,0,SCREEN_W,SCREEN_H-1,0xFF,0xFF,0xFF,(unsigned char)av);
    }
+   /* O AVISO DO SKIP (`skipText`, L740-757): "Skip [ <botao> ]" em
+     936*wideScale, 618*wideScale, alinhado a' direita, alpha em quadOut. A
+     fonte do port nao tem a borda de 2 px do `FlxTextBorderStyle.OUTLINE` --
+     divergencia de arte, o texto e o instante sao os do original. */
+   {float ta=cut_skip_texto_alpha();
+    if(ta>0.0f){
+     int av=(int)(ta*128.0f+0.5f);
+     if(av<0)av=0;
+     if(av>128)av=128;
+     q=bind_texture_filter(q,&fonttex,1);
+     q=text_draw_alpha(q,"Skip [ CROSS ]",468.0f,309.0f,1.25f,2,(unsigned char)av);
+    }}
+   /* O preto do SKIP (`camCutscene.fade`, L909/L917) fica por cima de tudo,
+      HUD inclusive: e' uma camera separada no original. */
+   {float sk=cut_skip_alpha();
+    if(sk>0.0f){
+     int av=(int)(sk*128.0f+0.5f);
+     if(av<0)av=0;
+     if(av>128)av=128;
+     q=quad_cor(q,0,0,SCREEN_W,SCREEN_H-1,0x00,0x00,0x00,(unsigned char)av);
+    }}
   }
-  if(ui_state==8&&g_tutorial_scene_ready){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=splash_draw(q,&tex2,(u32)g_chart_clock);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
+  /* O HUD INTEIRO some na cutscene (`camHUD.visible = false`, sserafim.hxc
+     L594) e volta junto com a contagem regressiva em 730/24. */
+  if(ui_state==8&&g_tutorial_scene_ready&&!cut_hud_oculto()){q=tutorial_notes_draw(q,&tex2,&fonttex,(u32)g_chart_clock,g_held,frame_no);q=splash_draw(q,&tex2,(u32)g_chart_clock);q=countdown_draw(q,&fonttex);/* Official HUD core at half of 1280x720 camHUD coordinates. healthBarBG=(339.5,648), inner bar=(343.5,652), health=1.0 gives 50% red/green, icons use HealthIcon size 150 and POSITION_OFFSET 26. */q=bind_texture_filter(q,&tex2,1);q=sprite_region(q,hz_x(169.75f),hz_y(324.0f),hz_s(300.5f),hz_s(9.5f),0,112,301,10);{/* A barra oficial e' um FlxBar RIGHT_TO_LEFT de largura 593 (601 do fundo
      menos 8) e valor 0..2 (HEALTH_MAX), verde do jogador preenchido a partir
      da DIREITA. Em 640x360, x0=171.75 e largura 296.5, entao a divisao esta'
      em x1 - largura*(health/2). Com health=1,0 isso da' 320.0 -- que era o
@@ -10491,7 +11537,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     q=rect_alpha(q,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0,0,0,(unsigned char)a);
    }
   }
-  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>TUTORIAL_AUDIO_SAMPLES)saved_sample=TUTORIAL_AUDIO_SAMPLES;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos)bp=(u64)(u32)endpos;lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else if(capture_ui==10&&g_go_audio_estado>0){
+  /* AS DUAS IMAGENS DO FIM DA MUSICA (`endStuff`): por ULTIMO, porque no original
+     elas ficam na `camCutscene`, que e' a camera desenhada por cima de todas --
+     inclusive da `camHUD` e do preto do `solidCover`. */
+  if(ui_state==8)q=cut_fim_desenha(q);
+  q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>g_chart_info.song_end_sample&&g_chart_info.song_end_sample)saved_sample=g_chart_info.song_end_sample;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open(g_audio_fonte[0]?g_audio_fonte:"mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos){bp=(u64)(u32)endpos;saved_sample=(u32)((u32)endpos/8u);}lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else if(capture_ui==10&&g_go_audio_estado>0){
    /* GAME OVER: o anel esta' lendo os arquivos DELE. A captura grava ~1,1 MB no
       mesmo pendrive, e o usbhdfsd nao e' reentrante -- a pausa cooperativa e'
       o que existe para isso (audio_ring_pause espera a leitura pendente sair).

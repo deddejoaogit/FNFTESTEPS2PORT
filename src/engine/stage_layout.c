@@ -346,8 +346,16 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
      for (k = 0; k < cc && n < max; k++) {
         const bs_criado_t *cr = &bs_criados[cf + k];
         sl_item_t *it = &out[n];
-        float x0, y0, w, h;
-        if (cr->alpha <= 0.0f) continue;
+        float x0, y0, w, h, alpha;
+        /* O `visible` do script (as quatro poeiras do sserafim, que a cutscene
+           apaga e a musica acende). Sem callback, ou com override negativo, vale
+           o alpha do dado. */
+        alpha = cr->alpha;
+        if (g_script && g_script->criado_alpha) {
+            float a2 = g_script->criado_alpha(cf + k);
+            if (a2 >= 0.0f) alpha = a2;
+        }
+        if (alpha <= 0.0f) continue;
         x0 = SL_VIEW_W * 0.5f + (cr->x - cam_x * cr->scrollx + 640.0f * cr->scrollx - 640.0f) * sc;
         y0 = SL_VIEW_H * 0.5f + (cr->y - cam_y * cr->scrolly + 360.0f * cr->scrolly - 360.0f) * sc;
         w = cr->w * sc;
@@ -395,7 +403,7 @@ int sl_collect(const char *stage, float cam_x, float cam_y, float zoom,
         it->x0 = x0; it->y0 = y0; it->w = w; it->h = h;
         it->tex_w = cr->sw; it->tex_h = cr->sh;
         it->z = cr->z;
-        it->alpha = cr->alpha;
+        it->alpha = alpha;
         it->blend = cr->blend;
         n++;
      }

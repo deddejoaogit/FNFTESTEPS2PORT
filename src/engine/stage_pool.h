@@ -64,6 +64,12 @@ extern "C" {
    a sua propria faixa: sao outra tabela de tamanhos e nao podem colidir com as
    chaves dos props nem com as de tela. */
 #define SP_CHAVE_CRIADO_BASE 0x2000u
+/* A CUTSCENE DO sserafim (`cutscene/cutsceneMain`, `gfGetUp`, `bfGetUp`) tem a
+   faixa propria: tres texturas que so' existem durante os 730/24 s da
+   introducao e que nao podem colidir com prop, criado, piso nem personagem. */
+#define SP_CHAVE_CUT_BASE 0x5000u
+#define SP_CHAVE_CUT(i) (SP_CHAVE_CUT_BASE + (unsigned int)(i) + 1u)
+
 /* OS PISOS EM PERSPECTIVA (`bs_chaos[]`) tem a faixa propria: um piso ocupa
    lugar de palco como qualquer prop e nao pode colidir com um criado de mesmo
    indice. Uma chave so' por piso -- as DUAS imagens dele (a da musica e a da
@@ -114,6 +120,11 @@ void sp_fixar(sp_t *p, unsigned int chave);
 /* Desfaz a fixacao: a textura volta a ser despejavel. Ver vc_soltar(). */
 void sp_soltar(sp_t *p, unsigned int chave);
 
+/* Devolve o lugar da chave AGORA (1 se ela existia). Ver vc_liberar() -- e' o
+   que a cutscene do sserafim usa para trocar seis personagens invisiveis por
+   tres texturas de cena, e devolver o lugar quando a musica comeca. */
+int sp_liberar(sp_t *p, unsigned int chave);
+
 /* 1 se a chave esta' fixa. */
 int sp_esta_fixo(const sp_t *p, unsigned int chave);
 
@@ -121,6 +132,13 @@ int sp_esta_fixo(const sp_t *p, unsigned int chave);
 void sp_limpar(sp_t *p);
 
 unsigned int sp_livre(const sp_t *p);
+
+/* A MENOR FOLGA do pool (em bytes) desde o ultimo `sp_limpar`, medida a cada
+   pedido. `sp_min_folga_encheu()` diz se em algum momento ela chegou a zero --
+   que e' o unico jeito honesto de afirmar "o palco coube" sem somar tabelas. */
+void sp_min_folga_reset(sp_t *p);
+unsigned int sp_min_folga(const sp_t *p);
+int sp_min_folga_encheu(void);
 
 #ifdef __cplusplus
 }

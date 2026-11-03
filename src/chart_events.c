@@ -145,6 +145,15 @@ float chart_ease_eval(u32 index, u32 dir, float t)
 
 /* ------------------------------------------------------------------- state */
 
+void chart_events_forcar_zoom(float zoom)
+{
+    st.zoom = zoom;
+    st.zoom_from = zoom;
+    st.zoom_to = zoom;
+    st.zoom_t = 1.0f;
+    st.zoom_dur_s = 0.0f;
+}
+
 void chart_events_reset(float default_zoom, float default_scroll)
 {
     st.cam_char = CHART_FOCUS_BF;
@@ -157,6 +166,7 @@ void chart_events_reset(float default_zoom, float default_scroll)
     st.cam_seq = 0u;
 
     st.zoom = default_zoom;
+    st.zoom_base = default_zoom;
     st.zoom_from = default_zoom;
     st.zoom_to = default_zoom;
     st.zoom_t = 1.0f;
@@ -327,9 +337,10 @@ void chart_events_apply(const chart_event_t *e)
                                                     : fx(e->p0);
             float zoom = fx(e->p1);
             /* mode 'stage' (a == 1) multiplies the stage's own zoom rather than
-               replacing it, so 1.0 means "the stage's zoom". The port has one
-               stage, so it resolves against the zoom the song started with. */
-            if (e->a == 1u) zoom = st.zoom_from * zoom;
+               replacing it, so 1.0 means "the stage's zoom". A BASE, nao o
+               zoom corrente: com `zoom_from` a serie compoe e explode (ver o
+               comentario de `zoom_base` no .h). */
+            if (e->a == 1u) zoom = st.zoom_base * zoom;
             st.zoom_from = st.zoom;
             st.zoom_to = zoom;
             st.zoom_t = (dur > 0.0f) ? 0.0f : 1.0f;
@@ -343,6 +354,12 @@ void chart_events_apply(const chart_event_t *e)
                            : chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
             st.zoom_ease_dir = ease_dir;
             st.zoom_dur_s = steps_to_seconds(dur);
+            /* Duracao ZERO: o tween ja' esta' no fim, e `chart_events_tick` so'
+               REESCREVE `zoom` enquanto o tween anda (`zoom_t < 1`). Sem esta
+               linha um ZoomCamera sem duracao nunca mexia o zoom -- o valor
+               ficava no anterior para sempre. O ease em t = 1 vale 1, entao o
+               destino e' o proprio `zoom_to`. */
+            if (st.zoom_dur_s <= 0.0f) { st.zoom = st.zoom_to; st.zoom_t = 1.0f; }
             break;
         }
 
@@ -361,6 +378,8 @@ void chart_events_apply(const chart_event_t *e)
                              : chart_events_ease_id(chart_event_string(e->b & CHART_B_EASE_MASK));
             st.scroll_ease_dir = ease_dir;
             st.scroll_dur_s = steps_to_seconds(dur);
+            /* Mesmo caso do zoom: duracao 0 tem de valer no mesmo quadro. */
+            if (st.scroll_dur_s <= 0.0f) { st.scroll = st.scroll_to; st.scroll_t = 1.0f; }
             break;
         }
 

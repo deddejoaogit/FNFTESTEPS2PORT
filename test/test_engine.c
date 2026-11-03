@@ -58,6 +58,32 @@ static void test_vram_basic(void)
     check(vc_livre(&c) == 1024 * 1024 - 4096, "used bytes are accounted");
 }
 
+/* `vc_liberar` devolve o espaço NA HORA (o `vc_soltar` so' marca o bloco livre
+   para o proximo pedido). A cutscene do sserafim depende disso: as tres
+   texturas dela (591 KB) sao devolvidas ao pool no meio da musica, com os props
+   ainda morando no mesmo lugar -- se o espaco nao voltasse, o prop seguinte
+   pediria eviccao e re-subiria o palco inteiro. */
+static void test_vram_liberar(void)
+{
+    vc_t c;
+    unsigned int a = 0, b = 0, c2 = 0;
+    printf("vram: vc_liberar devolve o espaco (cutscene do sserafim)\n");
+    vc_init(&c, 0, 65536);
+    check(vc_pedir(&c, 1, 16384, &a) == 0, "primeiro bloco");
+    check(vc_pedir(&c, 2, 16384, &b) == 0, "segundo bloco");
+    check(vc_livre(&c) == 65536 - 32768, "dois blocos ocupados");
+    check(vc_liberar(&c, 2) == 1, "vc_liberar de uma chave viva devolve 1");
+    check(vc_livre(&c) == 65536 - 16384, "o espaco voltou na hora");
+    check(vc_liberar(&c, 2) == 0, "a mesma chave de novo: 0, nada a fazer");
+    check(vc_liberar(&c, 99) == 0, "chave que nunca existiu: 0");
+    check(vc_pedir(&c, 2, 16384, &b) == 0, "a chave liberada e' uma FALTA "
+          "depois (o dado tem de ser reenviado)");
+    /* E o bloco novo tem de caber sem despejar a chave 1, que continua viva. */
+    check(vc_pedir(&c, 3, 16384, &c2) == 0, "terceiro bloco aloca");
+    check(vc_pedir(&c, 1, 16384, &a) == 1, "a chave 1 nunca foi despejada");
+    check(c.despejos == 0, "nenhuma eviccao no caminho");
+}
+
 static void test_vram_lru(void)
 {
     vc_t c;
@@ -274,6 +300,7 @@ int main(void)
 {
     test_vram_basic();
     test_vram_mesma_chave_maior();
+    test_vram_liberar();
     test_vram_lru();
     test_vram_fixed();
     test_vram_too_big();

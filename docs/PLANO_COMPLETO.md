@@ -3386,7 +3386,9 @@ no repositorio da arte -- o caminho estava errado, nao o dado. Medido:
 | *nenhum item de LÓGICA* | -- | -- |
 | o CARTAO do PS2 (`mc0:` de verdade) | o formato, a gravação, a leitura e a recusa de arquivo estragado já rodam no PC (`FNF_CARD=1` + `tools/run_save_harness.sh`, com o CRC conferido pelo zlib do Python). O que **não** roda no PC é o `mcInit()`/os IRX do cartão e o sistema de arquivos dele | no console, com um cartão: o log tem de mostrar `save_gravado,1992,0` no fim da primeira música e `save_estado,1,1992` no boot seguinte |
 | `MULTIPLY` e `SCREEN` (as outras duas misturas) | o GS só faz **NORMAL** e **ADD** na pipeline fixa. Dos 16 props de palco que o script do palco mistura, 13 pedem ADD (feito) e 3 pedem MULTIPLY/SCREEN -- `phillyStreetsErect/grey2` (MULTIPLY), `sserafim/truckLight1` e `sserafim/backLightColor` (SCREEN); os dois últimos nascem com `alpha = 0` e nem aparecem | não é dado ausente. Ou um segundo passe com o frame buffer como textura, ou aceitar a diferença e registrá-la -- o port **conta** cada caso no log (`palco_blend,aditivos,sem_gs`) em vez de fingir |
-| o COMPORTAMENTO dos scripts de palco | os `.hxc` do clone (`preload/scripts/stages/`, **18** arquivos) criam coisas que **nao estao no JSON** (5 `new FlxBackdrop`/sprite: as `mist1..5` do `limoRideErect`, o `scrollingSky` do `phillyBlazin`) e mexem em alpha/visible/posicao por evento e por timer (relampago dos dois palcos, luzes do `sserafim`, trem do `phillyTrainErect`). Medido por `tools/analisa_scripts_palco.py`: **666** linhas mudam estado, **451** rodam durante a musica, e **175** delas sao shader (o GS nao tem) | um interpretador de HScript, ou a conversao manual de cada evento. Hoje o port usa dos scripts o **estado inicial** completo -- `blend`, `alpha` e `visible`, extraidos por `tools/extrair_blend_palcos.py` com a linha da fonte em cada ficha. Faltam os 238 portaveis + os 175 de shader + 13 de cor por personagem + 20 de haptica + 5 sprites criados por script |
+| os **shaders** dos scripts de palco | 175 das 666 linhas de script que mudam estado são shader (`wiggle.frag`, `RuntimeRainShader`, `BuildingEffectShader`, `SserafimShader`, `BlurFilter`): o GS de pipeline fixa não tem estágio de fragmento | não é dado ausente. O que dá para fazer sem shader já está portado (a **cor** das luzes por batida, o flash, o alpha, a posição, o `blend`); o resto fica declarado e **contado** no log (`palco_blend`) em vez de fingido |
+| os **18 scripts de palco** | ~~faltavam 238 linhas portáveis~~ — **portados**: os 18 estão em `src/engine/stage_script.c` (eventos, timers, tweens, `FlxEase`, os 5 sprites criados por script, o laço do trem, o `blend`/`alpha`/`visible` iniciais). Medido: 86/86 eventos do `spaghetti` aplicados, 43/43 na `spookeez`, e cada script tem secção própria neste documento | os 175 de shader (linha acima) e os 20 de `HapticUtil` (ver *O RUMBLE*) |
+| a tela de **OPTIONS** (e MERCH/CREDITS) | o menu principal do port mantém as três entradas do original, mas abrir qualquer uma delas mostra um aviso genérico: a `OffsetMenu`/`OptionsMenu` pede arte e fonte de script que **não estão neste ambiente** | o `.hx` do menu de opções (ou o clone de arte com `preload/images/options/`) — sem isso, implementar seria inventar layout, e inventar é divergência (regra 4) |
 
 #### A tela de Resultado: a arte entrou
 
@@ -4553,9 +4555,10 @@ lista do `phillyBlazin` sai de 2 para 6 itens, na ordem de z, com o x sorteado
 convertido pela mesma conta dos outros props.
 
 **O que continua faltando neste palco**: o `RuntimeRainShader` (chuva) e
-`HapticUtil.vibrate` (o controle do PS2 não recebe rumble neste port). Os dois
-estão declarados no cabeçalho de `stage_script.h` como **não portados**, e não
-como feitos.
+`HapticUtil.vibrate` (ver *O rumble*, no fim do documento: não há fonte nem
+captura do padrão e inventar intensidade seria divergência). Os dois estão
+declarados no cabeçalho de `stage_script.h` como **não portados**, e não como
+feitos.
 
 ## Fechado: o flash do `spookyMansionErect` (o segundo script de palco portado)
 
@@ -4640,8 +4643,8 @@ portados):
   fragment shader; o `bgTrees` é desenhado sem chuva. É a maior parte das 175
   linhas de shader dos 18 scripts, e a decisão de arte (imagem degradada em vez
   de evento perdido) já está registrada no plano.
-- `HapticUtil.vibrate` (L136-141 e L181-193) — o controle do PS2 não tem rumble
-  neste port. Não muda nada na tela.
+- `HapticUtil.vibrate` (L136-141 e L181-193) — ver *O rumble*. Não muda nada na
+  tela.
 
 **O que o teste cobra** (`test/test_stage_script.c`, sem pacote): o strike nos
 0,06 s e nos 0,12 s (as luzes e os três personagens), os cinco tweens de 1,5 s
@@ -4712,7 +4715,7 @@ portados):
 - `BuildingEffectShader` nas `lights` (L39-40, L57) e o `lightShader.reset()` de
   cada 4 batidas (L144): o GS de pipeline fixa não tem shader. O que dá para
   fazer sem shader — a **cor** das luzes por batida — está portado e medido.
-- `HapticUtil.vibrate` (L152-158): o controle do PS2 não tem rumble neste port.
+- `HapticUtil.vibrate` (L152-158): ver *O rumble*.
 
 **Uma divergência declarada**: o `onSongRetry` do original chama
 `getGirlfriend().animation.finish()` (L201) — um salto para o último quadro da
@@ -4975,8 +4978,7 @@ provado no teste de PC (`test/test_stage_script.c`: 200 batidas, ≥5 raios,
 som sempre 1..2, banco sempre o do trovão, nenhum raio no mesmo beat, e o
 retry voltando a `beat 0`/`offset 8`).
 
-**O que não é portado, e por quê**: `HapticUtil.vibrate` (L55, L105: o controle
-do PS2 não tem rumble acionado pelo jogo neste port) e a pré-carga dos dois
+**O que não é portado, e por quê**: `HapticUtil.vibrate` (L55, L105: ver *O rumble*) e a pré-carga dos dois
 trovões (`FunkinMemory.cacheSound`, L19-20) — os dois PCM já vão no pendrive e
 são abertos na hora de tocar.
 
@@ -5236,10 +5238,10 @@ entrada com texto e uma dúzia de eventos de música.
 | `hideOpponentStrumline` e o `iconP2` | L188-195, L237, L370 | **fechado** — `ss_esconde_strum_oponente` tira as quatro setas do oponente a música toda; `ss_icone_p2` só liga o ícone no chute FINAL e o desliga de novo no retry |
 | **a MEDIÇÃO de VRAM das 3 dançarinas** | `shared/images/characters/sserafim/*/spritemap1.json` (clone de arte, via API do GitHub) | **MEDIDO**: o canvas do CHP4 é o MAIOR QUADRO, não a folha. A 0,5 (a escala do empacotador): `yunjin` 539x664 → 270x332 (stride 320) = **212.480 B**; `chaewon` 394x661 → 197x330 (256) = **168.960 B**; `eunchae` 649x533 → 324x266 (384) = **204.288 B**. Total **585.728 B** de 4 194 304 B — cabe. (O plano antes disto dizia que não dava para medir; dava, bastava ler o `spritemap1.json` em vez do JSON de personagem, que não traz tamanho de quadro.) |
 | `yunjin.playAnimation('kick1'/'kick2')` + `truckDoor.visible` no quadro 23 | L239-248 | **fechado** — o chute vira `cc_toca_forcado` (o `forced: true` do original reinicia mesmo com a mesma animação), o `danceEvery` da yunjin começa em 0 (`doorclosed`, L941-946) e volta a 1 no chute final (L232), e a porta estática entra quando `(t - kick2) >= 23/24 s` (`ss_dancarina_porta`), pela mesma tabela do prop (`ss_prop_alpha`) |
-| `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **FALTA ARTE** — não estão em `assets-data/` nem no clone de arte deste ambiente |
+| `floor` (piso em perspectiva), `dust/dustMid`, `dust/dustBack`, `sserafimCutscene`, `sserafimBf`, `sserafimGf`, `SEEYOU2`, `gameOver` | `Paths.image(...)` no script | **ASSADO e LIGADO** — ver "A CUTSCENE: o motor, o estado 8 e a sequência do fim": `main`/`gf`/`bf` saem de `tools/assar_cutscene_sserafim.py` (geometria, não raster) e `end1`/`end2` do mesmo assador; `floor`/`dust*` são os criados do `stage-criados.json`; `gameOver` é a arte do game over, já empacotada |
 | `doorKick1`, `doorKick2` | `sserafim/sounds/` no clone de arte | **JÁ EMPACOTADOS** (`tools/empacotar_audio.py`, `SONS_PALCO`). O plano dizia que faltavam e estava errado: medidos 1,389 s e 3,120 s a 44,1 kHz (145.152 B e 326.016 B a 48 kHz) |
-| som da cutscene | `Paths.sound(...)` | **FALTA** — a cutscene inteira depende da arte |
-| a cutscene (L567-930) e a poeira em `FlxBackdrop` | — | depende da arte e de um gerenciador de timers |
+| som da cutscene | `Paths.sound(...)` | **EMPACOTADO e LIGADO** — `startCutscene` (20/24 s), `end1` (no `endStuff`) e `end2` (+4 s) vão em `assets/stage/` e tocam por `cut_som`, o mesmo canal de overlay do `doorKick` |
+| a cutscene (L567-930) e a poeira em `FlxBackdrop` | — | **fechado** — `src/engine/ss_cutscene.c` (linha do tempo de 730/24 s, câmera, fades, cobertura, visibilidades) + `cut_*` no `main.c`; medido em 15 002 quadros: `cut_cena,1`, `cut_fim` em 1 460 000 amostras, `cut_quads` 39 844, 0 linha fora da faixa |
 | `SserafimShader` (personagem e palco) | — | shader, declarado no log como os outros 175 |
 
 ## Fechado: o PISO EM PERSPECTIVA e a POEIRA do `sserafim`
@@ -5312,9 +5314,10 @@ das quatro poeiras, a cor de cada uma, o `tile_off = vel·t`, o alinhamento na
 borda, os quatro cantos do piso, a câmera entrando nos dois pontos com
 scrollFactors diferentes, e `H = 0` sem dividir por zero.
 
-**O que continua faltando neste palco**: a cutscene (L567-930) e a poeira na
-versão da cutscene (que é a MESMA poeira, escondida por `hideDust`). Ver a
-ordem de trabalho abaixo.
+**O que continua faltando neste palco**: nada de lógica. A cutscene (L567-930)
+entrou inteira — inclusive a poeira na versão da cutscene, que é a MESMA poeira
+escondida pelo `hideDust` (L931-939, no `stage_script.h`). O que sobra é o `SserafimShader`
+(brilho/contraste/matiz por pixel), e esse é falta de plataforma, não de dado.
 
 **Nenhuma música perde evento por causa disto**: os 86 eventos de script do
 `spaghetti` chegam ao `ss_evento` e 86 são aplicados.
@@ -5327,14 +5330,14 @@ ordem de trabalho abaixo.
 3b. ~~a POEIRA e o PISO EM PERSPECTIVA~~ — **feito** (`bs_criados[]` e
    `bs_chaos[]`, com o período, o alinhamento do `FlxBackdrop`, a cor de
    vértice e a matriz afim do `PerspectiveSprite`). Ver a seção acima.
-4. **a cutscene** (L567-930): depende da arte que falta (`floor`, `dust*`,
-   `sserafimCutscene`, `SEEYOU2`, `gameOver` do palco) e do `SserafimShader`.
-   É o único item do palco que ainda não tem nem código nem arte neste
-   ambiente — por isso vem depois dos 21 palcos.
+4. ~~a cutscene (L567-930)~~ — **feito**: geometria assada (`assar_cutscene`),
+   linha do tempo em `ss_cutscene.c`, atrelada ao estado 8 do `main.c`, mais a
+   sequência do fim (`end1`/`end2` + `endSong(true)`). Medido em 14 000 quadros
+   do `spaghetti` inteiro.
 5. **`sserafimDark`** (L413-421) e o `SserafimShader`: brilho/contraste/matiz por
    pixel; mesma classe de falta de plataforma do `wiggle.frag` (ver acima).
 
-### A CUTSCENE: o motor pronto, medido e testado (falta ligar no `main.c`)
+### A CUTSCENE: o motor, o estado 8 e a sequência do fim (fechado e medido)
 
 A cutscene é o último item do palco, e ele **não** é bloqueado pela arte como o
 plano dizia: a arte existe no clone (`sserafim/images/cutscene/`, `dust/`,
@@ -5358,14 +5361,61 @@ preta a 1 em **563/24 s**; cobertura a 0 em 3 s `sineOut` a partir de
 **650/24 s**, câmera em (1070,470) e zoom 0,55; as duas "get up" animam a partir
 de **710/24 s**; **730/24 s** é o `startCountdown()` — a cutscene acaba ali.
 
-**O que falta, com o nome do arquivo**: ligar o motor no estado 8 do `main.c`
-(carregar os três pacotes, rodar o relógio antes da contagem, desenhar os quads
-com a câmera e os dois fades, e atender o `CUTSCENE_ADVANCE` do "Skip"). O
-pacote, a linha do tempo e a geometria já estão provados no PC; o que **não**
-está provado é o caminho pacote → VRAM → tela, que só o harness (e o console)
-podem dizer. O plano de VRAM para isso é liberar as texturas dos personagens
-durante a cutscene (eles estão invisíveis por `setCutsceneVisibility`) e
-recarregá-los quando a música começa, porque 591 KB não cabem ao lado deles.
+**Ligado no estado 8 do `main.c`** (era o "falta ligar"): o bloco `CUT_*` abre
+os três pacotes (`cut_carregar`), roda o relógio da cena **antes** da contagem
+(`cut_anda`, alimentado pelo vsync e com a contagem cancelada, que é o
+`event.cancel()` do `onCountdownStart`), desenha os quads com a câmera e os dois
+fades (`cut_desenha`), atende o `CUTSCENE_ADVANCE` do "Skip" (ENTER/A, ver
+`Controls.hx`) e devolve as texturas do `main` na saída da cena — as duas
+"get up" ficam até o `sserafimKick` final, como o script manda. O
+`startCutscene` entra em 20/24 s e os dois `end` no `endStuff`.
+
+**VRAM da cena**: as três texturas (591 360 B) não cabem ao lado dos
+personagens, então o palco **esquece** a VRAM no começo da cena
+(`palco_esquecer_vram`: zera os `residente[]` e o pool sem fechar os pacotes) e
+recarrega no primeiro desenho depois dela — nenhum LZ4 de personagem é refeito,
+porque os pacotes continuam abertos.
+
+**A sequência do fim (`endStuff`, L680-706)**: `end1` e `end2` são as duas
+imagens SEEYOU, assadas pelo mesmo assador e carregadas **uma de cada vez**
+(283 504 B e 41 040 B; as duas juntas custariam 324 544 B, mais do que a menor
+folga medida no pool, 311 296 B). A troca libera a primeira **antes** de pedir
+lugar para a segunda: medido, a folga vai de 311 808 para **554 240 B** no
+instante do `end2`, e a 595 456 quando as duas saem. O relógio da sequência é o
+vsync somado, não o
+da música: o `stems` acaba 67 ms depois do último evento, e com o relógio da
+música a sequência pararia no meio. `end1` aparece em 0,05 s, `end2` em 4 s, as
+duas somem em 8 s e o `endSong(true)` sai em 9 s — e é o **mesmo** desfecho do
+fim natural (parar o audsrv, fechar o transporte, `g_tutorial_audio_finished`),
+não uma segunda cópia.
+
+**A cadeia inteira, medida em 14 002 quadros do `spaghetti`** (chart v5, áudio
+com a duração do chart, 560/560 botões, auditoria da faixa **0/0**):
+
+```
+cut_fim_textura,0,283504        end1 sobe
+cut_endstuff,1,311808           `endStuff` chegou          folga 311 808
+tutorial_audio_end,8050178,12080
+cut_fim_textura,1,41040         end2 sobe (o end1 ja' saiu)
+cut_endstuff2,1,554240                                     folga 554 240
+cut_endstuff_apaga,595456,0     as duas saem               folga 595 456
+cut_endstuff_fim,432000,595456  9,000 s exatos
+cut_fim_quadros,237,240         desenhadas 237 e 240 quadros (3,95 s e 4,00 s)
+endstuff_endsong,12596,8050178
+state,9,12699                   resultado, 103 quadros depois
+```
+
+Os 237 e 240 quadros são o que prova o **desenho**: as duas imagens ficam 3,95 s
+e 4,00 s na tela a 60 fps. A textura subindo sozinha não provaria o caminho até o
+GS.
+
+**Isso agora é teste da suíte, não rodada manual.** `test/run_tests.sh` corre a
+cadeia inteira (14 000 quadros, ~3,7 s) e **falha** se: o `endSong(true)` não
+sair em 432 000 amostras, o `endStuff` não pedir o fim, o jogo não chegar ao
+Resultado, cada imagem não for desenhada ≥200 quadros, a cutscene não tiver
+rodado, ou aparecer `cut_fim_sem_vram`/`cut_fim_tamanho`/`cut_fim_falta`/
+`cut_fim_sem_ram`/`cut_fim_quadro`/`palco_script_retry`. Era o buraco que deixou
+três defeitos passarem meses: nenhum teste curto alcançava o fim desta música.
 
 ### A conta de VRAM que as dançarinas mudam (medida, não estimada)
 
@@ -5392,10 +5442,151 @@ menor (0,35 em vez de 0,5 cai de 585.728 B para ~287.000 B, e o
 `ch_escala_mundo` recompõe o tamanho na tela pelo `escala` do pacote) em vez de
 encolher o palco inteiro.
 
-**Conferência de desenho pendente (1 linha):** a auditoria da faixa visível do
-harness acusou **1 linha fora** (`y 381,7..392,0` contra a faixa `56..391`) no
-`spaghetti`, num prop grande (w = 3 239,8) com o corte do `band_clip` em
-391,5625. Não é das dançarinas (elas não têm quad desse tamanho) e não é
-estouro: é o corte padrão do port batendo no limite da faixa por 0,56 linha.
-Fica registrado para medir no console; o certo é o `band_clip` fechar em 391,0
-inteiro.
+**Fechado (era "1 linha fora"):** a auditoria da faixa visível acusava 1 linha
+fora (`y 381,7..392,0` contra a faixa `56..391`) num prop grande do `spaghetti`.
+A causa era dupla e as duas estão corrigidas na fonte: (1) o `band_clip_phys`
+calculava `y1 = oy0 + h*f` e o resultado saía `391,00002` (o GS arredonda para
+1/16 de pixel, então o pixel estava certo mas a linha contava), e agora o
+recorte é um `clamp` explícito; (2) os **glifos de texto** montavam o `texrect_t`
+à mão e não passavam por recorte nenhum — um glifo meia linha abaixo da faixa
+ia inteiro para o GS. `band_clip_rect()` recorta o quad já montado (com o `v` da
+textura andando pela mesma fração do `y`, para a letra não esticar) e é usado
+pelos três caminhos de texto. Medido depois: **0 retângulo, 0 linha** em
+15 002 quadros do `spaghetti` inteiro (cutscene + música + SEEYOU).
+
+# As cinco correções da rodada da cutscene do `sserafim` (medidas)
+
+A cutscene de abertura da `spaghetti` roda **inteira** no harness depois destas
+cinco correções (`cut_cena,1`, `cut_fim,1 460 000` = 30,4 s, `cut_libera`
+1 710 400 = o chute final devolve as duas texturas, `countdown_step` 1..5,
+`tutorial_audio_start` no quadro 2 017), e o fim da música idem
+(`cut_endstuff` → `cut_endstuff2` → `cut_endstuff_apaga` → `cut_endstuff_fim`
+4 320 000 = 9 s → `endstuff_endsong` → `state,9`).
+
+## 1. `ZoomCamera` com `mode:'stage'` compunha até estourar (o `2^27`)
+
+**O defeito.** O evento tipo *stage* multiplicava `zoom_from`, que é o zoom
+CORRENTE e não a base do palco. Cada evento compunha o anterior: com os 267
+`ZoomCamera mode:'stage'` do `spaghetti` (zoom 1,8 e palco `cameraZoom` 0,50) a
+série virava `0,5 → 0,9 → 1,62 → 2,916 → …`. Medido no harness: o zoom chegou a
+**2 122 271 488** e, em vários quadros, a `NaN`. Com ele, o `h` dos props ia a
+**2^27** (134 217 728 linhas) e a auditoria da faixa contava **11 421 663 906
+linhas fora** em 184 307 retângulos, todos em `ui_state 8` — um defeito que só
+aparecia no fim da música e que o teste de 14 002 quadros, feito num chart
+truncado, não alcançava.
+
+**A correção.** `zoom_base` novo no `chart_events`: o zoom do palco, escrito no
+`chart_events_reset` e imutável até o próximo reset. O evento stage multiplica
+`zoom_base`; o absoluto continua saltando para o valor do chart. **Medido
+depois:** zoom estável, `h` de prop no máximo 5 113 (o `bg` do `sserafim` com o
+zoom que o chart pede), **0 linha fora** em 15 002 quadros.
+
+**Alcance:** 187 eventos `ZoomCamera` com `mode:'stage'` nos 81 charts (`2hot`,
+`eggnog`, `philly-nice`, `spaghetti`) — 187 eventos que compunham. `2hot`,
+`eggnog` e `philly-nice` rodaram 2 500 quadros cada com 0 linha fora.
+
+## 2. `ZoomCamera`/`ScrollSpeed` com duração 0 não valiam
+
+`chart_events_tick` só reescreve `zoom`/`scroll` enquanto o tween anda
+(`zoom_t < 1`), e uma duração 0 já nasce com `zoom_t = 1` — então um evento
+INSTANT não movia nada, nunca. Agora o `apply` fecha o valor no próprio quadro
+quando a duração é 0 (o ease em `t = 1` vale 1, logo o destino é o `zoom_to`).
+
+## 3. `endStuff`: o fim NATURAL da música matava a sequência SEEYOU
+
+**O defeito.** O `stems` real da `spaghetti` tem 8 052 374 amostras e o chart
+acaba em 8 049 145, então o fim do arquivo chega **67 ms depois** do último
+evento — 0 s depois do `endStuff` começar. O fim natural levava para o
+resultado 104 quadros depois de `tutorial_audio_end`, e as duas imagens SEEYOU
+(os degraus de +4 s e +8 s) e o `endSong(true)` do script **nunca** apareciam:
+o script inteiro era código morto. Agora o resultado espera a sequência, que é
+quem manda no fim dessa música.
+
+## 4. O `onSongRetry` disparava FALSO no fim da música
+
+**O defeito.** `palco_script_anda` tratava "o relógio voltou para trás" como
+retry — e no fim do arquivo o port fixa `music_clock` no fim do chart, o que faz
+o tempo DESCER quando `heard` já tinha passado dele. Medido: `palco_script_retry`
+**24 quadros** depois de `cut_endstuff`, apagando `ssf_fim` no primeiro degrau da
+sequência (é o que travava o item 3 mesmo com o resultado bloqueado).
+
+**A correção.** Duas coisas: o relógio do chart não anda para trás (`if
+(fim > music_clock) music_clock = fim`), e o detector de retry exige as DUAS
+condições — o relógio voltou **e** voltou para o começo (`t < 0,25 s`), que é
+como um retry de verdade recomeça. Medido depois: nenhum `palco_script_retry` na
+música inteira e a sequência SEEYOU completa.
+
+## 5. O sweep das 81 combinações não cabia a cutscene
+
+A `spaghetti` passou a tocar a cutscene de 30,4 s antes da contagem (que é o que
+o original faz: `event.cancel()` no `onCountdownStart`), e o sweep dava 1 200
+quadros por música — a rodada terminava dentro da cutscene e cobrava áudio e
+notas de uma música que ainda não tinha começado. `tools/run_sweep_harness.sh`
+passou a dar **3 400 quadros** para essa música (30,4 s de cena + ~5 s de
+contagem + ~20 s de música). Medido: 3/3 dificuldades PASSARAM, com `audio em 1`.
+
+# O ÁUDIO DAS 27 MÚSICAS: o pendrive só levava o Tutorial
+
+**O defeito.** O jogo procura `assets/songs/<id>/stems.pcm` (`sr_stems_path`) e
+só cai no `assets/audio_stems.pcm` plano — que é o áudio do **Tutorial** — quando
+não acha o da música. Nenhuma ferramenta gerava os 27 arquivos e o
+`tools/build_pendrive.sh` não copiava nenhum: no console, 1 das 27 músicas tinha
+som. No harness nunca apareceu porque lá o PCM é gerado sinteticamente por
+`tools/preparar_sweep.py`.
+
+**O formato não é escolha nossa.** O anel entrega **8 bytes por amostra** —
+instrumental 16 bits estéreo (4 B) + vozes 16 bits estéreo (4 B) — e
+`amix_somar(samples, samples, n/8, …)` soma as duas em 4 bytes de saída
+(estéreo 16 bits, o formato que `audio_set_stream` põe no audsrv). O orçamento
+que o plano já citava fecha exatamente assim: **1 078 655 000 B ≈ 1,08 GB** para
+46,8 min a 48 kHz × 8 B.
+
+**A ferramenta.** `tools/empacotar_stems.py` lê `songs/<id>/Inst.ogg` e
+`Voices.ogg` do clone de arte, reamostra para 48 kHz, entrelaça
+`[InstL, InstR, VoxL, VoxR]` e escreve `build/packs/stems/<id>/stems.pcm` +
+`STEMS.txt`. Duas honestidades embutidas: música sem `Voices.ogg` recebe vozes
+em **silêncio** e isso vai escrito no manifesto; e o `song_end_sample` do chart
+(offset 32 do FCH3/4/5, o mesmo número que o jogo usa) é comparado com o tamanho
+do áudio — se o áudio for mais curto, sai no relatório em vez de ser esticado.
+
+**Provado sem o clone:** `--autoteste` monta duas faixas conhecidas, empacota e
+lê de volta pela mesma regra do `amix_somar`, amostra por amostra (ordem dos
+canais, silêncio da faixa mais curta, 8 B/quadro, reamostragem). Roda na suíte.
+`--conferir` mede os stems existentes contra o fim de cada chart, sem clone.
+
+**Um defeito colateral, corrigido aqui.** A captura de tela (SELECT+R3) fecha e
+reabre o transporte de áudio para não gravar com o `usbhdfsd` ocupado, e
+reabria **sempre** `assets/audio_stems.pcm` — o áudio do Tutorial. Numa das
+outras 26 músicas isso trocava a faixa no meio da música: o chart continuava o
+certo e o som virava o do Tutorial. O caminho aberto passou a ficar guardado
+(`g_audio_fonte`) e a captura reabre o **mesmo** arquivo; o limite de amostras do
+retorno passou a ser o do chart, não o `TUTORIAL_AUDIO_SAMPLES`.
+
+**O que falta para o pendrive:** rodar
+`python3 tools/empacotar_stems.py --assets <clone do funkin.assets>` (a arte não
+está neste ambiente; o clone tem 2,5 GB) e depois `tools/build_pendrive.sh`, que
+agora **recusa** montar o pendrive sem os 27 stems e copia o `STEMS.txt` junto.
+
+## O RUMBLE: por que ele não está portado (e por que não é "o PS2 não vibra")
+
+Uma frase saiu de quatro lugares deste documento nesta revisão. Ela dizia que
+"o controle do PS2 não tem rumble neste port", o que é **falso no hardware**:
+o DualShock 2 tem dois motores e a `libpad` do ps2sdk os aciona por
+`padSetActDirect`, depois de `padSetActAlign`. O port já abre o pad em
+`PAD_MMODE_DUALSHOCK` (`init_pad`, `src/main.c`), então o motor está a uma
+chamada de distância.
+
+O que falta não é o hardware, é **o dado**. O original chama
+`HapticUtil.vibrate` com padrões (intensidade, duração e qual motor) definidos no
+`HapticUtil` de PC; nenhum script do pacote de arte traz esses números, e o clone
+de fonte não está neste ambiente. Escrever "vibra 200 ms em 0,6" seria
+**inventar um valor que não tem linha no original** — exatamente o que a regra 4
+de `REGRAS.md` proíbe.
+
+Então: declarado, não escondido. O que a próxima build precisa recolher, na
+ordem mais barata: (1) `HapticUtil.hx` do clone de fonte (as três constantes por
+chamada); (2) ou uma captura de vídeo do original com o controle na mão; (3) ou
+a lista de chamadas que o plano já tem (25 pontos em 18 scripts) com o padrão
+por script. Com qualquer um dos três, o port ganha o rumble com `padSetActDirect`
+— a chamada em si é uma linha e o lugar onde ela entra é o mesmo
+`telemetry_event` que hoje registra o evento.

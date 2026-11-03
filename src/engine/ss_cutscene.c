@@ -9,8 +9,11 @@
     14 B    por quad
 */
 #define SSC_MAGIC "FQC1"
-#define SSC_CAB 16
+/* 24 B: "FQC1" | u16 n_sprites | u16 n_frames | u32 fps100 | u32 escala1000 |
+        u16 tex_w | u16 tex_h | u16 n_labels | u16 reservado (0)            */
+#define SSC_CAB 24
 #define SSC_SPRITE_BYTES 8
+#define SSC_LABEL 12
 #define SSC_QUAD_BYTES 14
 
 static unsigned int le_u32(const unsigned char *p)
@@ -41,11 +44,22 @@ int ssc_abrir(ssc_pack_t *p, const void *dados, unsigned int len)
     p->n_frames = (int)le_u16(d + 6);
     p->fps100 = (int)le_u32(d + 8);
     p->escala1000 = (int)le_u32(d + 12);
+    p->tex_w = (int)le_u16(d + 16);
+    p->tex_h = (int)le_u16(d + 18);
+    p->n_labels = (int)le_u16(d + 20);
     if (p->n_sprites <= 0 || p->n_frames <= 0) return SSC_ERRO_VAZIO;
     if (p->fps100 <= 0) return SSC_ERRO_VAZIO;
+    /* A textura e' obrigatoria: um pacote sem tamanho de textura nao pode ser
+       desenhado, e o defeito tem de aparecer aqui e nao como quad com UV = 0. */
+    if (p->tex_w <= 0 || p->tex_h <= 0) return SSC_ERRO_VAZIO;
+    if (p->n_labels < 0 || p->n_labels > SSC_MAX_LABELS) return SSC_ERRO_VAZIO;
     tabela = SSC_CAB + (unsigned int)p->n_sprites * SSC_SPRITE_BYTES;
-    if (len < tabela + (unsigned int)p->n_frames * 4u) return SSC_ERRO_TRUNCADO;
+    if (len < tabela + (unsigned int)p->n_labels * SSC_LABEL_BYTES +
+                      (unsigned int)p->n_frames * 4u)
+        return SSC_ERRO_TRUNCADO;
     p->rects = d + SSC_CAB;
+    p->labels = d + tabela;
+    tabela += (unsigned int)p->n_labels * SSC_LABEL_BYTES;
     p->offsets = d + tabela;
     p->quads = d + tabela + (unsigned int)p->n_frames * 4u;
     p->quads_bytes = len - (tabela + (unsigned int)p->n_frames * 4u);
@@ -57,11 +71,46 @@ int ssc_quadro_em(const ssc_pack_t *p, float t)
     int f;
     if (!p || p->n_frames <= 0 || p->fps100 <= 0) return 0;
     if (t < 0.0f) t = 0.0f;
-    /* `animation.play(nome, true)`: a animacao REPETE. O frame e' o tempo
-       vezes a taxa, truncado -- o flixel avanca um quadro por 1/fps. */
+    /* O quadro e' o tempo vezes a taxa, truncado (o flixel avanca um quadro por
+       1/fps) e CONGELADO no ultimo -- nao e' modulo.
+       Por que nao repete: o `cutsceneMain` tem 631 quadros a 24 fps (26,3 s) e
+       a cena usa o sprite so' ate' 563/24 (23,5 s), quando o
+       `setCutsceneVisibility(false)` o apaga; o `getup` do GF/BF tem 123
+       quadros (5,1 s) comecando em 710/24 e ATRAVESSA o comeco da musica. Com
+       laco, os dois voltariam a sentar no meio da `spaghetti`. Uma animacao de
+       `FlxAnimationController` sem laco para no ultimo quadro, que e' o que o
+       `curFrame = 23` do `playCutsceneFromRestart` tambem assume. */
     f = (int)(t * ((float)p->fps100 / 100.0f));
-    f %= p->n_frames;
-    if (f < 0) f += p->n_frames;
+    if (f >= p->n_frames) f = p->n_frames - 1;
+    return f;
+}
+
+int ssc_rotulo(const ssc_pack_t *p, const char *nome, int *primeiro, int *quadros)
+{
+    int i;
+    if (!p || !nome || p->n_labels <= 0) return SSC_ERRO_VAZIO;
+    for (i = 0; i < p->n_labels; i++) {
+        const unsigned char *l = p->labels + (unsigned int)i * SSC_LABEL;
+        if (strncmp((const char *)l + 4, nome, 8) != 0) continue;
+        if (primeiro) *primeiro = (int)le_u16(l);
+        if (quadros) *quadros = (int)le_u16(l + 2);
+        return SSC_OK;
+    }
+    return SSC_ERRO_VAZIO;
+}
+
+int ssc_quadro_rotulo(const ssc_pack_t *p, const char *nome, float t)
+{
+    int ini = 0, n = 0, f;
+    if (ssc_rotulo(p, nome, &ini, &n) != SSC_OK || n <= 0) return -1;
+    if (n == 1) return ini;               /* o `static`: um quadro so'       */
+    if (t < 0.0f) t = 0.0f;
+    /* Sem laco, como `ssc_quadro_em`: o rotulo `getup` tem 123 quadros e a
+       animacao para no ultimo. */
+    f = (int)(t * ((float)p->fps100 / 100.0f));
+    if (f >= n) f = n - 1;
+    f += ini;
+    if (f >= p->n_frames) f = p->n_frames - 1;
     return f;
 }
 
@@ -156,7 +205,10 @@ float ssc_circ_out(float t)
 
 /* --------------------------------------------------------- a linha do tempo */
 
-static float lerp(float a, float b, float k)
+/* Nome proprio, de proposito: a checagem de fechamento transitivo do
+   test/run_tests.sh e' textual e`lerp` tambem existe no main.c -- com o nome
+   generico este modulo passaria a "entrar no jogo" sem ninguem chamar. */
+static float ssc_mistura(float a, float b, float k)
 {
     return a + (b - a) * k;
 }
@@ -169,16 +221,16 @@ void ssc_estado(float t, ssc_estado_t *e)
     /* ---- camera (L655-678 e L795-800) ---- */
     if (t < SSC_T_CAM_FIM) {
         float k = ssc_circ_out(t / SSC_T_CAM_FIM);
-        e->zoom = lerp(0.5f, 0.7f, k);
-        e->cam_x = lerp(660.0f, 660.0f, k);
-        e->cam_y = lerp(-200.0f, 300.0f, k);
+        e->zoom = ssc_mistura(0.5f, 0.7f, k);
+        e->cam_x = ssc_mistura(660.0f, 660.0f, k);
+        e->cam_y = ssc_mistura(-200.0f, 300.0f, k);
     } else if (t < SSC_T_SAIDA) {
         e->zoom = 0.7f;
         e->cam_x = 660.0f;
         e->cam_y = 300.0f;
     } else if (t < SSC_T_SAIDA + SSC_T_SAIDA_DUR) {
         float k = ssc_circ_out((t - SSC_T_SAIDA) / SSC_T_SAIDA_DUR);
-        e->zoom = lerp(0.7f, 0.55f, k);
+        e->zoom = ssc_mistura(0.7f, 0.55f, k);
         e->cam_x = 1070.0f;
         e->cam_y = 470.0f;
     } else {
@@ -217,9 +269,14 @@ void ssc_estado(float t, ssc_estado_t *e)
     e->principal_visivel = e->cena;
     e->gf_visivel = t >= SSC_T_SAIDA ? 1 : 0;
     e->bf_visivel = e->gf_visivel;
-    e->quadro_principal = 0;               /* preenchido por quem tem o pacote */
-    e->quadro_gf = 0;
-    e->quadro_bf = 0;
+    /* O INSTANTE DENTRO DA ANIMACAO de cada um. O principal toca a linha toda
+       desde o quadro 0 (`doAnim` em t=0). As duas "get up" voltam em 650/24 com
+       `resetAnim()` (`animation.play("static")`, o rotulo de UM quadro) e trocam
+       para `getup` em 710/24 -- nesse instante o relogio do `getup` comeca do
+       ZERO, e nao de 710/24 (o `play` do flixel reinicia a animacao). */
+    e->t_principal = t;
+    e->anim_gf = e->anim_bf = (t >= SSC_T_GETUP_ANIM) ? 1 : 0;
+    e->t_gf = e->t_bf = (t >= SSC_T_GETUP_ANIM) ? (t - SSC_T_GETUP_ANIM) : 0.0f;
 
     e->acabou = t >= SSC_T_CONTA ? 1 : 0;
 }

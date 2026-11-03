@@ -52,11 +52,21 @@ typedef struct {
     int n_frames;                  /* quadros da animacao              */
     int fps100;                    /* 24 fps -> 2400                   */
     int escala1000;                /* escala do atlas (1/1000)         */
+    int tex_w, tex_h;              /* tamanho da textura no pacote CFZ4 */
+    int n_labels;                  /* rotulos de quadro (ver abaixo)    */
     const unsigned char *rects;    /* n_sprites x 8 B: u16 x,y,w,h     */
+    const unsigned char *labels;   /* n_labels x 12 B                  */
     const unsigned char *offsets;  /* n_frames x 4 B: u32 inicio       */
     const unsigned char *quads;    /* os quads, 14 B cada              */
     unsigned int quads_bytes;
 } ssc_pack_t;
+
+/* Quantos rotulos o pacote pode ter. O export real traz DOIS nos `GetUp`
+   (`static` no quadro 0 e `getup` nos 123 seguintes, lidos da camada de
+   anotacao do Animate) e nenhum no `cutsceneMain`, que toca a linha toda
+   (`animation.play("", true)`). 8 e' teto de sanidade. */
+#define SSC_MAX_LABELS 8
+#define SSC_LABEL_BYTES 12     /* u16 inicio | u16 quadros | char nome[8] */
 
 #define SSC_OK 0
 #define SSC_ERRO_MAGIC -1
@@ -66,9 +76,24 @@ typedef struct {
 /* Le o cabecalho e valida os limites (nada de ler fora do buffer). */
 int ssc_abrir(ssc_pack_t *p, const void *dados, unsigned int len);
 
-/* Quadro da animacao no instante `t` (segundos desde o inicio dela). A
-   animacao REPETE -- `doAnim()` e' `animation.play("", true)`, com loop. */
+/* Quadro da animacao no instante `t` (segundos desde o inicio dela).
+   A animacao NAO repete: passado o ultimo quadro, ele fica. A conta e'
+   `min(int(t*fps), n_frames-1)` -- ver o comentario em `ssc_quadro_em` para a
+   medida que decidiu isso (631 quadros num sprite que so' e' usado ate' o
+   quadro 563, e um `getup` de 123 quadros que atravessa o comeco da musica). */
 int ssc_quadro_em(const ssc_pack_t *p, float t);
+
+/* Acha um ROTULO de quadro ("static", "getup"). Devolve 0 e escreve o primeiro
+   quadro e a contagem, ou negativo quando o rotulo nao existe.
+   Os rotulos sao as etiquetas de quadro do Animate (a camada `Layer_15` do
+   `gfGetUp` tem `static` no quadro 0 e `getup` nos 123 seguintes), que e' como
+   o `SserafimGfSprite.resetAnim()/doAnim()` escolhem a animacao. */
+int ssc_rotulo(const ssc_pack_t *p, const char *nome, int *primeiro, int *quadros);
+
+/* Quadro do rotulo `nome` no instante `t`, em segundos desde o comeco DELE.
+   Sem o rotulo devolve -1 (nada para desenhar: dado faltando, nunca o quadro
+   errado). O rotulo de um quadro so' (o `static`) devolve sempre o mesmo. */
+int ssc_quadro_rotulo(const ssc_pack_t *p, const char *nome, float t);
 
 /* Os quads do quadro `f`. Devolve quantos escreveu (no maximo `max`), e o
    numero TOTAL em `*total` quando ele nao e' NULL -- e' assim que o chamador
@@ -116,9 +141,15 @@ typedef struct {
     int principal_visivel; /* o atlas `cutsceneMain`                      */
     int gf_visivel;        /* `sserafimGf` (a "get up" da namorada)       */
     int bf_visivel;        /* `sserafimBf`                                */
-    int quadro_principal;  /* quadro da animacao de cada um               */
-    int quadro_gf;
-    int quadro_bf;
+    /* O instante DENTRO da animacao corrente de cada sprite, em segundos.
+       O quadro sai dele e do pacote (`ssc_quadro_em`/`ssc_quadro_rotulo`),
+       porque so' quem tem o pacote sabe a contagem -- e assim o teste da linha
+       do tempo nao precisa de arte. */
+    float t_principal;
+    float t_gf;            /* ja' com o `resetAnim`/`doAnim` resolvido      */
+    float t_bf;
+    int anim_gf;           /* 0 = `static` (resetAnim), 1 = `getup` (doAnim) */
+    int anim_bf;
     int acabou;            /* 1 = `startCountdown()` ja' foi chamado      */
 } ssc_estado_t;
 
@@ -129,6 +160,9 @@ typedef struct {
 #define SSC_T_CENA_FIM     (563.0f / 24.0f)
 #define SSC_T_SAIDA        (650.0f / 24.0f)
 #define SSC_T_SAIDA_DUR    3.0f
+/* `resetAnim()` (`animation.play("static")`) em 650/24 e `doAnim()`
+   (`animation.play("getup")`) em 710/24 -- ver `SserafimGfSprite.hxc`. */
+#define SSC_T_STATIC       (650.0f / 24.0f)
 #define SSC_T_GETUP_ANIM   (710.0f / 24.0f)
 #define SSC_T_CONTA        (730.0f / 24.0f)
 

@@ -44,3 +44,33 @@ python3 fnf_to_fch3.py --selftest
   metadata (`bf_anim_t`/`bf_meta_t`) + RGBA/LZ4 frames.
 - `fnf_registry.py` — SongRegistry / StageData / CharacterData / NoteStyle /
   Results data → embedded `*_generated.h` C arrays.
+
+## `empacotar_stems.py` — the audio of the 27 songs (the pendrive had only one)
+
+The game opens `assets/songs/<id>/stems.pcm` per song and falls back to the flat
+`assets/audio_stems.pcm` (the Tutorial's) when the per-song file is missing —
+so the console played music for exactly 1 of 27 songs. Nothing generated those
+files; this tool does.
+
+The format is not a choice, it is what the mixer reads: **8 bytes per sample**,
+`[InstL, InstR, VoxL, VoxR]` as int16 little-endian at 48 kHz (the ring gives
+the instrumental and the voices interleaved and `amix_somar` sums them into the
+4-byte stereo frame the audsrv stream wants). The 27 songs fit the budget the
+plan has been quoting: 1 078 655 000 B ≈ 1,08 GB.
+
+```bash
+# prove the interleaving/channel-order math without the 2.5 GB art clone
+python3 empacotar_stems.py --autoteste
+
+# real run: songs/<id>/Inst.ogg + Voices.ogg from the art clone
+python3 empacotar_stems.py --assets /path/to/funkin.assets
+
+# measure what already exists (no clone needed) and compare with each chart's
+# `song_end_sample`, which is the number the game itself uses for the end
+python3 empacotar_stems.py --conferir
+```
+
+A song without `Voices.ogg` gets silent voices **and says so** in the manifest;
+an audio shorter than the chart is reported as such instead of being padded to
+hide it. `tools/build_pendrive.sh` refuses to build a pendrive without the 27
+stems (and copies `STEMS.txt` next to them).

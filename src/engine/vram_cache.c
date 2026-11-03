@@ -172,6 +172,20 @@ int vc_esta_fixo(const vc_t *c, unsigned int chave)
     return i >= 0 ? (int)c->b[i].fixo : 0;
 }
 
+int vc_liberar(vc_t *c, unsigned int chave)
+{
+    int i;
+    if (!c || !chave) return 0;
+    i = achar(c, chave);
+    if (i < 0) return 0;
+    c->b[i].usado = 0;
+    c->b[i].chave = 0;
+    c->b[i].fixo = 0;
+    c->b[i].selo = 0;
+    fundir(c);
+    return 1;
+}
+
 void vc_limpar(vc_t *c)
 {
     int i;

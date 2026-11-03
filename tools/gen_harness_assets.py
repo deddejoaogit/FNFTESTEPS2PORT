@@ -23,6 +23,7 @@ do jogo devolve erro se qualquer uma nao fechar:
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 
@@ -1183,6 +1184,78 @@ def build(root, charts_src=None):
                     with open(destino, "wb") as f:
                         f.write(make_cfz4(1, sw * sh * 2, seed=semente))
                     npalco += 1
+
+    # A CUTSCENE DO sserafim (assets/stages/sserafim/cut/): os tres pacotes da
+    # cena e os tres `.quads` de geometria assada. O formato e' escrito pelo
+    # MESMO modulo que a ferramenta da arte real usa
+    # (tools/cutscene_pacote.py) -- se o leitor em C e o escritor divergirem, o
+    # harness tem de ser o primeiro a quebrar, e nao o console.
+    #
+    # Tamanhos sinteticos minusculos de proposito: o que se prova aqui e' o
+    # caminho pacote -> VRAM -> quad na tela, com os rotulos `static`/`getup`
+    # nas posicoes em que o export real os tem (um quadro e o resto).
+    ncut = 0
+    # SE O PACOTE REAL JA' EXISTE, ele e' o que o harness usa. Sintetico so'
+    # quando nao ha' arte: assim a geometria que roda no PC e' a MESMA que vai
+    # para o pendrive (26,83 quads por quadro no `main`, 631 quadros), e nao
+    # uma amostra de 6 quadros que nunca exercita o pacote de verdade.
+    #   CUTSCENE_REAL=<dir>  (padrao: build/packs/stages/sserafim/cut)
+    raiz_projeto = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cut_real = os.environ.get("CUTSCENE_REAL",
+                              os.path.join(raiz_projeto, "build", "packs", "stages",
+                                           "sserafim", "cut"))
+    nomes_cut = ["main", "gf", "bf"]
+    tem_real = all(os.path.isfile(os.path.join(cut_real, n + ext))
+                   for n in nomes_cut for ext in (".quads", ".cfz4"))
+    if tem_real:
+        destino_dir = os.path.join(a, "stages", "sserafim", "cut")
+        os.makedirs(destino_dir, exist_ok=True)
+        for n in nomes_cut:
+            for ext in (".quads", ".cfz4"):
+                shutil.copyfile(os.path.join(cut_real, n + ext),
+                                os.path.join(destino_dir, n + ext))
+                ncut += 1
+        # As duas imagens do `endStuff` (`cutscene/end1`, `cutscene/end2`): entram
+        # no mesmo diretorio, com a mesma chave de pacote (CFZ4 de 1 quadro).
+        # Sem elas o jogo REPORTA `cut_fim_falta` e a sequencia roda sem imagem,
+        # entao o harness precisa delas para exercitar o caminho de verdade.
+        for n in ("end1", "end2"):
+            origem = os.path.join(cut_real, n + ".cfz4")
+            if os.path.isfile(origem):
+                shutil.copyfile(origem, os.path.join(destino_dir, n + ".cfz4"))
+                ncut += 1
+            else:
+                print("   AVISO: falta %s (o fim da musica vai rodar sem imagem)"
+                      % origem)
+        print("   cutscene do sserafim: %d arquivo(s) da ARTE REAL de %s"
+              % (ncut, cut_real))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import cutscene_pacote as _cp
+    for nome, tw, th, nfr, rotulos in ([] if tem_real else (
+            ("main", 64, 32, 6, []),
+            ("gf", 32, 32, 4, [("static", 0, 1), ("getup", 1, 3)]),
+            ("bf", 32, 32, 4, [("static", 0, 1), ("getup", 1, 3)]))):
+        rets = [(0, 0, tw // 2, th // 2), (tw // 2, 0, tw - tw // 2, th // 2)]
+        quadros = []
+        for f in range(nfr):
+            q = []
+            for i, (x, y, w, h) in enumerate(rets):
+                # Deslocamento inteiro em 1/4 px e matriz identidade em 1/4096:
+                # os coeficientes ficam redondos e o teste do PC compara exato.
+                q.append((i, 4096, 0, 0, 4096, (x + f) * 4, y * 4))
+            quadros.append(q)
+        destino = os.path.join(a, "stages", "sserafim", "cut", nome + ".quads")
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        with open(destino, "wb") as f:
+            f.write(_cp.monta_pacote(["a", "b"], rets, quadros, 24.0, 1.0,
+                                     tw, th, rotulos))
+        destino = os.path.join(a, "stages", "sserafim", "cut", nome + ".cfz4")
+        with open(destino, "wb") as f:
+            f.write(make_cfz4(1, tw * th * 2, seed=23))
+        ncut += 1
+    if not tem_real:
+        print("   cutscene do sserafim: %d pacotes + %d .quads (SINTETICOS)"
+              % (ncut, ncut))
 
     # PERSONAGENS: um pacote CHP4 por personagem, no caminho que o jogo le'
     # (assets/chars/<id>.chp4), com a tabela de animacoes junto dos quadros.
