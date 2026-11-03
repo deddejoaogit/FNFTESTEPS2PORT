@@ -981,6 +981,16 @@ def build(root, charts_src=None):
         # tocou o banco certo no instante do EVENTO (nao no beat).
         "stage/doorkick1.pcm": pcm(1 * 48000 * 4, 205),
         "stage/doorkick2.pcm": pcm(1 * 48000 * 4, 215),
+        # A CUTSCENE da `spaghetti` (`sserafim.hxc` L760-763 e L680-700):
+        # `startCutscene` na abertura, `end1` no `endStuff` e `end2` quatro
+        # segundos depois (tools/empacotar_audio.py SONS_CUTSCENE, que
+        # publica `startcutscene`/`cutend1`/`cutend2` em assets/stage/).
+        # Sem eles o sweep da `spaghetti` REPROVA em "3 arquivo(s) nao
+        # abriram" -- que e o diagnostico certo, mas esconde o que a rodada
+        # quer medir: a cena, a contagem e a musica.
+        "stage/startcutscene.pcm": pcm(20 * 48000 * 4, 168),
+        "stage/cutend1.pcm": pcm(4 * 48000 * 4, 172),
+        "stage/cutend2.pcm": pcm(4 * 48000 * 4, 176),
         "gameover/loss_sfx.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pixel.pcm": pcm(1 * 48000 * 4, 196),
         "gameover/loss_sfx-pico.pcm": pcm(1 * 48000 * 4, 196),
@@ -1225,8 +1235,20 @@ def build(root, charts_src=None):
                 shutil.copyfile(origem, os.path.join(destino_dir, n + ".cfz4"))
                 ncut += 1
             else:
-                print("   AVISO: falta %s (o fim da musica vai rodar sem imagem)"
-                      % origem)
+                # Sem o pacote real (build/packs e' saida de build e nao esta'
+                # em todo ambiente), sintetiza as duas imagens no MESMO
+                # formato que o assador escreve (CFZ4 de 1 quadro). O que o
+                # sweep precisa provar aqui e' o caminho evento -> pacote ->
+                # VRAM -> quad na tela, e nao o desenho da arte.
+                import struct as _st
+                for n, (w, h) in (("end1", (377, 376)), ("end2", (540, 38))):
+                    dst = os.path.join(destino_dir, n + ".cfz4")
+                    if not os.path.isfile(dst):
+                        with open(dst, "wb") as fh:
+                            fh.write(make_cfz4(1, w * h * 2, seed=w + h))
+                        ncut += 1
+                print("   AVISO: faltam %s/end1.cfz4 e end2.cfz4; sintetizados"
+                      % cut_real)
         print("   cutscene do sserafim: %d arquivo(s) da ARTE REAL de %s"
               % (ncut, cut_real))
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1253,9 +1275,35 @@ def build(root, charts_src=None):
         with open(destino, "wb") as f:
             f.write(make_cfz4(1, tw * th * 2, seed=23))
         ncut += 1
+    # AS DUAS IMAGENS DO `endStuff` (`sserafim.hxc` L680-700: `end1` no fim da
+    # musica, `end2` quatro segundos depois), no caminho que o jogo le'
+    # (`assets/stages/sserafim/cut/end1.cfz4`). O tamanho vem do mesmo header
+    # que o jogo compila (src/engine/cut_fim_dados.h), para a textura subir com
+    # a largura/altura certas: `.cfz4` nao guarda dimensao.
+    fim_dir = os.path.join(a, "stages", "sserafim", "cut")
+    if not all(os.path.isfile(os.path.join(fim_dir, n + ".cfz4"))
+               for n in ("end1", "end2")):
+        import re as _re
+        hdr = os.path.join(raiz_projeto, "src", "engine", "cut_fim_dados.h")
+        ws, hs = [], []
+        if os.path.isfile(hdr):
+            txt = open(hdr).read()
+            ws = [int(v) for v in _re.search(r"cut_fim_tex_w\[[^]]*\]\s*=?\s*\{([^}]*)\}",
+                                             txt).group(1).split(",")]
+            hs = [int(v) for v in _re.search(r"cut_fim_tex_h\[[^]]*\]\s*=?\s*\{([^}]*)\}",
+                                             txt).group(1).split(",")]
+        if len(ws) != 2 or len(hs) != 2:
+            ws, hs = [377, 540], [376, 38]
+        os.makedirs(fim_dir, exist_ok=True)
+        for nome, w, h in (("end1", ws[0], hs[0]), ("end2", ws[1], hs[1])):
+            with open(os.path.join(fim_dir, nome + ".cfz4"), "wb") as f:
+                f.write(make_cfz4(1, w * h * 2, seed=w + h))
+            ncut += 1
+        print("   fim da musica: end1/end2 sintetizados em %dx%d e %dx%d"
+              % (ws[0], hs[0], ws[1], hs[1]))
     if not tem_real:
-        print("   cutscene do sserafim: %d pacotes + %d .quads (SINTETICOS)"
-              % (ncut, ncut))
+        print("   cutscene do sserafim: 3 pacotes + 3 .quads + as 2 imagens do "
+              "fim (SINTETICOS)")
 
     # PERSONAGENS: um pacote CHP4 por personagem, no caminho que o jogo le'
     # (assets/chars/<id>.chp4), com a tabela de animacoes junto dos quadros.

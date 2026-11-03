@@ -9,6 +9,15 @@ Nada aqui é estimativa de "quanto falta": cada item diz o que já existe no
 código do port, com arquivo e função. Onde o port já faz a coisa certa, o item
 está marcado como feito — não será refeito.
 
+> **ESTADO ATUAL.** O retrato de hoje (o que roda, com o número de cada parte, e
+> o que falta e por quê) está no **`README.md`** — ele é curto e é o único
+> documento que se lê para saber onde o port está. **Este arquivo é o diário**:
+> as seções abaixo foram escritas conforme cada item foi feito, e as mais antigas
+> descrevem o dia em que foram escritas (por exemplo, "a cena do `sserafim` ainda
+> não está ligada ao `main.c`" é de antes de ela ser ligada). Onde o diário e o
+> código divergirem, **o código e o log medido valem**; as seções do fim do
+> documento são as mais recentes.
+
 ---
 
 ## O que o usuário pediu
@@ -5222,7 +5231,7 @@ entrada com texto e uma dúzia de eventos de música.
 | a cobertura (`sserafimCover`, `sserafimEnd`) | L284-287, L680-706 | **fechado** — `solidCover` é `#000000` sem textura: o alpha sai por `ss_cor_alpha`, não por prop |
 | o flash de tela (`sserafimFlash`) | L279-282 | **fechado** — branco cheio decaindo linear em `duration`, desenhado sobre palco/personagens e sob o HUD |
 | a escuridão (`sserafimDark`) | L413-421 | **declarada** — é shader (`SserafimShader`), fora do pipeline fixo |
-| as máscaras de `sserafimSing`/`sserafimShow` | L199-218 | **recebidas e guardadas** (`ssf_canta`, `ssf_mostra`); quem as desenha são as dançarinas, que faltam |
+| as máscaras de `sserafimSing`/`sserafimShow` | L199-218 | **recebidas e guardadas** (`ssf_canta`, `ssf_mostra`) e aplicadas às três dançarinas (`yunjin`, `kazuha`, `sakura`), que o palco carrega no mesmo pool dos props (585 728 B de atlas, chaves +8/+9/+10) |
 | `sserafimKick` | L220-277 | **o SOM é portado** (`doorKick1` no chute simples, `doorKick2` no final, banco 4 `doorkick`, volume do `playOnce(...,1.0)`), tocado no instante do EVENTO e não no beat. Medido no harness: `palco_som,41,7` (1,08 s) e `palco_som,42,6` (2,49 s). O que falta é a animação `kick1`/`kick2` da `yunjin` e o `truckDoor.visible` no quadro 23 — os dois dependem do slot OUTRO |
 | o `setGirlsVisible` de DAD e BF (`sserafimShow`) | L205-206, L289-303 | **fechado**: `baseVisible` deixa só a `yunjin` em cena, então DAD e BF ficam **fora** até o primeiro `Show` (13,2 s). O `ss_alpha_papel` devolve 0 para o papel escondido |
 | `sserafimBeautiful`, `sserafimGuitarVibration` | — | **reconhecidos sem efeito**, como no original (`Beautiful` não tem `case`; a vibração é de haptica) |

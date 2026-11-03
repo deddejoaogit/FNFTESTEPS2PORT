@@ -75,6 +75,41 @@ an audio shorter than the chart is reported as such instead of being padded to
 hide it. `tools/build_pendrive.sh` refuses to build a pendrive without the 27
 stems (and copies `STEMS.txt` next to them).
 
+## `assar_cutscene_sserafim.py` — a cutscene de 30 s, assada do FlxAnimate
+
+Lê os `Animation.json` + spritesheets do `sserafim` no clone de arte e escreve,
+em `build/packs/stages/sserafim/cut/`:
+`main`, `gf`, `bf` (`.quads` de geometria assada + `.cfz4` de textura, 24 fps) e
+as duas imagens de UM quadro do `endStuff` (`end1`, `end2`).
+
+```sh
+python3 tools/assar_cutscene_sserafim.py --assets <clone funkin.assets> \
+        --saida build/packs/stages/sserafim/cut
+```
+
+**`--largura-max` (padrão 512)** é a escala das texturas da cena. Medido nesta
+árvore, com a arte real, no `manifest.json` que o assador escreve:
+
+| largura | `main` | `getup gf` | `getup bf` | VRAM da cena |
+|---|---|---|---|---|
+| **512 (padrão, o que está no pendrive)** | 512×249 | 512×304 | 512×202 | **773 120 B** |
+| 448 | 448×218 | 448×266 | 448×176 | **591 360 B** |
+
+Rodando o jogo no harness com as texturas de 512, a cena inteira cabe no pool do
+palco e o `pool_min` (menor folga em toda a música, medido pelo próprio
+alocador) fecha em **33 792 B livres**, com o palco, as três dançarinas e o piso
+já carregados. É pouco: se o console acusar `cut_sem_vram` ou troca de prop
+durante a cena, `--largura-max 448` economiza 181 760 B e reduz 12,5 % da
+imagem. O tamanho por quadro (`pack.frame_bytes`) é conferido contra a textura
+antes de desenhar: se a geometria e a textura discordarem, o log diz
+`cut_tamanho` e o sprite não entra.
+
+A posição de cada sprite na tela (`bounds`/`offset` do FlxAnimate) foi o defeito
+mais caro deste port: o `origin` do sprite é `bounds.x`/`bounds.y` (o recorte do
+quadro na spritesheet), não a âncora do quadro. Usar o `origin` jogava os três
+sprites fora da tela. O teste `test/test_ss_cutscene.c` cobra a matriz de um quad
+e os 6 marcos da linha do tempo.
+
 ## `build_pendrive.sh` — o cartão do console, medido antes de copiar
 
 Monta a pasta do pendrive (o layout que `src/main.c` abre em `mass:/FNFPS2/`).

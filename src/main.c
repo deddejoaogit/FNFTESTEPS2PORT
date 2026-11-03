@@ -235,6 +235,11 @@ static const unsigned char *g_story_bf_pack=0,*g_story_gf_pack=0;static u32 g_st
 static unsigned char *g_story_bf_pixels=0,*g_story_gf_pixels=0;
 extern const unsigned char g_story_gf_pack_start[],g_story_gf_pack_end[],g_story_bf_pack_start[],g_story_bf_pack_end[];
 static int g_tutorial_audio_status=-1,g_tutorial_audio_finished=0,g_chart_status=-1;
+/* Musica SEM `stems.pcm` no cartao: o relogio dela anda pelo tempo e o aviso
+   fica na tela. Ver o bloco "MUSICA SEM AUDIO NO CARTAO" no laco. */
+static u32 g_sem_audio_ms=0;
+static int g_sem_audio_avisado=0;
+static u64 g_sem_audio_tick=0;
 /* Diagnostico do transporte de audio do tutorial, sem mudar o comportamento
    normal: quantos blocos vieram curtos e quantos quadros seguidos falharam. */
 static u32 g_tut_partial_blocks=0,g_tut_audio_fail_streak=0,g_tut_audio_given_up=0;
@@ -1473,26 +1478,19 @@ static qword_t *sprite_dims_flip(qword_t*q,float x,float y,float w,float h,int t
  band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
  v.color=rgba(0x80,0x80,0x80,0x80); dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
 
-/* O MESMO sprite_dims, com COR no vertice. E' o `color` do flixel: no GS o
-   vertice multiplica a textura (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0, por
-   isso a cor do flixel (0..255) entra dividida por 2. O `phillyBlazin.hxc`
-   L114-117 poe bf/dad em 0xDEDEDE e gf em 0x888888 (e L180-184 escurece os tres
-   a 0x606060 por 0,3 s a cada relampago): sem esta funcao o port desenhava os
-   personagens brancos nesse palco. */
-static qword_t *sprite_dims_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t v;float cy0,cy1,cv0,cv1;
- if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
- g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
- band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(0,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(cr,cg,cb,0x80); dl_sprite(x,y,w,h,0.0f,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
-static qword_t *sprite_dims_flip_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb){texrect_t v;float cy0,cy1,cv0,cv1;
- if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
- g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
- band_clip_texel(cv0,cv1,&v.t0.v,&v.t1.v);ch_uv_do_quadro(1,tw,&v.t0.u,&v.t1.u);
- v.color=rgba(cr,cg,cb,0x80); dl_sprite(x,y,w,h,(float)tw,0.0f,(float)tw,(float)th,0x80,&v);return draw_rect_textured(q,0,&v);}
+/* A COR no vertice e' o `color` do flixel: no GS o vertice multiplica a textura
+   (TEXTURE_FUNCTION_MODULATE) e 0x80 vale 1,0, por isso a cor do flixel (0..255)
+   entra dividida por 2. O `phillyBlazin.hxc` L114-117 poe bf/dad em 0xDEDEDE e
+   gf em 0x888888 (e L180-184 escurece os tres a 0x606060 por 0,3 s a cada
+   relampago): sem isso o port desenhava os personagens brancos nesse palco.
+   COR e ALPHA cabem no mesmo vertice, e por isso NAO existem versoes separadas
+   `sprite_dims_cor`/`sprite_dims_flip_cor` (elas existiram e ficaram mortas: a
+   funcao abaixo faz as duas coisas, com o `bandeira` escolhendo o espelho). */
 
 /* COR e ALPHA no mesmo vertice: e' o que o `spookyMansionErect` precisa (o
    flash apaga os personagens por 0,06 s e depois os traz de volta em 1,5 s) e o
-   `phillyBlazin` tambem (cor de repouso + escurecimento de 0,3 s). */
+   `phillyBlazin` tambem (cor de repouso + escurecimento de 0,3 s).
+   `bandeira` != 0 espelha na horizontal (o mesmo que o `sprite_dims_flip`). */
 static qword_t *sprite_dims_alpha_cor(qword_t*q,float x,float y,float w,float h,int tw,int th,unsigned char cr,unsigned char cg,unsigned char cb,unsigned char a,unsigned char bandeira){texrect_t v;float cy0,cy1,cv0,cv1;
  if(!band_clip_v(vy(y),vy(y+h),0.0f,(float)th,&cy0,&cy1,&cv0,&cv1))return q;
  g_frame_texture_quads++;v.v0.x=FNX_INI(x);v.v0.y=FNX_INI(cy0);v.v0.z=0;v.v1.x=FNX_FIM(x+w);v.v1.y=FNX_FIM(cy1);v.v1.z=0;
@@ -4059,18 +4057,6 @@ static int freeplay_dj_janela(const fp_dj_anim_t *a, unsigned long ms,
     return k;
 }
 
-/* Duracao (ms) de uma janela [ini..fim] tocada uma vez. */
-static unsigned long freeplay_dj_dura_janela(const fp_dj_anim_t *a,
-                                             int ini, int fim)
-{
-    unsigned long fps;
-    if (!a) return 0ul;
-    fps = (unsigned long)(a->fps100 > 0 ? a->fps100 : 2400) / 100ul;
-    if (!fps) fps = 24ul;
-    if (fim < ini) return 0ul;
-    return ((unsigned long)(fim - ini + 1) * 1000ul + fps - 1ul) / fps;
-}
-
 /* O aniversario de uma acao do jogador: `dj.onPlayerAction()`, que e'
    so' `resetAFKTimer()` (BaseFreeplayDJ.hx L68-72). Ele NAO troca de estado --
    e' o que zera o `timeIdling` que conta para o Easter Egg e o Cartoon. */
@@ -4400,7 +4386,7 @@ static int freeplay_audio_preview_iniciar(void)
 static int freeplay_audio_preview_recomecar(void)
 {
  long ini,fim;
- int rc,fd;
+ int fd;
  char caminho[192];
  long total;
  if(!g_fpa_song)return -1;
@@ -7059,7 +7045,8 @@ static int resultado_pct_alvo(void)
  if(g_story_mode){
   float c=g_camp_total_notas>0
           ?((float)(g_camp_sick+g_camp_good-g_camp_missed)/(float)g_camp_total_notas):0.0f;
-  if(c<0.0f)c=0.0f;if(c>1.0f)c=1.0f;
+  if (c < 0.0f) c = 0.0f;
+  if (c > 1.0f) c = 1.0f;
   return (int)(c*100.0f);
  }
  return fnf_play_clear_percent(&g_play);
@@ -7601,7 +7588,7 @@ static void resmus_passo(int rank,int pct_alvo)
     `audio_ring_trocar_fonte`, como o game over faz com a musica que entra por
     baixo do sfx. */
  if(!g_resmus_pediu&&(g_resmus_estado==0||g_resmus_estado==3)&&
-    g_res_ms>=(unsigned long)g_resmus_musica_ms){
+    (unsigned long)g_res_ms>=(unsigned long)g_resmus_musica_ms){
   g_resmus_pediu=1;
   resmus_iniciar(rank);
  }
@@ -8819,6 +8806,35 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
     if(heard>music_clock+1600u){u32 correction=heard-music_clock-1600u;if(correction>32u)correction=32u;music_clock+=correction;}
    }
   }
+  /* ---- MUSICA SEM AUDIO NO CARTAO ----------------------------------------
+     `play_audio_ausente` (na abertura do PlayState) e' o caso do cartao sem
+     `songs/<id>/stems.pcm`. Sem este bloco o jogo carrega palco, personagens,
+     chart e HUD, mostra a contagem -- e depois fica parado para sempre:
+     `audio_started` nunca fica verdadeiro, `music_clock` nunca anda e o fim da
+     musica nunca chega. Na tela isso e' indistinguivel de travamento.
+     O que este bloco faz: o relogio anda pelo TEMPO, como andaria com som
+     (48 kHz => 1 ms = 48 amostras). Os eventos do chart disparam no mesmo
+     instante, as notas descem, e o jogo chega ao Resultado -- sem som, e com o
+     aviso na tela. Nada do original muda de lugar: o que falta e' o ARQUIVO. */
+  if(ui_state==8&&!audio_started&&g_tutorial_audio_status<0&&!g_tutorial_audio_finished&&
+     g_countdown_left<=0&&!cut_no_ar()&&transition_frame==0){
+   if(!g_sem_audio_avisado){
+    g_sem_audio_avisado=1;
+    telemetry_event("play_sem_audio",(int)frame_no,(int)g_play_song_index);
+   }
+   /* O tempo vem do MESMO relogio do vsync que a contagem usa (`begin`), e
+      nao de `advance`: esta fora do bloco onde `advance` e' calculado, e
+      reaproveitar a variavel ali seria ler lixo. */
+   {u64 d=g_sem_audio_tick?begin-g_sem_audio_tick:0;
+    g_sem_audio_tick=begin;
+    g_sem_audio_ms+=(u32)(d*1000u/(u64)kBUSCLK);}
+   music_clock=g_sem_audio_ms*48u;
+   {u32 fim=g_chart_info.song_end_sample?g_chart_info.song_end_sample:TUTORIAL_AUDIO_SAMPLES;
+    if(fim&&music_clock>=fim){
+     music_clock=fim;g_tutorial_audio_finished=1;transport_state=4;
+     telemetry_event("play_sem_audio_fim",(int)frame_no,(int)fim);
+    }}
+  }
   /* Durante a contagem o relogio do chart e' NEGATIVO, como no original: o
      Conductor ja' foi para -5 batidas e as notas do inicio ja' descem. Sem
      isso o campo de notas ficaria congelado 5 batidas e pularia de uma vez. */
@@ -9090,6 +9106,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   audio_started=0;audio_playing=0;audio_submitted=0;music_clock=0;
   music_clock_tick=music_clock_fraction=0;clock_hold=1;transport_state=0;
   g_tutorial_audio_finished=0;g_tutorial_audio_status=-1;
+  g_sem_audio_ms=0;g_sem_audio_avisado=0;g_sem_audio_tick=0;
   g_vida_zero_visto=0;
   g_countdown_left=0;g_countdown_step=0;g_chart_clock=0;
   capture_status("TUT_FONT_BEGIN",(int)frame_no,0);
@@ -10053,7 +10070,23 @@ if(ui_state!=6){q=draw_clear(q,0,0,0,SCREEN_W,SCREEN_H,(ui_state==0||ui_state==1
       do item (que vem do proprio menu do original) e a dica de controle, que e'
       do port e existe em todas as telas de erro dele. Sem a tela de destino, o
       caminho honesto e' dizer no log que ela falta: `menu_sem_tela`. */
-   if(menu_placeholder){q=rect(q,70,71,570,291,12,10,18);q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,selection==1?"FREEPLAY":selection==2?"MERCH":selection==3?"OPTIONS":"CREDITS",320,150,1.4f,1);q=text_draw(q,"CIRCLE  RETURN",320,215,.9f,1);}
+   if(menu_placeholder){
+    /* TELA PROVISORIA. Ela existe para que o item do menu NAO seja uma porta
+       que nao abre: o jogador entra, ve' o nome do item (que vem do menu do
+       original), ve' POR QUE a tela nao existe neste build, e sai com CIRCLE.
+       O texto de baixo e' do PORT, nao do original -- e' por isso que ele diz
+       "NAO PORTADA" e nao imita a tela que falta. */
+    q=rect(q,60,61,580,301,8,6,14);
+    q=rect(q,62,63,576,297,22,18,32);
+    q=bind_texture_filter(q,&fonttex,1);
+    q=text_draw(q,selection==1?"FREEPLAY":selection==2?"MERCH":selection==3?"OPTIONS":"CREDITS",320,126,1.4f,1);
+    q=text_draw(q,"TELA NAO PORTADA",320,178,.95f,1);
+    q=text_draw(q,
+      selection==2?"FALTA A ARTE DO MERCH":
+      selection==3?"FALTA O OffsetMenu/OptionsMenu":
+                  "FALTA A ARTE DOS CREDITS",320,208,.62f,1);
+    q=text_draw(q,"CIRCLE  VOLTAR",320,252,.85f,1);
+   }
 /* A marca de versao NAO pode ficar aqui. No estado 6 as cinco
    texturas guardam os cinco itens do menu, e mt[0] e justamente a
    fonttex, que carrega a imagem do item STORY MODE. Desenhar texto
@@ -10222,7 +10255,6 @@ cx=g_tut_cam_x;cy=g_tut_cam_y;
         sc=.5f*cz*g_tut_bop;g_cut_zoom_desenho=cz;}
   }
   g_cut_zoom_desenho=cz;}
-float x,y,w,h;
    /* PALCO: os props do mainStage, um por um, do pacote para o pool.
       O caminho antigo (a textura composta de 512x256 que cobre a viagem toda
       da camera) continua aqui como RESERVA: se um pacote nao abrir ou nao
@@ -10983,7 +11015,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      tela parar (persistentUpdate = false), o placar voltar a zero, a entrada
      ficar bloqueada 1 s e a camera seguir o BF morto. */
   if(ui_state==10){
-   char lb[48];int q0=g_frame_texture_quads;
+   int q0=g_frame_texture_quads;
    q=draw_scissor_area(q,0,0,SCREEN_W-1,SCISSOR_TOPO,SCISSOR_BASE);
    band_set(SCISSOR_TOPO,SCISSOR_BASE);
    q=rect_alpha(q,0.0f,(float)SCISSOR_TOPO,(float)SCREEN_W,(float)(SCISSOR_BASE+1),0,0,0,255);
@@ -11594,6 +11626,15 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     telemetry_event("resultado_cena",g_res_ok|(g_res_bg_ok<<8),(int)g_frame_texture_quads-q0);}
   }
   if(ui_state==8&&!g_tutorial_scene_ready){char msg[40];snprintf(msg,sizeof(msg),"TUTORIAL ASSET ERROR %d",g_tutorial_scene_status);q=text_draw(q,msg,320,200,1.0f,1);q=text_draw(q,"CIRCLE  RETURN TO STORY",320,260,.70f,1);}
+  /* O AVISO DA MUSICA SEM AUDIO (`play_sem_audio`). Ele NAO e' decoracao: sem
+     `stems.pcm` no cartao a musica roda muda, e quem estiver jogando precisa
+     saber em 2 s que o silencio e' falta de arquivo e nao defeito de som do
+     PS2. Fica no rodape, discreto, para nao tapar nota nenhuma -- e sai da
+     tela quando o arquivo existe. */
+  if(ui_state==8&&!g_tutorial_audio_finished&&g_tutorial_audio_status<0&&g_sem_audio_avisado){
+   q=bind_texture_filter(q,&fonttex,1);
+   q=text_draw(q,"SEM AUDIO: FALTA O STEMS DESTA MUSICA",320,418,.60f,2);
+  }
   if(ui_state==0 && components_mode){char v[32];q=text_draw(q,"UI COMPONENTS",320,30,2.0f,1);snprintf(v,sizeof(v),"TOGGLE: %s",toggle_value?"ON":"OFF");q=text_draw(q,v,155,94,1.2f,0);snprintf(v,sizeof(v),"SLIDER: %d",slider_value);q=text_draw(q,v,155,156,1.2f,0);snprintf(v,sizeof(v),"TAB: %d   L1/R1",tab_value+1);q=text_draw(q,v,155,218,1.2f,0);q=text_draw(q,"DISABLED OPTION",155,280,1.2f,0);q=text_draw(q,"SCROLL ITEM",155,342,1.2f,0);q=text_draw(q,"TRIANGLE/CIRCLE: BACK",320,410,1.0f,1);}
   else if(ui_state==0){u32 ib=title_intro_phase();if(title_intro_active){if(ib!=g_title_intro_phase_reported){telemetry_event("title_credit_phase",(int)ib,(int)g_title_intro_heard_samples);g_title_intro_phase_reported=ib;}if(ib>=1&&ib<4){q=title_alpha(q,&fonttex,"NINJAMUFFIN99",320,100,1.0f);q=title_alpha(q,&fonttex,"PHANTOMARCADE",320,130,1.0f);q=title_alpha(q,&fonttex,"KAWAISPRITE",320,160,1.0f);q=title_alpha(q,&fonttex,"EVILSK8R",320,190,1.0f);if(ib>=3)q=title_alpha(q,&fonttex,"PRESENT",320,220,1.0f);}else if(ib>=5&&ib<8){q=title_alpha(q,&fonttex,"IN ASSOCIATION",320,100,1.0f);q=title_alpha(q,&fonttex,"WITH",320,130,1.0f);if(ib>=7){q=title_alpha(q,&fonttex,"NEWGROUNDS",320,160,1.0f);q=bind_texture(q,&tex);q=sprite_dims(q,229.5f,187.2f,181.0f,175.0f,181,175);}}else if(ib>=9&&ib<12){q=title_alpha(q,&fonttex,"DOPE ASS GAME",320,100,1.0f);if(ib>=11)q=title_alpha(q,&fonttex,"PLAYSTATION MAGAZINE",320,130,.75f);}else if(ib>=13&&ib<16){q=title_alpha(q,&fonttex,"FRIDAY",320,100,1.0f);if(ib>=14)q=title_alpha(q,&fonttex,"NIGHT",320,130,1.0f);if(ib>=15)q=title_alpha(q,&fonttex,"FUNKIN",320,160,1.0f);}else if(ib>=16){title_intro_flash_frames=60;title_intro_active=0;}}else{unsigned int pf=title_confirm_frames>0?(2u+((title_confirm_frames/4u)&1u)):((frame_no/30u)&1u);q=bind_texture(q,&stagetex);q=sprite_region(q,50,288,512,40,0,pf*48+4,512,40);q=bind_texture(q,&tex2);q=sprite_region(q,562,288,228,40,0,pf*48+4,228,40);q=bind_texture_filter(q,&fonttex,1);}}
   if(ui_state==0&&title_confirm_frames>60){unsigned char ca=(unsigned char)(((u32)(title_confirm_frames-60)*0x80u)/60u);q=rect_alpha(q,0,0,SCREEN_W,SCREEN_H,255,255,255,ca);}

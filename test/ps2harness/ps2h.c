@@ -229,6 +229,10 @@ typedef struct {
 
 static ps2h_pkt_t ps2h_live[PS2H_MAX_LIVE];
 
+/* Instrumento de diagnostico: devolve o maior indice vivo (quem chama e' o
+   dump manual, durante a investigacao de um vazamento de pacote). Fica no
+   arquivo de proposito e marcado como tal para o `-Wall -Wextra` nao acusar. */
+static unsigned ps2h_top(void) __attribute__((unused));
 static unsigned ps2h_top(void)
 {
     unsigned i;

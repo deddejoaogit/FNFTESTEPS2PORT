@@ -82,7 +82,7 @@ def esc(v):
 def monta(dados, versao):
     linhas = [
         "/* GERADO POR tools/gen_gameover_sfx.py - NAO EDITAR A MAO.",
-        "   Fonte: preload/scripts/characters/*.hxc do funkin.assets (%s)," % versao,
+        "   Fonte: preload/scripts/characters/<id>.hxc do funkin.assets (%s)," % versao,
         "   funcao onCreate de cada personagem. Somente atribuicoes literais;",
         "   personagem que nao atribui fica fora da tabela e o jogo usa \"\",",
         "   que e' o que GameOverSubState.reset() faz (PlayState.reset chama). */",
