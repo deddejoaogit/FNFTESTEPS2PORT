@@ -66,9 +66,28 @@ if [ ! -f "$ASSETS/fonts/5by7.ttf" ]; then
 fi
 # A arte das semanas. Sem estas pastas os palcos saem SEM props (nao da' erro:
 # da' um palco vazio), entao a conferencia e' aqui, antes de empacotar.
+# A lista NAO e' fixa. Medido em 2026-11: o clone atual do funkin.assets nao
+# tem mais `weekend2` (o conteudo passou para `sserafim/`, que e' pasta de
+# primeiro nivel). Uma lista fixa recusava o clone inteiro por causa de uma
+# pasta que o upstream renomeou -- e o empacotador nunca rodava. O que importa
+# de verdade e' que cada palco do plano ache a arte dele, e isso quem confere e'
+# o `pacotar_palcos.py` (prop que nao acha a arte vira `problems` e o palco sai
+# do plano em vez de sair vazio). Aqui fica a conferencia barata: toda pasta de
+# semana que EXISTE no clone tem de ter `images/`.
 FALTANDO=""
-for d in week1 week2 week3 week4 week5 week6 week7 weekend1 weekend2; do
+for d in $(cd "$ASSETS" && ls -d week* 2>/dev/null); do
     [ -d "$ASSETS/$d/images" ] || FALTANDO="$FALTANDO $d"
+done
+# `sserafim/` tem images/ proprio (a cutscene). `tutorial/` NAO: no clone atual
+# ele e' so' um marcador de texto e a arte do tutorial mora em preload/images,
+# que ja' e' conferido acima pela pasta existente. Cobrar `tutorial/images`
+# recusava o clone inteiro por uma pasta que nunca existiu.
+for d in sserafim; do
+    [ -d "$ASSETS/$d/images" ] || FALTANDO="$FALTANDO $d"
+done
+# Informativo, nao fatal: pasta de semana que o upstream nao tem mais.
+for d in week1 week2 week3 week4 week5 week6 week7 weekend1 weekend2; do
+    [ -d "$ASSETS/$d" ] || echo "  aviso: $d nao existe no clone (upstream mudou)"
 done
 # Sons: o `fnf_loss_sfx` (Game Over), os dois do menu (scroll/confirm), o
 # `fakeout_death` e o `tickleFight`. Sem eles o empacotador de audio termina

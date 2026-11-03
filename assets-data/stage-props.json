@@ -3,6 +3,7 @@
  "note": "Gerado por tools/pacotar_palcos.py a partir dos pixels reais. O header em C e uma renderizacao deste arquivo.",
  "stages": [
   {
+   "criados": [],
    "id": "limoRide",
    "props": [
     {
@@ -279,6 +280,7 @@
    "zoom": 0.9
   },
   {
+   "criados": [],
    "id": "limoRideErect",
    "props": [
     {
@@ -651,6 +653,7 @@
    "zoom": 0.9
   },
   {
+   "criados": [],
    "id": "mainStage",
    "props": [
     {
@@ -736,6 +739,7 @@
    "zoom": 1.1
   },
   {
+   "criados": [],
    "id": "mainStageErect",
    "props": [
     {
@@ -977,6 +981,7 @@
    "zoom": 0.85
   },
   {
+   "criados": [],
    "id": "mallEvil",
    "props": [
     {
@@ -1062,6 +1067,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "mallXmas",
    "props": [
     {
@@ -1251,6 +1257,7 @@
    "zoom": 0.8
   },
   {
+   "criados": [],
    "id": "mallXmasErect",
    "props": [
     {
@@ -1466,6 +1473,15 @@
    "zoom": 0.8
   },
   {
+   "criados": [
+    {
+     "asset": "phillyBlazin/skyBlur",
+     "name": "scrollingSky",
+     "pack": "skyBlur.cfz4",
+     "sh": 221,
+     "sw": 621
+    }
+   ],
    "id": "phillyBlazin",
    "props": [
     {
@@ -1483,10 +1499,10 @@
      "name": "skyAdditive",
      "scrollx": 0.0,
      "scrolly": 0.0,
-     "sh": 244,
+     "sh": 221,
      "src_h": 495,
      "src_w": 1387,
-     "sw": 683,
+     "sw": 621,
      "sx": 1.75,
      "sy": 1.75,
      "tex": "stages/phillyBlazin/skyAdditive.cfz4",
@@ -1509,10 +1525,10 @@
      "name": "lightning",
      "scrollx": 0.0,
      "scrolly": 0.0,
-     "sh": 171,
+     "sh": 155,
      "src_h": 347,
      "src_w": 206,
-     "sw": 101,
+     "sw": 92,
      "sx": 1.75,
      "sy": 1.75,
      "tex": "stages/phillyBlazin/lightning.cfz4",
@@ -1535,10 +1551,10 @@
      "name": "phillyForegroundCity",
      "scrollx": 0.0,
      "scrolly": 0.0,
-     "sh": 383,
+     "sh": 349,
      "src_h": 779,
      "src_w": 1629,
-     "sw": 802,
+     "sw": 729,
      "sx": 1.75,
      "sy": 1.75,
      "tex": "stages/phillyBlazin/phillyForegroundCity.cfz4",
@@ -1561,10 +1577,10 @@
      "name": "foregroundMultiply",
      "scrollx": 0.0,
      "scrolly": 0.0,
-     "sh": 383,
+     "sh": 349,
      "src_h": 779,
      "src_w": 1629,
-     "sw": 802,
+     "sw": 729,
      "sx": 1.75,
      "sy": 1.75,
      "tex": "stages/phillyBlazin/foregroundMultiply.cfz4",
@@ -1573,10 +1589,11 @@
      "z": 31
     }
    ],
-   "scale": 0.492298,
+   "scale": 0.447475,
    "zoom": 0.75
   },
   {
+   "criados": [],
    "id": "phillyStreets",
    "props": [
     {
@@ -1971,6 +1988,7 @@
    "zoom": 0.77
   },
   {
+   "criados": [],
    "id": "phillyStreetsErect",
    "props": [
     {
@@ -2417,6 +2435,7 @@
    "zoom": 0.77
   },
   {
+   "criados": [],
    "id": "phillyTrain",
    "props": [
     {
@@ -2580,6 +2599,7 @@
    "zoom": 1.1
   },
   {
+   "criados": [],
    "id": "phillyTrainErect",
    "props": [
     {
@@ -2743,6 +2763,7 @@
    "zoom": 1.1
   },
   {
+   "criados": [],
    "id": "school",
    "props": [
     {
@@ -2979,6 +3000,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "schoolErect",
    "props": [
     {
@@ -3215,6 +3237,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "schoolEvil",
    "props": [
     {
@@ -3326,6 +3349,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "schoolEvilErect",
    "props": [
     {
@@ -3437,6 +3461,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "spookyMansion",
    "props": [
     {
@@ -3477,6 +3502,7 @@
    "zoom": 1.0
   },
   {
+   "criados": [],
    "id": "spookyMansionErect",
    "props": [
     {
@@ -3614,6 +3640,49 @@
    "zoom": 1.0
   },
   {
+   "criados": [
+    {
+     "asset": "sserafim/dustMid",
+     "name": "dust1",
+     "sh": 157,
+     "src_h": 1280,
+     "src_w": 2048,
+     "sw": 250,
+     "tex": "stages/sserafim/dustMid.cfz4"
+    },
+    {
+     "asset": "sserafim/dustBack",
+     "name": "dust2",
+     "sh": 157,
+     "src_h": 1280,
+     "src_w": 2048,
+     "sw": 250,
+     "tex": "stages/sserafim/dustBack.cfz4"
+    },
+    {
+     "asset": "sserafim/dustMid",
+     "name": "dust3",
+     "pack": "dustMid.cfz4",
+     "sh": 157,
+     "sw": 250
+    },
+    {
+     "asset": "sserafim/dustBack",
+     "name": "dust4",
+     "pack": "dustBack.cfz4",
+     "sh": 157,
+     "sw": 250
+    },
+    {
+     "asset": "sserafim/floor",
+     "name": "perspectiveFloor",
+     "sh": 92,
+     "src_h": 754,
+     "src_w": 5362,
+     "sw": 656,
+     "tex": "stages/sserafim/floor.cfz4"
+    }
+   ],
    "id": "sserafim",
    "props": [
     {
@@ -3631,10 +3700,10 @@
      "name": "bg",
      "scrollx": 0.75,
      "scrolly": 0.75,
-     "sh": 213,
+     "sh": 185,
      "src_h": 1512,
      "src_w": 5023,
-     "sw": 709,
+     "sw": 614,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/bg.cfz4",
@@ -3657,10 +3726,10 @@
      "name": "fucker",
      "scrollx": 0.85,
      "scrolly": 0.85,
-     "sh": 106,
+     "sh": 92,
      "src_h": 754,
      "src_w": 5362,
-     "sw": 757,
+     "sw": 656,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/fucker.cfz4",
@@ -3683,10 +3752,10 @@
      "name": "backTables",
      "scrollx": 0.93,
      "scrolly": 0.93,
-     "sh": 60,
+     "sh": 52,
      "src_h": 426,
      "src_w": 4953,
-     "sw": 699,
+     "sw": 606,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/backTables.cfz4",
@@ -3709,7 +3778,7 @@
      "name": "backTablesCutscene",
      "scrollx": 0.93,
      "scrolly": 0.93,
-     "sh": 36,
+     "sh": 31,
      "src_h": 256,
      "src_w": 16,
      "sw": 2,
@@ -3735,10 +3804,10 @@
      "name": "burgerCutscene",
      "scrollx": 0.93,
      "scrolly": 0.93,
-     "sh": 22,
+     "sh": 19,
      "src_h": 158,
      "src_w": 1418,
-     "sw": 200,
+     "sw": 173,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/burgerCutscene.cfz4",
@@ -3761,10 +3830,10 @@
      "name": "backStools",
      "scrollx": 0.94,
      "scrolly": 0.94,
-     "sh": 44,
+     "sh": 38,
      "src_h": 311,
      "src_w": 4056,
-     "sw": 572,
+     "sw": 496,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/backStools.cfz4",
@@ -3787,10 +3856,10 @@
      "name": "backLightColor",
      "scrollx": 0.93,
      "scrolly": 0.93,
-     "sh": 289,
+     "sh": 251,
      "src_h": 2049,
      "src_w": 3709,
-     "sw": 523,
+     "sw": 454,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/backLightColor.cfz4",
@@ -3813,10 +3882,10 @@
      "name": "backLightWhite",
      "scrollx": 0.93,
      "scrolly": 0.93,
-     "sh": 216,
+     "sh": 187,
      "src_h": 1532,
      "src_w": 2907,
-     "sw": 410,
+     "sw": 356,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/backLightWhite.cfz4",
@@ -3839,10 +3908,10 @@
      "name": "truck",
      "scrollx": 0.95,
      "scrolly": 0.95,
-     "sh": 233,
+     "sh": 202,
      "src_h": 1648,
      "src_w": 3512,
-     "sw": 496,
+     "sw": 429,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/truck.cfz4",
@@ -3865,10 +3934,10 @@
      "name": "truckDoor",
      "scrollx": 0.95,
      "scrolly": 0.95,
-     "sh": 94,
+     "sh": 81,
      "src_h": 664,
      "src_w": 276,
-     "sw": 39,
+     "sw": 34,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/truckDoor.cfz4",
@@ -3891,10 +3960,10 @@
      "name": "truckLight1",
      "scrollx": 0.95,
      "scrolly": 0.95,
-     "sh": 187,
+     "sh": 162,
      "src_h": 1328,
      "src_w": 2804,
-     "sw": 396,
+     "sw": 343,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/truckLight1.cfz4",
@@ -3917,10 +3986,10 @@
      "name": "truckLight2",
      "scrollx": 0.95,
      "scrolly": 0.95,
-     "sh": 143,
+     "sh": 124,
      "src_h": 1015,
      "src_w": 2464,
-     "sw": 348,
+     "sw": 301,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/truckLight2.cfz4",
@@ -3943,10 +4012,10 @@
      "name": "frontStool",
      "scrollx": 1.0,
      "scrolly": 1.0,
-     "sh": 45,
+     "sh": 39,
      "src_h": 321,
      "src_w": 2982,
-     "sw": 421,
+     "sw": 365,
      "sx": 1.0,
      "sy": 1.0,
      "tex": "stages/sserafim/frontStool.cfz4",
@@ -3955,10 +4024,11 @@
      "z": 1500
     }
    ],
-   "scale": 0.141143,
+   "scale": 0.122295,
    "zoom": 0.5
   },
   {
+   "criados": [],
    "id": "tankmanBattlefield",
    "props": [
     {
@@ -4408,6 +4478,7 @@
    "zoom": 0.9
   },
   {
+   "criados": [],
    "id": "tankmanBattlefieldErect",
    "props": [
     {
