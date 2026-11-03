@@ -74,3 +74,20 @@ A song without `Voices.ogg` gets silent voices **and says so** in the manifest;
 an audio shorter than the chart is reported as such instead of being padded to
 hide it. `tools/build_pendrive.sh` refuses to build a pendrive without the 27
 stems (and copies `STEMS.txt` next to them).
+
+## `maratona_harness.py` — cada música ATÉ O FIM
+
+O sweep dá 1 200 quadros por música; o fim nunca era exercitado. Este roda cada
+música até o `song_end_sample` do chart (mais a cutscene e a sequência do fim,
+quando é o `sserafim`) e cobra o **Resultado** (`state,9`), o `play_result`, a
+auditoria da faixa visível e a ausência de `palco_script_retry`,
+`char_sem_vram`, `palco_sem_vram` e `cut_fim_*`.
+
+```
+python3 tools/maratona_harness.py            # 27 músicas, normal  (~40 s)
+python3 tools/maratona_harness.py --todas    # 81 rodadas          (~120 s)
+python3 tools/maratona_harness.py --musicas monster,guns
+```
+
+Medido: `--todas` → 81/81 até o Resultado, 0 retângulo / 0 linha fora.
+A passada de 27 roda dentro de `test/run_tests.sh`.

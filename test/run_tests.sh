@@ -945,6 +945,22 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     echo "  sem erro de VRAM, de tamanho de pacote ou de retry falso"
     echo "  FIM DO sserafim: PASSOU (a cadeia inteira, e nao so' o comeco dela)"
 
+    # MARATONA: cada musica jogada ATE' O FIM, no jogo real, cobrando o
+    # Resultado. O sweep da' 1 200 quadros por musica (20 s) e o fim de uma
+    # musica de 3 minutos nunca era exercitado -- foi assim que tres defeitos do
+    # fim do `sserafim` passaram meses sem aparecer. Aqui as 27 vao do primeiro
+    # ao ultimo evento, com o autoplay apertando as notas do proprio chart, e o
+    # teste falha se alguma nao chegar ao estado 9 ou se a faixa visivel tiver
+    # qualquer retangulo/linha fora. Custa ~40 s.
+    echo
+    echo "== maratona: as 27 musicas jogadas ate' o fim (Resultado) =="
+    if ! python3 tools/maratona_harness.py > /tmp/fnf_maratona.log 2>&1; then
+        grep -E "FALHA|FALHARAM" /tmp/fnf_maratona.log | head -12
+        echo "  FALHA: a maratona nao chegou ao Resultado em todas as musicas"
+        exit 1
+    fi
+    tail -3 /tmp/fnf_maratona.log
+
     # O passe v5 deixa os charts do harness em FCH5; o Teste de Story e o de
     # sanitizadores abaixo esperam o v3 que o console roda. Volta o formato.
     FNF_SWEEP_FMT=v3 python3 tools/preparar_sweep.py --forcar >/dev/null || exit 1

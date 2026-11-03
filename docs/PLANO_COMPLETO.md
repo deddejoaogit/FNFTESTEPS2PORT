@@ -5590,3 +5590,46 @@ a lista de chamadas que o plano já tem (25 pontos em 18 scripts) com o padrão
 por script. Com qualquer um dos três, o port ganha o rumble com `padSetActDirect`
 — a chamada em si é uma linha e o lugar onde ela entra é o mesmo
 `telemetry_event` que hoje registra o evento.
+
+# FECHADO: a MARATONA — as 81 rodadas vão do primeiro ao último evento
+
+O sweep das 81 combinações sempre deu **1 200 quadros por música** (~20 s). Isso
+prova que o chart abre, que o palco desenha e que o som começa; **não** prova que
+a música termina. E foi exatamente no fim que estavam os três defeitos que mais
+tempo custaram neste port: o fim natural vencendo a sequência do `sserafim`, o
+detector de retry disparando falso no último evento, e o `ZoomCamera mode:'stage'`
+compondo até o `h` do prop chegar a 2²⁷. Nenhum teste curto alcançava aquele
+trecho.
+
+`tools/maratona_harness.py` fecha esse buraco. Para cada música ele:
+
+1. calcula os quadros necessários a partir do **`song_end_sample` do chart**
+   (`offset 32` do FCH3/4/5 — o mesmo número que o jogo usa), somando a cutscene
+   de 31 s e a sequência do fim de 11 s quando o palco é o `sserafim`, mais a
+   contagem e uma folga que cobre o `g_result_wait` de 90 quadros e a transição;
+2. garante o `stems.pcm` com a **duração do chart** (`preparar_sweep --completo`);
+3. gera o roteiro de apertos do próprio chart (`harness_presses.py --pular 0`),
+   então as notas são acertadas em vez de virar MISS;
+4. roda o jogo real e cobra: `RESULTADO: PASSOU`, `state,9` (o Resultado),
+   `play_result`, auditoria da faixa visível e a ausência de
+   `palco_script_retry`/`char_sem_vram`/`palco_sem_vram`/`cut_fim_*`.
+
+**Medido nesta rodada** (`--todas`, 81 rodadas):
+
+```
+81 rodada(s) em 119,5 s
+MARATONA: PASSOU -- as 81 rodada(s) chegaram ao Resultado pelo fim do chart,
+com a faixa visivel intacta
+```
+
+A rodada mais longa é a `spaghetti` (13 182 quadros = 219,7 s de jogo, contando
+30,4 s de cutscene e 9 s de sequência do fim); a mais curta é o `tutorial`
+(4 201 quadros = 70 s). Todas as 81 chegaram ao Resultado com `play_result` e
+**0 retângulo / 0 linha** fora da faixa visível. A passada de 27 músicas (só
+`normal`) custa 40 s e é a que roda na suíte; a de 81 fica como comando manual.
+
+O que isso muda na conta do port: **a campanha inteira (27 músicas, 46,7 min de
+música, 3 dificuldades, 81 charts) é jogável do começo ao Resultado**, no jogo
+real, com o HUD, a contagem, as notas, a pausa, o game over e o resultado de
+cada uma. O que continua fora está na tabela "O que ainda falta" — e nenhum item
+de lá impede uma música de terminar.
