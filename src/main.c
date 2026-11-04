@@ -857,6 +857,10 @@ static const float g_note_x[4]={22.05f,77.525f,133.525f,190.05f};
 #define FONT_DRAW_W 12
 #define FONT_DRAW_H 16
 static unsigned char g_pad_buffer[256] __attribute__((aligned(64)));
+/* Rede de seguranca: nenhuma falha de boot sai calada (ver bloco antes de main). */
+static void boot_fail(int etapa,int codigo,const char*nome,const char*msg);
+static void boot_aviso(int etapa,int codigo,const char*nome,const char*msg);
+
 static struct padButtonStatus g_buttons;
 static unsigned short g_held;
 extern unsigned char audsrv_irx[];
@@ -1291,7 +1295,24 @@ static qword_t *sprite_quad_uv(qword_t*q,const float *px,const float *py,
                                unsigned char a){
  return sprite_quad_uv_cor(q,px,py,u0,v0,u1,v1,a,0x80,0x80,0x80);
 }
-static void reset_iop(void){SifInitRpc(0);while(!SifIopReset("rom0:UDNL rom0:EELOADCNF",0));while(!SifIopSync());SifInitRpc(0);SifLoadFileInit();}
+/* O reset do IOP era um laco ETERNO (`while(!SifIopReset(...))`). Se o
+   console recusasse o reset -- e o console do usuario tem ROM 0230, de 2008,
+   onde os nomes de modulo do rom0 mudaram de lugar uma vez -- o jogo ficava
+   ali para sempre: tela parada e sem som, sem uma linha de diagnostico. Agora
+   sao 100 tentativas com 20 ms entre elas (2 s) e, se falhar, a tela de falha
+   diz exatamente isso. */
+static int iop_reset_tentativas(int n){
+  int i;SifInitRpc(0);
+  for(i=0;i<n;i++){if(SifIopReset("rom0:UDNL rom0:EELOADCNF",0))break;DelayThread(20000);}
+  if(i==n)return -1;
+  for(i=0;i<n;i++){if(SifIopSync())break;DelayThread(20000);}
+  if(i==n)return -2;
+  SifInitRpc(0);SifLoadFileInit();return 0;
+}
+static void reset_iop(void){
+  int r=iop_reset_tentativas(100);
+  if(r<0)boot_fail(0,r,"RESET DO IOP","SifIopReset/SifIopSync nao completaram em 2 s");
+}
 static int pad_ready(void){for(;;){int s=padGetState(0,0);if(s==PAD_STATE_STABLE||s==PAD_STATE_FINDCTP1)return 0;if(s==PAD_STATE_DISCONN||s==PAD_STATE_ERROR)return -1;DelayThread(10000);}}
 static int init_pad(void){if(SifLoadModule("rom0:SIO2MAN",0,NULL)<0)return -1;if(SifLoadModule("rom0:PADMAN",0,NULL)<0)return -2;if(!padInit(0)||!padPortOpen(0,0,g_pad_buffer)||pad_ready()<0)return -3;padSetMainMode(0,0,PAD_MMODE_DUALSHOCK,PAD_MMODE_LOCK);return pad_ready();}
 static unsigned short buttons_pressed(void){static unsigned short old;unsigned short now=old,p;int s=padGetState(0,0);if((s==PAD_STATE_STABLE||s==PAD_STATE_FINDCTP1)&&padRead(0,0,&g_buttons))now=(unsigned short)(0xffffu^g_buttons.btns);p=now&(unsigned short)~old;old=now;g_held=now;return p;}
@@ -8500,6 +8521,128 @@ static void estado_dump(const estado_t *e)
 }
 
 
+
+/* ======================= REDE DE SEGURANCA (0.2.160) =====================
+   O teste no console de 2026-11-03 mostrou "barras, depois tela preta e sem
+   som". A causa do SILENCIO e' esta, e ela e' de projeto, nao de hardware:
+   cinco caminhos de falha do boot chamavam SleepThread(). Parar a thread
+   principal nao desliga o GS -- a tela fica preta, o audio nao toca, e de
+   fora nao existe um unico bit que diga onde o jogo morreu.
+
+   Regra nova: TODO caminho fatal PINTA a tela e grava FNF_ERRO.txt. O desenho
+   aqui nao usa fonte, textura nem arquivo nenhum -- so' retangulos do GS.
+   Justamente quando o pendrive e' o suspeito, o jogo precisa falar sem ele.
+
+   Como ler a tela:
+     fundo vermelho = falha fatal; amarelo = aviso (o jogo segue)
+     barras brancas no topo = numero da ETAPA (uma barra por etapa)
+     8 quadrados no meio = CODIGO em binario, bit 0 no quadrado da esquerda
+                           (cheio = 1, vazado = 0)
+     barra de baixo = a etapa de novo, como comprimento
+   O texto exato vai para mass:/FNFPS2/FNF_ERRO.txt (ou mass:/FNF_ERRO.txt). */
+
+static u32 g_panico_fb=0;
+
+static void panico_gs(void){
+  framebuffer_t fb;zbuffer_t z;packet_t*p;qword_t*q;
+  if(g_panico_fb)return;
+  /* O alocador de VRAM do ps2sdk so' responde depois de graph_vram_clear().
+     Sem isto, numa falha antes do boot do GS, o alocador devolveria lixo. */
+  graph_vram_clear();
+  g_panico_fb=(u32)graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
+  if((int)g_panico_fb<0){g_panico_fb=0;return;}
+  graph_initialize(g_panico_fb,SCREEN_W,SCREEN_H,FB_PSM,0,0);
+  graph_set_bgcolor(0,0,0);
+  fb.width=SCREEN_W;fb.height=SCREEN_H;fb.psm=FB_PSM;fb.mask=0;fb.address=g_panico_fb;
+  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
+  p=packet_init(64,PACKET_NORMAL);
+  if(!p)return;
+  q=p->data;
+  q=draw_setup_environment(q,0,&fb,&z);
+  q=draw_clear(q,0,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0,0,0);
+  q=draw_finish(q);
+  dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
+  dma_wait_fast();packet_free(p);
+  graph_wait_vsync();
+}
+
+/* fatal=1 -> vermelho; aviso=1 -> amarelo; senao verde. */
+static void panico_pinta(int etapa,int codigo,int fatal,int aviso){
+  framebuffer_t fb;zbuffer_t z;packet_t*p;qword_t*q;int i;
+  panico_gs();
+  if(!g_panico_fb)return;
+  fb.width=SCREEN_W;fb.height=SCREEN_H;fb.psm=FB_PSM;fb.mask=0;fb.address=g_panico_fb;
+  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
+  graph_set_framebuffer_filtered(g_panico_fb,(int)SCREEN_W,FB_PSM,0,0);
+  p=packet_init(256,PACKET_NORMAL);
+  if(!p)return;
+  q=p->data;
+  q=draw_setup_environment(q,0,&fb,&z);
+  q=gs_dither16(q);
+  q=draw_clear(q,0,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,
+               fatal?170:(aviso?150:0),fatal?0:(aviso?120:150),0);
+  for(i=0;i<20&&i<etapa;i++){
+    float x=16.0f+(float)i*30.0f;
+    q=rect_alpha(q,x,10.0f,x+22.0f,52.0f,255,255,255,255);
+  }
+  if(etapa>20)q=rect_alpha(q,610.0f,10.0f,626.0f,52.0f,0,0,0,255);
+  for(i=0;i<8;i++){
+    float bx=136.0f+(float)i*50.0f;
+    q=rect_alpha(q,bx,180.0f,bx+38.0f,218.0f,0,0,0,255);
+    if((codigo>>i)&1)q=rect_alpha(q,bx+6.0f,186.0f,bx+32.0f,212.0f,255,255,255,255);
+  }
+  q=rect_alpha(q,16.0f,380.0f,624.0f,412.0f,30,30,30,255);
+  {float w=16.0f+608.0f*((float)(etapa<20?etapa:20)/20.0f);
+   q=rect_alpha(q,16.0f,380.0f,w,412.0f,255,255,255,255);}
+  q=draw_finish(q);
+  dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
+  dma_wait_fast();packet_free(p);
+  graph_wait_vsync();
+}
+
+static void panico_escreve(const char*arquivo,int etapa,int codigo,
+                           const char*nome,const char*msg){
+  int fd;char b[640];int n;
+  fd=open(arquivo,O_WRONLY|O_CREAT|O_TRUNC,0666);
+  if(fd<0)return;
+  n=snprintf(b,sizeof(b),
+    "FNF PS2 %s\n"
+    "etapa: %d (%s)\n"
+    "codigo: %d\n"
+    "texto: %s\n"
+    "\n"
+    "Como ler a tela: fundo vermelho = falha fatal, amarelo = aviso;\n"
+    "barras brancas no topo = numero da etapa; 8 quadrados no meio = codigo\n"
+    "em binario (bit 0 no quadrado da esquerda, cheio = 1); barra de baixo\n"
+    "repete a etapa como comprimento.\n"
+    "Mande este arquivo de volta: ele diz onde o jogo parou.\n",
+    FNF_PS2_VERSION,etapa,nome,codigo,msg);
+  {int w=0;while(w<n){int r=write(fd,b+w,(u32)(n-w));if(r<=0)break;w+=r;}}
+  fsync(fd);close(fd);
+}
+
+/* FALHA FATAL: pinta, grava e espera. Nao retorna -- e' o fim da linha. */
+static void boot_fail(int etapa,int codigo,const char*nome,const char*msg){
+  capture_status("FALHA_FATAL",etapa,codigo);
+  panico_escreve("mass:/FNFPS2/FNF_ERRO.txt",etapa,codigo,nome,msg);
+  panico_escreve("mass:/FNF_ERRO.txt",etapa,codigo,nome,msg);
+  telemetry_flush();
+  panico_pinta(etapa,codigo,1,0);
+  for(;;){graph_wait_vsync();DelayThread(200000);}
+}
+
+/* AVISO: o jogo continua, mas o motivo aparece na tela por 3 s e no arquivo.
+   Existe para o caso do audio: antes, "sem som" era indistinguivel de "o
+   jogo nao abriu". Agora a tela diz. */
+static void boot_aviso(int etapa,int codigo,const char*nome,const char*msg){
+  int i;
+  capture_status("AVISO",etapa,codigo);
+  panico_escreve("mass:/FNFPS2/FNF_AVISO.txt",etapa,codigo,nome,msg);
+  telemetry_flush();
+  panico_pinta(etapa,codigo,0,1);
+  for(i=0;i<180;i++)graph_wait_vsync();
+}
+
 int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,tex2,fonttex,gftex,stagetex;packet_t* packet;int draw=1,running=1,anim=0,deferred_menu_start=1,last=-1,last2=-1,transform_mode=0,components_mode=0,ui_state=0,target_state=-1,transition_frame=0,selection=0,settings_sel=0,toggle_value=1,slider_value=7,tab_value=0,repeat_dir=0,repeat_frames=0,transitions=0,audio_ok=0,audio_playing=1,audio_started=0,audio_volume=70,voices_enabled=1,audio_fd=-1,title_logo_last=-1,title_gf_last=-1,title_intro_active=1,title_confirm_frames=0,title_ng_restored=0,title_intro_flash_frames=0,menu_placeholder=0,menu_anim_tick=-1,story_diff=1,story_level=0,menu_back_transition=0,story_assets_ready=0,story_diff_tween=5;float menu_cam_y=40.0f;u32 frame_no=0,visual_frame=0,anim_start=0,audio_submitted=0,music_clock=0,audio_read_bytes=0,audio_loops=0,audio_read_errors=0,audio_underruns=0;u64 music_clock_tick=0,music_clock_fraction=0;int latency_samples=0,clock_hold=0,transport_state=1;u32 chart_event_cursor=0;
  reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
 /* O log NAO eh truncado aqui. telemetry_init() jah o abriu com O_APPEND e jah
@@ -8507,12 +8650,58 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
    sai do proprio telemetry_init. */
 if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);}
-{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0)SleepThread();}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0)SleepThread();}
+{int lm=load_metadata();capture_status("META_DONE",-1,lm);boot_mark("TELEMETRIA_RESULTADO",g_telemetry_init_result);if(lm<0){lm=load_metadata();capture_status("META_RETRY",-1,lm);}if(lm<0)boot_fail(1,lm,"ASSETS DE RUNTIME","nao consegui ler font.rgba/font.widths/menu_cache/menu_sfx/freakyMenu em mass:/FNFPS2/assets");}{int ip=init_pad();capture_status("PAD_DONE",-1,ip);if(ip<0){int t;for(t=0;t<20&&ip<0;t++){DelayThread(100000);ip=init_pad();}capture_status("PAD_RETRY",-1,ip);}if(ip<0)boot_fail(2,ip,"CONTROLE","SIO2MAN/PADMAN/padInit nao responderam em 2 s (controle no porto 1?)");}
 /* O SAVE DO MEMORY CARD. Uma leitura de 1.960 B; sem cartao `open()` devolve
    erro na hora e o jogo segue com o save vazio (o log diz o motivo). Fica aqui,
    antes de qualquer tela, porque o selo de recorde e a Freeplay precisam do
    dado ja' no primeiro resultado. */
-save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);SleepThread();}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);SleepThread();}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);SleepThread();}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
+/* ============ RETRATO DO CONSOLE (0.2.160) ============================
+   O usuario pediu a arquitetura da maquina dele. A fonte mais confiavel nao
+   e' o modelo escrito na tampa: e' o que o proprio console responde. Aqui,
+   antes de qualquer tela, o jogo pergunta e grava:
+     - o conteudo de rom0:ROMVER (a BIOS: versao, regiao, data de compilacao);
+     - GetMemorySize() e MachineType();
+     - o resultado de cada modulo de IOP que ele mesmo carrega;
+     - o tamanho de cada um dos 16 assets de runtime, medido no pendrive.
+   Se uma leitura falhar, a linha diz "-1" em vez de inventar. */
+{int fd=open("mass:/FNFPS2/DIAGNOSTICO.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+ if(fd>=0){
+  char b[2048];int n=0;int rf;
+  char rom[40];int rn=0;
+  rf=open("rom0:ROMVER",O_RDONLY);
+  if(rf>=0){rn=read(rf,rom,(int)sizeof(rom)-1);close(rf);}
+  if(rn<0)rn=0;rom[rn]=0;
+  if(rn>0){int k;for(k=0;k<rn;k++)if((unsigned char)rom[k]<32)rom[k]=' ';}
+  n+=snprintf(b+n,sizeof(b)-(size_t)n,
+    "FNF PS2 %s -- retrato do console\n"
+    "ROMVER (rom0:ROMVER): %s\n"
+    "GetMemorySize(): %d\nMachineType(): %d\n\n",
+    FNF_PS2_VERSION,rn>0?rom:"(nao abriu rom0:ROMVER)",(int)GetMemorySize(),(int)MachineType());
+  n+=snprintf(b+n,sizeof(b)-(size_t)n,
+    "Assets de runtime (tamanho medido agora):\n");
+  {const char*nomes[]={"font.rgba","font.widths","menu_cache.rle","menu_sfx.pcm",
+     "freakyMenu_48000.pcm","title_alphabet.rgba","title_prompt_l.rgba",
+     "title_prompt_r.rgba","title_newgrounds.rgba","title_logoBumpin.frames",
+     "title_gfDanceTitle.frames","mainstage_tutorial_parallax.rgba",
+     "tutorial_hud_official_320x256_gsalpha.rgba","gf_frames.lz4f","bf_frames.lz4f"};
+   int i;
+   for(i=0;i<15&&n<(int)sizeof(b)-96;i++){
+     char pth[128];int f2;long sz=-1;
+     snprintf(pth,sizeof(pth),"mass:/FNFPS2/assets/%s",nomes[i]);
+     f2=open(pth,O_RDONLY);
+     if(f2>=0){sz=(long)lseek(f2,0,SEEK_END);close(f2);}
+     n+=snprintf(b+n,sizeof(b)-(size_t)n,"  %-46s %ld\n",nomes[i],sz);
+   }}
+  n+=snprintf(b+n,sizeof(b)-(size_t)n,
+    "\nEste arquivo e' gravado em todo boot. Mande ele de volta.\n");
+  {int w=0;while(w<n){int r=write(fd,b+w,(u32)(n-w));if(r<=0)break;w+=r;}}
+  fsync(fd);close(fd);
+ }
+ telemetry_event("console_retrato",g_telemetry_init_result,1);}
+save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);boot_fail(3,-1,"RAM DO MENU","memalign de 1,6 MB (menu_cache) ou 281 KB (menu_sfx) falhou");}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);boot_fail(4,-2,"MENU_CACHE.RLE","mass:/FNFPS2/assets/menu_cache.rle nao abriu ou veio menor que 1.587.561 B");}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);boot_fail(5,-3,"MENU_SFX.PCM","mass:/FNFPS2/assets/menu_sfx.pcm nao abriu (281.088 B)");}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);
+ /* "sem som" era indistinguivel de "nao abriu". Agora, se o audsrv nao subir,
+    a tela diz isso por 3 s e o jogo segue sem audio. */
+ if(!audio_ok){boot_aviso(6,-1,"AUDIO","rom0:LIBSD + audsrv nao inicializaram: o jogo roda, mas SEM SOM");}if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
  dma_channel_initialize(DMA_CHANNEL_GIF,NULL,0);dma_channel_fast_waits(DMA_CHANNEL_GIF);graph_vram_clear();
  fb[0].width=SCREEN_W;fb[0].height=SCREEN_H;fb[0].psm=FB_PSM;fb[0].mask=0;fb[0].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);fb[1]=fb[0];fb[1].address=graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
@@ -8619,7 +8808,15 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
      frame_no<300 porque depois disso o custo de abrir/escrever/sincronizar um
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
   g_fn_frame=frame_no;
-  if(frame_no<300u){capture_status("FRAME",(int)frame_no,ui_state);}
+  /* 0.2.160: UM marco de quadro a cada 200 ms, nao um por quadro.
+     A 0.2.159 escrevia BOOT.txt (open+write+fsync+close no pendrive) em TODO
+     quadro dos primeiros 300: ~300 RPCs sincronos para o IOP nos primeiros
+     5 s de jogo. Esse e' exatamente o padrao que deixou a 0.2.108 sem abrir
+     no console (~20 escritas bloqueantes por quadro). O marco continua; so'
+     deixou de ser um por quadro. */
+  {static u64 fn_ultimo_marco=0;u64 fn_agora=GetTimerSystemTime();
+   if(frame_no<3u||fn_ultimo_marco==0||fn_agora-fn_ultimo_marco>=(u64)kBUSCLK/5u){
+     if(fn_agora)fn_ultimo_marco=fn_agora;capture_status("FRAME",(int)frame_no,ui_state);}}
   if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
 #ifdef PS2H
   if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;campanha_zerar();g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
