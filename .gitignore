@@ -30,3 +30,15 @@ FNF_COLHEITA.txt
 
 # Rascunho de mensagem de commit (nunca vai para o repo).
 .commitmsg
+
+# Artefatos de build (o ELF e o mapa saem por build.sh para build/dist)
+/FNF_PS2.ELF
+/FNF_PS2.map
+/PROVA_PS2.ELF
+/src/prova/*.o
+/src/prova/*.ELF
+/src/prova/*.map
+/build/
+/build.log
+/build-tests.log
+/assets/*.lz4f
