@@ -67,7 +67,7 @@ PACK_MAX_BYTES = 8 * 1024 * 1024
 
 # --------------------------------------------------------------- resolution --
 
-def resolve(assets, stem, permitir_imagem_solta=False):
+def resolve(assets, stem):
     """-> ('animate', dir) | ('sparrow', (png, xml)) | (None, reason)."""
     stem_orig = stem
     stem = stem.replace("\\", "/")
@@ -95,47 +95,6 @@ def resolve(assets, stem, permitir_imagem_solta=False):
             if os.path.isfile(base + ".txt"):
                 return "packer", (base + ".png", base + ".txt")
             return "sparrow", (base + ".png", base + ".xml")
-    # ULTIMO RECURSO: procurar pelo NOME do arquivo dentro do pacote. Medido em
-    # 2026-11: a arte do `sserafim` passou a viver em subpastas
-    # (`sserafim/images/dust/dustMid.png`, `sserafim/images/cutscene/
-    # floor-cutscene.png`) e o caminho que o script do palco pede
-    # (`sserafim/dustMid`) deixou de casar. O pacote inteiro abortava por causa
-    # de 5 sprites de poeira -- e, como o driver roda com `set -e`, os pacotes
-    # de UI, icones, resultado, freeplay e audio nem chegavam a ser feitos.
-    # So' aceita quando o nome e' UNICO dentro do pacote; com dois candidatos a
-    # escolha seria um chute, e chute aqui e' arte errada no palco.
-    _orig = stem_orig.replace("\\", "/")
-    _pkg, _sep, _rest = _orig.partition(":") if ":" in _orig else ("", "", _orig)
-    if not _sep:
-        # Sem `pkg:` o primeiro segmento e' o pacote (`sserafim/dustMid`).
-        _pkg, _sep2, _rest = _orig.partition("/")
-        if not _sep2:
-            _pkg, _rest = "", _orig
-    if _pkg:
-        rest = _rest
-        pkg = _pkg
-        alvo = os.path.basename(rest)
-        raiz = os.path.join(assets, pkg)
-        achados = []
-        for dirpath, _dirs, files in os.walk(raiz):
-            if alvo + ".png" in files:
-                achados.append(os.path.join(dirpath, alvo))
-        if len(achados) == 1:
-            base = achados[0]
-            if os.path.isfile(base + ".txt"):
-                return "packer", (base + ".png", base + ".txt")
-            if os.path.isfile(base + ".xml"):
-                return "sparrow", (base + ".png", base + ".xml")
-            # Sem .xml/.txt ao lado: e' uma pasta de atlas?
-            d = os.path.dirname(base)
-            if glob.glob(os.path.join(d, "spritemap*.png")):
-                return "animate", d
-            # PNG solto, sem XML nem TXT: para os SPRITES DE SCRIPT do palco
-            # isso e' valido (uma imagem, um quadro). Para personagem nao e':
-            # sem XML nao ha tabela de animacao, e aceitar aqui daria um
-            # personagem mudo em vez de um erro.
-            if permitir_imagem_solta:
-                return "img", (base + ".png", None)
     return None, "no art for %r" % stem
 
 

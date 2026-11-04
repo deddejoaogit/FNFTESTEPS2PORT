@@ -245,8 +245,7 @@ def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
     criados_plan = []
     for c in criados:
         nome = c.get("nome") or "criado"
-        kind, carga = pp.resolve(assets, c.get("asset") or "",
-                                 permitir_imagem_solta=True)
+        kind, carga = pp.resolve(assets, c.get("asset") or "")
         if kind is None:
             problems.append("%s/%s: %s" % (sid, nome, carga))
             continue
@@ -300,8 +299,7 @@ def pack_stage(assets, sid, props, limit, out_root, bpp, criados=()):
         # graphic na cutscene (`loadGraphic(floor-cutscene)`, sserafim.hxc L617).
         # Mesmo tamanho, mesma escala, outro arquivo.
         if c.get("asset_cutscene"):
-            kind2, carga2 = pp.resolve(assets, c["asset_cutscene"],
-                                      permitir_imagem_solta=True)
+            kind2, carga2 = pp.resolve(assets, c["asset_cutscene"])
             if kind2 is None:
                 problems.append("%s/%s: cutscene: %s" % (sid, nome, carga2))
             else:

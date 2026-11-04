@@ -8643,8 +8643,58 @@ static void boot_aviso(int etapa,int codigo,const char*nome,const char*msg){
   for(i=0;i<180;i++)graph_wait_vsync();
 }
 
+
+/* Os IRX do USB (definidos em src/usbd_irx.c e src/usbhdfsd_irx.c). */
+extern unsigned char usbd_irx[];    extern unsigned int size_usbd_irx;
+extern unsigned char usbhdfsd_irx[]; extern unsigned int size_usbhdfsd_irx;
+
+/* ============ ESPERA PELO PENDRIVE (0.2.161) =============================
+   O reset do IOP DESMONTA o mass:. O usbhdfsd volta a ser carregado aqui, mas
+   o dispositivo e' enumerado de novo de forma assincrona: entre o SifExecModule
+   e o primeiro open() pode nao haver volume nenhum. O telemetry_init ja' tenta
+   abrir o log com repeticao -- mas se ele falhar, o jogo seguia e morria em
+   load_metadata() por nao achar font.rgba.
+
+   Medido no console do usuario (PROVA 1): a leitura de mass:/ deu vermelho
+   logo apos o reset. Aqui a espera e' explicita e explicada:
+     - ate' 25 s, tentando abrir um asset de verdade (nao o diretorio);
+     - aos 5 s e aos 12 s, recarrega usbd+usbhdfsd (lancadores deixam o driver
+       num estado que so' uma segunda carga resolve);
+     - tenta tambem mass0: (alguns lancadores montam com esse nome).
+   Devolve 0 quando o pendrive respondeu. */
+static int espera_pendrive(const char **onde){
+  static const char *sondas[2] = {
+    "mass:/FNFPS2/assets/font.rgba",
+    "mass0:/FNFPS2/assets/font.rgba" };
+  u64 t0=GetTimerSystemTime();
+  int k, recargas=0;
+  for(;;){
+    u64 dt=GetTimerSystemTime()-t0;
+    for(k=0;k<2;k++){
+      int fd=open(sondas[k],O_RDONLY);
+      if(fd>=0){close(fd);if(onde)*onde=sondas[k];return k==0?1:2;}
+    }
+    if(dt>=(u64)kBUSCLK*25u)break;
+    if(recargas==0&&dt>=(u64)kBUSCLK*5u){
+      int res=-1;
+      SifExecModuleBuffer(usbd_irx,size_usbd_irx,0,NULL,&res);
+      SifExecModuleBuffer(usbhdfsd_irx,size_usbhdfsd_irx,0,NULL,&res);
+      recargas++;capture_status("USB_RECARGA",1,0);
+    }else if(recargas==1&&dt>=(u64)kBUSCLK*12u){
+      int res=-1;
+      SifExecModuleBuffer(usbd_irx,size_usbd_irx,0,NULL,&res);
+      SifExecModuleBuffer(usbhdfsd_irx,size_usbhdfsd_irx,0,NULL,&res);
+      recargas++;capture_status("USB_RECARGA",2,0);
+    }
+    DelayThread(250000);
+  }
+  return 0;
+}
+
 int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,tex2,fonttex,gftex,stagetex;packet_t* packet;int draw=1,running=1,anim=0,deferred_menu_start=1,last=-1,last2=-1,transform_mode=0,components_mode=0,ui_state=0,target_state=-1,transition_frame=0,selection=0,settings_sel=0,toggle_value=1,slider_value=7,tab_value=0,repeat_dir=0,repeat_frames=0,transitions=0,audio_ok=0,audio_playing=1,audio_started=0,audio_volume=70,voices_enabled=1,audio_fd=-1,title_logo_last=-1,title_gf_last=-1,title_intro_active=1,title_confirm_frames=0,title_ng_restored=0,title_intro_flash_frames=0,menu_placeholder=0,menu_anim_tick=-1,story_diff=1,story_level=0,menu_back_transition=0,story_assets_ready=0,story_diff_tween=5;float menu_cam_y=40.0f;u32 frame_no=0,visual_frame=0,anim_start=0,audio_submitted=0,music_clock=0,audio_read_bytes=0,audio_loops=0,audio_read_errors=0,audio_underruns=0;u64 music_clock_tick=0,music_clock_fraction=0;int latency_samples=0,clock_hold=0,transport_state=1;u32 chart_event_cursor=0;
- reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+ reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);
+ {const char *onde=0;int pd=espera_pendrive(&onde);capture_status(pd?"USB_PRONTO":"USB_AUSENTE",pd,0);
+  if(!pd)boot_fail(0,-1,"PENDRIVE","mass:/FNFPS2/assets nao respondeu em 25 s (2 recargas de usbd+usbhdfsd). Checar FAT32/MBR.");}g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
 /* O log NAO eh truncado aqui. telemetry_init() jah o abriu com O_APPEND e jah
    escreveu o cabecalho; reabrir com O_TRUNC apagava esse cabecalho e deixava
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
