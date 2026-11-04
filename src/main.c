@@ -8967,7 +8967,9 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
      frame_no<300 porque depois disso o custo de abrir/escrever/sincronizar um
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
   g_fn_frame=frame_no;
-  if(frame_no<6u)tela_marco((u32)fb[draw].address,8+(int)frame_no);
+  /* No comeco do quadro quem esta na tela e' o buffer do quadro ANTERIOR
+     (draw ja' foi invertido no fim do anterior), entao o marco vai nele. */
+  if(frame_no>=1u&&frame_no<6u)tela_marco((u32)fb[!draw].address,8+(int)frame_no);
   /* 0.2.160: UM marco de quadro a cada 200 ms, nao um por quadro.
      A 0.2.159 escrevia BOOT.txt (open+write+fsync+close no pendrive) em TODO
      quadro dos primeiros 300: ~300 RPCs sincronos para o IOP nos primeiros
