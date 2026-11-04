@@ -82,17 +82,46 @@ static u32 frames_logged;
    Se a escrita falhar, o log MORRE de proposito. Um log que nao escreve nao
    pode travar o jogo -- essa eh a regra que a build 0.2.108 quebrou, e eh por
    isso que ela nao abriu no console. */
+static const char *const log_paths[] = {
+    "mass:/FNFPS2/FNF_COLHEITA.txt",
+    "mass:/FNF_COLHEITA.txt",
+    "host:/FNF_COLHEITA.txt",
+    "mc0:/FNF_COLHEITA.txt",
+    0
+};
+/* Despejo DURAVEL (0.2.162).
+   Medido no console do usuario em 2026-11-04: o log do jogo veio com 0 bytes
+   enquanto o BOOT.txt -- que abre, escreve, sincroniza e FECHA a cada marco --
+   veio completo. A diferenca nao era o conteudo: era o close().
+   O usbhdfsd mantem o tamanho do arquivo no cache do FAT e so o publica no
+   close(); com o descritor aberto para sempre, um desligamento (ou um jogo que
+   trava) deixa o arquivo existindo com zero bytes. Ou seja: TODA a telemetria
+   per-quadro deste port -- escrita justamente para diagnosticar travamento --
+   nunca chegou ao cartao. Era cega por construcao.
+
+   Aqui cada despejo abre o arquivo, escreve, sincroniza e fecha. Custa um
+   open+close por despejo; em troca, o que esta no cartao eh exatamente o que o
+   jogo conseguiu escrever. O descritor guardado em log_fd deixa de ser usado
+   para escrita (fica so' como "ja sei em qual caminho abrir"), para nao haver
+   dois escritores no mesmo arquivo -- que ja' custou uma colheita vazia antes. */
+static int log_path_index = -1;
+
 static void flush_output(void)
 {
     unsigned int done = 0;
-    if (log_fd < 0 || output_used == 0) { output_used = 0; return; }
+    int fd;
+    if (log_path_index < 0 || output_used == 0) { output_used = 0; return; }
+    fd = open(log_paths[log_path_index], O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd < 0) { output_error = 1; output_used = 0; return; }
     while (done < output_used) {
-        int result = write(log_fd, output_buffer + done, output_used - done);
+        int result = write(fd, output_buffer + done, output_used - done);
         /* result == 0 nao eh "escreveu zero, tenta de novo": no fileXio quer
            dizer falha. Contado como erro, senao este laco nao termina nunca. */
         if (result <= 0) { output_error = 1; break; }
         done += (unsigned int)result;
     }
+    fsync(fd);   /* os dados e o tamanho saem da cache do driver */
+    close(fd);   /* e' o close que publica o tamanho no diretorio do FAT */
     output_used = 0;
 }
 
@@ -122,13 +151,6 @@ static void write_line(const char *text)
     if (!output_error) write_text("\n");
 }
 
-static const char *const log_paths[] = {
-    "mass:/FNFPS2/FNF_COLHEITA.txt",
-    "mass:/FNF_COLHEITA.txt",
-    "host:/FNF_COLHEITA.txt",
-    "mc0:/FNF_COLHEITA.txt",
-    0
-};
 
 /* Por que o log vinha vazio: o init carregava iomanX, fileXio, usbd e usbhdfsd
    e DESISTIA no primeiro que falhasse. Se o jogo eh lancado por um gerenciador
@@ -165,7 +187,15 @@ static void log_try_open(int *path_index)
         int tentativas = (i == 0) ? 50 : 5;
         for (t = 0; t < tentativas; ++t) {
             log_fd = open(log_paths[i], O_WRONLY | O_CREAT | O_APPEND, 0666);
-            if (log_fd >= 0) { *path_index = i; break; }
+            if (log_fd >= 0) {
+                /* Guarda SO' o caminho e fecha: quem escreve e' flush_output(),
+                   com open/write/fsync/close proprios. log_fd fica como
+                   sentinela "aberto" (>=0) para os testes que ja' existiam. */
+                close(log_fd);
+                log_path_index = i;
+                *path_index = i;
+                break;
+            }
             DelayThread(100000);
         }
     }
@@ -244,7 +274,7 @@ int telemetry_init(const char *build_id, const char *elf_path)
                  path_index, modules_loaded, module_failures, modules_loaded ? 0 : 1);
         write_line(line);
         flush_output();
-        fsync(log_fd);
+        /* fsync ja feito dentro de flush_output() */
     }
     return 0;
 }
@@ -378,7 +408,6 @@ void telemetry_raw(const char *text)
        o jogo pendurar nessa altura, a linha TEM de estar no cartao, porque o
        usuario vai resetar e nunca vai haver um close() limpo. Como sao raras,
        o fsync nao custa nada. */
-    if (!output_error) fsync(log_fd);
 }
 
 /* Marco de fase, com o mesmo descritor unico. A versao anterior abria e
@@ -400,7 +429,6 @@ void telemetry_phase(const char *phase, int row, int code)
     snprintf(line, sizeof(line), "P,%s,%d,%d", phase ? phase : "?", row, code);
     write_line(line);
     flush_output();
-    if (!output_error) fsync(log_fd);
 }
 
 void telemetry_io(const char *op, const char *path, long result, long detail)
@@ -457,7 +485,7 @@ void telemetry_flush(void)
        builds seguidas, 0.2.108, 0.2.109 e mais esta. Duas sincronizacoes por
        segundo garantem que um reset nao perca mais de meio segundo de log, e
        o custo de sincronizacao cai para menos de 5% do tempo de quadro. */
-    if (!output_error && (flush_count % 30u) == 0u) fsync(log_fd);
+    if (!output_error && (flush_count % 30u) == 0u) /* fsync ja feito dentro de flush_output() */
     flush_count++;
 }
 
@@ -474,7 +502,7 @@ int telemetry_finish(void)
         write_line(line);
     }
     flush_output();
-    fsync(log_fd);
+    /* fsync ja feito dentro de flush_output() */
     close(log_fd);
     log_fd = -1;
     usb_ready = 0;
