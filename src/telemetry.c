@@ -82,13 +82,29 @@ static u32 frames_logged;
    Se a escrita falhar, o log MORRE de proposito. Um log que nao escreve nao
    pode travar o jogo -- essa eh a regra que a build 0.2.108 quebrou, e eh por
    isso que ela nao abriu no console. */
-static const char *const log_paths[] = {
-    "mass:/FNFPS2/FNF_COLHEITA.txt",
-    "mass:/FNF_COLHEITA.txt",
-    "host:/FNF_COLHEITA.txt",
-    "mc0:/FNF_COLHEITA.txt",
+/* PREFIXOS, nao nomes fixos (0.2.164). O log deixou de ser um arquivo unico
+   aberto em O_APPEND: agora cada despejo escreve um arquivo NOVO numerado, com
+   O_TRUNC + write + fsync + close -- exatamente a receita que o BOOT.txt usou
+   401 vezes no console do usuario sem falhar. O motivo de nao usar append:
+   nas builds 0.2.161/0.2.162 o jogo morria no fim do quadro 0, e a unica
+   diferenca entre o que travava (o despejo do log) e o que funcionava (o
+   BOOT.txt) era o O_APPEND.                                          
+   A numeracao roda em 32 nomes (LOG_00..LOG_31) e volta ao 00: no cartao ficam
+   sempre os 32 despejos mais recentes (~256 KB de historia), sem nunca crescer
+   um arquivo. */
+static const char *const log_prefixes[] = {
+    "mass:/FNFPS2/FNF_LOG",
+    "mass:/FNF_LOG",
+    "host:/FNF_LOG",
+    "mc0:/FNF_LOG",
     0
 };
+static unsigned log_seq;
+
+static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
+{
+    snprintf(out, size, "%s%02u.txt", log_prefixes[idx], seq % 32u);
+}
 /* Despejo DURAVEL (0.2.162).
    Medido no console do usuario em 2026-11-04: o log do jogo veio com 0 bytes
    enquanto o BOOT.txt -- que abre, escreve, sincroniza e FECHA a cada marco --
@@ -111,7 +127,8 @@ static void flush_output(void)
     unsigned int done = 0;
     int fd;
     if (log_path_index < 0 || output_used == 0) { output_used = 0; return; }
-    fd = open(log_paths[log_path_index], O_WRONLY | O_CREAT | O_APPEND, 0666);
+    { char path[96]; log_path_for(log_path_index, log_seq++, path, sizeof(path));
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); }
     if (fd < 0) { output_error = 1; output_used = 0; return; }
     while (done < output_used) {
         int result = write(fd, output_buffer + done, output_used - done);
@@ -182,11 +199,13 @@ static void log_try_open(int *path_index)
 {
     int i;
     if (log_fd >= 0) return;
-    for (i = 0; log_paths[i] && log_fd < 0; ++i) {
+    for (i = 0; log_prefixes[i] && log_fd < 0; ++i) {
         int t;
         int tentativas = (i == 0) ? 50 : 5;
         for (t = 0; t < tentativas; ++t) {
-            log_fd = open(log_paths[i], O_WRONLY | O_CREAT | O_APPEND, 0666);
+            char path[96];
+            log_path_for(i, 0, path, sizeof(path));
+            log_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
             if (log_fd >= 0) {
                 /* Guarda SO' o caminho e fecha: quem escreve e' flush_output(),
                    com open/write/fsync/close proprios. log_fd fica como

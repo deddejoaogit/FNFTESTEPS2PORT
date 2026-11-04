@@ -7906,7 +7906,7 @@ static int g_telemetry_init_result=0;
 static int g_boot_mark_n=0;
 static void boot_mark(const char*phase,int code){
   int fd;char b[128];int n;
-  if(g_boot_mark_n>400)return;
+  if(g_boot_mark_n>60)return;   /* 0.2.164: 400 marcas = 80 s de E/S a 5/s */
   g_boot_mark_n++;
   fd=open("mass:/FNFPS2/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
   if(fd<0)fd=open("mass:/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
@@ -9027,7 +9027,17 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      ficou ambiguo; funcionava por acidente. */
   if(!((pressed&PAD_START)&&(g_held&PAD_SELECT))&&(pressed&PAD_START)&&ui_state!=8)
     pressed|=PAD_CROSS;
-  if(audio_ok&&(pressed&PAD_R3)&&!(g_held&PAD_SELECT))voices_enabled^=1;
+  /* 0.2.164: O BUG DOS VOCAIS.
+     Era `(pressed&PAD_R3)&&!(g_held&PAD_SELECT)`. Quando SELECT e R3 chegavam
+     no MESMO quadro -- que e' exatamente o chord de captura de tela -- g_held
+     ainda nao tinha SELECT, a condicao passava, e a captura desligava as vozes
+     de todas as musicas dali em diante, sem nada na tela dizendo isso. Foi o
+     que aconteceu no console em 2026-11-04: depois do SELECT+R3 no menu, as
+     duas semanas tocaram SEM VOCAIS.
+     Agora o R3 so' alterna quando SELECT nao esta' envolvido nem agora nem no
+     quadro anterior, e o estado aparece na tela. */
+  if(audio_ok&&(pressed&PAD_R3)&&!((pressed|g_held)&PAD_SELECT)){
+    voices_enabled^=1;telemetry_event("vozes_alternadas",voices_enabled,(int)frame_no);}
   if(audio_ok&&(g_title_audio_fd>=0||ui_state==8)&&(pressed&PAD_L2)&&audio_volume>=10){audio_volume-=10;audsrv_set_volume(audio_volume);}
   if(audio_ok&&(g_title_audio_fd>=0||ui_state==8)&&(pressed&PAD_R2)&&audio_volume<=90){audio_volume+=10;audsrv_set_volume(audio_volume);}
   if(!components_mode&&(pressed&PAD_L1)&&latency_samples>-4800)latency_samples-=240;
@@ -12016,6 +12026,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      elas ficam na `camCutscene`, que e' a camera desenhada por cima de todas --
      inclusive da `camHUD` e do preto do `solidCover`. */
   if(ui_state==8)q=cut_fim_desenha(q);
+  if(!voices_enabled&&ui_state==8){q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,"VOZES DESLIGADAS (R3 LIGA)",320,402,.62f,1);}
   q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>g_chart_info.song_end_sample&&g_chart_info.song_end_sample)saved_sample=g_chart_info.song_end_sample;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open(g_audio_fonte[0]?g_audio_fonte:"mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos){bp=(u64)(u32)endpos;saved_sample=(u32)((u32)endpos/8u);}lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else if(capture_ui==10&&g_go_audio_estado>0){
    /* GAME OVER: o anel esta' lendo os arquivos DELE. A captura grava ~1,1 MB no
       mesmo pendrive, e o usbhdfsd nao e' reentrante -- a pausa cooperativa e'
@@ -12044,7 +12055,11 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       F0_FRAMEBUFFER_SET e o marco seguinte, e o jogo morria exatamente ali.
       O log continua em RAM; se o jogo rodar, volta a ser gravado por outro
       caminho (o que comprovadamente funciona: O_TRUNC + 36 bytes + close). */
-   if(0)telemetry_flush();
+   /* 0.2.164: um despejo a cada 2 s (120 quadros). Cada despejo vira um
+      arquivo NOVO numerado, escrito com O_TRUNC+fsync+close -- nunca
+      append. Custo medido: ~8 KB por despejo a 0,72 MB/s = ~11 ms a cada
+      2 s (0,5%). */
+   if((frame_no%120u)==0u)telemetry_flush();
    if(frame_no==0)tela_marco((u32)fb[draw].address,4);
    frame_mark("F.POST",(int)frame_no);g_fn_beat++;
    if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);
