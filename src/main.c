@@ -8731,6 +8731,41 @@ static qword_t *sinal_vida(qword_t *q,u32 frame,int ui_state){
   return q;
 }
 
+
+/* ============ MARCO NA TELA (0.2.163) ===================================
+   O console de 2026-11-04 provou duas coisas: o sinal de vida (8 quadrados no
+   canto) apareceu e PAROU com o primeiro aceso -> o jogo parou no quadro 0; e o
+   BOOT.txt parou em F0_FRAMEBUFFER_SET, que e' o fim do quadro 0.
+
+   Entre esse marco e o proximo existe UMA chamada de E/S: telemetry_flush(),
+   que a 0.2.162 passou a chamar no fim do quadro 0 (frame_no vira 1, 1&63==1).
+   Ela abre o log em O_APPEND, escreve ~4 KB, sincroniza e fecha. Os marcos que
+   funcionam (BOOT.txt) usam O_TRUNC e 36 bytes. Suspeito numero um: o append.
+
+   Esta build tira TODA a E/S do laco e poe o marco na TELA, onde nada pode
+   travar por causa do pendrive. 16 quadrados no rodape: quantos estao acesos
+   diz em que passo do fim do quadro 0 (ou de que quadro) o jogo chegou.
+   Desenha so' nos primeiros quadros; depois some. */
+static void tela_marco(u32 fbaddr,int n){
+  framebuffer_t f;zbuffer_t zb;packet_t*p;qword_t*q;int i;
+  if(!fbaddr)return;
+  p=packet_init(128,PACKET_NORMAL);
+  if(!p)return;
+  f.width=SCREEN_W;f.height=SCREEN_H;f.psm=FB_PSM;f.mask=0;f.address=fbaddr;
+  zb.enable=DRAW_DISABLE;zb.address=0;zb.mask=0;zb.zsm=0;zb.method=0;
+  q=p->data;
+  q=draw_setup_environment(q,0,&f,&zb);
+  q=gs_dither16(q);
+  for(i=0;i<16;i++){
+    float x=8.0f+(float)i*14.0f;
+    if(i<n)q=rect_alpha(q,x,420.0f,x+10.0f,438.0f,255,255,255,255);
+    else   q=rect_alpha(q,x,420.0f,x+10.0f,438.0f,70,70,70,255);
+  }
+  q=draw_finish(q);
+  dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
+  dma_wait_fast();packet_free(p);
+}
+
 static int espera_pendrive(const char **onde){
   static const char *sondas[2] = {
     "mass:/FNFPS2/assets/font.rgba",
@@ -8915,6 +8950,11 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
  palco -- sem ele o orcamento de RAM seria um chute. */
  {unsigned int rb=ram_buffers_total();telemetry_event("ram_buffers",(int)rb,(int)(rb/1024u));}
  capture_status("F0_BLEND_BEGIN",-1,0);draw_enable_blending();capture_status("F0_BLEND_DONE",-1,0);
+ /* ZERO E/S no laco (0.2.163): frame_mark() escrevia BOOT.txt a cada
+    200 ms com open/write/fsync/close DENTRO do quadro. O anel continua
+    sendo alimentado em RAM (o cao de guarda ainda le), mas nada disso vai
+    para o cartao. */
+ g_fn_write_ok=0;
 /* O cao de guarda NAO nasce aqui: durante o boot (6,5 s de espera de
     dispositivo) o contador de quadros ainda esta em zero, ele contaria isso
     como "parado" e gastaria os tres despejos antes de o jogo comecar --
@@ -8927,6 +8967,7 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
      frame_no<300 porque depois disso o custo de abrir/escrever/sincronizar um
      arquivo por quadro nao se justifica -- e o boot_mark() para sozinho. */
   g_fn_frame=frame_no;
+  if(frame_no<6u)tela_marco((u32)fb[draw].address,8+(int)frame_no);
   /* 0.2.160: UM marco de quadro a cada 200 ms, nao um por quadro.
      A 0.2.159 escrevia BOOT.txt (open+write+fsync+close no pendrive) em TODO
      quadro dos primeiros 300: ~300 RPCs sincronos para o IOP nos primeiros
@@ -11983,12 +12024,13 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);
    audio_ring_pause(0);
    telemetry_event("capture_gameover",cr,0);
-  }else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);after_vsync=GetTimerSystemTime();if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  }else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que
      ele parou, com todos os sprites e a geometria recortada de cada um. */
   if(g_dl_armado_dump){g_dl_armado_dump=0;dl_dump(frame_no-1);}
+   if(frame_no==0)tela_marco((u32)fb[draw].address,3);
    telemetry_frame(frame_no++,begin,after_draw,after_vsync,pressed,anim,(int)local,(int)global,g_frame_texture_quads,qw,transition_frame?10+(transition_frame>15):(components_mode?4:(transform_mode?3:ui_state)),transitions,heard,queued_bytes,ring_bytes,audio_underruns);
    /* Uma linha de estado por quadro, e o log despejado no mesmo instante. A
       versao anterior acumulava tudo em RAM e so escrevia no exit: se o port
@@ -11996,8 +12038,14 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       vazio. Agora cada quadro deixa rastro no cartao, e da para ver exatamente
       em qual ui_state e em qual transicao a coisa parou. */
    if((frame_no&15u)==0u)telemetry_state(frame_no-1,ui_state,target_state,selection,story_level,story_diff,transition_frame,transitions,transport_state,audio_started,audio_playing,g_menu_audio_suspended,g_chart_status,g_tutorial_scene_ready,g_tutorial_audio_status,story_assets_ready,g_menu_cache_ready,g_title_anim_status,g_tutorial_gf_uploaded,g_tutorial_bf_uploaded,(int)(g_gftex16.address!=0),g_story_gf_uploaded,g_story_bf_uploaded,g_aspect_169,g_viewport_360,music_clock,audio_submitted,ring_bytes,audio_underruns,audio_fd,g_title_audio_fd,g_tutorial_note_hits,g_tutorial_note_misses,g_tutorial_note_combo,g_tutorial_note_score,g_tutorial_note_feedback,chart_event_cursor,g_band_clip_rects,g_band_clip_lines,g_band_cull_rects);
-   if((frame_no&63u)==1u)telemetry_flush();   /* 1 vez por segundo, nao 60 */
+   /* 0.2.163: ZERO E/S no laco. Este era o unico ponto de E/S entre
+      F0_FRAMEBUFFER_SET e o marco seguinte, e o jogo morria exatamente ali.
+      O log continua em RAM; se o jogo rodar, volta a ser gravado por outro
+      caminho (o que comprovadamente funciona: O_TRUNC + 36 bytes + close). */
+   if(0)telemetry_flush();
+   if(frame_no==0)tela_marco((u32)fb[draw].address,4);
    frame_mark("F.POST",(int)frame_no);g_fn_beat++;
+   if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);
    if(frame_no==1u)fnwd_start();
    av_trace_capture(frame_no-1,ui_state,target_state,transition_frame,transport_state,audio_fd,music_clock,audio_started,audio_playing,last2,last,chart_event_cursor);draw^=1;
  }
