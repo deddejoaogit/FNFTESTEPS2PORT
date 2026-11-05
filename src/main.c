@@ -1254,6 +1254,7 @@ static qword_t *gs_blend_add(qword_t*q){return gs_alpha(q,GS_SET_ALPHA(0,2,2,1,0
 static qword_t *gs_blend_normal(qword_t*q){return gs_alpha(q,GS_SET_ALPHA(0,1,0,1,0x80));}
 
 static u32 g_frame_texture_quads;
+static u32 g_binds_frame, g_up_bytes_frame;   /* 0.2.165: por quadro */
 
 #define QUAD_NREG 10
 #define QUAD_REGLIST (((u64)GIF_REG_PRIM)<<0|((u64)GIF_REG_RGBAQ)<<4|((u64)GIF_REG_UV)<<8|((u64)GIF_REG_XYZ2)<<12|((u64)GIF_REG_UV)<<16|((u64)GIF_REG_XYZ2)<<20|((u64)GIF_REG_UV)<<24|((u64)GIF_REG_XYZ2)<<28|((u64)GIF_REG_UV)<<32|((u64)GIF_REG_XYZ2)<<36)
@@ -1322,7 +1323,7 @@ typedef struct {u32 address;int width,height,valid;} texture_extent_t;
 static texture_extent_t g_texture_extent[TEXTURE_EXTENT_SLOTS];
 static void texture_extent_set(texbuffer_t*t,int width,int height){int i,free_slot=-1;for(i=0;i<TEXTURE_EXTENT_SLOTS;i++){if(g_texture_extent[i].valid&&g_texture_extent[i].address==t->address){g_texture_extent[i].width=width;g_texture_extent[i].height=height;return;}if(!g_texture_extent[i].valid&&free_slot<0)free_slot=i;}if(free_slot>=0){g_texture_extent[free_slot].valid=1;g_texture_extent[free_slot].address=t->address;g_texture_extent[free_slot].width=width;g_texture_extent[free_slot].height=height;}}
 static int texture_extent_get(texbuffer_t*t,int*width,int*height){int i;for(i=0;i<TEXTURE_EXTENT_SLOTS;i++)if(g_texture_extent[i].valid&&g_texture_extent[i].address==t->address){*width=g_texture_extent[i].width;*height=g_texture_extent[i].height;return 1;}return 0;}
-static qword_t *bind_texture_filter(qword_t*q,texbuffer_t*t,int linear){static u32 last_addr=0xffffffffu;lod_t l={0};clutbuffer_t c={0};texwrap_t w={0};int actual_w=1,actual_h=1;texture_extent_get(t,&actual_w,&actual_h);if(last_addr!=t->address){static u32 logged_addr[8]={0};int bi,seen=0;for(bi=0;bi<8;bi++){if(logged_addr[bi]==t->address){seen=1;break;}if(logged_addr[bi]==0){logged_addr[bi]=t->address;break;}}if(!seen)telemetry_event("bind_once",(int)t->address,((actual_w&0xffff)<<16)|(actual_h&0xffff));last_addr=t->address;}
+static qword_t *bind_texture_filter(qword_t*q,texbuffer_t*t,int linear){g_binds_frame++;static u32 last_addr=0xffffffffu;lod_t l={0};clutbuffer_t c={0};texwrap_t w={0};int actual_w=1,actual_h=1;texture_extent_get(t,&actual_w,&actual_h);if(last_addr!=t->address){static u32 logged_addr[8]={0};int bi,seen=0;for(bi=0;bi<8;bi++){if(logged_addr[bi]==t->address){seen=1;break;}if(logged_addr[bi]==0){logged_addr[bi]=t->address;break;}}if(!seen)telemetry_event("bind_once",(int)t->address,((actual_w&0xffff)<<16)|(actual_h&0xffff));last_addr=t->address;}
 /* TEXA, dentro do pacote de bind e nao na inicializacao.
    Em PSMCT16 o alfa tem 1 bit e o GS o expande por este registrador:
    TA0 vale para A=0 e TA1 para A=1. O padrao do ps2sdk e TA0=0x80, ou
@@ -1370,8 +1371,8 @@ static unsigned short anim_button(int anim)
     if (anim == 4) return PAD_RIGHT;
     return 0;
 }
-static void upload_raw_psm(texbuffer_t*t,unsigned char*source,int w,int h,int psm){packet_t*p=packet_init(256,PACKET_NORMAL);qword_t*q=p->data;q=draw_texture_transfer(q,source,w,h,psm,t->address,t->width);q=draw_texture_flush(q);dma_channel_send_chain(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);dma_wait_fast();packet_free(p);}
-static void upload_raw(texbuffer_t*t,unsigned char*source,int w,int h){packet_t*p=packet_init(256,PACKET_NORMAL);qword_t*q=p->data;q=draw_texture_transfer(q,source,w,h,GS_PSM_32,t->address,t->width);q=draw_texture_flush(q);dma_channel_send_chain(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);dma_wait_fast();packet_free(p);}
+static void upload_raw_psm(texbuffer_t*t,unsigned char*source,int w,int h,int psm){telemetry_note_upload((unsigned)(w*h*((psm==GS_PSM_16)?2:4)));packet_t*p=packet_init(256,PACKET_NORMAL);qword_t*q=p->data;q=draw_texture_transfer(q,source,w,h,psm,t->address,t->width);q=draw_texture_flush(q);dma_channel_send_chain(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);dma_wait_fast();packet_free(p);}
+static void upload_raw(texbuffer_t*t,unsigned char*source,int w,int h){telemetry_note_upload((unsigned)(w*h));packet_t*p=packet_init(256,PACKET_NORMAL);qword_t*q=p->data;q=draw_texture_transfer(q,source,w,h,GS_PSM_32,t->address,t->width);q=draw_texture_flush(q);dma_channel_send_chain(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);dma_wait_fast();packet_free(p);}
 
 /* FAIXA VISIVEL, PUBLICADA PARA AUDITORIA.
    O harness de link + execucao (test/ps2harness/ps2h.c) nao tem rasterizador:
@@ -7879,7 +7880,7 @@ static void story_upload_title(texbuffer_t*t,int level){const unsigned int*r=g_s
 typedef struct {u32 frame,ui,target,trans,transport,rate,suspended,menu_fd,stem_fd,queued,available,ring,ring_fd,ring_loop,ring_switches,ring_reset_pending,ring_switch_pending,produced,reads,loops,errors,underruns,title_submitted,music_clock,audio_started,audio_playing,gf_frame,bf_frame,event_cursor;u64 ticks;} av_trace_t;
 static av_trace_t g_av_trace[AV_TRACE_CAP];static u32 g_av_trace_wp=0,g_av_trace_count=0;
 static void av_trace_capture(u32 frame,int ui,int target,int trans,int transport,int stem_fd,u32 music_clock,int audio_started,int audio_playing,int gf_frame,int bf_frame,u32 event_cursor){av_trace_t*r=&g_av_trace[g_av_trace_wp];int rfd=-1;u32 loop=0,sw=0,rp=0,sp=0,prod=0,reads=0,loops=0,errs=0,unders=0;audio_ring_debug(&rfd,&loop,&sw,&rp,&sp);audio_ring_stats(&prod,&reads,&loops,&errs,&unders);memset(r,0,sizeof(*r));r->frame=frame;r->ui=ui;r->target=target;r->trans=trans;r->transport=transport;r->rate=g_audio_current_rate;r->suspended=g_menu_audio_suspended;r->menu_fd=g_title_audio_fd;r->stem_fd=stem_fd;if(g_title_audio_fd>=0||stem_fd>=0){r->queued=(u32)audsrv_queued();r->available=(u32)audsrv_available();}else{r->queued=0;r->available=0;}r->ring=(u32)audio_ring_level();r->ring_fd=rfd;r->ring_loop=loop;r->ring_switches=sw;r->ring_reset_pending=rp;r->ring_switch_pending=sp;r->produced=prod;r->reads=reads;r->loops=loops;r->errors=errs;r->underruns=unders;r->title_submitted=g_title_audio_submitted;r->music_clock=music_clock;r->audio_started=audio_started;r->audio_playing=audio_playing;r->gf_frame=(u32)gf_frame;r->bf_frame=(u32)bf_frame;r->event_cursor=event_cursor;r->ticks=GetTimerSystemTime();g_av_trace_wp=(g_av_trace_wp+1u)%AV_TRACE_CAP;if(g_av_trace_count<AV_TRACE_CAP)g_av_trace_count++;}
-static void av_trace_dump(void){int fd=open("mass:/FNFPS2/FNF_COLHEITA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);u32 n,start,i;char line[512];const char*hdr="# build=" FNF_PS2_VERSION " cap=4096 ring_order=oldest_to_newest\nticks,frame,ui,target,transition,transport,rate,suspended,menu_fd,stem_fd,audsrv_queued,audsrv_available,ring_level,ring_fd,ring_loop,ring_switches,ring_reset_pending,ring_switch_pending,produced,reads,source_loops,errors,underruns,title_submitted_samples,music_clock,audio_started,audio_playing,gf_frame,bf_frame,event_cursor\n";if(fd<0)return;write(fd,hdr,strlen(hdr));n=g_av_trace_count;start=(g_av_trace_wp+AV_TRACE_CAP-n)%AV_TRACE_CAP;for(i=0;i<n;i++){av_trace_t*r=&g_av_trace[(start+i)%AV_TRACE_CAP];int len=snprintf(line,sizeof(line),"%llu,%u,%u,%u,%u,%u,%u,%u,%d,%d,%u,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",r->ticks,r->frame,r->ui,r->target,r->trans,r->transport,r->rate,r->suspended,r->menu_fd,r->stem_fd,r->queued,r->available,r->ring,r->ring_fd,r->ring_loop,r->ring_switches,r->ring_reset_pending,r->ring_switch_pending,r->produced,r->reads,r->loops,r->errors,r->underruns,r->title_submitted,r->music_clock,r->audio_started,r->audio_playing,r->gf_frame,r->bf_frame,r->event_cursor);write(fd,line,len);}fsync(fd);close(fd);}
+static void av_trace_dump(void){int fd=open("mass:/FNFPS2/FNF_AV.txt",O_WRONLY|O_CREAT|O_APPEND,0666);u32 n,start,i;char line[512];const char*hdr="# build=" FNF_PS2_VERSION " cap=4096 ring_order=oldest_to_newest\nticks,frame,ui,target,transition,transport,rate,suspended,menu_fd,stem_fd,audsrv_queued,audsrv_available,ring_level,ring_fd,ring_loop,ring_switches,ring_reset_pending,ring_switch_pending,produced,reads,source_loops,errors,underruns,title_submitted_samples,music_clock,audio_started,audio_playing,gf_frame,bf_frame,event_cursor\n";if(fd<0)return;write(fd,hdr,strlen(hdr));n=g_av_trace_count;start=(g_av_trace_wp+AV_TRACE_CAP-n)%AV_TRACE_CAP;for(i=0;i<n;i++){av_trace_t*r=&g_av_trace[(start+i)%AV_TRACE_CAP];int len=snprintf(line,sizeof(line),"%llu,%u,%u,%u,%u,%u,%u,%u,%d,%d,%u,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",r->ticks,r->frame,r->ui,r->target,r->trans,r->transport,r->rate,r->suspended,r->menu_fd,r->stem_fd,r->queued,r->available,r->ring,r->ring_fd,r->ring_loop,r->ring_switches,r->ring_reset_pending,r->ring_switch_pending,r->produced,r->reads,r->loops,r->errors,r->underruns,r->title_submitted,r->music_clock,r->audio_started,r->audio_playing,r->gf_frame,r->bf_frame,r->event_cursor);write(fd,line,len);}fsync(fd);close(fd);}
 
 
 /* TEMP_SCREEN_READBACK 0.1.99: remove after geometry validation is complete. */
@@ -8030,6 +8031,14 @@ static void fnmark_flush(void){
                 porque o harness do PC mede o tempo em microssegundos, nao em
                 unidades de BUSCLK: sem ele o caminho de escrita ficaria sem
                 cobertura la. No console o portao de tempo sempre abre antes. */
+/* ---- 0.2.165: relogios por fase, para a linha Q do log -------------------
+   Cada marco do laco ja' existe (F.IN, F.DMA, F.WAIT, F.DRAWN, F.VSYNC,
+   F.POST); aqui o mesmo instante vira um carimbo, e a diferenca entre dois
+   carimbos e' o custo daquela fase. E' o "porque" do lag, medido. */
+enum { TM_IN=0, TM_DMA, TM_WAIT, TM_DRAWN, TM_VSYNC, TM_POST, TM_N };
+static u64 g_tm[TM_N];
+#define TM_US(a,b) ((b)>=(a)?(u32)((((b)-(a))*1000000ull)/(u64)kBUSCLK):0u)
+
 static void frame_mark(const char*phase,int code){
   fnmark_t*r=&g_fnring[g_fnring_wp%FNMARK_RING];
   u64 now=GetTimerSystemTime();
@@ -8053,6 +8062,9 @@ static void fnwd_dump(int dumps){
      A espera e limitada (2 s) e a gravacao acontece mesmo se ele nao parar --
      e o ultimo recurso de diagnostico. */
   audio_ring_pause(1);
+  /* O despejo massivo do anel de 512 quadros sai ANTES do arquivo antigo:
+     se o cartao estiver lento, pelo menos a serie que explica a parada sai. */
+  telemetry_anomaly("cao_de_guarda");
   fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0){
     audio_ring_pause(0);
@@ -8153,37 +8165,82 @@ static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>
    usbhdfsd nao e reentrante e esta funcao grava 1,1 MB nele pela
    thread principal. Sem isso, depois de algumas capturas a musica e
    as animacoes paravam de vez. */
-/* O framebuffer e' de 16 bits, mas o arquivo de captura continua igual ao de
-   antes: 32 bits por pixel, na ordem R,G,B,A. A conversao e' feita AQUI, no
-   proprio buffer, de tras para a frente (o destino ocupa o dobro de cada
-   origem, entao ir de tras para a frente nunca pisa no que falta ler).
-   Escrever .rgba com 2 bytes por pixel quebraria todas as ferramentas que ja'
-   leem a captura, e a captura existe para ser olhada. */
-static void cap_expand16(u32 n)
+/* cap_expand16() saiu com a captura antiga: a nova (capture_framebuffer_fast)
+   reduz 2x2 em vez de expandir, e escreve direto em RGBA por fatia, sem
+   precisar de um buffer de 1,1 MB. */
+
+/* =====================================================================
+   CAPTURA RAPIDA (0.2.165) -- o print que nao trava o jogo
+   =====================================================================
+   O caminho antigo parava o audio, FECHAVA o stems, esperava 500 ms, relia
+   640x448 do framebuffer (1,1 MB) e reabria o audio. No console o gesto
+   virou "ao clicar Select+R3 o jogo travou" -- e tinha razao: meio segundo
+   de espera mais 1,1 MB de escrita sincrona no MESMO pendrive do qual a
+   musica estava sendo lida.
+
+   Aqui: pausa cooperativa do anel (a mesma que o game over usa ha' builds,
+   sem fechar nem reabrir nada), le o framebuffer em fatias de 32 linhas,
+   reduz para metade (320x224) e escreve. 286 KB: ~0,4 s a 0,72 MB/s
+   (leitura medida na PROVA 2), sem tocar no audio. A imagem reduzida
+   mostra layout, texto e cores -- que e' o que se precisa ver num print.
+   Para 640x448 existe o despejo de estado e a PROVA 4.
+ */
+static unsigned char g_cap_slice[640u*32u*2u] __attribute__((aligned(64)));
+static int g_shot_n;
+static int g_pedido_foto;
+
+static void cap_media(u32 v0,u32 v1,u32 v2,u32 v3,unsigned char *o)
 {
-    const unsigned char *src = (const unsigned char *)g_stage_pixels;
-    unsigned char *dst = g_stage_pixels;
-    u32 i;
-    for (i = n; i-- > 0;) {
-        u32 v = (u32)src[i * 2u] | ((u32)src[i * 2u + 1u] << 8);
-        u32 r = v & 0x1fu, gg = (v >> 5) & 0x1fu, b = (v >> 10) & 0x1fu;
-        dst[i * 4u + 0u] = (unsigned char)((r << 3) | (r >> 2));
-        dst[i * 4u + 1u] = (unsigned char)((gg << 3) | (gg >> 2));
-        dst[i * 4u + 2u] = (unsigned char)((b << 3) | (b >> 2));
-        dst[i * 4u + 3u] = 255;
-    }
+    u32 r=((v0&31u)+(v1&31u)+(v2&31u)+(v3&31u)+2u)>>2;
+    u32 g=(((v0>>5)&31u)+((v1>>5)&31u)+((v2>>5)&31u)+((v3>>5)&31u)+2u)>>2;
+    u32 b=(((v0>>10)&31u)+((v1>>10)&31u)+((v2>>10)&31u)+((v3>>10)&31u)+2u)>>2;
+    o[0]=(unsigned char)((r<<3)|(r>>2));
+    o[1]=(unsigned char)((g<<3)|(g>>2));
+    o[2]=(unsigned char)((b<<3)|(b>>2));
+    o[3]=255;
 }
-static int capture_framebuffer_raw(u32 fb,u32 fr,u32 ui){const u32 b0=640u*200u*4u,b1=640u*200u*4u,b2=640u*48u*4u;int r=0;(void)fr;(void)ui;audio_ring_pause(1);
- /* AUTO-REPARO DO DESCRITOR DE CAPTURA.
-    O fd era aberto uma unica vez no boot e so reaberto DEPOIS de uma captura
-    que desse certo. Se o open do boot falhasse -- e no teste no console falhou,
-    todas as 10 chamadas devolveram -2 -- nenhuma captura posterior tentava de
-    novo: a captura de tela ficava morta para o resto da sessao e eu perdia
-    justamente a evidencia de que precisava para diagnosticar o resto.
-    Agora, se o fd esta fechado, ele e reaberto aqui, com o proximo numero
-    livre, e a captura segue. O numero so avanca quando a escrita da certo. */
- if(g_capture_raw_fd<0){char np[96];int nf;g_capture_index++;snprintf(np,sizeof(np),"mass:/FNFPS2/FNF_SCREEN_%04u.rgba.txt",g_capture_index);nf=open(np,O_WRONLY|O_CREAT|O_TRUNC,0666);if(nf>=0){g_capture_raw_fd=nf;fsync(nf);telemetry_event("capture_reopen",(int)g_capture_index,0);}else{telemetry_event("capture_reopen",(int)g_capture_index,nf);g_capture_index--;}}
- if(g_capture_raw_fd<0)r=-2;else if(safe_readback_rect(g_stage_pixels,fb,0,200)!=1)r=-11;else{cap_expand16(640u*200u);if(raw_write_chunks(g_capture_raw_fd,g_stage_pixels,b0)<0)r=-21;else if(safe_readback_rect(g_stage_pixels,fb,200,200)!=1)r=-12;else{cap_expand16(640u*200u);if(raw_write_chunks(g_capture_raw_fd,g_stage_pixels,b1)<0)r=-22;else if(safe_readback_rect(g_stage_pixels,fb,400,48)!=1)r=-13;else{cap_expand16(640u*48u);if(raw_write_chunks(g_capture_raw_fd,g_stage_pixels,b2)<0)r=-23;}}}if(g_capture_raw_fd>=0){fsync(g_capture_raw_fd);close(g_capture_raw_fd);g_capture_raw_fd=-1;}capture_status(r?"RAW_FAILED":"RAW_COMPLETE",r?(-1):448,r);telemetry_event("screen_capture_raw",(int)g_capture_index,r);g_capture_index++;if(r==0&&g_capture_raw_fd<0){char np[96];snprintf(np,sizeof(np),"mass:/FNFPS2/FNF_SCREEN_%04u.rgba.txt",g_capture_index);g_capture_raw_fd=open(np,O_WRONLY|O_CREAT|O_TRUNC,0666);if(g_capture_raw_fd>=0)fsync(g_capture_raw_fd);}audio_ring_pause(0);return r;}
+
+static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
+{
+    char path[96];
+    int fd;
+    u32 y;
+    snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02d_s%u_f%u.rgba.txt",
+             g_shot_n,(unsigned)ui,(unsigned)fr);
+    audio_ring_pause(1);
+    fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0666);
+    if(fd<0){snprintf(path,sizeof(path),"mass:/FNF_SHOT_%02d.rgba.txt",g_shot_n);
+             fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0666);}
+    if(fd<0){audio_ring_pause(0);telemetry_event("captura_falhou",g_shot_n,-2);return -2;}
+    for(y=0;y<448u;y+=32u){
+        u32 h=32u,oy,ox;
+        if(y+h>448u)h=448u-y;
+        if(safe_readback_rect(g_cap_slice,fb,y,h)!=1){
+            telemetry_event("captura_falhou",(int)g_shot_n,-11);break;}
+        for(oy=0;oy+1u<h;oy+=2u){
+            unsigned char row[320u*4u];
+            for(ox=0;ox<320u;ox++){
+                const unsigned char*s0=g_cap_slice+((oy*640u)+ox*2u)*2u;
+                const unsigned char*s1=s0+2u;
+                const unsigned char*s2=s0+640u*2u;
+                const unsigned char*s3=s2+2u;
+                u32 v0=(u32)s0[0]|((u32)s0[1]<<8);
+                u32 v1=(u32)s1[0]|((u32)s1[1]<<8);
+                u32 v2=(u32)s2[0]|((u32)s2[1]<<8);
+                u32 v3=(u32)s3[0]|((u32)s3[1]<<8);
+                cap_media(v0,v1,v2,v3,row+ox*4u);
+            }
+            if(raw_write_chunks(fd,row,1280u)<0){y=448u;break;}
+        }
+    }
+    fsync(fd);
+    close(fd);
+    audio_ring_pause(0);
+    g_shot_n++;
+    telemetry_event("captura",g_shot_n,(int)fr);
+    return 0;
+}
+
 /* =====================================================================
    DESPEJO DE ESTADO COMPLETO
    SELECT+R1 grava mass:/FNFPS2/FNF_ESTADO.txt com tudo que da para
@@ -8228,7 +8285,7 @@ static void fnx_congelado2(int fd, u32 fn0, int ui0, int sel0, float camy0, unsi
     int k, mi;
     av_trace_dump();  /* 0.2.102: o traco AV entra no arquivo unico sob demanda,
                          ja que o shutdown nao dumpa mais (era o "travamento") */
-    if (fd < 0) fd = open("mass:/FNFPS2/FNF_COLHEITA.txt", O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd < 0) fd = open("mass:/FNFPS2/FNF_CONGELADO.txt", O_WRONLY | O_CREAT | O_APPEND, 0666);
     int tick = (int)(fn0 * 24u / 60u);
     float camoff = (camy0 - 360.0f) * 0.4f;
     if (fd < 0) return;
@@ -8338,7 +8395,7 @@ static void estado_dump(const estado_t *e)
     unsigned int prod, reads, loops, errs, unders;
     int rfd; unsigned int rloop, rsw, rpend, rspend;
 
-    fd = open("mass:/FNFPS2/FNF_COLHEITA.txt", O_WRONLY | O_CREAT | O_APPEND, 0666);
+    fd = open("mass:/FNFPS2/FNF_ESTADO.txt", O_WRONLY | O_CREAT | O_APPEND, 0666);
     if (fd < 0) return;
 
     k = snprintf(b, sizeof(b), "FNF PS2 %s - despejo de estado\n"
@@ -8960,6 +9017,30 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
     como "parado" e gastaria os tres despejos antes de o jogo comecar --
     exatamente quando ele deixa de servir. Ele nasce depois do primeiro quadro
     completo, em fnwd_start(), chamado no fim do laco. */
+ /* ---- FNF_SESSAO.txt: o ambiente do boot, escrito uma vez ---------------- */
+ {char b[256];
+  snprintf(b,sizeof(b),"build=%s elf=%s",FNF_PS2_VERSION,argc?argv[0]:"?");
+  telemetry_boot(b);
+  snprintf(b,sizeof(b),"telemetry_init=%d tel_result=%d frames_por_despejo=300",
+           g_telemetry_init_result,(int)0);
+  telemetry_boot(b);
+  snprintf(b,sizeof(b),"fisico=%dx%d logico=%dx%d psm=%d aspect169=%d viewport360=%d",
+           SCREEN_W,SCREEN_H,SCREEN_W,SCREEN_H,(int)FB_PSM,g_aspect_169,g_viewport_360);
+  telemetry_boot(b);
+  snprintf(b,sizeof(b),"vram_total=%u livre=%u | ram_buffers=%u",
+           (unsigned)(VL_TOTAL_WORDS*4u),(unsigned)(vl_free_words()*4u),
+           (unsigned)ram_buffers_total());
+  telemetry_boot(b);
+  snprintf(b,sizeof(b),"audio_ok=%d vol=%d vozes=%d | pad=%d",
+           audio_ok,audio_volume,voices_enabled,pad_ready());
+  telemetry_boot(b);
+  snprintf(b,sizeof(b),"font=%dx%d celula=%dx%d desenho=%dx%d",
+           (int)FONT_W,(int)FONT_H,(int)FONT_CELL_W,(int)FONT_CELL_H,
+           (int)FONT_DRAW_W,(int)FONT_DRAW_H);
+  telemetry_boot(b);
+  /* Um snapshot inicial no fluxo: o estado exato em que o jogo comecou. */
+  telemetry_snapshot("boot","vram/heap/audio acima; a serie Q comeca no quadro 0");
+  telemetry_boot_flush();}
  while(running){u64 begin,after_draw,after_vsync;unsigned short pressed;if(frame_no==0){capture_status("F0_LOOP_ENTER",-1,0);}begin=GetTimerSystemTime();g_frame_texture_quads=0;band_counters_reset();g_dl_n=0;g_dl_overflow=0;
   /* Um marco por quadro nos primeiros 300 quadros (5 segundos). Sem isto o
      BOOT.txt parava no ultimo marco de frame_no==0 e eu nao tinha como saber
@@ -8979,7 +9060,7 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
   {static u64 fn_ultimo_marco=0;u64 fn_agora=GetTimerSystemTime();
    if(frame_no<3u||fn_ultimo_marco==0||fn_agora-fn_ultimo_marco>=(u64)kBUSCLK/5u){
      if(fn_agora)fn_ultimo_marco=fn_agora;capture_status("FRAME",(int)frame_no,ui_state);}}
-  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);
+  if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);g_tm[TM_IN]=GetTimerSystemTime();
 #ifdef PS2H
   if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;campanha_zerar();g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
   if(frame_no==0){const char*sid=ps2h_musica_inicial();if(sid){const sr_song_t*ss=sr_song_by_id(sid);if(ss){int d=ps2h_dificuldade_inicial();g_fp_play_song=ss;g_fp_active=1;if(d>=0&&d<3)story_diff=d;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",(int)ss->difficulties,story_diff);}else telemetry_event("harness_start",-1,0);}}
@@ -9665,7 +9746,17 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      if(g_story_wait>240){capture_status("STORY_WAIT_GIVEUP",g_story_wait,0);story_assets_ready=1;}
    }else if(target_state!=7)g_story_wait=0;
    if(!((ui_state==0||ui_state==6||ui_state==7)&&transition_frame==transition_mid&&g_gf_reload_active==1)&&!(target_state==6&&transition_frame==transition_mid&&!g_menu_cache_ready)&&!(target_state==7&&transition_frame==transition_mid&&!story_assets_ready))transition_frame++;
-   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11){freeplay_capsula_soltar();
+   if(transition_frame==transition_mid+1){int previous_state=ui_state;ui_state=target_state;
+    /* 0.2.165: O PAUSE VAZAVA ENTRE MUSICAS. `g_paused` so' era zerado ao
+       FECHAR o menu de pause; sair da fase pelo Circle deixava o sinal ligado,
+       e a proxima musica comecava "no estado de pause" -- exatamente o que o
+       console mostrou ao entrar na Week 3 depois da Week 2. */
+    if(ui_state==8&&previous_state!=8){g_paused=0;g_pause_mode=0;g_pause_sel=0;
+        g_pause_frame=0;g_pause_drawn=0;
+        telemetry_event("pause_reset_entrada",previous_state,(int)frame_no);}
+    /* Uma foto por troca de tela (ate' 12 por sessao): o log diz o estado, a
+       foto mostra o que estava na tela naquele estado. */
+    if(ui_state!=previous_state&&g_shot_n<12)g_pedido_foto=1;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11){freeplay_capsula_soltar();
     /* E O SOM DELA SAI AQUI, ainda antes do som do estado novo: o `goBack` da
        Freeplay toca `cancelMenu` e so' fecha depois que o fade termina. Parar
        no meio mataria o som; parar DEPOIS do `ui_state==6` mataria o
@@ -12027,23 +12118,38 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      inclusive da `camHUD` e do preto do `solidCover`. */
   if(ui_state==8)q=cut_fim_desenha(q);
   if(!voices_enabled&&ui_state==8){q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,"VOZES DESLIGADAS (R3 LIGA)",320,402,.62f,1);}
-  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);draw_wait_finish();frame_mark("F.DRAWN",qw);if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;int cr,rr=0,endpos,restore_rc=-1;u32 saved_sample=0;int capture_ui=ui_state;g_capture_chord_latched=1;if(capture_ui==8&&audio_fd>=0&&g_tutorial_audio_status==0){{u32 aq_t=(u32)audsrv_queued();saved_sample=audio_submitted>=aq_t/4u?audio_submitted-aq_t/4u:0u;if(saved_sample>g_chart_info.song_end_sample&&g_chart_info.song_end_sample)saved_sample=g_chart_info.song_end_sample;}capture_status("RAW_TUT_PAUSE",(int)frame_no,(int)saved_sample);audsrv_stop_audio();audio_playing=0;audio_started=0;clock_hold=1;transport_state=0;audio_ring_stop();close(audio_fd);audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);audio_fd=open(g_audio_fonte[0]?g_audio_fonte:"mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);if(audio_fd>=0){endpos=(int)lseek(audio_fd,0,SEEK_END);if(endpos>0){u64 bp=(u64)saved_sample*8u;if(bp>(u64)(u32)endpos){bp=(u64)(u32)endpos;saved_sample=(u32)((u32)endpos/8u);}lseek(audio_fd,(int)bp,SEEK_SET);}restore_rc=audio_ring_start(audio_fd);if(restore_rc==0){audio_submitted=music_clock=saved_sample;music_clock_tick=GetTimerSystemTime();music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=0;transport_state=1;g_tutorial_audio_status=0;}else{close(audio_fd);audio_fd=-1;g_tutorial_audio_status=-8;}}capture_status(restore_rc==0?"RAW_TUT_RESUMED":"RAW_TUT_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_tutorial",cr,restore_rc);}else if(g_title_audio_fd>=0){u32 aq=(u32)audsrv_queued(),menu_heard=g_title_audio_submitted>=aq/4u?g_title_audio_submitted-aq/4u:0;capture_status("RAW_MENU_PAUSE",(int)frame_no,(int)menu_heard);audsrv_stop_audio();g_menu_audio_suspended=1;audio_ring_stop();close(g_title_audio_fd);g_title_audio_fd=-1;DelayThread(500000);cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);if(cr==0&&ui_state==7)rr=story_titles_restore();else if(cr==0&&ui_state==0)memcpy(g_stage_pixels,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512*192*4);g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){endpos=(int)lseek(g_title_audio_fd,0,SEEK_END);if(endpos>0)lseek(g_title_audio_fd,(int)((menu_heard*4u)%(u32)endpos),SEEK_SET);g_title_audio_submitted=menu_heard;if(audio_ring_start_loop(g_title_audio_fd,1)>=0){int guard=2000;while(audio_ring_level()<65536&&guard--){DelayThread(1000);}guard=64;while(audsrv_available()>=AUDIO_READ_CHUNK&&guard--){int n,j;if((n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK))!=AUDIO_READ_CHUNK){DelayThread(1000);continue;}j=audio_play_complete((char*)g_audio_pcm,n);if(j<=0)break;g_title_audio_submitted+=(u32)(j/4);}g_menu_audio_suspended=0;restore_rc=0;}}capture_status(restore_rc==0?"RAW_MENU_RESUMED":"RAW_MENU_RESUME_FAIL",(int)frame_no,restore_rc);telemetry_event("capture_menu",cr,rr);}else if(capture_ui==10&&g_go_audio_estado>0){
-   /* GAME OVER: o anel esta' lendo os arquivos DELE. A captura grava ~1,1 MB no
-      mesmo pendrive, e o usbhdfsd nao e' reentrante -- a pausa cooperativa e'
-      o que existe para isso (audio_ring_pause espera a leitura pendente sair).
-      Nao para o transporte: a tela continua com o mesmo som antes e depois. */
-   capture_status("RAW_GO_PAUSE",(int)frame_no,0);
-   audio_ring_pause(1);
-   cr=capture_framebuffer_raw(fb[draw].address<<5,frame_no,ui_state);
-   audio_ring_pause(0);
-   telemetry_event("capture_gameover",cr,0);
-  }else{capture_status("RAW_NO_TRANSPORT",(int)frame_no,ui_state);}}frame_mark("F.VSYNC",0);if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);g_tm[TM_DMA]=GetTimerSystemTime();dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);g_tm[TM_WAIT]=GetTimerSystemTime();draw_wait_finish();frame_mark("F.DRAWN",qw);g_tm[TM_DRAWN]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(g_pedido_foto){g_pedido_foto=0;if(g_shot_n<12)capture_framebuffer_fast((u32)fb[draw].address<<5,frame_no,ui_state);}if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;g_capture_chord_latched=1;{int cr=capture_framebuffer_fast((u32)fb[draw].address<<5,frame_no,ui_state);capture_status(cr==0?"RAW_OK":"RAW_FAIL",(int)frame_no,cr);}}frame_mark("F.VSYNC",0);g_tm[TM_VSYNC]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que
      ele parou, com todos os sprites e a geometria recortada de cada um. */
   if(g_dl_armado_dump){g_dl_armado_dump=0;dl_dump(frame_no-1);}
    if(frame_no==0)tela_marco((u32)fb[draw].address,3);
+   /* 0.2.165: a linha Q -- o quadro inteiro, fase por fase. Ver telemetry.h. */
+   {fnf_frame_t ff;
+    ff.frame=frame_no;
+    ff.t_total=TM_US(begin,after_vsync);
+    ff.t_in=TM_US(begin,g_tm[TM_IN]);
+    ff.t_upd=TM_US(g_tm[TM_IN],g_tm[TM_DMA]);
+    ff.t_dma=TM_US(g_tm[TM_DMA],g_tm[TM_WAIT]);
+    ff.t_wait=TM_US(g_tm[TM_WAIT],g_tm[TM_DRAWN]);
+    ff.t_cap=TM_US(g_tm[TM_DRAWN],after_draw);
+    ff.t_vsync=TM_US(g_tm[TM_VSYNC],after_vsync);
+    ff.t_post=TM_US(after_draw,g_tm[TM_VSYNC]);
+    ff.t_flush=0;
+    ff.qwords=(u16)qw; ff.quads=(u16)g_frame_texture_quads;
+    ff.binds=(u16)g_binds_frame; ff.uploads=0; ff.up_kb=0;
+    ff.ovf=(u16)g_dl_overflow;
+    ff.clip=(u16)g_band_clip_rects; ff.cull=(u16)g_band_cull_rects;
+    ff.st=(u16)ui_state; ff.tr=(u16)transition_frame; ff.sel=(u16)selection;
+    ff.pad=g_held; ff.pressed=pressed;
+    ff.anim=(u16)anim; ff.anim_frame=(u16)local;
+    ff.clk=music_clock; ff.queued=queued_bytes; ff.ring=ring_bytes;
+    ff.underruns=audio_underruns;
+    ff.vram_free=vl_free_words()*4u; ff.ram_bufs=ram_buffers_total(); ff.io_kb=0;
+    ff.eof=(u8)audio_ring_eof(); ff.paused=(u8)g_paused; ff.audio_playing=(u8)audio_playing;
+    telemetry_frame2(&ff);
+    g_binds_frame=0; g_up_bytes_frame=0;}
    telemetry_frame(frame_no++,begin,after_draw,after_vsync,pressed,anim,(int)local,(int)global,g_frame_texture_quads,qw,transition_frame?10+(transition_frame>15):(components_mode?4:(transform_mode?3:ui_state)),transitions,heard,queued_bytes,ring_bytes,audio_underruns);
    /* Uma linha de estado por quadro, e o log despejado no mesmo instante. A
       versao anterior acumulava tudo em RAM e so escrevia no exit: se o port
@@ -12059,9 +12165,23 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       arquivo NOVO numerado, escrito com O_TRUNC+fsync+close -- nunca
       append. Custo medido: ~8 KB por despejo a 0,72 MB/s = ~11 ms a cada
       2 s (0,5%). */
-   if((frame_no%120u)==0u)telemetry_flush();
+   /* 0.2.165: 300 quadros = 5 s por despejo. Com ~3,3 KB/s de linhas, cada
+      arquivo sai com ~16 KB e os 32 arquivos guardam ~8 minutos de sessao.
+      O despejo custa ~22 ms de escrita sincrona; por isso NAO e' por quadro. */
+   if((frame_no%300u)==0u){
+    /* Snapshot periodico: o estado da maquina a cada 5 s, no mesmo fluxo.
+       Memoria (VRAM livre, buffers do port), relogio e anel de audio, e a
+       maquina de estados. E' o "valor nas memorias" que o log tem de ter. */
+    char sb[336];
+    snprintf(sb,sizeof(sb),
+      "f=%u vr_livre=%u ram_bufs=%u clk=%u sub=%u q=%u r=%u un=%u ao=%d pl=%d st=%d tg=%d tr=%d sel=%d",
+      (unsigned)frame_no,(unsigned)(vl_free_words()*4u),(unsigned)ram_buffers_total(),
+      music_clock,audio_submitted,queued_bytes,ring_bytes,audio_underruns,
+      audio_playing,g_paused,ui_state,target_state,transition_frame,selection);
+    telemetry_snapshot("periodico",sb);
+    telemetry_flush();}
    if(frame_no==0)tela_marco((u32)fb[draw].address,4);
-   frame_mark("F.POST",(int)frame_no);g_fn_beat++;
+   frame_mark("F.POST",(int)frame_no);g_tm[TM_POST]=GetTimerSystemTime();g_fn_beat++;
    if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);
    if(frame_no==1u)fnwd_start();
    av_trace_capture(frame_no-1,ui_state,target_state,transition_frame,transport_state,audio_fd,music_clock,audio_started,audio_playing,last2,last,chart_event_cursor);draw^=1;

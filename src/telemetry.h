@@ -73,3 +73,64 @@ void telemetry_io(const char *op, const char *path, long result, long detail);
 
 int telemetry_finish(void);
 #endif
+
+/* ===================================================================== */
+/*  LOG MASSIVO (0.2.165)                                                */
+/* =====================================================================
+ *
+ * Pedido do utilizador, 2026-11-04: "um log absolutamente massivo que
+ * forneca absolutamente todas as informacoes possiveis [...] desempenho,
+ * valor nas memorias, estados, imagem da tela com print ao clicar um
+ * comando, tudo". Este bloco e' esse log.
+ *
+ * O QUE ELE CUSTA, medido e nao suposto: a linha por quadro custa ~200 B de
+ * formatacao em RAM. A escrita no pendrive acontece so' no telemetry_flush()
+ * (um arquivo por despejo, 64 KB de buffer, <= 1 despejo por segundo). Com o
+ * pendrive lido a 0,72 MB/s (PROVA 2), 64 KB = ~89 ms por despejo, 1,5% do
+ * tempo de parede. Se o despejo cair dentro de um quadro, esse quadro custa
+ * +89 ms -- e por isso o flush acontece a cada 300 quadros, e o proprio log
+ * mostra, no campo `ts`, quanto custou o despejo anterior.
+ *
+ * Por que um anel em RAM: logar TODOS os quadros no cartao custaria 200 B x
+ * 60/s = 12 KB/s, ou 40 KB por quadro de 2 s... nao: 12 KB/s e' 1,7% da
+ * banda. O problema nao e' a banda, e' a latencia de cada escrita sincrona.
+ * Entao: TODOS os quadros ficam no anel de RAM (512 quadros = ~30 KB), e o
+ * anel inteiro vai para o cartao quando algo anormal acontece (quadro acima
+ * de 100 ms, ou o cao de guarda vendo o jogo parado). No caminho normal saem
+ * 10 linhas por segundo + todos os eventos.
+ */
+
+typedef struct {
+    u32 frame;
+    /* Tempos, em microssegundos. Somam ~t_total (fora a folga do laco). */
+    u32 t_total, t_in, t_upd, t_dma, t_wait, t_cap, t_vsync, t_post, t_flush;
+    u16 qwords, quads, binds, uploads, up_kb, ovf;
+    u16 clip, cull, st, tr, sel, pad, pressed, anim, anim_frame;
+    u32 clk, queued, ring, underruns;
+    u32 vram_free, ram_bufs, io_kb;
+    u8  eof, paused, audio_playing;
+} fnf_frame_t;
+
+/* Registra o quadro: entra no anel (sempre) e na linha de fluxo (10 Hz ou
+   quando algo anormal). Nao escreve no pendrive. */
+void telemetry_frame2(const fnf_frame_t *f);
+
+/* Despeja o anel INTEIRO num arquivo proprio, agora. Para quando o jogo trava
+   (cao de guarda) ou quando um quadro passa de 100 ms. Rate-limited. */
+void telemetry_anomaly(const char *motivo);
+
+/* Bloco de texto livre (snapshots: memoria, VRAM, texturas, GS, audio). */
+void telemetry_snapshot(const char *tag, const char *texto);
+
+/* Custeio de upload de textura (VRAM), somado por quadro pelo main.c. */
+void telemetry_note_upload(unsigned int bytes);
+
+/* Devolve o custo do ultimo flush em microssegundos (vai no campo t_flush). */
+u32 telemetry_last_flush_us(void);
+
+/* Estatisticas para a tela: quadros, quadros lentos, pior quadro (us). */
+void telemetry_stats(u32 *frames, u32 *slow, u32 *max_us, u32 *hist50);
+
+/* Linha do arquivo de sessao (FNF_SESSAO.txt): ambiente do boot. */
+void telemetry_boot(const char *linha);
+void telemetry_boot_flush(void);

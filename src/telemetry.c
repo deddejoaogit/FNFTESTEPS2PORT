@@ -14,8 +14,6 @@
 extern int fileXioInit(void);
 
 #define MAX_FRAMES 512
-#define LOG_PATH "mass:/FNFPS2/FNF_COLHEITA.txt"
-#define RENDER_LOG_PATH "mass:/FNFPS2/FNF_COLHEITA.txt"
 #define MAX_RENDER_EVENTS 4096
 
 typedef struct {
@@ -65,7 +63,7 @@ static int exec_irx(void *data, unsigned int size)
  * comprometidos, e NAO aceita fsync repetido entre blocos: a sincronizacao
  * acontece uma vez, no flush, e nao em cada linha.
  */
-#define OUTPUT_BUFFER_SIZE 8192
+#define OUTPUT_BUFFER_SIZE 65536
 static char output_buffer[OUTPUT_BUFFER_SIZE];
 static unsigned int output_used;
 static unsigned int output_checksum;
@@ -103,7 +101,7 @@ static unsigned log_seq;
 
 static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
 {
-    snprintf(out, size, "%s%02u.txt", log_prefixes[idx], seq % 32u);
+    snprintf(out, size, "%s%02u.txt", log_prefixes[idx], seq);
 }
 /* Despejo DURAVEL (0.2.162).
    Medido no console do usuario em 2026-11-04: o log do jogo veio com 0 bytes
@@ -122,24 +120,90 @@ static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
    dois escritores no mesmo arquivo -- que ja' custou uma colheita vazia antes. */
 static int log_path_index = -1;
 
-static void flush_output(void)
+/* Anel de quadros completo (0.2.165). Fica em RAM (512 x ~70 B = 35 KB) e
+   so' vai para o cartao quando algo anormal acontece -- ver telemetry_frame2()
+   no fim do arquivo. Declarado AQUI porque o cabecalho de cada despejo diz
+   quantos quadros o anel tem. */
+#define FRAME_RING 512
+static fnf_frame_t g_fring[FRAME_RING];
+static unsigned int g_fring_wp, g_fring_count;
+static unsigned int fring_n(void) { return g_fring_count; }
+static u64 g_boot_t0;
+static unsigned int segundos_desde_boot(void)
+{
+    return (unsigned int)((GetTimerSystemTime() - g_boot_t0) / (u64)kBUSCLK);
+}
+
+static int out_fd = -1;                 /* arquivo do despejo corrente */
+static unsigned int g_flush_us_last;    /* custo do ultimo despejo, em us */
+
+static volatile int g_busy;             /* trava simples contra o cao de guarda */
+
+/* Escreve direto no arquivo aberto. Varias chamadas no MESMO descritor sao
+   seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND). */
+static void out_push(const char *p, unsigned int n)
 {
     unsigned int done = 0;
-    int fd;
-    if (log_path_index < 0 || output_used == 0) { output_used = 0; return; }
-    { char path[96]; log_path_for(log_path_index, log_seq++, path, sizeof(path));
-      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); }
-    if (fd < 0) { output_error = 1; output_used = 0; return; }
-    while (done < output_used) {
-        int result = write(fd, output_buffer + done, output_used - done);
-        /* result == 0 nao eh "escreveu zero, tenta de novo": no fileXio quer
-           dizer falha. Contado como erro, senao este laco nao termina nunca. */
-        if (result <= 0) { output_error = 1; break; }
-        done += (unsigned int)result;
+    while (done < n) {
+        int r = write(out_fd, p + done, n - done);
+        if (r <= 0) { output_error = 1; return; }
+        done += (unsigned int)r;
     }
-    fsync(fd);   /* os dados e o tamanho saem da cache do driver */
-    close(fd);   /* e' o close que publica o tamanho no diretorio do FAT */
-    output_used = 0;
+}
+
+/* Abre o arquivo do despejo corrente e escreve o cabecalho.
+   Numeracao: o despejo 0 vai para FNF_LOG00 (o boot, guardado para sempre);
+   os seguintes giram em FNF_LOG01..31. Assim os primeiros quadros da sessao
+   -- que sao onde o boot e a entrada no jogo aparecem -- nunca sao apagados. */
+static int out_begin(void)
+{
+    char path[96];
+    char hdr[224];
+    unsigned int num;
+    int k;
+    if (out_fd >= 0) return 0;
+    if (log_path_index < 0) return -1;
+    num = (log_seq == 0u) ? 0u : (1u + ((log_seq - 1u) % 31u));
+    log_path_for(log_path_index, num, path, sizeof(path));
+    out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (out_fd < 0) { output_error = 1; return -1; }
+    k = snprintf(hdr, sizeof(hdr),
+        "# FNF PS2 %s | log v2 | despejo %u | arquivo %02u | quadros ate' %u |"
+        " anel %u | t=%u ms\n",
+        build_name, (unsigned)log_seq, num, (unsigned)frames_logged,
+        (unsigned)fring_n(), (unsigned)segundos_desde_boot());
+    if (k > 0) out_push(hdr, (unsigned)k);
+    return 1;
+}
+
+static void out_end(void)
+{
+    if (out_fd < 0) return;
+    fsync(out_fd);   /* os dados e o tamanho saem da cache do driver */
+    close(out_fd);   /* e' o close que publica o tamanho no diretorio do FAT */
+    out_fd = -1;
+}
+
+/* Fecha o despejo: escreve o que sobrou no buffer, sincroniza e fecha. Um
+   despejo = UM arquivo. Antes, o buffer de 8 KB rotacionava no meio do
+   despejo e 120 quadros gastavam 15 arquivos dos 32 -- trinta segundos de
+   historia. Agora cada arquivo tem o despejo inteiro e o cabecalho diz qual
+   pedaco da sessao ele cobre. */
+static void flush_output(void)
+{
+    u64 t0, t1;
+    if (log_path_index < 0) { output_used = 0; return; }
+    if (output_used == 0 && out_fd < 0) return;
+    t0 = GetTimerSystemTime();
+    g_busy = 1;
+    if (out_fd < 0 && out_begin() < 0) { g_busy = 0; output_used = 0; return; }
+    if (output_used) { out_push(output_buffer, output_used); output_used = 0; }
+    out_end();
+    log_seq++;
+    flush_count++;
+    g_busy = 0;
+    t1 = GetTimerSystemTime();
+    g_flush_us_last = (unsigned int)(((t1 - t0) * 1000000ull) / (u64)kBUSCLK);
 }
 
 static void write_text(const char *text)
@@ -153,7 +217,12 @@ static void write_text(const char *text)
     while (length > 0 && !output_error) {
         unsigned int available = OUTPUT_BUFFER_SIZE - output_used;
         unsigned int amount;
-        if (available == 0) { flush_output(); available = OUTPUT_BUFFER_SIZE; }
+        if (available == 0) {
+            if (out_fd < 0 && out_begin() < 0) { output_used = 0; return; }
+            out_push(output_buffer, output_used);
+            output_used = 0;
+            available = OUTPUT_BUFFER_SIZE;
+        }
         amount = length < available ? length : available;
         memcpy(output_buffer + output_used, text, amount);
         output_used += amount;
@@ -231,6 +300,7 @@ int telemetry_init(const char *build_id, const char *elf_path)
     int module_failures = 0;
     int path_index = -1;
 
+    g_boot_t0 = GetTimerSystemTime();
     record_count = 0;
     render_event_count = 0;
     render_events_dropped = 0;
@@ -526,4 +596,244 @@ int telemetry_finish(void)
     log_fd = -1;
     usb_ready = 0;
     return (int)record_count;
+}
+
+/* ===================================================================== */
+/*  LOG MASSIVO v2 -- 0.2.165                                           */
+/* =====================================================================
+ *
+ * O que este bloco grava, e por que:
+ *
+ *  Q  uma linha por quadro, com o tempo de CADA fase (entrada, atualizacao,
+ *     envio de DMA, espera do desenho, captura, vsync, pos), o tamanho da
+ *     lista de desenho (qwords), os sprites desenhados, os binds de textura,
+ *     os bytes subidos para a VRAM, o recorte por software, o estado da
+ *     maquina de estados, o pad, o relogio da musica, o anel de audio, a
+ *     VRAM livre e a RAM dos buffers do port. E' o "porque" do lag: cada
+ *     numero e' um pedaco do quadro, e o que crescer e' o culpado.
+ *  E  cada evento do jogo (troca de estado, falha de palco, textura aberta,
+ *     pause, captura...), com quadro e instante.
+ *  A  o ANEL INTEIRO (512 quadros) despejado num arquivo proprio quando um
+ *     quadro passa de 250 ms ou quando o cao de guarda ve o jogo parado.
+ *  H  histograma de tempos, os 5 piores quadros e o custo dos despejos.
+ *
+ * Tudo isso entra no MESMO fluxo de arquivos numerados, entao o que estiver
+ * no cartao depois de um reset e' sempre a cauda da sessao.
+ */
+static unsigned int g_slow_frames;
+static unsigned int g_max_frame_us;
+static unsigned int g_hist[8];          /* <8,16,25,33,50,100,250,>=250 ms */
+static fnf_frame_t g_worst[5];
+static unsigned int g_worst_n;
+static unsigned int g_up_bytes_frame;
+static unsigned int g_anom_files;
+static u64 g_anom_last;
+static unsigned int g_und_anterior;
+static char g_boot_buf[12288];
+static unsigned int g_boot_used;
+
+static unsigned int agora_us(void) __attribute__((unused));
+static unsigned int agora_us(void)
+{
+    return (unsigned int)((GetTimerSystemTime() * 1000000ull) / (u64)kBUSCLK);
+}
+
+static void hist_add(unsigned int ms_x10)
+{
+    unsigned int i = 0;
+    if (ms_x10 < 80u) i = 0;
+    else if (ms_x10 < 160u) i = 1;
+    else if (ms_x10 < 250u) i = 2;
+    else if (ms_x10 < 330u) i = 3;
+    else if (ms_x10 < 500u) i = 4;
+    else if (ms_x10 < 1000u) i = 5;
+    else if (ms_x10 < 2500u) i = 6;
+    else i = 7;
+    g_hist[i]++;
+}
+
+void telemetry_note_upload(unsigned int bytes) { g_up_bytes_frame += bytes; }
+u32 telemetry_last_flush_us(void) { return g_flush_us_last; }
+
+static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
+{
+    snprintf(b, tam,
+        "Q,f=%u,t=%u,in=%u,upd=%u,dma=%u,wait=%u,cap=%u,vs=%u,post=%u,fl=%u,"
+        "qw=%u,qd=%u,bx=%u,upn=%u,upk=%u,ovf=%u,cl=%u,cu=%u,"
+        "st=%u,tr=%u,sel=%u,pad=%04X,prs=%04X,an=%d,af=%d,"
+        "clk=%u,q=%u,r=%u,un=%u,eof=%u,pl=%u,"
+        "vr=%u,rb=%u,ek=%u",
+        (unsigned)f->frame, (unsigned)f->t_total, (unsigned)f->t_in,
+        (unsigned)f->t_upd, (unsigned)f->t_dma, (unsigned)f->t_wait,
+        (unsigned)f->t_cap, (unsigned)f->t_vsync, (unsigned)f->t_post,
+        (unsigned)f->t_flush,
+        (unsigned)f->qwords, (unsigned)f->quads, (unsigned)f->binds,
+        (unsigned)f->uploads, (unsigned)f->up_kb, (unsigned)f->ovf,
+        (unsigned)f->clip, (unsigned)f->cull,
+        (unsigned)f->st, (unsigned)f->tr, (unsigned)f->sel,
+        (unsigned)f->pad, (unsigned)f->pressed,
+        (int)f->anim, (int)f->anim_frame,
+        (unsigned)f->clk, (unsigned)f->queued, (unsigned)f->ring,
+        (unsigned)f->underruns, (unsigned)f->eof, (unsigned)f->paused,
+        (unsigned)f->vram_free, (unsigned)f->ram_bufs, (unsigned)f->io_kb);
+}
+
+void telemetry_frame2(const fnf_frame_t *f)
+{
+    fnf_frame_t r = *f;
+    char b[448];
+
+    r.t_flush = g_flush_us_last;
+    r.uploads = (u16)(g_up_bytes_frame > 0u ? 1u : 0u);
+    r.up_kb = (u16)(g_up_bytes_frame >> 10);
+    g_up_bytes_frame = 0;
+
+    g_fring[g_fring_wp % FRAME_RING] = r;
+    g_fring_wp++;
+    if (g_fring_count < FRAME_RING) g_fring_count++;
+    frames_logged++;
+
+    hist_add(r.t_total / 100u);          /* decimos de ms */
+    if (r.t_total > g_max_frame_us) g_max_frame_us = r.t_total;
+    if (r.t_total > 25000u) g_slow_frames++;
+
+    /* Os cinco piores quadros da sessao, com a reparticao do tempo. */
+    if (g_worst_n < 5u || r.t_total > g_worst[g_worst_n - 1u].t_total) {
+        unsigned int pos = g_worst_n < 5u ? g_worst_n : 4u;
+        while (pos > 0u && g_worst[pos - 1u].t_total < r.t_total) {
+            g_worst[pos] = g_worst[pos - 1u];
+            pos--;
+        }
+        g_worst[pos] = r;
+        if (g_worst_n < 5u) g_worst_n++;
+    }
+
+    if (!usb_ready || log_fd < 0 || output_error) {
+        if (r.t_total > 250000u) telemetry_anomaly("quadro_lento_sem_cartao");
+        return;
+    }
+
+    /* Linha de fluxo: 10 Hz, mais TODOS os quadros lentos ou com novidade
+       (overflow de lista, seca de audio, upload de textura). Assim o arquivo
+       fica pequeno no caminho bom e completo no caminho ruim. */
+    if ((r.frame % 6u) == 0u || r.t_total > 25000u || r.ovf ||
+        r.underruns != g_und_anterior || r.up_kb > 0u) {
+        q_line(b, sizeof(b), &r);
+        write_line(b);
+        g_und_anterior = r.underruns;
+    }
+
+    if (r.t_total > 250000u) telemetry_anomaly("quadro_acima_de_250ms");
+}
+
+void telemetry_stats(u32 *frames, u32 *slow, u32 *max_us, u32 *hist)
+{
+    int i;
+    if (frames) *frames = frames_logged;
+    if (slow) *slow = g_slow_frames;
+    if (max_us) *max_us = g_max_frame_us;
+    if (hist) for (i = 0; i < 8; i++) hist[i] = g_hist[i];
+}
+
+/* Despeja o anel inteiro num arquivo proprio. Nao passa pelo buffer comum: se
+   o jogo esta' travado, o despejo tem de sair AGORA, inteiro, com fsync. */
+void telemetry_anomaly(const char *motivo)
+{
+    char path[96];
+    char b[448];
+    int fd, k;
+    u64 agora = GetTimerSystemTime();
+    unsigned int i, n;
+
+    if (log_path_index < 0) return;
+    if (g_busy) return;                       /* o laco do jogo esta' escrevendo */
+    if (g_anom_files >= 12u) return;          /* teto: nao enche o cartao */
+    if (g_anom_last && (agora - g_anom_last) < (u64)kBUSCLK) return;  /* 1 por segundo */
+
+    g_busy = 1;
+    g_anom_last = agora;
+    {
+        unsigned int num = g_anom_files;
+        /* Mesmo diretorio dos logs, nome proprio. */
+        static const char *const dirs[4] = { "mass:/FNFPS2/", "mass:/", "host:/", "mc0:/" };
+        snprintf(path, sizeof(path), "%sFNF_ANOM_%02u.txt",
+                 (log_path_index >= 0 && log_path_index < 4) ? dirs[log_path_index] : "mass:/",
+                 num);
+    }
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) { g_busy = 0; return; }
+    g_anom_files++;
+
+    k = snprintf(b, sizeof(b),
+        "# ANOMALIA: %s | %s | t=%u ms | anel=%u | quadros=%u lentos=%u pior=%u us\n",
+        motivo ? motivo : "?", build_name, segundos_desde_boot() * 1000u,
+        fring_n(), frames_logged, g_slow_frames, g_max_frame_us);
+    if (k > 0) { int w = write(fd, b, (u32)k); if (w <= 0) { close(fd); g_busy = 0; return; } }
+
+    n = fring_n();
+    for (i = 0; i < n; i++) {
+        unsigned int idx = (g_fring_wp + FRAME_RING - n + i) % FRAME_RING;
+        const fnf_frame_t *r = &g_fring[idx];
+        q_line(b, sizeof(b), r);
+        { int w = write(fd, b, (u32)strlen(b));
+          char nl = '\n';
+          if (w <= 0) break;
+          if (write(fd, &nl, 1) <= 0) break; }
+    }
+    fsync(fd);
+    close(fd);
+    g_busy = 0;
+}
+
+void telemetry_snapshot(const char *tag, const char *texto)
+{
+    char b[220];
+    const char *p;
+    if (!usb_ready || log_fd < 0 || output_error) return;
+    snprintf(b, sizeof(b), "# --- SNAPSHOT %s | t=%u ms ---", tag ? tag : "?",
+             segundos_desde_boot() * 1000u);
+    write_line(b);
+    for (p = texto; p && *p; ) {
+        const char *nl = p;
+        while (*nl && *nl != '\n') nl++;
+        if (nl > p) {
+            unsigned int len = (unsigned int)(nl - p);
+            if (len > 200u) len = 200u;
+            write_text("# ");
+            { char tmp[202]; memcpy(tmp, p, len); tmp[len] = 0; write_line(tmp); }
+        }
+        p = (*nl == '\n') ? nl + 1 : nl;
+    }
+}
+
+void telemetry_boot(const char *linha)
+{
+    unsigned int len;
+    if (!linha) return;
+    len = (unsigned int)strlen(linha);
+    if (g_boot_used + len + 2u >= sizeof(g_boot_buf)) return;
+    memcpy(g_boot_buf + g_boot_used, linha, len);
+    g_boot_used += len;
+    g_boot_buf[g_boot_used++] = '\n';
+}
+
+/* FNF_SESSAO.txt: reescrito inteiro (open O_TRUNC + write + fsync + close).
+   Chamado no fim do boot e em cada troca de estado -- poucas vezes, nunca no
+   laco. E' o arquivo que responde "em que maquina isto rodou". */
+void telemetry_boot_flush(void)
+{
+    char path[96];
+    static const char *const dirs[4] = { "mass:/FNFPS2/", "mass:/", "host:/", "mc0:/" };
+    int fd, k;
+    if (log_path_index < 0) return;
+    snprintf(path, sizeof(path), "%sFNF_SESSAO.txt",
+             (log_path_index >= 0 && log_path_index < 4) ? dirs[log_path_index] : "mass:/");
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) return;
+    k = (int)g_boot_used;
+    { int done = 0;
+      while (done < k) { int w = write(fd, g_boot_buf + done, (u32)(k - done));
+                         if (w <= 0) break; done += w; } }
+    fsync(fd);
+    close(fd);
 }
