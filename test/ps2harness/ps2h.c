@@ -804,6 +804,13 @@ void DelayThread(int us)
  * relogio da musica anda 800 amostras por quadro (48000/60), e o jogo passa a
  * se comportar como em 60 fps constantes.
  */
+/* Retrato do console (0.2.164 em diante): main.c chama GetMemorySize() e
+   MachineType() no boot. No harness dao os valores que o SCPH-90000 do
+   utilizador devolveu (32 MiB, tipo 0) -- o retrato sai identico ao do
+   console e o link deixa de falhar. */
+int GetMemorySize(void) { return 32 * 1024 * 1024; }
+int MachineType(void) { return 0; }
+
 u64 GetTimerSystemTime(void)
 {
     return h_virtual_ticks;
@@ -857,6 +864,9 @@ static int h_ausencia_declarada(const char *p)
        falha como asset ausente reprovaria a raiz de assets por um caminho que
        nunca pertenceu a ela. */
     if (p && !strncmp(p, "mc0:/", 5)) return 1;
+    /* ROM DO CONSOLE. `rom0:ROMVER` so' existe na ROM do PS2; o jogo trata a
+       ausencia ("(nao abriu rom0:ROMVER)") e o harness nao emula a ROM. */
+    if (p && !strncmp(p, "rom0:", 5)) return 1;
     return strstr(p, "/gameover/loss_sfx-pico-gutpunch.pcm") != NULL
         || strstr(p, "/gameover/loss_sfx-pico-and-nene.pcm") != NULL;
 }

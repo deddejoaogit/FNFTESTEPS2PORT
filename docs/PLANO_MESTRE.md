@@ -12,6 +12,12 @@ em curso / por fazer), **causa** (provada ou hipótese), **o que medir** e
 
 ---
 
+> **ATUALIZAÇÃO 2026-11-05 (build 0.2.166):** as prioridades 1 (log) e 6
+> (fonte) estão resolvidas — ver `docs/DIAGNOSTICO_0.2.166.md`. A prioridade 9
+> (vocais) é **dado em falta** nos stems (vox=0,0 % provado), não bug do jogo.
+> As prioridades 2 (lag), 3 (sprites das fases) e 4 (3.ª entrada) passam a ser
+> medidas pelas linhas `Q` e pelas capturas automáticas `FNF_SHOT_*`.
+
 ## ESTADO GERAL
 
 * **~97 % do código portado.** 27 músicas, 46 personagens, 21 palcos,

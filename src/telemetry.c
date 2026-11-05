@@ -517,7 +517,11 @@ void telemetry_phase(const char *phase, int row, int code)
     if (!usb_ready || log_fd < 0 || output_error) return;
     snprintf(line, sizeof(line), "P,%s,%d,%d", phase ? phase : "?", row, code);
     write_line(line);
-    flush_output();
+    /* 0.2.166: SEM flush aqui. Cada chamada a flush_output() cria um arquivo
+       novo (um despejo = um arquivo), e os marcos de fase aconteciam varias
+       vezes por segundo: foi assim que a 0.2.164 deixou 32 ficheiros com UMA
+       linha cada e perdeu a historia toda. A linha sai no proximo despejo
+       periodico (5 s) ou no despejo de anomalia, quando e' que importa. */
 }
 
 void telemetry_io(const char *op, const char *path, long result, long detail)
