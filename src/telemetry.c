@@ -142,6 +142,20 @@ static unsigned int g_flush_us_last;    /* custo do ultimo despejo, em us */
 static volatile int g_busy;             /* trava simples contra o cao de guarda */
 static unsigned g_flush_skip;           /* 0.2.174: despejos saltados (portao ocupado) */
 unsigned telemetry_flush_skip(void){return g_flush_skip;}
+/* 0.2.175: O QUADRO NUNCA ESCREVE. As escritas sao PEDIDAS aqui e FEITAS pela
+   thread escritora (main.c), com o produtor de audio pausado. Causa unica do
+   freeze: o burst de escrita do despejo (write grande + fsync) envenena o
+   usbhdfsd, o produtor prende numa leitura segurando o portao, e o IOP morre
+   arrastando o quadro pelas chamadas SIF (audsrv/pad). 3/3 sessoes: o freeze
+   nasceu sempre logo apos um despejo. */
+static volatile unsigned g_flush_pede=0, g_anom_pede=0;
+static char g_anom_motivo[48];
+void telemetry_despejo_pendente(void){g_flush_pede=1;}
+int telemetry_tem_pendente(void){return (int)(g_flush_pede|g_anom_pede);}
+void telemetry_servir_pendentes(void){
+    if(g_anom_pede){g_anom_pede=0;telemetry_anomaly_exec(g_anom_motivo);}
+    if(g_flush_pede){g_flush_pede=0;telemetry_flush();}
+}
 
 /* Escreve direto no arquivo aberto. Varias chamadas no MESMO descritor sao
    seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND). */
@@ -239,7 +253,11 @@ static void out_end(void)
 {
     if (out_fd < 0) return;
     io_gate_lock();
-    fsync(out_fd);   /* os dados e o tamanho saem da cache do driver */
+    /* 0.2.175: SEM fsync. Medido: o usbhdfsd nao aceita fsync repetido (3
+       builds mortas por isso: 0.2.108-110) e o passo que publica o arquivo
+       e' o CLOSE (licao 0.2.162: BOOT.txt com open/write/fsync/close chegou
+       completo 401 vezes; o log sem close chegou com 0 bytes). O fsync do
+       despejo ficou para o TRAVA de emergencia do vigia. */
     close(out_fd);   /* e' o close que publica o tamanho no diretorio do FAT */
     io_gate_unlock();
     out_fd = -1;
@@ -817,7 +835,18 @@ void telemetry_stats(u32 *frames, u32 *slow, u32 *max_us, u32 *hist)
 
 /* Despeja o anel inteiro num arquivo proprio. Nao passa pelo buffer comum: se
    o jogo esta' travado, o despejo tem de sair AGORA, inteiro, com fsync. */
+/* 0.2.175: o publico apenas ENFILEIRA (seguro em qualquer contexto, inclusive
+   o laco do quadro). A escrita real e' telemetry_anomaly_exec, chamada pela
+   thread escritora com o produtor pausado. */
 void telemetry_anomaly(const char *motivo)
+{
+    if (motivo) { strncpy(g_anom_motivo, motivo, sizeof(g_anom_motivo)-1);
+                  g_anom_motivo[sizeof(g_anom_motivo)-1] = 0; }
+    else g_anom_motivo[0] = 0;
+    g_anom_pede = 1;
+}
+
+void telemetry_anomaly_exec(const char *motivo)
 {
     char path[96];
     char b[448];

@@ -30,6 +30,42 @@ def principal():
     A = L.append
     A('==== EXTRATOR FNF PS2 ====')
 
+    # 0. Pasta certa? (erro comum: correr na pasta das descarregamentos, onde
+    # nao ha' logs nenhuns -- o relatorio sai vazio e parece que o jogo falhou.)
+    if not (achar(pasta, 'FNF_SESSAO*.txt') or achar(pasta, 'BOOT*.txt')
+            or achar(pasta, 'FNF_TRAVA*.txt') or achar(pasta, 'FNF_LOG*.txt')):
+        A('')
+        A('!!!! ESTA PASTA NAO TEM LOGS DO JOGO !!!!')
+        A('O extractor tem de correr sobre a pasta FNFPS2 DO PENDRIVE (a que tem')
+        A('FNF_LOG*.txt, FNF_TRAVA.txt, BOOT.txt dentro). Exemplo no Windows:')
+        A('    python extrair_diagnostico.py E:\\FNFPS2')
+        A('(onde E: e\' a letra do pendrive. Tambem funciona escrever')
+        A(' `python extrair_diagnostico.py ` e ARRASTAR a pasta FNFPS2 para a')
+        A(' janela do PowerShell, depois Enter.)')
+        A('')
+        A('Procurando pastas com logs perto de %s ...' % os.path.abspath(pasta))
+        base = os.path.dirname(os.path.abspath(pasta))
+        candidatos = []
+        for raiz in (os.path.abspath(pasta), base):
+            try:
+                nomes = [raiz] + [os.path.join(raiz, n) for n in os.listdir(raiz)]
+            except OSError:
+                continue
+            for n in nomes:
+                if not os.path.isdir(n):
+                    continue
+                if (achar(n, 'FNF_LOG*.txt') or achar(n, 'FNF_TRAVA*.txt')
+                        or achar(n, 'BOOT*.txt')):
+                    candidatos.append(n)
+        if candidatos:
+            for c in sorted(set(candidatos))[:5]:
+                A('  ENCONTRADO: %s' % c)
+            A('Corre: python extrair_diagnostico.py "%s"' % sorted(set(candidatos))[0])
+        else:
+            A('  nada encontrado aqui. Interessa e\' a pasta FNFPS2 do PENDRIVE.')
+        print('\n'.join(L))
+        return 2
+
     # 1. Sessao
     sess = ler(achar(pasta, 'FNF_SESSAO*.txt')[-1]) if achar(pasta, 'FNF_SESSAO*.txt') else ''
     build = re.search(r'build=([^\s]+)', sess)
@@ -154,6 +190,23 @@ def principal():
               (f_lr, f_last, (f_last - f_lr) / 60.0))
             A('*  a E/S morreu mas o quadro VIVEU (0.2.174+). Foto da faixa')
             A('*  vermelha na TV = os contadores no momento da morte.')
+    # 7d. Assinatura da 0.2.175: os logs param (a escrita morreu) mas o JOGO
+    # continuou vivo -- as marcas P,FRAME/BOOT.txt avancam alem do ultimo
+    # q-line. E' o resultado ESPERADO quando o usbhdfsd morre sem congelar.
+    if qs:
+        f_ult2 = num(qs[-1], 'f')
+        f_marca = f_ult2
+        for l in evs:
+            if l.startswith('P,FRAME,'):
+                try:
+                    f_marca = max(f_marca, int(l.split(',')[2]))
+                except (IndexError, ValueError):
+                    pass
+        if f_marca > f_ult2 + 120:
+            A('* ESCRITA MORTA, JOGO VIVO: as marcas chegam a f=%d mas os logs'
+              % f_marca)
+            A('*  param em f=%d (+%.1f s de jogo depois dos logs).' % (f_ult2, (f_marca-f_ult2)/60.0))
+            A('*  A E/S morreu mas o quadro NAO congelou (0.2.175+). Foto da faixa = estado.')
     A("* Janela cega: o que falta esta ENTRE o ultimo q-line e o fim (ver quadros cobertos).")
     print('\n'.join(L))
     return 0

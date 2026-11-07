@@ -8220,6 +8220,35 @@ static void fnwd_dump(int dumps){
   }
 }
 
+/* 0.2.175: THREAD ESCRITORA -- a unica que escreve em mass: depois do boot.
+   O laco do quadro apenas marca pedidos (telemetry_despejo_pendente). A
+   escrita acontece com o PRODUTOR DE AUDIO PAUSADO (a janela provada do
+   vigia: o usbhdfsd ve um cliente de cada vez) e SEM fsync no despejo.
+   Se o usbhdfsd ainda assim prender, prende AQUI: o jogo continua a correr
+   e a faixa vermelha da TV diz que a E/S morreu. */
+static unsigned char iow_stack[16384] __attribute__((aligned(128)));
+static volatile int g_iow_stop=0;
+static void iow_thread_fn(void*arg){
+  (void)arg;
+  while(!g_iow_stop){
+    DelayThread(200000);                 /* 200 ms */
+    if(!telemetry_tem_pendente())continue;
+    audio_ring_pause(1);                 /* produtor parado: escrita sozinha */
+    telemetry_servir_pendentes();
+    audio_ring_pause(0);
+  }
+  ExitThread();
+}
+static void iow_start(void){
+  ee_thread_t t;
+  memset(&t,0,sizeof(t));
+  t.func=iow_thread_fn;t.stack=iow_stack;t.stack_size=sizeof(iow_stack);
+  t.gp_reg=&_gp;t.initial_priority=50;
+  {int id=CreateThread(&t);
+   if(id<0)return;
+   if(StartThread(id,0)<0)DeleteThread(id);}
+}
+
 static unsigned char fnwd_stack[16384] __attribute__((aligned(128)));
 static void fnwd_thread_fn(void*arg);
 static void fnwd_start(void){
@@ -12408,7 +12437,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       music_clock,audio_submitted,queued_bytes,ring_bytes,audio_underruns,
       audio_playing,g_paused,ui_state,target_state,transition_frame,selection);
     telemetry_snapshot("periodico",sb);
-    MARCA("telemetry_flush");telemetry_flush();
+    MARCA("telemetry_despejo");telemetry_despejo_pendente();
     /* 0.2.174: deteccao de E/S morta. Produtor sem progresso por DOIS checks
        seguidos (~10 s com musica a tocar) ou despejos a ser saltados (portao
        preso): o quadro continua e a TV mostra a faixa com os contadores. */
@@ -12421,7 +12450,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    if(frame_no==0)tela_marco((u32)fb[draw].address,4);
    frame_mark("F.POST",(int)frame_no);g_tm[TM_POST]=GetTimerSystemTime();g_fn_beat++;
    if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);
-   if(frame_no==1u)fnwd_start();
+   if(frame_no==1u){fnwd_start();iow_start();}
    av_trace_capture(frame_no-1,ui_state,target_state,transition_frame,transport_state,audio_fd,music_clock,audio_started,audio_playing,last2,last,chart_event_cursor);draw^=1;
  }
  g_fnwd_stop=1;if(g_fnwd_thread>=0){DelayThread(250000);DeleteThread(g_fnwd_thread);g_fnwd_thread=-1;}
