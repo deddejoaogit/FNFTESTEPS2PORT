@@ -8,7 +8,11 @@
 #include <tamtypes.h>
 
 #define RING_SIZE (256*1024)
-#define READ_SIZE (32*1024)
+/* 0.2.168: 8 KB (era 32 KB). Medido nos Q-lines: cada leitura de 32 KB
+   bloqueia o IOP ~46 ms (0,7 MB/s do pendrive) e os RPCs do quadro
+   (padGetState/audsrv) esperam por tras -- os picos de 53 ms a cada ~10
+   quadros. Com 8 KB o pico cai para ~12 ms, absorvivel pela espera de vsync. */
+#define READ_SIZE (8*1024)
 static unsigned char ring[RING_SIZE] __attribute__((aligned(128)));
 static unsigned char io_block[READ_SIZE] __attribute__((aligned(128)));
 static unsigned char thread_stack[16384] __attribute__((aligned(128)));
@@ -86,6 +90,41 @@ static int prev_pos=0;
    capturas a musica e as animacoes paravam de vez, porque tanto o
    anel de audio quanto a thread de animacao leem do USB. */
 static volatile int pause_req=0,in_read=0;
+/* ---- 0.2.168: PORTAO DE I/O UNICO --------------------------------------
+   O usbhdfsd nao e' reentrante (ver audio_ring.h): duas operacoes
+   simultaneas -- o produtor a ler a musica e o laco/cao de guarda a escrever
+   logs -- corrompem/travam o driver. E' a causa do travamento de vez
+   (sessao 0.2.167: morte logo apos o duplo despejo do quadro 600).
+   TODA a E/S de mass: passa por aqui: produtor, marcas, despejos, vigia,
+   capturas. Criado cedo (io_gate_init) porque o boot ja' escreve. */
+static int io_sema=-1;
+static int io_owner=-1;      /* recursivo POR THREAD: o vigia segura o portao
+                                enquanto chama caminhos que tambem o tomam */
+static int io_depth=0;
+void io_gate_init(void){if(io_sema<0){ee_sema_t sp;sp.init_count=1;sp.max_count=1;sp.option=0;io_sema=CreateSema(&sp);}}
+void io_gate_lock(void){int me=GetThreadId();if(io_sema<0)io_gate_init();
+  if(io_owner==me){io_depth++;return;}WaitSema(io_sema);io_owner=me;io_depth=1;}
+void io_gate_unlock(void){int me=GetThreadId();
+  if(io_owner!=me)return;          /* nunca desbloquear o portao dos outros */
+  if(--io_depth>0)return;io_owner=-1;SignalSema(io_sema);}
+int io_gate_trylock(void){int me=GetThreadId();if(io_sema<0){io_gate_init();return 1;}
+  if(io_owner==me){io_depth++;return 1;}
+  if(PollSema(io_sema)!=0)return 0;io_owner=me;io_depth=1;return 1;}
+
+/* ---- 0.2.168: CANARIO DA PILHA DO PRODUTOR -----------------------------
+   Estouro de pilha e' candidato a travamento silencioso: pinta-se o fundo da
+   pilha da thread antes de a arrancar e verifica-se o padrao depois. Se o
+   canario for trilhado, o Q-line mostra ck=0 e o vigia grava-o. */
+static unsigned char g_canario_bytes[128];
+static int g_canario_vivo=1;
+static void canario_pintar(void){
+  unsigned int i;
+  for(i=0;i<sizeof(g_canario_bytes);i++)g_canario_bytes[i]=(unsigned char)(0xA5u^(i&255u));
+  memcpy(thread_stack,g_canario_bytes,sizeof(g_canario_bytes));
+}
+int audio_ring_stack_ok(void){
+  return g_canario_vivo&&memcmp(thread_stack,g_canario_bytes,sizeof(g_canario_bytes))==0;
+}
 void audio_ring_pause(int p){int n=0;pause_req=p?1:0;
  if(p){while(in_read&&n++<2000)DelayThread(1000);}}
 static volatile unsigned int produced,reads_count,loops_count,errors_count,underruns_count,switches_count;
@@ -145,7 +184,7 @@ static void soma_overlay(int got){
      84 blocos e meio) isso pararia o som no primeiro bloco incompleto. */
   off=0;
   while(off<got){
-   in_read=1;og=read(overlay_fd[i],overlay_block+off,got-off);in_read=0;
+   io_gate_lock();in_read=1;og=read(overlay_fd[i],overlay_block+off,got-off);in_read=0;io_gate_unlock();
    if(og>0){off+=og;continue;}
    if(!overlay_loop[i]){overlay_eof[i]=1;break;}
    /* Arquivo vazio (ou ilegivel): nao ha' o que repetir. */
@@ -161,6 +200,7 @@ static void soma_overlay(int got){
   amix_somar_estereo((short*)io_block,(const short*)overlay_block,off/4);
  }
 }
+/* ver canario_pintar() acima */
 static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){DelayThread(2000);continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
  if(sem_fonte){
   /* SEM FONTE: so' silencio + overlays. Se todos os overlays ja' acabaram (ou
@@ -190,7 +230,7 @@ static void producer(void *arg){(void)arg;while(running){int free_bytes,got,firs
    }
    if((long)want>resto)want=(int)resto;
   }
-  in_read=1;got=read(source_fd,io_block,want);in_read=0;
+  io_gate_lock();in_read=1;got=read(source_fd,io_block,want);in_read=0;io_gate_unlock();
   if(got==0){
    if(prev_ativo){prev_pos=0;lseek(source_fd,prev_ini,SEEK_SET);loops_count++;continue;}
    source_eof=1;continue;
@@ -238,7 +278,7 @@ static void fontes_reset(int fd,int loop,int ini,int fim,int prev){
 /* O mesmo arranque de thread das tres entradas do modulo. */
 static int inicia_thread(void){
  ee_sema_t s;ee_thread_t t;int start_rc;
- memset(&s,0,sizeof(s));s.init_count=1;s.max_count=1;s.option=0;mutex=CreateSema(&s);
+ memset(&s,0,sizeof(s));s.init_count=1;s.max_count=1;s.option=0;mutex=CreateSema(&s);canario_pintar();
  if(mutex<0){source_fd=-1;return -1;}
  memset(&t,0,sizeof(t));t.func=producer;t.stack=thread_stack;t.stack_size=sizeof(thread_stack);
  t.gp_reg=&_gp;t.initial_priority=40;thread_id=CreateThread(&t);

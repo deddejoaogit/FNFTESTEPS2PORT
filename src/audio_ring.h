@@ -1,5 +1,13 @@
 #ifndef AUDIO_RING_H
 #define AUDIO_RING_H
+/* 0.2.168: portao de I/O unico para TODO o fileXio do pendrive. O usbhdfsd
+   nao e' reentrante: operacoes simultaneas de leitura (produtor de audio) e
+   escrita (logs, vigia, capturas) travam o driver. Ver audio_ring.c. */
+void io_gate_init(void);
+void io_gate_lock(void);
+void io_gate_unlock(void);
+int  io_gate_trylock(void);   /* 1 = portao tomado, 0 = ocupado */
+int audio_ring_stack_ok(void); /* 0 = canario da pilha do produtor trilhado */
 int audio_ring_start(int fd);
 int audio_ring_start_loop(int fd, int loop);
 int audio_ring_take(void *dst, int bytes);

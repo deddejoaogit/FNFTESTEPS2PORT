@@ -70,6 +70,10 @@ void telemetry_state(u32 frame, int ui_state, int target_state, int selection,
 /* Um evento de E/S de arquivo, com o resultado. Eh aqui que se ve um asset que
    nao abriu, um tamanho que nao bateu, ou uma leitura que devolveu menos. */
 void telemetry_io(const char *op, const char *path, long result, long detail);
+/* 0.2.168: registo universal de erros (local+codigo), so' RAM. */
+void telemetry_error(const char *onde, long codigo);
+unsigned int telemetry_error_total(void);
+unsigned int telemetry_errors_txt(char *b, unsigned int cap);
 
 int telemetry_finish(void);
 #endif

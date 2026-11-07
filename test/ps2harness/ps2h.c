@@ -1109,6 +1109,9 @@ int CreateSema(ee_sema_t *s) { (void)s; return 1; }
 int DeleteSema(int id) { (void)id; return 0; }
 int SignalSema(int id) { (void)id; return 0; }
 int WaitSema(int id) { (void)id; return 0; }
+/* 0.2.168: portao de I/O recursivo (audio_ring.c) */
+int GetThreadId(void) { return 1; }
+int PollSema(int id) { (void)id; return 0; }
 
 /* O jogo chama SleepThread() quando algo falha de forma irreparavel. Se isso
    virar um no-op o harness continua rodando com estado invalido e o relatorio

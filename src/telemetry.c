@@ -1,4 +1,5 @@
 #include "telemetry.h"
+#include "audio_ring.h"  /* 0.2.168: io_gate -- o usbhdfsd nao e' reentrante */
 #include <delaythread.h>
 #include <kernel.h>
 #include <loadfile.h>
@@ -144,11 +145,65 @@ static volatile int g_busy;             /* trava simples contra o cao de guarda 
 static void out_push(const char *p, unsigned int n)
 {
     unsigned int done = 0;
+    io_gate_lock();
     while (done < n) {
         int r = write(out_fd, p + done, n - done);
-        if (r <= 0) { output_error = 1; return; }
+        if (r <= 0) { io_gate_unlock(); output_error = 1; telemetry_error("out_push.write", r); return; }
         done += (unsigned int)r;
     }
+    io_gate_unlock();
+}
+
+/* ---- 0.2.168: REGISTO UNIVERSAL DE ERROS (pedido do utilizador: "tudo") -
+   Toda a falha de abertura/leitura/escrita/RPC entra aqui com local e codigo.
+   Anel de 64 em RAM + contagem por local (32); sai como linhas ERR, em todo
+   despejo de telemetria e no FNF_TRAVA do cao de guarda. NUNCA escreve em
+   USB por si (regra 7: o diagnostico nao pode travar o jogo). */
+#define ERR_RING 64
+#define ERR_SITES 32
+typedef struct { unsigned int t_ms; short site; short code; } err_evt_t;
+static err_evt_t g_err_ring[ERR_RING];
+static unsigned int g_err_wp, g_err_total;
+static char g_err_sites[ERR_SITES][24];
+static unsigned int g_err_site_n[ERR_SITES];
+static unsigned int g_err_site_last[ERR_SITES];
+static int g_err_sites_n;
+void telemetry_error(const char *onde, long codigo)
+{
+    short site = -1; int i;
+    for (i = 0; i < g_err_sites_n; i++)
+        if (!strncmp(g_err_sites[i], onde, 23)) { site = (short)i; break; }
+    if (site < 0 && g_err_sites_n < ERR_SITES) {
+        site = (short)g_err_sites_n++;
+        strncpy(g_err_sites[site], onde, 23); g_err_sites[site][23] = 0;
+    }
+    if (site >= 0) { g_err_site_n[site]++; g_err_site_last[site] = (unsigned int)codigo; }
+    g_err_ring[g_err_wp % ERR_RING].t_ms = segundos_desde_boot() * 1000u;
+    g_err_ring[g_err_wp % ERR_RING].site = site;
+    g_err_ring[g_err_wp % ERR_RING].code = (short)codigo;
+    g_err_wp++; g_err_total++;
+}
+unsigned int telemetry_error_total(void) { return g_err_total; }
+unsigned int telemetry_errors_txt(char *b, unsigned int cap)
+{
+    unsigned int n = 0, i, start, count; int k;
+    if (cap < 64) return 0;
+    k = snprintf(b, cap, "# erros total=%u sites=%d\n", g_err_total, g_err_sites_n);
+    if (k > 0) n = (unsigned int)k < cap ? (unsigned int)k : cap - 1;
+    for (i = 0; i < (unsigned int)g_err_sites_n && n + 64 < cap; i++) {
+        k = snprintf(b + n, cap - n, "ERRO_LOCAL,%s,n=%u,ult=%u\n",
+                     g_err_sites[i], g_err_site_n[i], g_err_site_last[i]);
+        if (k > 0) n += ((unsigned int)k < cap - n) ? (unsigned int)k : (cap - n - 1);
+    }
+    count = g_err_wp < ERR_RING ? g_err_wp : ERR_RING;
+    start = g_err_wp - count;
+    for (i = 0; i < count && n + 48 < cap; i++) {
+        err_evt_t *e = &g_err_ring[(start + i) % ERR_RING];
+        k = snprintf(b + n, cap - n, "ERR,%u,%s,%d\n", e->t_ms,
+                     e->site >= 0 ? g_err_sites[e->site] : "?", (int)e->code);
+        if (k > 0) n += ((unsigned int)k < cap - n) ? (unsigned int)k : (cap - n - 1);
+    }
+    return n;
 }
 
 /* Abre o arquivo do despejo corrente e escreve o cabecalho.
@@ -165,7 +220,7 @@ static int out_begin(void)
     if (log_path_index < 0) return -1;
     num = (log_seq == 0u) ? 0u : (1u + ((log_seq - 1u) % 31u));
     log_path_for(log_path_index, num, path, sizeof(path));
-    out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    io_gate_lock(); out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); io_gate_unlock();
     if (out_fd < 0) { output_error = 1; return -1; }
     k = snprintf(hdr, sizeof(hdr),
         "# FNF PS2 %s | log v2 | despejo %u | arquivo %02u | quadros ate' %u |"
@@ -179,8 +234,10 @@ static int out_begin(void)
 static void out_end(void)
 {
     if (out_fd < 0) return;
+    io_gate_lock();
     fsync(out_fd);   /* os dados e o tamanho saem da cache do driver */
     close(out_fd);   /* e' o close que publica o tamanho no diretorio do FAT */
+    io_gate_unlock();
     out_fd = -1;
 }
 
@@ -666,7 +723,7 @@ static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
         "qw=%u,qd=%u,bx=%u,upn=%u,upk=%u,ovf=%u,cl=%u,cu=%u,"
         "st=%u,tr=%u,sel=%u,pad=%04X,prs=%04X,an=%d,af=%d,"
         "clk=%u,q=%u,r=%u,un=%u,eof=%u,pl=%u,"
-        "vr=%u,rb=%u,ek=%u",
+        "vr=%u,rb=%u,ek=%u,er=%u,ck=%d",
         (unsigned)f->frame, (unsigned)f->t_total, (unsigned)f->t_in,
         (unsigned)f->t_upd, (unsigned)f->t_dma, (unsigned)f->t_wait,
         (unsigned)f->t_cap, (unsigned)f->t_vsync, (unsigned)f->t_post,
@@ -679,7 +736,8 @@ static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
         (int)f->anim, (int)f->anim_frame,
         (unsigned)f->clk, (unsigned)f->queued, (unsigned)f->ring,
         (unsigned)f->underruns, (unsigned)f->eof, (unsigned)f->paused,
-        (unsigned)f->vram_free, (unsigned)f->ram_bufs, (unsigned)f->io_kb);
+        (unsigned)f->vram_free, (unsigned)f->ram_bufs, (unsigned)f->io_kb,
+        telemetry_error_total(), audio_ring_stack_ok());
 }
 
 void telemetry_frame2(const fnf_frame_t *f)
