@@ -7949,7 +7949,13 @@ static void capture_status(const char*phase,int row,int code){
 
    Ordem de grandeza do custo total: 5 escritas/s + 0 no caminho normal do cao
    de guarda, contra os ~1200/s da 0.2.108. */
-#define FNMARK_MIN_GAP_TICKS ((u64)kBUSCLK/5u)   /* 200 ms */
+/* 0.2.167: 10 s (era 200 ms). Os Q-lines da 0.2.166 mediram 27 quadros em 376
+   (7%) com "in"=53 ms mediano, a cada 9 quadros -- exactamente esta porta a
+   abrir 5 vezes por segundo e a escrever BOOT.txt dentro do laco. 53 ms por
+   escrita e' o sintoma dos menus "travados". Com 10 s o custo cai para 0,5%
+   e o anel de RAM (512 marcas) continua a chegar ao cao de guarda e ao
+   despejo de anomalia. Regra 7: o diagnostico nunca pode travar o jogo. */
+#define FNMARK_MIN_GAP_TICKS ((u64)kBUSCLK*10ull) /* 10 s */
 #define FNMARK_RING 16
 #define FNWD_WAKE_US 200000
 #define FNWD_STALL_WAKES 15                       /* 15 x 200 ms = 3 s parado.
@@ -7957,7 +7963,7 @@ static void capture_status(const char*phase,int row,int code){
                                                      leva ~1 s; 1,6 s dava falso
                                                      positivo em carga normal. */
 #ifndef FNMARK_FRAME_GATE
-#define FNMARK_FRAME_GATE 300u                    /* ver comentario em frame_mark */
+#define FNMARK_FRAME_GATE 600u                    /* 10 s a 60 fps; ver frame_mark */
 #endif
 #define FNWD_MAX_DUMPS 3
 #define FNWD_PAUSE_WAIT_US 2000000
@@ -9767,7 +9773,9 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
         telemetry_event("pause_reset_entrada",previous_state,(int)frame_no);}
     /* Uma foto por troca de tela (ate' 12 por sessao): o log diz o estado, a
        foto mostra o que estava na tela naquele estado. */
-    if(ui_state!=previous_state&&g_shot_n<12)g_pedido_foto=1;/* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11){freeplay_capsula_soltar();
+    /* 0.2.167: sem captura automatica por mudanca de estado. Cada uma pausava o
+   audio e escrevia 286 KB dentro do laco (o FNF_SCREEN 0 B desta sessao = a
+   captura a meio quando o utilizador desligou). Fica a manual SELECT+R3. *//* A arte das capsulas da Freeplay so' vive enquanto a tela esta' na frente: sai com a tela e devolve a VRAM ao pool. */if(ui_state!=11){freeplay_capsula_soltar();
     /* E O SOM DELA SAI AQUI, ainda antes do som do estado novo: o `goBack` da
        Freeplay toca `cancelMenu` e so' fecha depois que o fade termina. Parar
        no meio mataria o som; parar DEPOIS do `ui_state==6` mataria o
@@ -12179,7 +12187,10 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    /* 0.2.165: 300 quadros = 5 s por despejo. Com ~3,3 KB/s de linhas, cada
       arquivo sai com ~16 KB e os 32 arquivos guardam ~8 minutos de sessao.
       O despejo custa ~22 ms de escrita sincrona; por isso NAO e' por quadro. */
-   if((frame_no%300u)==0u){
+   /* 0.2.167: 600 quadros = 10 s. Os Q-lines mediram o despejo em 59 ms
+      (fl=58810 us mediano) -- a 300 quadros era 1,2% do tempo num salto
+      visivel a cada 5 s. */
+   if((frame_no%600u)==0u){
     /* Snapshot periodico: o estado da maquina a cada 5 s, no mesmo fluxo.
        Memoria (VRAM livre, buffers do port), relogio e anel de audio, e a
        maquina de estados. E' o "valor nas memorias" que o log tem de ter. */
