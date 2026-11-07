@@ -38,6 +38,12 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
 ## 4. STORY MODE (selecção de semana)
 - [~] **Textos simples (sem fonte especial) BUGADOS** — citados pelo utilizador
       na 0.2.177 (CORRECOES #4). Os títulos com fonte especial parecem OK.
+- [~] **Títulos + texto INVERTIDOS ao voltar do freeplay** (0.2.179,
+      UTILIZADOR: "os botões do story menu estavam de novo bugados após
+      entrar no free mode e depois no story menu"). Prova visual em
+      `evidencia-console/0.2.179_story_flip.png`. Repro: título → story (OK)
+      → freeplay → story (BUGADO). Próxima causa visual a atacar; o
+      `EV=STORY_RESTORE` do LOG VIVO traz as dims para provar a causa.
 - [ ] Dificuldade (easy/normal/hard) com tween (o código tem story_diff_tween).
 - [ ] Animação de entrada da semana; setas; animação da gf/bf do story menu.
 
@@ -82,13 +88,21 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
 
 ## 11. DIAGNÓSTICO / LOGS (não é jogo, mas é o nosso olho)
 - [x] VALORES da TV no txt (provado na 0.2.177).
-- [x] Extrador v7 com PNG + LOG VIVO (linha do tempo completa).
+- [x] Extrador v8 com PNG + LOG VIVO + slots do layout novo (e layout antigo).
 - [x] **LOG VIVO** (0.2.179): anel circular pré-alocado — SEMPRE regista
       transições, acções, erros, anomalias, capturas e o quadro a 2 Hz.
-- [x] **Captura "save state gigante"** (0.2.179): `FNF_SAVESTATE_xx.txt`
-      (visual/desempenho/sonora/pad/marcas/Q) + imagem 320×224, escrita pela
-      thread escritora sobre clusters pré-alocados.
+- [x] **Captura "save state gigante"** (0.2.179/180): `FNF_SAVESTATE.bin`
+      (visual/desempenho/sonora/pad/marcas/Q) + imagem `FNF_SHOT.rgba`
+      320×224, escrita pela thread escritora sobre clusters pré-alocados.
 - [x] Amostras Q no corpo do TRAVA (0.2.178).
+- [x] **5 TXT de nomes fixos + 2 bin (0.2.180, pedido do utilizador):**
+      `FNF_BOOT.TXT` (marca+anel de marcas), `FNF_LOG.TXT` (anel de despejos
+      Q/eventos/anomalias, 2 MB), `FNF_TRAVA.TXT` (slots VIGIA/MARCADOR/
+      corpo/CONGELADO/AV), `FNF_TELA.TXT` (slots RETRATO/SESSAO/FIM/TV/
+      ESTADO), `FNF_ERRO.TXT` (fatal/aviso) + `FNF_LOGVIVO.bin` +
+      `FNF_SHOT.rgba` + `FNF_SAVESTATE.bin`. Fim dos 32+12 ficheiros
+      rotativos. Tudo pré-alocado com zeros no boot; em jogo só
+      `lseek+write`+`close` (CORRECOES #16/#17).
 
 ## 12. CAUSAS SEPARADAS CONHECIDAS (não são "features")
 - **pad=0000**: os registos nunca vêm bits do pad — causa própria, à parte de

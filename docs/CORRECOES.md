@@ -1,4 +1,4 @@
-# CORREÇÕES — FNF PS2 (actualizado na 0.2.178)
+# CORREÇÕES — FNF PS2 (actualizado na 0.2.180)
 
 Documento pedido pelo utilizador: **absolutamente tudo o que precisa de ser
 corrigido**, incluindo TODAS as correções que ele cita. Cada entrada: número,
@@ -33,6 +33,17 @@ caminho de texto simples saem corrompidos/errados no ecrã de story mode. Os
 textos com fonte especial (títulos) parecem OK. Rever o desenho dos glifos
 simples (font.rgba/font.widths → o caminho de texto simples) no contexto do
 story menu (a scissor/band do story title pode interferir).
+**0.2.179 (UTILIZADOR, de novo): "os botões do story menu estavam de novo
+bugados após entrar no free mode e depois no story menu"** — REPRO: entrar no
+story menu pelo título (OK), ir ao freeplay, voltar ao story menu = BUGADO.
+PROVA VISUAL (captura FNF_SCREEN_0001 da sessão 0.2.179, guardada em
+`evidencia-console/0.2.179_story_flip.png`): os títulos das semanas e os
+textos pequenos saem VERTICALMENTE INVERTIDOS (o verde da seta está certo —
+o bug é do upload/desenho dos títulos+texto, não da captura). A hipótese
+forte é `story_upload_title`/`story_font_alpha_decode` a reutilizar o slot
+com dims/sentido errados quando o caminho vem do freeplay (ui_state 10).
+LOG VIVO 0.2.180 regista `EV=STORY_RESTORE` (dims da tex + nível) para
+provar a causa na próxima sessão. TRABALHO VISUAL SEGUINTES (#1-#4).
 
 ### #5 [x→~] SELECT+R3 CONGELAVA o jogo (0.2.177, UTILIZADOR)
 "ao clicar Select+R3 o jogo travou e a tela de erro apareceu" — a captura
@@ -74,6 +85,32 @@ o MARCADOR chegava sempre ao FNF_TRAVA (que já tinha clusters). CORRIGIDO
 são sobrescritas (`lseek+write`). Mais: a captura deixou de usar a pausa (que
 ficava presa e matava a música) e passou a usar só o `io_gate`.
 
+### #16 [x] FREEZE ao entrar no TUTORIAL (0.2.179, UTILIZADOR + MEDIDO)
+"o jogo só travou ao entrar no tutorial". Cadeia de prova da sessão 0.2.179:
+(1) BOOT.txt = "passo 45: TUT_FONT_BEGIN code=0" = a ÚLTIMA marca que
+escreveu; (2) entre TUT_FONT_BEGIN e TUT_FONT_DONE só existem
+`tutorial_vcr_restore()` (100% RAM — provado pela leitura do código) e o
+`boot_mark` seguinte, que fazia `open(O_CREAT|O_TRUNC)` + `fsync` no BOOT.txt
+— meta-op FAT + fsync DURANTE o jogo; (3) FNF_TRAVA = só "# VIGIA_VIVO" = o
+despejo do vigia não chegou ao disco (caminho de escrita já morto); (4) as
+capturas SHOT ficaram a zeros (pré-alocadas mas nunca escritas). CAUSA:
+escritas de diagnóstico com meta-ops (criar/truncar/estender) + fsync morrem
+no usbhdfsd depois de minutos de streaming — e esta acontecia dentro do laço,
+na entrada do tutorial. CORRIGIDO 0.2.180: TODOS os ficheiros de diagnóstico
+são pré-alocados com zeros no boot e escritos por `lseek+write`+`close` sobre
+clusters já alocados; nunca criar/truncar/estender/fsync em jogo; o marco que
+não cabe SALTA (e conta no LOG VIVO) — o diagnóstico nunca trava o jogo.
+
+### #17 [x] Demasiados ficheiros de log (0.2.179, UTILIZADOR)
+"Pode fazer os logs criam 5 ou 4 txts? Não consigo enviar muitos como no
+último." A sessão 0.2.179 deixava 32 FNF_LOG%02d + 12 FNF_ANOM_%02d + 4 SHOT
++ 4 SAVESTATE + BOOT/SESSAO/DIAGNOSTICO/TRAVA/AV/SCREEN... (>50 ficheiros,
+que ainda se multiplicavam nas cópias do Windows). CORRIGIDO 0.2.180: 5 TXT
+de nomes fixos (FNF_BOOT.TXT, FNF_LOG.TXT, FNF_TRAVA.TXT, FNF_TELA.TXT,
+FNF_ERRO.TXT) + FNF_LOGVIVO.bin + FNF_SHOT.rgba + FNF_SAVESTATE.bin. Os
+antigos nomes rotativos desapareceram; o extractor v8 lê o layout novo E o
+antigo.
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).
@@ -110,8 +147,10 @@ protocolo manda apagar os FNF_* antigos (o utilizador cumpre — obrigado!).
 
 1. O laco do quadro NUNCA escreve em mass: (regra 7 das REGRAS.md).
 2. Nenhuma escrita enquanto o produtor de áudio faz streaming (o usbhdfsd morre).
-3. Operações FAT (criar/estender ficheiros) são frágeis depois de minutos de
-   leitura em fluxo: PRÉ-CRIAR no boot; depois só APPEND.
+3. Operações FAT (criar/estender/truncar ficheiros) e `fsync` são fatais
+   depois de minutos de leitura em fluxo: PRÉ-ALOCAR com ZEROS no boot;
+   depois só `lseek+write` sobre clusters alocados + `close` (a regra da
+   0.2.180 — ver #16).
 4. `PollSema` é proibido em EE (decrementa sempre) — só WaitSema/SignalSema.
 5. O `fsync` repetido mata o usbhdfsd (só no TRAVA).
 6. Toda a afirmação = medida; toda a build = uma causa única.

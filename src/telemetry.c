@@ -103,8 +103,118 @@ static unsigned log_seq;
 
 static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
 {
-    snprintf(out, size, "%s%02u.txt", log_prefixes[idx], seq);
+    /* 0.2.180: NOME FIXO. A rotacao em 32 nomes (FNF_LOG00..31) encheu o
+       pendrive de ficheiros e o utilizador nao os conseguia mandar todos
+       (pedido dele: "5 ou 4 txts"). Agora e' SEMPRE FNF_LOG.TXT, um anel
+       pre-alocado de 2 MB reescrito por lseek+write. */
+    (void)seq;
+    snprintf(out, size, "%s.TXT", log_prefixes[idx]);
 }
+
+/* =====================================================================
+   0.2.180: ESCRITA EM SLOTS PRE-ALOCADOS + ANEL DO LOG
+   A causa unica do freeze do tutorial (0.2.179): as escritas de diagnostico
+   em tempo de execucao faziam meta-ops FAT (open O_CREAT|O_TRUNC, primeira
+   alocacao, extensao) e fsync -- a classe de operacoes que MORRE depois de
+   minutos de streaming de audio no usbhdfsd. O BOOT.txt do utilizador ficou
+   em "passo 45: TUT_FONT_BEGIN": o boot_mark seguinte (open TRUNC + fsync)
+   nunca mais voltou.
+   Regra nova (vale para TODO o diagnostico): os ficheiros sao criados e
+   pre-alocados com ZEROS no boot; durante o jogo toda a escrita e'
+   lseek+write sobre clusters ja' alocados, seguida de close (o close e' o
+   que publica -- licao 0.2.162). NUNCA criar, estender, truncar ou fsync
+   durante o jogo. */
+#define FN_RING_SIZE (2u*1024u*1024u)   /* anel do FNF_LOG.TXT */
+static u32 g_ring_off;                  /* posicao corrente do anel */
+static char g_log_path[96];             /* caminho escolhido pelo log_try_open */
+static u32 g_boot_id;                   /* identificador deste boot */
+
+static void fnwrite_all(int fd, const char *p, u32 n)
+{
+    while (n) {
+        u32 fatia = n > 4096u ? 4096u : n;
+        int w = write(fd, p, fatia);
+        if (w <= 0) return;
+        p += w; n -= (u32)w;
+        if (n) DelayThread(3000);
+    }
+}
+
+/* Escreve buf num OFFSET FIXO de um ficheiro pre-alocado, com terminador
+   NUL a seguir (os leitores param no NUL; o que la' estiver a mais e'
+   resto de uma sessao anterior). Abre SEM criar: se o ficheiro nao existe
+   (pendrive limpo a meio), desiste e conta -- nunca uma meta-op em jogo.
+   NAO usa o portao: quem chama gere o portao (o vigia segura-o durante o
+   despejo inteiro; o boot_mark tenta-o antes). */
+int fnwrite_slot(const char *path, u32 off, const void *buf, u32 len)
+{
+    char alt[96];
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) {
+        /* fallback: mass:/FNFPS2/X -> mass:/X (pendrive montado noutro lado) */
+        const char *p = strstr(path, "FNFPS2/");
+        if (p) {
+            unsigned k = (unsigned)(p - path);
+            if (k + 32u < sizeof(alt)) {
+                memcpy(alt, path, k);
+                snprintf(alt + k, sizeof(alt) - k, "%s", p + 7);
+                fd = open(alt, O_WRONLY);
+            }
+        }
+    }
+    if (fd < 0) return -1;
+    if (lseek(fd, (int)off, SEEK_SET) < 0) { close(fd); return -2; }
+    fnwrite_all(fd, (const char *)buf, len);
+    { char z = 0; write(fd, &z, 1); }
+    close(fd);   /* publica o tamanho -- nao precisa de fsync */
+    return 0;
+}
+
+/* Igual, mas avanca um offset do chamador (para corpos em varias partes). */
+int fnwrite_slot_append(const char *path, u32 *off, const void *buf, u32 len)
+{
+    int r = fnwrite_slot(path, *off, buf, len);
+    if (r == 0) *off += len;
+    return r;
+}
+
+/* Anel do FNF_LOG.TXT: bloco (cabecalho + payload) numa posicao unica.
+   Quando o bloco nao cabe ate ao fim, preenche o resto com NUL e volta ao
+   inicio. O extrador le os cabecalhos ("| off %u |"), ordena por
+   "despejo %u" dentro do mesmo boot_id e tem a linha do tempo inteira. */
+static void ring_block(const char *hdr, u32 hl, const char *pay, u32 pl)
+{
+    int fd;
+    u32 off = g_ring_off, total = hl + pl;
+    if (!g_log_path[0]) return;
+    if (total == 0 || total > FN_RING_SIZE - 4096u) return;
+    if (off + total > FN_RING_SIZE) {
+        u32 pad = FN_RING_SIZE - off;
+        fd = open(g_log_path, O_WRONLY);
+        if (fd < 0) { output_error = 1; return; }
+        if (lseek(fd, (int)off, SEEK_SET) >= 0) {
+            static const char zeros[4096];
+            while (pad) {
+                u32 fatia = pad > 4096u ? 4096u : pad;
+                if (write(fd, zeros, fatia) != (int)fatia) break;
+                pad -= fatia;
+            }
+        }
+        close(fd);
+        off = 0;
+    }
+    fd = open(g_log_path, O_WRONLY);
+    if (fd < 0) { output_error = 1; return; }
+    if (lseek(fd, (int)off, SEEK_SET) < 0) { close(fd); output_error = 1; return; }
+    fnwrite_all(fd, hdr, hl);
+    fnwrite_all(fd, pay, pl);
+    close(fd);
+    output_error = 0;
+    g_ring_off = off + total;
+}
+
+/* id deste boot (partilhado com o LOG VIVO) */
+unsigned telemetry_boot_id(void) { return g_boot_id; }
 /* Despejo DURAVEL (0.2.162).
    Medido no console do usuario em 2026-11-04: o log do jogo veio com 0 bytes
    enquanto o BOOT.txt -- que abre, escreve, sincroniza e FECHA a cada marco --
@@ -137,7 +247,7 @@ static unsigned int segundos_desde_boot(void)
     return (unsigned int)((GetTimerSystemTime() - g_boot_t0) / (u64)kBUSCLK);
 }
 
-static int out_fd = -1;                 /* arquivo do despejo corrente */
+/* 0.2.180: out_fd removido (o anel abre e fecha por bloco). */
 static unsigned int g_flush_us_last;    /* custo do ultimo despejo, em us */
 
 static volatile int g_busy;             /* trava simples contra o cao de guarda */
@@ -159,26 +269,7 @@ void telemetry_servir_pendentes(void){
     if(g_flush_pede){g_flush_pede=0;telemetry_flush();}
 }
 
-/* Escreve direto no arquivo aberto. Varias chamadas no MESMO descritor sao
-   seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND).
-   0.2.176: CONTA-GOTAS -- fatias de 4 KB com 4 ms de intervalo. A 0.2.175 o
-   despejo continuou a morrer no usbhdfsd: o produtor PAUSADO nao chega se a
-   rajada inteira (40 KB+) entrar de uma vez. Sem rajada, sem veneno. */
-static void out_push(const char *p, unsigned int n)
-{
-    unsigned int done = 0;
-    io_gate_lock();
-    while (done < n) {
-        unsigned int fatia = n - done;
-        int r;
-        if (fatia > 4096u) fatia = 4096u;
-        r = write(out_fd, p + done, fatia);
-        if (r <= 0) { io_gate_unlock(); output_error = 1; telemetry_error("out_push.write", r); return; }
-        done += (unsigned int)r;
-        if (done < n) DelayThread(4000);   /* 4 ms entre fatias: nunca uma rajada */
-    }
-    io_gate_unlock();
-}
+/* 0.2.180: out_push e out_fd sairam junto com o ficheiro-rotativo. */
 
 /* ---- 0.2.168: REGISTO UNIVERSAL DE ERROS (pedido do utilizador: "tudo") -
    Toda a falha de abertura/leitura/escrita/RPC entra aqui com local e codigo.
@@ -238,69 +329,42 @@ unsigned int telemetry_errors_txt(char *b, unsigned int cap)
    Numeracao: o despejo 0 vai para FNF_LOG00 (o boot, guardado para sempre);
    os seguintes giram em FNF_LOG01..31. Assim os primeiros quadros da sessao
    -- que sao onde o boot e a entrada no jogo aparecem -- nunca sao apagados. */
+/* 0.2.180: o bloco do despejo vai para o ANEL do FNF_LOG.TXT (ver
+   ring_block acima). O out_fd antigo e a rotacao de 32 ficheiros sairam:
+   um ficheiro so, pre-alocado, reescrito por lseek+write. */
+static char out_hdr[224];
+static u32 out_hdr_len;
 static int out_begin(void)
 {
-    char path[96];
-    char hdr[224];
-    unsigned int num;
     int k;
-    if (out_fd >= 0) return 0;
     if (log_path_index < 0) return -1;
-    num = (log_seq == 0u) ? 0u : (1u + ((log_seq - 1u) % 31u));
-    log_path_for(log_path_index, num, path, sizeof(path));
-    io_gate_lock();
-    /* 0.2.178: os ficheiros sao pré-criados no boot; abrir SEM criar (o APPEND
-       e' a operacao provada quando o FAT ja' esta' doente). So' cria se o
-       ficheiro nao existir (pendrive limpo a meio). */
-    out_fd = open(path, O_WRONLY | O_APPEND, 0666);
-    if (out_fd < 0) out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    io_gate_unlock();
-    if (out_fd < 0) { output_error = 1; return -1; }
-    output_error = 0;   /* 0.2.171: um open que passa recupera o canal */
-    k = snprintf(hdr, sizeof(hdr),
-        "# FNF PS2 %s | log v2 | despejo %u | arquivo %02u | quadros ate' %u |"
+    k = snprintf(out_hdr, sizeof(out_hdr),
+        "# FNF PS2 %s | boot %08x | log v2 | despejo %u | off %u | quadros ate' %u |"
         " anel %u | t=%u ms\n",
-        build_name, (unsigned)log_seq, num, (unsigned)frames_logged,
-        (unsigned)fring_n(), (unsigned)segundos_desde_boot());
-    if (k > 0) out_push(hdr, (unsigned)k);
+        build_name, (unsigned)g_boot_id, (unsigned)log_seq, (unsigned)g_ring_off,
+        (unsigned)frames_logged, (unsigned)fring_n(), (unsigned)segundos_desde_boot());
+    out_hdr_len = (k > 0) ? (unsigned)k : 0;
+    output_error = 0;   /* 0.2.171: um open que passa recupera o canal */
     return 1;
 }
 
-static void out_end(void)
-{
-    if (out_fd < 0) return;
-    io_gate_lock();
-    /* 0.2.175: SEM fsync. Medido: o usbhdfsd nao aceita fsync repetido (3
-       builds mortas por isso: 0.2.108-110) e o passo que publica o arquivo
-       e' o CLOSE (licao 0.2.162: BOOT.txt com open/write/fsync/close chegou
-       completo 401 vezes; o log sem close chegou com 0 bytes). O fsync do
-       despejo ficou para o TRAVA de emergencia do vigia. */
-    close(out_fd);   /* e' o close que publica o tamanho no diretorio do FAT */
-    io_gate_unlock();
-    out_fd = -1;
-}
-
-/* Fecha o despejo: escreve o que sobrou no buffer, sincroniza e fecha. Um
-   despejo = UM arquivo. Antes, o buffer de 8 KB rotacionava no meio do
-   despejo e 120 quadros gastavam 15 arquivos dos 32 -- trinta segundos de
-   historia. Agora cada arquivo tem o despejo inteiro e o cabecalho diz qual
-   pedaco da sessao ele cobre. */
+/* 0.2.180: out_end e out_push sairam -- o ring_block faz open/lseek/write/close
+   num so ponto, sobre clusters pre-alocados. */
 static void flush_output(void)
 {
     u64 t0, t1;
     if (log_path_index < 0) { output_used = 0; return; }
-    if (output_used == 0 && out_fd < 0) return;
+    if (output_used == 0) return;
     t0 = GetTimerSystemTime();
     /* 0.2.174: O QUADRO NUNCA ESPERA PELA E/S. Se o portao esta' com o
        produtor (leitura em curso -- ou o produtor PRESO dentro do usbhdfsd),
-       o despejo SALTA e o buffer fica para a proxima tentativa. Antes isto
-       era io_gate_lock() e um produtor preso congelava o jogo para sempre
-       (sessoes 0.2.172/0.2.173: freeze sempre a seguir a um despejo). */
+       o despejo SALTA e o buffer fica para a proxima tentativa. */
     if (!io_gate_trylock()) { g_flush_skip++; return; }
     g_busy = 1;
-    if (out_fd < 0 && out_begin() < 0) { g_busy = 0; output_used = 0; io_gate_unlock(); return; }
-    if (output_used) { out_push(output_buffer, output_used); output_used = 0; }
-    out_end();
+    if (out_begin() < 0) { g_busy = 0; output_used = 0; io_gate_unlock(); return; }
+    /* 0.2.180: bloco unico no anel pre-alocado. SEM fsync: o close publica. */
+    ring_block(out_hdr, out_hdr_len, output_buffer, output_used);
+    output_used = 0;
     log_seq++;
     flush_count++;
     g_busy = 0;
@@ -380,12 +444,20 @@ static void log_try_open(int *path_index)
         for (t = 0; t < tentativas; ++t) {
             char path[96];
             log_path_for(i, 0, path, sizeof(path));
-            log_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            /* 0.2.180: SEMPRE abrir sem truncar. O ficheiro e' pre-alocado
+               (2 MB de zeros) pelo bloco de pre-alocacao do main; um
+               O_TRUNC aqui -- sobretudo na reabertura tardia do
+               telemetry_phase, ja' durante o jogo -- era uma meta-op FAT
+               em cima do streaming, a classe que morre. So' cria se nao
+               existir (pendrive limpo a meio da sessao). */
+            log_fd = open(path, O_WRONLY);
+            if (log_fd < 0) log_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
             if (log_fd >= 0) {
-                /* Guarda SO' o caminho e fecha: quem escreve e' flush_output(),
-                   com open/write/fsync/close proprios. log_fd fica como
-                   sentinela "aberto" (>=0) para os testes que ja' existiam. */
+                /* Guarda o caminho e fecha: quem escreve e' flush_output(),
+                   com open/lseek/write/close proprios (ring_block). log_fd
+                   fica como sentinela "aberto" (>=0) para os testes. */
                 close(log_fd);
+                snprintf(g_log_path, sizeof(g_log_path), "%s", path);
                 log_path_index = i;
                 *path_index = i;
                 break;
@@ -407,6 +479,7 @@ int telemetry_init(const char *build_id, const char *elf_path)
     int path_index = -1;
 
     g_boot_t0 = GetTimerSystemTime();
+    g_boot_id = (u32)(g_boot_t0 & 0xffffffffu);   /* 0.2.180: id deste boot */
     record_count = 0;
     render_event_count = 0;
     render_events_dropped = 0;
@@ -691,7 +764,8 @@ void logvivo_init(void)
 {
     char path[64], z[4096];
     unsigned i;
-    lv_boot = (unsigned)(GetTimerSystemTime() & 0xffffffffu);
+    lv_boot = g_boot_id ? g_boot_id : (unsigned)(GetTimerSystemTime() & 0xffffffffu);
+    g_boot_id = lv_boot;   /* 0.2.180: LOG VIVO e anel do log com o MESMO boot id */
     lv_seq = 0;
     snprintf(path, sizeof(path), "mass:/FNFPS2/FNF_LOGVIVO.bin");
     lv_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -1000,11 +1074,12 @@ void telemetry_anomaly(const char *motivo)
 
 void telemetry_anomaly_exec(const char *motivo)
 {
-    char path[96];
     char b[448];
-    int fd, k;
+    static char blk[49152];
+    unsigned int used = 0;
+    int k;
     u64 agora = GetTimerSystemTime();
-    unsigned int i, n;
+    unsigned int i, n, n0;
 
     /* 0.2.177: se houve anomalia registada durante o jogo (fila em RAM),
        o ficheiro do TRAVA leva o MOTIVO REAL dela, nao o do vigia. */
@@ -1021,36 +1096,33 @@ void telemetry_anomaly_exec(const char *motivo)
     if (!io_gate_trylock()) return;
     g_busy = 1;
     g_anom_last = agora;
-    {
-        unsigned int num = g_anom_files;
-        /* Mesmo diretorio dos logs, nome proprio. */
-        static const char *const dirs[4] = { "mass:/FNFPS2/", "mass:/", "host:/", "mc0:/" };
-        snprintf(path, sizeof(path), "%sFNF_ANOM_%02u.txt",
-                 (log_path_index >= 0 && log_path_index < 4) ? dirs[log_path_index] : "mass:/",
-                 num);
-    }
-    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) { g_busy = 0; io_gate_unlock(); return; }
     g_anom_files++;
 
-    k = snprintf(b, sizeof(b),
-        "# ANOMALIA: %s | %s | t=%u ms | anel=%u | quadros=%u lentos=%u pior=%u us\n",
-        motivo ? motivo : "?", build_name, segundos_desde_boot() * 1000u,
+    /* 0.2.180: a anomalia vira um BLOCO do anel FNF_LOG.TXT (um ficheiro so,
+       pre-alocado) em vez do FNF_ANOM_%02u.txt rotativo. Mesmo conteudo:
+       cabecalho + as linhas Q do anel de quadros. */
+    k = snprintf(blk, sizeof(blk),
+        "# ANOMALIA: %s | boot %08x | %s | t=%u ms | anel=%u | quadros=%u lentos=%u pior=%u us\n",
+        motivo ? motivo : "?", (unsigned)g_boot_id, build_name, segundos_desde_boot() * 1000u,
         fring_n(), frames_logged, g_slow_frames, g_max_frame_us);
-    if (k > 0) { int w = write(fd, b, (u32)k); if (w <= 0) { close(fd); g_busy = 0; io_gate_unlock(); return; } }
+    used = (k > 0) ? (unsigned)k : 0;
 
     n = fring_n();
-    for (i = 0; i < n; i++) {
+    n0 = (n > 200u) ? (n - 200u) : 0u;   /* as 200 mais recentes cabem no bloco */
+    if (n0) {
+        k = snprintf(blk + used, sizeof(blk) - used, "# ANOM linhas: ultimas 200 de %u\n", n);
+        if (k > 0) used += (unsigned)k;
+    }
+    for (i = n0; i < n && used + 512u < sizeof(blk); i++) {
         unsigned int idx = (g_fring_wp + FRAME_RING - n + i) % FRAME_RING;
         const fnf_frame_t *r = &g_fring[idx];
+        char nl = '\n';
         q_line(b, sizeof(b), r);
-        { int w = write(fd, b, (u32)strlen(b));
-          char nl = '\n';
-          if (w <= 0) break;
-          if (write(fd, &nl, 1) <= 0) break; }
+        k = (int)strlen(b);
+        memcpy(blk + used, b, (unsigned)k); used += (unsigned)k;
+        blk[used++] = nl;
     }
-    fsync(fd);
-    close(fd);
+    ring_block(blk, used, "", 0);
     g_busy = 0;
     io_gate_unlock();
 }
@@ -1087,23 +1159,12 @@ void telemetry_boot(const char *linha)
     g_boot_buf[g_boot_used++] = '\n';
 }
 
-/* FNF_SESSAO.txt: reescrito inteiro (open O_TRUNC + write + fsync + close).
-   Chamado no fim do boot e em cada troca de estado -- poucas vezes, nunca no
-   laco. E' o arquivo que responde "em que maquina isto rodou". */
+/* FNF_TELA.TXT slot 8192: o ambiente do boot (antes era FNF_SESSAO.txt,
+   reescrito com O_TRUNC+fsync -- meta-ops proibidas em jogo desde a
+   0.2.180). Chamado no fim do boot e em cada troca de estado. */
 void telemetry_boot_flush(void)
 {
-    char path[96];
-    static const char *const dirs[4] = { "mass:/FNFPS2/", "mass:/", "host:/", "mc0:/" };
-    int fd, k;
     if (log_path_index < 0) return;
-    snprintf(path, sizeof(path), "%sFNF_SESSAO.txt",
-             (log_path_index >= 0 && log_path_index < 4) ? dirs[log_path_index] : "mass:/");
-    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) return;
-    k = (int)g_boot_used;
-    { int done = 0;
-      while (done < k) { int w = write(fd, g_boot_buf + done, (u32)(k - done));
-                         if (w <= 0) break; done += w; } }
-    fsync(fd);
-    close(fd);
+    if (g_boot_used == 0) return;
+    fnwrite_slot("mass:/FNFPS2/FNF_TELA.TXT", 8192u, g_boot_buf, g_boot_used);
 }

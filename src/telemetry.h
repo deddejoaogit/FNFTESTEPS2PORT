@@ -28,6 +28,14 @@ void telemetry_anomaly_exec(const char *motivo); /* 0.2.175: escrita real (threa
 void telemetry_despejo_pendente(void); /* 0.2.175: o quadro apenas PEDE o despejo */
 int telemetry_tem_pendente(void);
 void telemetry_servir_pendentes(void); /* chamado pela thread escritora */
+/* 0.2.180: escrita em SLOTS PRE-ALOCADOS. O ficheiro e' criado e pre-alocado
+   com zeros no boot; em jogo toda a escrita e' lseek+write sobre clusters
+   ja' alocados + close (nunca criar/estender/truncar/fsync). fnwrite_slot
+   escreve buf em `off` e poe um NUL a seguir; fnwrite_slot_append avanca o
+   `off` do chamador. NAO tomam o portao -- quem chama gere-o. */
+int fnwrite_slot(const char *path, u32 off, const void *buf, u32 len);
+int fnwrite_slot_append(const char *path, u32 *off, const void *buf, u32 len);
+unsigned telemetry_boot_id(void);       /* id deste boot (comum ao LOG VIVO) */
 
 /* Linha crua, escrita e esvaziada na hora: para o que nao pode esperar o
    flush do quadro (os marcos de fase). Se o jogo pendurar, o que jah passou
