@@ -95,7 +95,7 @@ static int prev_pos=0;
    mesmo tempo corrompem o estado do driver: depois de algumas
    capturas a musica e as animacoes paravam de vez, porque tanto o
    anel de audio quanto a thread de animacao leem do USB. */
-static volatile int pause_req=0,in_read=0;
+static volatile int pause_req=0,in_read=0,pause_ack=0;
 /* ---- 0.2.168: PORTAO DE I/O UNICO --------------------------------------
    O usbhdfsd nao e' reentrante (ver audio_ring.h): duas operacoes
    simultaneas -- o produtor a ler a musica e o laco/cao de guarda a escrever
@@ -165,12 +165,16 @@ static void canario_pintar(void){
 int audio_ring_stack_ok(void){
   return g_canario_vivo&&memcmp(thread_stack,g_canario_bytes,sizeof(g_canario_bytes))==0;
 }
+/* 0.2.177: HANDSHAKE de pausa. Antes esperava-se por `in_read` baixar -- mas
+   o produtor punha in_read=0 entre leituras e voltava a ler de imediato: a
+   escrita corria em PARALELO com o fluxo do usbhdfsd. Agora o produtor PARA
+   e confirma (pause_ack=1) enquanto a pausa durar; so' entao e' seguro
+   escrever. Se o produtor estiver preso dentro de um read (USB a morrer),
+   o ack nunca chega e audio_ring_pausado() devolve 0: ninguem escreve. */
 void audio_ring_pause(int p){int n=0;pause_req=p?1:0;
- if(p){while(in_read&&n++<2000)DelayThread(1000);}}
-/* 0.2.176: 1 = o produtor esta' FORA de leitura (seguro escrever); 0 = esta'
-   preso dentro de um read do usbhdfsd -- escrever agora envenena o driver.
-   O escritor serve os despejos so' com isto a 1. */
-int audio_ring_pausado(void){return in_read?0:1;}
+ if(p){while(!pause_ack&&n++<2000)DelayThread(1000);}
+ else {while(pause_ack&&n++<2000)DelayThread(1000);}}
+int audio_ring_pausado(void){return pause_ack?1:0;}
 static volatile unsigned int produced,reads_count,loops_count,errors_count,underruns_count,switches_count;
 static int source_fd=-1,mutex=-1,thread_id=-1;
 extern void *_gp;
@@ -245,7 +249,7 @@ static void soma_overlay(int got){
  }
 }
 /* ver canario_pintar() acima */
-static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){DelayThread(2000);continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
+static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){pause_ack=1;while(pause_req&&running)DelayThread(2000);pause_ack=0;continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
  if(sem_fonte){
   /* SEM FONTE: so' silencio + overlays. Se todos os overlays ja' acabaram (ou
      nao existem) nao ha' nada para produzir -- dormir aqui e' o que evita

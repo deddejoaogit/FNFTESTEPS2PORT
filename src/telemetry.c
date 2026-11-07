@@ -153,7 +153,8 @@ static char g_anom_motivo[48];
 void telemetry_despejo_pendente(void){g_flush_pede=1;}
 int telemetry_tem_pendente(void){return (int)(g_flush_pede|g_anom_pede);}
 void telemetry_servir_pendentes(void){
-    if(g_anom_pede){g_anom_pede=0;telemetry_anomaly_exec(g_anom_motivo);}
+    /* 0.2.177: SEM escrita de anomalias durante o jogo -- as anomalias sao
+       gravadas no TRAVA (fnwd_dump chama telemetry_anomaly_exec la'). */
     if(g_flush_pede){g_flush_pede=0;telemetry_flush();}
 }
 
@@ -860,6 +861,10 @@ void telemetry_anomaly_exec(const char *motivo)
     int fd, k;
     u64 agora = GetTimerSystemTime();
     unsigned int i, n;
+
+    /* 0.2.177: se houve anomalia registada durante o jogo (fila em RAM),
+       o ficheiro do TRAVA leva o MOTIVO REAL dela, nao o do vigia. */
+    if (g_anom_pede && g_anom_motivo[0]) { motivo = g_anom_motivo; g_anom_pede = 0; }
 
     if (log_path_index < 0) return;
     if (g_busy) return;                       /* o laco do jogo esta' escrevendo */

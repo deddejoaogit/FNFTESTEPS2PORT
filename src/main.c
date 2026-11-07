@@ -8196,7 +8196,11 @@ static void fnwd_dump(int dumps){
      (unsigned)g_fn_underruns,(unsigned)audio_ring_bytes_lidos(),
      (unsigned)g_sub_ok);
      write_all_fd(mfd,mk,mn);fsync(mfd);close(mfd);}}
-  telemetry_anomaly("cao_de_guarda");
+  /* 0.2.177: a HISTORIA EM RAM (192 KB de linhas Q/S/E/P + snapshots) sai
+     agora AQUI, no TRAVA -- unico momento em que escrever nao tem custo (o
+     jogo ja' parou). Antes saia em despejos periodicos que matavam o USB. */
+  telemetry_flush();
+  telemetry_anomaly_exec("cao_de_guarda");
   fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0)fd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0){
@@ -8417,6 +8421,14 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02d_s%u_f%u.rgba.txt",
              g_shot_n,(unsigned)ui,(unsigned)fr);
     audio_ring_pause(1);
+    /* 0.2.177: so' escrever com o produtor REALMENTE parado (handshake).
+       Sem isto a captura era uma escrita a correr junto do fluxo de leituras
+       -- exatamente a mistura que envenena o usbhdfsd. */
+    if(!audio_ring_pausado()){
+      audio_ring_pause(0);
+      telemetry_event("captura_adiada",g_shot_n,-3);
+      return -3;
+    }
     fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0666);
     if(fd<0){snprintf(path,sizeof(path),"mass:/FNF_SHOT_%02d.rgba.txt",g_shot_n);
              fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0666);}
@@ -12463,7 +12475,14 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       music_clock,audio_submitted,queued_bytes,ring_bytes,audio_underruns,
       audio_playing,g_paused,ui_state,target_state,transition_frame,selection);
     telemetry_snapshot("periodico",sb);
-    MARCA("telemetry_despejo");telemetry_despejo_pendente();
+    /* 0.2.177: NENHUM despejo periodico. PROVADO (0.2.173-0.2.176): cada
+       escrita no usbhdfsd durante o fluxo de leitura do audio envenena o
+       driver; ao fim de ~5 despejos as operacoes de METADADOS (open/lseek)
+       morrem -- os logs param (~f=900), o produtor prende no lseek do fim do
+       ficheiro da musica (lr=4866048 = o tamanho exacto do ficheiro, 2/2
+       sessoes) e o X de arranque congela o laco ao carregar do USB morto.
+       Os dados vivem EM RAM (buffer 192 KB + aneis) e saem TODOS no TRAVA
+       (o jogo ja' morreu: a escrita final nao tem nada que proteger). */
     /* 0.2.174: deteccao de E/S morta. Produtor sem progresso por DOIS checks
        seguidos (~10 s com musica a tocar) ou despejos a ser saltados (portao
        preso): o quadro continua e a TV mostra a faixa com os contadores. */
