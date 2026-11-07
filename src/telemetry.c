@@ -140,6 +140,8 @@ static int out_fd = -1;                 /* arquivo do despejo corrente */
 static unsigned int g_flush_us_last;    /* custo do ultimo despejo, em us */
 
 static volatile int g_busy;             /* trava simples contra o cao de guarda */
+static unsigned g_flush_skip;           /* 0.2.174: despejos saltados (portao ocupado) */
+unsigned telemetry_flush_skip(void){return g_flush_skip;}
 
 /* Escreve direto no arquivo aberto. Varias chamadas no MESMO descritor sao
    seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND). */
@@ -254,13 +256,20 @@ static void flush_output(void)
     if (log_path_index < 0) { output_used = 0; return; }
     if (output_used == 0 && out_fd < 0) return;
     t0 = GetTimerSystemTime();
+    /* 0.2.174: O QUADRO NUNCA ESPERA PELA E/S. Se o portao esta' com o
+       produtor (leitura em curso -- ou o produtor PRESO dentro do usbhdfsd),
+       o despejo SALTA e o buffer fica para a proxima tentativa. Antes isto
+       era io_gate_lock() e um produtor preso congelava o jogo para sempre
+       (sessoes 0.2.172/0.2.173: freeze sempre a seguir a um despejo). */
+    if (!io_gate_trylock()) { g_flush_skip++; return; }
     g_busy = 1;
-    if (out_fd < 0 && out_begin() < 0) { g_busy = 0; output_used = 0; return; }
+    if (out_fd < 0 && out_begin() < 0) { g_busy = 0; output_used = 0; io_gate_unlock(); return; }
     if (output_used) { out_push(output_buffer, output_used); output_used = 0; }
     out_end();
     log_seq++;
     flush_count++;
     g_busy = 0;
+    io_gate_unlock();
     t1 = GetTimerSystemTime();
     g_flush_us_last = (unsigned int)(((t1 - t0) * 1000000ull) / (u64)kBUSCLK);
 }
@@ -821,6 +830,10 @@ void telemetry_anomaly(const char *motivo)
     if (g_anom_files >= 12u) return;          /* teto: nao enche o cartao */
     if (g_anom_last && (agora - g_anom_last) < (u64)kBUSCLK) return;  /* 1 por segundo */
 
+    /* 0.2.174: portao + nunca bloquear. Sem portao esta' escrita corria em
+       paralelo com o produtor (usbhdfsd nao reentrante); com espera ficava
+       presa para sempre quando o driver encrava. Falhou o portao = SALTA. */
+    if (!io_gate_trylock()) return;
     g_busy = 1;
     g_anom_last = agora;
     {
@@ -832,14 +845,14 @@ void telemetry_anomaly(const char *motivo)
                  num);
     }
     fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) { g_busy = 0; return; }
+    if (fd < 0) { g_busy = 0; io_gate_unlock(); return; }
     g_anom_files++;
 
     k = snprintf(b, sizeof(b),
         "# ANOMALIA: %s | %s | t=%u ms | anel=%u | quadros=%u lentos=%u pior=%u us\n",
         motivo ? motivo : "?", build_name, segundos_desde_boot() * 1000u,
         fring_n(), frames_logged, g_slow_frames, g_max_frame_us);
-    if (k > 0) { int w = write(fd, b, (u32)k); if (w <= 0) { close(fd); g_busy = 0; return; } }
+    if (k > 0) { int w = write(fd, b, (u32)k); if (w <= 0) { close(fd); g_busy = 0; io_gate_unlock(); return; } }
 
     n = fring_n();
     for (i = 0; i < n; i++) {
@@ -854,6 +867,7 @@ void telemetry_anomaly(const char *motivo)
     fsync(fd);
     close(fd);
     g_busy = 0;
+    io_gate_unlock();
 }
 
 void telemetry_snapshot(const char *tag, const char *texto)

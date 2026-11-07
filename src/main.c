@@ -8166,6 +8166,10 @@ static void fnwd_dump(int dumps){
      (E/S do laco encravada = o proprio travamento), escrevemos SEM portao --
      ultimo recurso, e' para isto que a thread morre depois. */
   {int g=io_gate_trylock();
+  /* 0.2.174: SEM portao nao ha' escrita segura (usbhdfsd nao reentrante) e
+     esperar aqui mataria o vigia -- alem de so' acontecer quando o produtor
+     esta' PRESO (o proprio freeze). A TV ja' foi pintada: e' o canal. */
+  if(!g){audio_ring_pause(0);return;}
   /* 0.2.169: o MARCADOR MINIMO sai primeiro (um open+write+close de 96 B):
      se o despejo grande a seguir voltar a derrubar o driver, pelo menos a
      linha de morrencia existe. */
@@ -8174,12 +8178,12 @@ static void fnwd_dump(int dumps){
    if(mfd>=0){char mk[96];int mn=snprintf(mk,sizeof(mk),"# MARCADOR f=%u marca=%s t=%u\n",
      (unsigned)g_fn_frame,g_marca_actual,(unsigned)g_fn_beat);
      write_all_fd(mfd,mk,mn);fsync(mfd);close(mfd);}}
-  if(g)telemetry_anomaly("cao_de_guarda");
+  telemetry_anomaly("cao_de_guarda");
   fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0)fd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0){
     telemetry_error("fnwd.open",-1);
-    if(g)io_gate_unlock();
+    io_gate_unlock();
     audio_ring_pause(0);
     return;
   }
@@ -8209,11 +8213,9 @@ static void fnwd_dump(int dumps){
     write_all_fd(fd,th,n);
     for(ty=0;ty<THUMB_H;ty++)write_all_fd(fd,(const char*)(g_thumb+ty*THUMB_W),THUMB_W*4);
   }
-  io_gate_lock();
   fsync(fd);
   close(fd);
   io_gate_unlock();
-  if(g)io_gate_unlock();
   audio_ring_pause(0);
   }
 }
@@ -8243,10 +8245,15 @@ static void fnwd_thread_fn(void*arg){
   (void)arg;
   /* 0.2.171: prova de vida. Se esta linha nao existir no cartao, o vigia
      nem chegou a correr (morreu/foi preterido) -- e isso ja' e' o diagnostico. */
-  {int vfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
-   if(vfd<0)vfd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
-   if(vfd>=0){char vb[64];int vn=snprintf(vb,sizeof(vb),"# VIGIA_VIVO build=" FNF_PS2_VERSION "\n");
-     write_all_fd(vfd,vb,vn);fsync(vfd);close(vfd);}}
+  {int tenta;
+   for(tenta=0;tenta<20;tenta++){
+    int vfd,g=io_gate_trylock();
+    if(!g){DelayThread(50000);continue;}   /* portao ocupado: retry limitado */
+    vfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+    if(vfd<0)vfd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+    if(vfd>=0){char vb[64];int vn=snprintf(vb,sizeof(vb),"# VIGIA_VIVO build=" FNF_PS2_VERSION "\n");
+      write_all_fd(vfd,vb,vn);fsync(vfd);close(vfd);}
+    io_gate_unlock();break;}}
   /* Teto de vida: 6000 acordadas de 200 ms = 20 minutos. Depois disso a
      thread sai sozinha, para nao existir laco eterno de diagnostico. */
   while(!g_fnwd_stop&&dumps<FNWD_MAX_DUMPS&&wakes<6000u){
@@ -8995,6 +9002,33 @@ static void tela_marco(u32 fbaddr,int n){
     if(i<n)q=rect_alpha(q,x,420.0f,x+10.0f,438.0f,255,255,255,255);
     else   q=rect_alpha(q,x,420.0f,x+10.0f,438.0f,70,70,70,255);
   }
+  q=draw_finish(q);
+  dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
+  dma_wait_fast();packet_free(p);
+}
+
+/* 0.2.174: FAIXA VIVA DE DIAGNOSTICO. Quando o produtor de audio para (o
+   usbhdfsd presou-se numa leitura) ou os despejos comecam a ser saltados (o
+   portao esta' preso), o JOGO CONTINUA -- e a TV diz o estado, no mesmo
+   alfabeto do vigia. E' o extrador por foto quando o USB morre sem congelar:
+   barra vermelha no topo + quadro(branco), bytes lidos(verde), submissoes
+   (verde), underruns(rosa). */
+static u32 g_io_lr_visto=0,g_io_parado=0,g_io_skip_visto=0;
+static void tela_faixa_io(u32 fbaddr,unsigned lr,unsigned so,unsigned un){
+  framebuffer_t f;zbuffer_t zb;packet_t*p;qword_t*q;
+  if(!fbaddr)return;
+  p=packet_init(256,PACKET_NORMAL);
+  if(!p)return;
+  f.width=SCREEN_W;f.height=SCREEN_H;f.psm=FB_PSM;f.mask=0;f.address=fbaddr;
+  zb.enable=DRAW_DISABLE;zb.address=0;zb.mask=0;zb.zsm=0;zb.method=0;
+  q=p->data;
+  q=draw_setup_environment(q,0,&f,&zb);
+  q=gs_dither16(q);
+  q=draw_clear(q,0,0.0f,0.0f,(float)SCREEN_W,30.0f,255.0f,0.0f,0.0f);
+  fnwd_num(&q,g_fn_frame,6,20,4,18,255.0f,255.0f,255.0f);
+  fnwd_num(&q,lr,8,180,4,18,120.0f,255.0f,120.0f);
+  fnwd_num(&q,so,6,360,4,18,120.0f,255.0f,120.0f);
+  fnwd_num(&q,un,3,520,4,18,255.0f,120.0f,120.0f);
   q=draw_finish(q);
   dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
   dma_wait_fast();packet_free(p);
@@ -12374,7 +12408,16 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       music_clock,audio_submitted,queued_bytes,ring_bytes,audio_underruns,
       audio_playing,g_paused,ui_state,target_state,transition_frame,selection);
     telemetry_snapshot("periodico",sb);
-    MARCA("telemetry_flush");telemetry_flush();}
+    MARCA("telemetry_flush");telemetry_flush();
+    /* 0.2.174: deteccao de E/S morta. Produtor sem progresso por DOIS checks
+       seguidos (~10 s com musica a tocar) ou despejos a ser saltados (portao
+       preso): o quadro continua e a TV mostra a faixa com os contadores. */
+    {u32 lrAgora=audio_ring_bytes_lidos();
+     if(lrAgora==g_io_lr_visto&&audio_playing)g_io_parado++;else g_io_parado=0;
+     g_io_lr_visto=lrAgora;}
+    if(g_io_parado>0||telemetry_flush_skip()!=g_io_skip_visto){
+      g_io_skip_visto=telemetry_flush_skip();
+      tela_faixa_io((u32)fb[draw].address,audio_ring_bytes_lidos(),g_sub_ok,g_fn_underruns);}}
    if(frame_no==0)tela_marco((u32)fb[draw].address,4);
    frame_mark("F.POST",(int)frame_no);g_tm[TM_POST]=GetTimerSystemTime();g_fn_beat++;
    if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);

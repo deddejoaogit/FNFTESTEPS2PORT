@@ -14,6 +14,7 @@ void telemetry_frame(u32 frame, u64 begin, u64 after_draw, u64 after_vsync,
    o caso em que o log eh necessario. telemetry_flush() escreve o que estiver
    pendente e pode ser chamado a qualquer momento, inclusive a cada quadro. */
 void telemetry_flush(void);
+unsigned telemetry_flush_skip(void);   /* 0.2.174: despejos saltados (portao ocupado) */
 
 /* Linha crua, escrita e esvaziada na hora: para o que nao pode esperar o
    flush do quadro (os marcos de fase). Se o jogo pendurar, o que jah passou

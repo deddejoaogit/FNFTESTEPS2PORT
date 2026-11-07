@@ -139,6 +139,21 @@ def principal():
           (f_ult, '≈ fim de ciclo 300: PADRAO CONFIRMADO' if (f_ult + 2) % 300 <= 12 or f_ult % 300 >= 288 else 'nao coincide com o ciclo 300'))
         A('*  (escrita grande no USB) + a leitura em fluxo do audio = o usbhdfsd trava.')
         A('* O numero branco pintado na TV diz o quadro exacto do freeze: FOTOGRAFE A TV.')
+    # 7c. E/S morta com o jogo VIVO (assinatura da 0.2.174+): o produtor de
+    # audio para (lr deixa de crescer) mas os quadros continuam (f avanca).
+    if qs and ('lr' in qs[-1] or 'so' in qs[-1]):
+        f_lr, last_lr = None, -1
+        for l in qs:
+            v = num(l, 'lr')
+            if v > last_lr:
+                last_lr = v
+                f_lr = num(l, 'f')
+        f_last = num(qs[-1], 'f')
+        if f_lr is not None and f_last - f_lr > 300:
+            A('* PRODUTOR PAROU em f=%d e o jogo CONTINOU ate f=%d (+%.1f s):' %
+              (f_lr, f_last, (f_last - f_lr) / 60.0))
+            A('*  a E/S morreu mas o quadro VIVEU (0.2.174+). Foto da faixa')
+            A('*  vermelha na TV = os contadores no momento da morte.')
     A("* Janela cega: o que falta esta ENTRE o ultimo q-line e o fim (ver quadros cobertos).")
     print('\n'.join(L))
     return 0

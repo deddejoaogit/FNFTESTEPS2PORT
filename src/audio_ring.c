@@ -7,7 +7,11 @@
 #include <string.h>
 #include <tamtypes.h>
 
-#define RING_SIZE (256*1024)
+#define RING_SIZE (1024*1024)
+/* 0.2.174: 1 MB (era 256 KB). O usbhdfsd tem paragens de ~0,7 s e o freeze
+   mostrou o produtor a presar-se numa leitura: com 256 KB (1,3 s de musica)
+   qualquer paragem de 1 s ja' ouvia-se como stutter. 1 MB = 5,2 s de musica
+   a 192 KB/s absorve paragens de ate' 5 s sem qualquer corte. */
 /* 0.2.168: 8 KB (era 32 KB). Medido nos Q-lines: cada leitura de 32 KB
    bloqueia o IOP ~46 ms (0,7 MB/s do pendrive) e os RPCs do quadro
    (padGetState/audsrv) esperam por tras -- os picos de 53 ms a cada ~10
