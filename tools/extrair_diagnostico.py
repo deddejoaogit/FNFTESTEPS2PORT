@@ -30,6 +30,42 @@ def principal():
     A = L.append
     A('==== EXTRATOR FNF PS2 ====')
 
+    # 0. Pasta certa? (erro comum: correr na pasta das descarregamentos, onde
+    # nao ha' logs nenhuns -- o relatorio sai vazio e parece que o jogo falhou.)
+    if not (achar(pasta, 'FNF_SESSAO*.txt') or achar(pasta, 'BOOT*.txt')
+            or achar(pasta, 'FNF_TRAVA*.txt') or achar(pasta, 'FNF_LOG*.txt')):
+        A('')
+        A('!!!! ESTA PASTA NAO TEM LOGS DO JOGO !!!!')
+        A('O extractor tem de correr sobre a pasta FNFPS2 DO PENDRIVE (a que tem')
+        A('FNF_LOG*.txt, FNF_TRAVA.txt, BOOT.txt dentro). Exemplo no Windows:')
+        A('    python extrair_diagnostico.py E:\\FNFPS2')
+        A('(onde E: e\' a letra do pendrive. Tambem funciona escrever')
+        A(' `python extrair_diagnostico.py ` e ARRASTAR a pasta FNFPS2 para a')
+        A(' janela do PowerShell, depois Enter.)')
+        A('')
+        A('Procurando pastas com logs perto de %s ...' % os.path.abspath(pasta))
+        base = os.path.dirname(os.path.abspath(pasta))
+        candidatos = []
+        for raiz in (os.path.abspath(pasta), base):
+            try:
+                nomes = [raiz] + [os.path.join(raiz, n) for n in os.listdir(raiz)]
+            except OSError:
+                continue
+            for n in nomes:
+                if not os.path.isdir(n):
+                    continue
+                if (achar(n, 'FNF_LOG*.txt') or achar(n, 'FNF_TRAVA*.txt')
+                        or achar(n, 'BOOT*.txt')):
+                    candidatos.append(n)
+        if candidatos:
+            for c in sorted(set(candidatos))[:5]:
+                A('  ENCONTRADO: %s' % c)
+            A('Corre: python extrair_diagnostico.py "%s"' % sorted(set(candidatos))[0])
+        else:
+            A('  nada encontrado aqui. Interessa e\' a pasta FNFPS2 do PENDRIVE.')
+        print('\n'.join(L))
+        return 2
+
     # 1. Sessao
     sess = ler(achar(pasta, 'FNF_SESSAO*.txt')[-1]) if achar(pasta, 'FNF_SESSAO*.txt') else ''
     build = re.search(r'build=([^\s]+)', sess)
