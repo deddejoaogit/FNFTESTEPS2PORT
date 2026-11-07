@@ -7,6 +7,7 @@
 #include <timer.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -207,6 +208,8 @@ void telemetry_error(const char *onde, long codigo)
     g_err_ring[g_err_wp % ERR_RING].site = site;
     g_err_ring[g_err_wp % ERR_RING].code = (short)codigo;
     g_err_wp++; g_err_total++;
+    /* 0.2.179: todo o erro entra no LOG VIVO (onde + codigo, sempre). */
+    logvivo("EV=ERRO %s %ld", onde, codigo);
 }
 unsigned int telemetry_error_total(void) { return g_err_total; }
 unsigned int telemetry_errors_txt(char *b, unsigned int cap)
@@ -636,6 +639,101 @@ void telemetry_io(const char *op, const char *path, long result, long detail)
     write_line(line);
 }
 
+/* =====================================================================
+   0.2.179: LOG VIVO -- o log que descreve SEMPRE o que aconteceu.
+
+   METODOLOGIA (pedido do utilizador): qual o erro, que informacao identifica
+   a causa, onde ela esta', como obte-la, como a por no log.
+   Problema das 0.2.177/178: sem freeze nao havia LOG NENHUM (tudo em RAM,
+   perdido ao desligar) e as capturas gravavam 0 bytes.
+   Causa tecnica das capturas vazias: ficheiros PRE-CRIADOS mas VAZIOS = sem
+   clusters no FAT; a primeira escrita tem de ALOCAR (a operacao de metadados
+   que morre depois de minutos de fluxo de audio). Em 0.2.177 o MARCADOR
+   chegou sempre porque o FNF_TRAVA ja' tinha clusters.
+
+   SOLUCAO: um anel circular PRE-ALOCADO (FNF_LOGVIVO.bin, 512 KB de zeros
+   escritos no boot ANTES da musica). Durante o jogo escreve-se por
+   lseek+write SOBRE clusters ja' alocados -- a mesma classe de operacao das
+   leituras do audio (que duram minutos). Nada cria, nada estende, nada fecha.
+   Registos fixos de 256 B: [boot_id 8hex][seq 8hex]|payload. O extractor
+   ordena por seq e reconstrói a linha do tempo inteira.
+   O que regista (tudo): transicoes de estado, accoes do utilizador, erros
+   (local+codigo), anomalias, o ciclo de vida das capturas (inicio/fim/erro),
+   e o compacto do quadro a 2 Hz (f, tempos, estado, pad, audio, memoria).
+   SEGURANCA: o laco do quadro apenas ENFILEIRA (nao escreve); a thread
+   escritora drena 8 registos por acordada. Se uma escrita falhar, conta e
+   PARA (o jogo nunca trava por causa do log -- regra 7). */
+#define LOGVIVO_REG   256u
+#define LOGVIVO_N     2048u            /* 512 KB */
+#define LOGVIVO_FILA  96u              /* registos em RAM a espera */
+static int lv_fd = -1;
+static unsigned lv_seq, lv_boot;
+static char lv_fila[LOGVIVO_FILA][LOGVIVO_REG];
+static unsigned lv_wp, lv_n, lv_erros, lv_descartados;
+static unsigned lv_estado_ultimo = 0xffffffffu;
+
+void logvivo(const char *fmt, ...)
+{
+    char *rec;
+    va_list ap;
+    int k;
+    if (lv_n >= LOGVIVO_FILA) { lv_descartados++; return; }
+    rec = lv_fila[lv_wp % LOGVIVO_FILA];
+    k = snprintf(rec, LOGVIVO_REG, "%08x%08x|", lv_boot, lv_seq);
+    va_start(ap, fmt);
+    vsnprintf(rec + k, LOGVIVO_REG - (unsigned)k, fmt, ap);
+    va_end(ap);
+    rec[LOGVIVO_REG - 1u] = 0;
+    lv_wp++; lv_seq++; lv_n++;
+}
+
+void logvivo_init(void)
+{
+    char path[64], z[4096];
+    unsigned i;
+    lv_boot = (unsigned)(GetTimerSystemTime() & 0xffffffffu);
+    lv_seq = 0;
+    snprintf(path, sizeof(path), "mass:/FNFPS2/FNF_LOGVIVO.bin");
+    lv_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (lv_fd < 0) { telemetry_error("logvivo.init", lv_fd); return; }
+    memset(z, 0, sizeof(z));
+    for (i = 0; i < (LOGVIVO_N * LOGVIVO_REG) / sizeof(z); ++i) {
+        int w = write(lv_fd, z, (u32)sizeof(z));
+        if (w != (int)sizeof(z)) { telemetry_error("logvivo.prealloc", w); break; }
+    }
+    lseek(lv_fd, 0, SEEK_SET);
+    /* primeiro registo: o marco de boot (identifica a sessao) */
+    logvivo("BOOT build=%s t=%u", build_name, (unsigned)segundos_desde_boot());
+}
+
+/* Chamada pela thread escritora (iow): drena ate' 8 registos por acordada.
+   lseek+write sobre clusters ja' alocados -- nunca cria nem estende. */
+void logvivo_servir(void)
+{
+    int k;
+    if (lv_fd < 0) { lv_n = 0; return; }
+    for (k = 0; k < 8 && lv_n > 0; ++k) {
+        unsigned s = lv_wp - lv_n;
+        char *rec = lv_fila[s % LOGVIVO_FILA];
+        unsigned seq = 0, i;
+        for (i = 9; i < 17u; ++i) {          /* os 8 hex do seq */
+            char c = rec[i];
+            seq = seq * 16u + (unsigned)((c >= '0' && c <= '9') ? c - '0' :
+                   (c >= 'a' && c <= 'f') ? c - 'a' + 10 : 0);
+        }
+        io_gate_lock();
+        lseek(lv_fd, (long)((seq % LOGVIVO_N) * LOGVIVO_REG), SEEK_SET);
+        if (write(lv_fd, rec, LOGVIVO_REG) != (int)LOGVIVO_REG) {
+            telemetry_error("logvivo.write", (int)seq);
+            lv_erros++;
+        }
+        io_gate_unlock();
+        lv_n--;
+    }
+}
+unsigned logvivo_pendentes(void){ return lv_n; }
+unsigned logvivo_descartados(void){ return lv_descartados; }
+
 static void q_line(char *b, unsigned int tam, const fnf_frame_t *f); /* prototipo: definida abaixo */
 /* 0.2.178: as amostras Q em texto para o CORPO do TRAVA. O flush grande pode
    morrer no open() do usbhdfsd; o corpo do TRAVA escreve ANTES e estas amostras
@@ -826,6 +924,22 @@ void telemetry_frame2(const fnf_frame_t *f)
     if (g_fring_count < FRAME_RING) g_fring_count++;
     frames_logged++;
 
+    /* 0.2.179: LOG VIVO -- compacto do quadro a 2 Hz + TODA a transicao de
+       estado (o que aconteceu, quando, em que estado -- sempre no ficheiro). */
+    if ((r.frame % 30u) == 0u || r.st != lv_estado_ultimo) {
+        if (r.st != lv_estado_ultimo && lv_estado_ultimo != 0xffffffffu)
+            logvivo("EV=ESTADO %u->%u f=%u clk=%u sel=%u",
+                    lv_estado_ultimo, r.st, r.frame, r.clk, r.sel);
+        lv_estado_ultimo = r.st;
+        logvivo("Q2 f=%u t=%u vs=%u qw=%u st=%u tr=%u sel=%u pad=%04X prs=%04X q=%u r=%u un=%u so=%u lr=%u clk=%u vr=%u",
+            (unsigned)r.frame, (unsigned)r.t_total, (unsigned)r.t_vsync,
+            (unsigned)r.qwords, (unsigned)r.st, (unsigned)r.tr,
+            (unsigned)r.sel, (unsigned)r.pad, (unsigned)r.pressed,
+            (unsigned)r.queued, (unsigned)r.ring, (unsigned)r.underruns,
+            (unsigned)r.sub_ok, (unsigned)r.lr_bytes,
+            (unsigned)r.clk, (unsigned)r.vram_free);
+    }
+
     hist_add(r.t_total / 100u);          /* decimos de ms */
     if (r.t_total > g_max_frame_us) g_max_frame_us = r.t_total;
     if (r.t_total > 25000u) g_slow_frames++;
@@ -879,6 +993,9 @@ void telemetry_anomaly(const char *motivo)
                   g_anom_motivo[sizeof(g_anom_motivo)-1] = 0; }
     else g_anom_motivo[0] = 0;
     g_anom_pede = 1;
+    /* 0.2.179: a anomalia entra no LOG VIVO na hora (o ficheiro grande sai
+       so' no TRAVA). */
+    logvivo("EV=ANOM %s", motivo ? motivo : "?");
 }
 
 void telemetry_anomaly_exec(const char *motivo)

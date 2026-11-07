@@ -57,6 +57,23 @@ imagem 320×224; SELECT+R3 dispara; também sai no TRAVA.
 
 ## B. CORREÇÕES TÉCNICAS (MEDIDAS)
 
+### #14 [x] SESSÃO CEGA (0.2.178, MEDIDO — o utilizador exigiu logs que
+descrevam SEMPRE o que aconteceu) — sem freeze não havia registo nenhum (a
+RAM perdia-se ao desligar). CORRIGIDO 0.2.179: **LOG VIVO** — anel circular
+pré-alocado (`FNF_LOGVIVO.bin`, 512 KB) escrito por `lseek+write` sobre
+clusters já alocados (sem criar/estender FAT durante o jogo). Regista SEMPRE:
+transições de estado, acções (SELECT+R3), erros (local+código), anomalias, o
+ciclo de vida das capturas, e o compacto do quadro a 2 Hz (tempos, estado,
+pad, áudio, VRAM). O extractor v7 reconstrói a linha do tempo inteira.
+
+### #15 [x] Capturas 0 bytes (0.2.178, MEDIDO) — a causa: pré-criar um ficheiro
+VAZIO não aloca clusters; a primeira escrita precisa de ALOCAR no FAT (a
+operação de metadados que morre depois de minutos de fluxo de áudio). Prova:
+o MARCADOR chegava sempre ao FNF_TRAVA (que já tinha clusters). CORRIGIDO
+0.2.179: os SHOT/SAVESTATE são PRÉ-ALOCADOS com zeros no boot e as escritas
+são sobrescritas (`lseek+write`). Mais: a captura deixou de usar a pausa (que
+ficava presa e matava a música) e passou a usar só o `io_gate`.
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).

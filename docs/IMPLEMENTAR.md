@@ -81,12 +81,14 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
 - [ ] Guardar opções (volume, etc.).
 
 ## 11. DIAGNÓSTICO / LOGS (não é jogo, mas é o nosso olho)
-- [x] VALORES da TV no txt (provado na 0.2.177: `# VALORES f=30865 ...`).
-- [x] Extrador v6 com PNG (MINIATURA/capturas).
-- [~] **Captura "save state gigante"** — implementada na 0.2.178 (imagem+texto
-      em RAM, escrita pela thread escritora; ver CORRECOES #5-#6).
-- [ ] História Q no ficheiro mesmo quando o USB está doente (0.2.178: o corpo
-      do TRAVA passa a incluir as amostras Q directamente).
+- [x] VALORES da TV no txt (provado na 0.2.177).
+- [x] Extrador v7 com PNG + LOG VIVO (linha do tempo completa).
+- [x] **LOG VIVO** (0.2.179): anel circular pré-alocado — SEMPRE regista
+      transições, acções, erros, anomalias, capturas e o quadro a 2 Hz.
+- [x] **Captura "save state gigante"** (0.2.179): `FNF_SAVESTATE_xx.txt`
+      (visual/desempenho/sonora/pad/marcas/Q) + imagem 320×224, escrita pela
+      thread escritora sobre clusters pré-alocados.
+- [x] Amostras Q no corpo do TRAVA (0.2.178).
 
 ## 12. CAUSAS SEPARADAS CONHECIDAS (não são "features")
 - **pad=0000**: os registos nunca vêm bits do pad — causa própria, à parte de

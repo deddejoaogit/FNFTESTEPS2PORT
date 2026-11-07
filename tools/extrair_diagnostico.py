@@ -57,6 +57,31 @@ def converter_captura(fn):
     png_gravar(png, w, h, dados)
     return (w, h, png)
 
+def ler_logvivo(fn):
+    """FNF_LOGVIVO.bin (0.2.179): anel circular de registos fixos de 256 bytes,
+    cabecalho '[boot 8hex][seq 8hex]|'. Devolve a linha do tempo ordenada."""
+    try:
+        with open(fn, 'rb') as f:
+            dados = f.read()
+    except OSError:
+        return []
+    regs = []
+    for i in range(0, len(dados), 256):
+        rec = dados[i:i+256]
+        if len(rec) < 256:
+            break
+        if rec[16:17] != b'|':
+            continue
+        try:
+            boot = int(rec[0:8], 16)
+            seq = int(rec[8:16], 16)
+        except ValueError:
+            continue
+        payload = rec[17:].split(b'\0', 1)[0].decode('latin-1', 'replace')
+        if payload:
+            regs.append((boot, seq, payload))
+    return regs
+
 def extrair_miniatura(fn_trava):
     """Procura '# MINIATURA WxH f=N rgba32' em FNF_TRAVA e grava o PNG."""
     try:
@@ -88,7 +113,7 @@ def principal():
     # 0. Pasta certa? (erro comum: correr na pasta das descarregamentos, onde
     # nao ha' logs nenhuns -- o relatorio sai vazio e parece que o jogo falhou.)
     if not (achar(pasta, 'FNF_SESSAO*.txt') or achar(pasta, 'BOOT*.txt')
-            or achar(pasta, 'FNF_TRAVA*.txt') or achar(pasta, 'FNF_LOG*.txt')):
+            or achar(pasta, 'FNF_TRAVA*.txt') or achar(pasta, 'FNF_LOG*.txt') or achar(pasta, 'FNF_LOGVIVO*')):
         A('')
         A('!!!! ESTA PASTA NAO TEM LOGS DO JOGO !!!!')
         A('O extractor tem de correr sobre a pasta FNFPS2 DO PENDRIVE (a que tem')
@@ -222,6 +247,37 @@ def principal():
             for l in t.splitlines()[:5]:
                 if l.startswith('#'):
                     A('  %s' % l[:100])
+
+    # 6b. LOG VIVO (0.2.179) -- a linha do tempo completa, sempre presente
+    for fn in achar(pasta, 'FNF_LOGVIVO*'):
+        regs = ler_logvivo(fn)
+        if not regs:
+            A('LOG VIVO: vazio ou ilegivel (%s)' % os.path.basename(fn))
+            continue
+        boots = {}
+        for b, s, p in regs:
+            boots.setdefault(b, []).append((s, p))
+        bmax = max(boots, key=lambda b: len(boots[b]))
+        linha = sorted(boots[bmax])
+        A('---- LOG VIVO (%d registos da sessao mais recente) ----' % len(linha))
+        fs = [int(m.group(1)) for s, p in linha
+              for m in [re.search(r'f=(\d+)', p)] if m]
+        if fs:
+            A('  cobertura: f=%d..%d (~%.1f s de historia)' %
+              (fs[0], fs[-1], (fs[-1] - fs[0]) / 60.0))
+        evs2 = [p for s, p in linha if p.startswith(('EV=', 'BOOT'))]
+        A('  eventos: %d (estados/accoes/erros/anomalias/capturas)' % (len(evs2) - 1))
+        for p in evs2[:6]:
+            A('    %s' % p[:96])
+        if len(evs2) > 8:
+            A('    ...')
+        for p in evs2[-10:]:
+            A('    %s' % p[:96])
+        q2 = [p for s, p in linha if p.startswith('Q2 ')]
+        if q2:
+            A('  compactos de quadro: %d (2 Hz)' % len(q2))
+            A('    primeiro: %s' % q2[0][:96])
+            A('    ultimo:   %s' % q2[-1][:96])
 
     # 7. Conclusao automatica
     A('---- CONCLUSAO ----')
