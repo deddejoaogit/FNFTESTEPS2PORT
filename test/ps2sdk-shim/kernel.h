@@ -38,6 +38,7 @@ typedef struct {
     int initial_priority;
 } ee_thread_t;
 
+int GetThreadId(void);
 int CreateSema(ee_sema_t *s);
 int DeleteSema(int id);
 int WaitSema(int id);

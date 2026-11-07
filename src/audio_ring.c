@@ -102,14 +102,37 @@ static int io_owner=-1;      /* recursivo POR THREAD: o vigia segura o portao
                                 enquanto chama caminhos que tambem o tomam */
 static int io_depth=0;
 void io_gate_init(void){if(io_sema<0){ee_sema_t sp;sp.init_count=1;sp.max_count=1;sp.option=0;io_sema=CreateSema(&sp);}}
-void io_gate_lock(void){int me=GetThreadId();if(io_sema<0)io_gate_init();
-  if(io_owner==me){io_depth++;return;}WaitSema(io_sema);io_owner=me;io_depth=1;}
-void io_gate_unlock(void){int me=GetThreadId();
+void io_gate_lock(void){
+  int me=GetThreadId();
+  if(io_sema<0)io_gate_init();
+  if(io_owner==me){io_depth++;return;}
+  WaitSema(io_sema);
+  io_owner=me;
+  io_depth=1;}
+void io_gate_unlock(void){
+  int me=GetThreadId();
   if(io_owner!=me)return;          /* nunca desbloquear o portao dos outros */
-  if(--io_depth>0)return;io_owner=-1;SignalSema(io_sema);}
-int io_gate_trylock(void){int me=GetThreadId();if(io_sema<0){io_gate_init();return 1;}
+  if(--io_depth>0)return;
+  io_owner=-1;
+  SignalSema(io_sema);}
+/* 0.2.170: SEM PollSema. Em EE o PollSema decrementa o contador SEMPRE,
+   mesmo a negativos (medido em hardware: forum ps2dev 2005; ps2tek: "Decrements
+   the semaphore's count variable. Returns -1 if unsuccessful"). Com max_count=1
+   um trylock podia roubar o contador (1->0->-1) e o WaitSema seguinte ficava
+   bloqueado para SEMPRE: congelamento + tela preta sem som.
+   Regra: so' WaitSema/SignalSema tocam o contador. Ocupado = devolve 0 sem
+   mexer nada (a marca do chamador e' perdida, nunca corrompida). */
+int io_gate_trylock(void){
+  int me=GetThreadId();
+  if(io_sema<0){
+    io_gate_init();
+    if(io_sema<0)return 0;
+    io_owner=me;io_depth=1;return 1;
+  }
   if(io_owner==me){io_depth++;return 1;}
-  if(PollSema(io_sema)!=0)return 0;io_owner=me;io_depth=1;return 1;}
+  if(io_owner>=0)return 0;          /* ocupado por outra thread: nao tocar */
+  io_gate_lock();                   /* livre; espera usos rapidos (open) */
+  return 1;}
 
 /* ---- 0.2.168: CANARIO DA PILHA DO PRODUTOR -----------------------------
    Estouro de pilha e' candidato a travamento silencioso: pinta-se o fundo da

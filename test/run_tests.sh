@@ -664,6 +664,7 @@ if [ ! -x "$HARNESS_BIN" ]; then
 else
     ROOT=build/harness_assets
     LOG="$ROOT/FNFPS2/FNF_COLHEITA.txt"
+    [ -f "$LOG" ] || LOG=$(ls "$ROOT"/FNFPS2/FNF_LOG*.txt 2>/dev/null | sort | tail -1)
 
     # --- positivo: 1400 quadros, nenhum estouro permitido ------------------
     out=$(PS2H_FRAMES=1400 PS2H_ROOT="$ROOT" PS2H_WATCHDOG=180 \
@@ -922,6 +923,7 @@ if [ -f "${PS2SDK_HEADERS:-/tmp/fnf-ps2sdk-headers}/ee/draw/src/draw.c" ]; then
     [ $rc -eq 0 ] || { echo "$out" | tail -20; echo "  FALHA: o harness saiu com $rc no fim do sserafim"; exit 1; }
     echo "$out" | grep -q "RESULTADO: PASSOU" || { echo "$out" | tail -20; echo "  FALHA: o harness nao passou no fim do sserafim"; exit 1; }
     LOG="$RAIZ/FNFPS2/FNF_COLHEITA.txt"
+    [ -f "$LOG" ] || LOG=$(ls "$RAIZ"/FNFPS2/FNF_LOG*.txt 2>/dev/null | sort | tail -1)
     campo() { awk -F, -v n="$1" -v c="$2" '$1=="E" && $3==n {v=$c} END{print v}' "$LOG" 2>/dev/null; }
     fim=$(campo cut_endstuff_fim 4)
     q0=$(campo cut_fim_quadros 4)

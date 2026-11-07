@@ -31,6 +31,7 @@ relatório mostra a dívida medida, com a escala que cada palco teria de usar.
 import argparse
 import json
 import os
+import glob
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +41,15 @@ sys.path.insert(0, HERE)
 import vram_budget as vb
 
 PLAN = os.path.join(PROJECT, "assets-data", "stage-props.json")
+# 0.2.170: o jogo renomeou o log para FNF_LOG%02u.txt (0.2.162); as ferramentas
+# ainda liam o nome antigo FNF_COLHEITA.txt e a porta ficava sempre vermelha
+# num checkout limpo. Aceita ambos.
 LOG = os.path.join(PROJECT, "build", "harness_assets", "FNFPS2", "FNF_COLHEITA.txt")
+if not os.path.exists(LOG):
+    _dir = os.path.join(PROJECT, "build", "harness_assets", "FNFPS2")
+    _alts = sorted(glob.glob(os.path.join(_dir, "FNF_LOG*.txt")))
+    if _alts:
+        LOG = _alts[-1]
 
 BPP = 16
 MAX_TEX = 1024   # o GS nao amostra textura mais larga que isso

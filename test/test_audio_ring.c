@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <semaphore.h>
 
 #include <kernel.h>          /* os shims de test/ps2sdk-shim: ver o cabecalho */
@@ -51,6 +52,14 @@ typedef struct {
     void *arg;
 } thread_t;
 static thread_t threads[MAX_THREADS];
+
+/* 0.2.170: o portao de I/O identifica o dono por GetThreadId (recursao por
+   thread). O shim nao o tinha -- o teste de audio nunca chegava a compilar
+   porque a suite morria antes no numpy. Identidade estavel por thread. */
+int GetThreadId(void)
+{
+    return (int)(intptr_t)pthread_self();
+}
 
 int CreateSema(ee_sema_t *s)
 {
