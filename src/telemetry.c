@@ -223,6 +223,7 @@ static int out_begin(void)
     log_path_for(log_path_index, num, path, sizeof(path));
     io_gate_lock(); out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); io_gate_unlock();
     if (out_fd < 0) { output_error = 1; return -1; }
+    output_error = 0;   /* 0.2.171: um open que passa recupera o canal */
     k = snprintf(hdr, sizeof(hdr),
         "# FNF PS2 %s | log v2 | despejo %u | arquivo %02u | quadros ate' %u |"
         " anel %u | t=%u ms\n",
@@ -272,7 +273,10 @@ static void write_text(const char *text)
         output_checksum ^= (unsigned char)text[k];
         output_checksum *= 16777619u;
     }
-    while (length > 0 && !output_error) {
+    /* 0.2.171: o buffer RAM enche SEMPRE; o disco pode falhar e voltar.
+       Antes, o primeiro erro de escrita silenciava a telemetria para sempre
+       (sessao 0.2.170: Q-lines pararam no f=696 e o freeze ficou cego). */
+    while (length > 0) {
         unsigned int available = OUTPUT_BUFFER_SIZE - output_used;
         unsigned int amount;
         if (available == 0) {
@@ -505,7 +509,7 @@ void telemetry_state(u32 frame, int ui_state, int target_state, int selection,
         log_late_attempts++;
         log_try_open(&dummy);
     }
-    if (!usb_ready || log_fd < 0 || output_error) return;
+    if (!usb_ready || log_fd < 0) return;
     frames_logged++;
     snprintf(line, sizeof(line),
         "S,%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%u",
@@ -774,7 +778,7 @@ void telemetry_frame2(const fnf_frame_t *f)
         if (g_worst_n < 5u) g_worst_n++;
     }
 
-    if (!usb_ready || log_fd < 0 || output_error) {
+    if (!usb_ready || log_fd < 0) {
         if (r.t_total > 250000u) telemetry_anomaly("quadro_lento_sem_cartao");
         return;
     }

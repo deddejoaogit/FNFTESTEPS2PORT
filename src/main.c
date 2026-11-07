@@ -8155,7 +8155,12 @@ static void fnwd_start(void){
   if(g_fnwd_thread>=0)return;
   memset(&t,0,sizeof(t));
   t.func=fnwd_thread_fn;t.stack=fnwd_stack;t.stack_size=sizeof(fnwd_stack);
-  t.gp_reg=&_gp;t.initial_priority=10;   /* abaixo do audio (40) e do titulo (50) */
+  /* 0.2.171: ACIMA do titulo (50). A 0.2.170 o vigia (10) ficava SEM SER
+     ESCALONADO quando a thread principal prendia num laco -- e por isso nao
+     existia FNF_TRAVA.txt no freeze do tutorial. Com 60, o vigia preempta o
+     laco preso e escreve. Se a prioridade for lida ao contrario no kernel,
+     esta linha piora nada: fica como estava. */
+  t.gp_reg=&_gp;t.initial_priority=60;
   g_fnwd_thread=CreateThread(&t);
   if(g_fnwd_thread<0)return;
   if(StartThread(g_fnwd_thread,0)<0){DeleteThread(g_fnwd_thread);g_fnwd_thread=-1;}
@@ -8166,6 +8171,12 @@ static void fnwd_thread_fn(void*arg){
   int dumps=0;
   int paradas=0;      /* acordadas seguidas sem o quadro avancar */
   (void)arg;
+  /* 0.2.171: prova de vida. Se esta linha nao existir no cartao, o vigia
+     nem chegou a correr (morreu/foi preterido) -- e isso ja' e' o diagnostico. */
+  {int vfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+   if(vfd<0)vfd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+   if(vfd>=0){char vb[64];int vn=snprintf(vb,sizeof(vb),"# VIGIA_VIVO build=" FNF_PS2_VERSION "\n");
+     write_all_fd(vfd,vb,vn);fsync(vfd);close(vfd);}}
   /* Teto de vida: 6000 acordadas de 200 ms = 20 minutos. Depois disso a
      thread sai sozinha, para nao existir laco eterno de diagnostico. */
   while(!g_fnwd_stop&&dumps<FNWD_MAX_DUMPS&&wakes<6000u){
