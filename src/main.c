@@ -684,8 +684,8 @@ static void cut_parar_tudo(void);
    pausa ja' faz: a thread e' recriada e le do offset atual. */
 #define PLAY_REBOBINAR_AUDIO(fd) do{ \
     if((fd)>=0){int _rc; \
-     lseek((fd),0,SEEK_SET);_rc=audio_ring_reset(); \
-     if(_rc!=0){audio_ring_stop();lseek((fd),0,SEEK_SET);_rc=audio_ring_start((fd));} \
+     gio_lseek((fd),0,SEEK_SET);_rc=audio_ring_reset(); \
+     if(_rc!=0){audio_ring_stop();gio_lseek((fd),0,SEEK_SET);_rc=audio_ring_start((fd));} \
      telemetry_event("rebobinar",_rc,(int)frame_no); \
      if(_rc==0){audio_playing=1;transport_state=1;g_tutorial_audio_status=0;} \
      else g_tutorial_audio_status=-9;} \
@@ -714,8 +714,8 @@ static void cut_parar_tudo(void);
 /* Volta a tocar do ponto em que a pausa pegou. */
 #define PLAY_RETOMAR_AUDIO(fd,amostra) do{ \
     if((fd)>=0){int _fim;audsrv_stop_audio();audio_ring_stop(); \
-     _fim=(int)lseek((fd),0,SEEK_END); \
-     if(_fim>0){u64 _bp=(u64)(amostra)*8u;if(_bp>(u64)(u32)_fim)_bp=(u64)(u32)_fim;lseek((fd),(int)_bp,SEEK_SET);} \
+     _fim=(int)gio_lseek((fd),0,SEEK_END); \
+     if(_fim>0){u64 _bp=(u64)(amostra)*8u;if(_bp>(u64)(u32)_fim)_bp=(u64)(u32)_fim;gio_lseek((fd),(int)_bp,SEEK_SET);} \
      if(audio_ring_start((fd))==0){audio_submitted=(amostra);music_clock_tick=GetTimerSystemTime(); \
       music_clock_fraction=0;clock_hold=1;audio_playing=1;audio_started=1;transport_state=2;}} \
   }while(0)
@@ -871,10 +871,23 @@ extern unsigned int size_audsrv_irx;
 
 
 
+/* ==== 0.2.172: I/O DE RUNTIME SEMPRE PELO PORTAO =========================
+   O usbhdfsd NAO e' reentrante (medido e documentado no codigo desde a
+   0.2.167). O produtor de audio le COM o portao; todos os outros caminhos de
+   execucao (recarga da GF, cargas de transicao, cenas, previews) liam SEM
+   ele -- duas entradas simultaneas no driver e ele DEITA ABAIXO: ecrã parado,
+   audio morto, e ate' o vigia preso no open(). E' a causa raiz dos congelamentos
+   das sessoes 0.2.168..0.2.171. O portao e' recursivo por dono: envolver
+   caminhos que ja' o seguram e' um no-op. */
+static int gio_open(const char*p,int fl,int mo){int r;io_gate_lock();r=open(p,fl,mo);io_gate_unlock();return r;}
+static int gio_read(int fd,void*b,int n){int r;io_gate_lock();r=read(fd,b,n);io_gate_unlock();return r;}
+static void gio_close(int fd){io_gate_lock();close(fd);io_gate_unlock();}
+static long gio_lseek(int fd,long o,int w){long r;io_gate_lock();r=lseek(fd,o,w);io_gate_unlock();return r;}
+
 static int read_exact_path(const char *path, void *dst, int bytes){
- int fd=open(path,O_RDONLY),done=0; if(fd<0)return -1;
- while(done<bytes){int n=read(fd,(unsigned char*)dst+done,bytes-done);if(n<=0){close(fd);return -2;}done+=n;}
- close(fd);return 0;
+ int fd=gio_open(path,O_RDONLY,0),done=0; if(fd<0)return -1;
+ while(done<bytes){int n=gio_read(fd,(unsigned char*)dst+done,bytes-done);if(n<=0){gio_close(fd);return -2;}done+=n;}
+ gio_close(fd);return 0;
 }
 
 typedef struct {u32 offset,size;} title_lz4_entry_t;
@@ -883,7 +896,7 @@ static u32 title_u32le(const unsigned char*p){return lz4_u32le(p);}
    contra o codificador do empacotador). Aqui havia TRES copias desta mesma
    funcao, uma por familia de pacote; a quarta seria a dos personagens. */
 static int title_lz4_decode(const unsigned char*src,u32 src_size,unsigned char*dst,u32 dst_size){return lz4_bloco_decode(src,src_size,dst,dst_size);}
-static int tutorial_pack_load(const char*path,unsigned char**out,u32*out_bytes,u32 expected_count,u32 expected_frame){int fd,n,done=0;off_t end;unsigned char*p;if(*out)return 0;fd=open(path,O_RDONLY);if(fd<0)return-1;end=lseek(fd,0,SEEK_END);if(end<16||end>8*1024*1024||lseek(fd,0,SEEK_SET)<0){close(fd);return-2;}p=memalign(128,(u32)end);if(!p){close(fd);return-3;}while(done<end){n=read(fd,p+done,(int)end-done);if(n<=0){free(p);close(fd);return-4;}done+=n;}close(fd);if(memcmp(p,"CFZ4",4)||title_u32le(p+4)!=1||title_u32le(p+8)!=expected_count||title_u32le(p+12)!=expected_frame){free(p);return-5;}*out=p;*out_bytes=(u32)end;return 0;}
+static int tutorial_pack_load(const char*path,unsigned char**out,u32*out_bytes,u32 expected_count,u32 expected_frame){int fd,n,done=0;off_t end;unsigned char*p;if(*out)return 0;fd=gio_open(path,O_RDONLY,0);if(fd<0)return-1;end=gio_lseek(fd,0,SEEK_END);if(end<16||end>8*1024*1024||gio_lseek(fd,0,SEEK_SET)<0){gio_close(fd);return-2;}p=memalign(128,(u32)end);if(!p){gio_close(fd);return-3;}while(done<end){n=gio_read(fd,p+done,(int)end-done);if(n<=0){free(p);gio_close(fd);return-4;}done+=n;}gio_close(fd);if(memcmp(p,"CFZ4",4)||title_u32le(p+4)!=1||title_u32le(p+8)!=expected_count||title_u32le(p+12)!=expected_frame){free(p);return-5;}*out=p;*out_bytes=(u32)end;return 0;}
 static int tutorial_pack_frame(const unsigned char*pack,u32 bytes,u32 frame,u32 count,u32 frame_bytes,unsigned char*dst){u32 table=16u+count*8u,off,size;if(!pack||frame>=count||bytes<table)return-1;off=title_u32le(pack+16u+frame*8u);size=title_u32le(pack+20u+frame*8u);if(off>bytes||size>bytes-off)return-2;return title_lz4_decode(pack+off,size,dst,frame_bytes);}
 static void tutorial_packs_free(void){if(g_tutorial_bf_pack)free(g_tutorial_bf_pack);if(g_tutorial_gf_pack)free(g_tutorial_gf_pack);g_tutorial_bf_pack=g_tutorial_gf_pack=0;g_tutorial_bf_pack_bytes=g_tutorial_gf_pack_bytes=0;g_tutorial_bf_uploaded=g_tutorial_gf_uploaded=-1;}
 /* A GF do Tutorial vive na MESMA VRAM da gftex, mas em PSMCT16.
@@ -2419,19 +2432,19 @@ static void cut_fim_prefetch(void)
         if (g_cut_fim_pre[i]) continue;         /* ja' esta' na RAM */
         snprintf(caminho, sizeof(caminho),
                  "mass:/FNFPS2/assets/stages/sserafim/cut/%s.cfz4", nomes[i]);
-        fd = open(caminho, O_RDONLY);
+        fd = gio_open(caminho, O_RDONLY,0);
         if (fd < 0) { telemetry_event("cut_fim_pre_falha", i, -1); continue; }
-        fim = (long)lseek(fd, 0, SEEK_END);
-        if (fim <= 16) { close(fd); telemetry_event("cut_fim_pre_falha", i, -2); continue; }
+        fim = (long)gio_lseek(fd, 0, SEEK_END);
+        if (fim <= 16) { gio_close(fd); telemetry_event("cut_fim_pre_falha", i, -2); continue; }
         buf = (unsigned char *)memalign(128, (unsigned int)fim);
-        if (!buf) { close(fd); telemetry_event("cut_fim_pre_falha", i, -3); continue; }
-        lseek(fd, 0, SEEK_SET);
+        if (!buf) { gio_close(fd); telemetry_event("cut_fim_pre_falha", i, -3); continue; }
+        gio_lseek(fd, 0, SEEK_SET);
         while (lido < (unsigned int)fim) {
-            int r = read(fd, buf + lido, (int)((unsigned int)fim - lido));
+            int r = gio_read(fd, buf + lido, (int)((unsigned int)fim - lido));
             if (r <= 0) break;
             lido += (unsigned int)r;
         }
-        close(fd);
+        gio_close(fd);
         if (lido != (unsigned int)fim) {
             free(buf);
             telemetry_event("cut_fim_pre_falha", i, -4);
@@ -2693,11 +2706,11 @@ static void cut_som(const char *nome)
     int fd, slot;
     if (!g_audio_ok) { telemetry_event("cut_som_sem_audio", 0, 0); return; }
     snprintf(caminho, sizeof(caminho), "%s/stage/%s.pcm", FNF_ASSET_ROOT, nome);
-    fd = open(caminho, O_RDONLY);
+    fd = gio_open(caminho, O_RDONLY,0);
     if (fd < 0) { telemetry_event("cut_som_falta", 0, 0); return; }
     if (g_cut_som_slot >= 0) { audio_ring_overlay_parar(g_cut_som_slot); g_cut_som_slot = -1; }
     slot = audio_ring_overlay_vol(fd, 100);
-    if (slot < 0) { close(fd); telemetry_event("cut_som_sem_slot", 0, 0); return; }
+    if (slot < 0) { gio_close(fd); telemetry_event("cut_som_sem_slot", 0, 0); return; }
     g_cut_som_slot = slot;
     telemetry_event("cut_som", (int)g_cut_amostras, slot);
 }
@@ -4325,7 +4338,7 @@ static void freeplay_audio_menu_parar(void)
  if(g_title_audio_fd<0)return;
  audsrv_stop_audio();
  audio_ring_stop();
- close(g_title_audio_fd);
+ gio_close(g_title_audio_fd);
  g_title_audio_fd=-1;
  g_title_audio_submitted=0;
  g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;
@@ -4343,7 +4356,7 @@ static void freeplay_audio_soltar(void)
     e' melhor que `close` em cima de um `read` (ver src/audio_ring.c). */
  g_fpa_jfd[0]=g_fpa_jfd[1]=-1;
  g_fpa_jslot[0]=g_fpa_jslot[1]=-1;
- if(g_fpa_fd>=0){close(g_fpa_fd);g_fpa_fd=-1;}
+ if(g_fpa_fd>=0){gio_close(g_fpa_fd);g_fpa_fd=-1;}
  g_fpa_estado=FPA_OFF;
  g_fpa_amostras=0;
  g_fpa_janela_ini=g_fpa_janela_fim=0;
@@ -4370,12 +4383,12 @@ static int freeplay_audio_abrir_janela(long *ini_b,long *fim_b)
  if(!g_fpa_song){telemetry_event("freeplay_audio_sem_musica",0,0);return -1;}
  if(sr_stems_path(caminho,(unsigned int)sizeof(caminho),FNF_ASSET_ROOT,g_fpa_song)<0){
   telemetry_event("freeplay_audio_sem_musica",1,0);return -2;}
- fd=open(caminho,O_RDONLY);
+ fd=gio_open(caminho,O_RDONLY,0);
  if(fd<0){telemetry_event("freeplay_audio_falta",(int)g_fpa_song->id[0],0);return -3;}
- total=(long)lseek(fd,0,SEEK_END);
- if(total<=0){close(fd);telemetry_event("freeplay_audio_vazio",(int)total,0);return -4;}
+ total=(long)gio_lseek(fd,0,SEEK_END);
+ if(total<=0){gio_close(fd);telemetry_event("freeplay_audio_vazio",(int)total,0);return -4;}
  if(fp_aud_janela(total,FP_AUD_PREVIEW_INI,FP_AUD_PREVIEW_FIM,ini_b,fim_b)!=0){
-  close(fd);telemetry_event("freeplay_audio_janela_ruim",(int)total,0);return -5;}
+  gio_close(fd);telemetry_event("freeplay_audio_janela_ruim",(int)total,0);return -5;}
  am=fp_aud_janela_amostras(*ini_b,*fim_b);
  if(audio_ring_iniciar_preview(fd,*ini_b,*fim_b)!=0){
   close(fd);telemetry_event("freeplay_audio_ring_falhou",0,0);return -6;}
@@ -7251,7 +7264,7 @@ static void gameover_audio_iniciar(void)
  rc=audio_ring_start_overlay(g_go_ov_fd);
  if(rc!=0){
   telemetry_event("gameover_audio_falhou",rc,g_go_ov_fd);
-  if(g_go_ov_fd>=0){close(g_go_ov_fd);g_go_ov_fd=-1;}
+  if(g_go_ov_fd>=0){gio_close(g_go_ov_fd);g_go_ov_fd=-1;}
   return;
  }
  g_go_audio_estado=1;
@@ -7409,10 +7422,10 @@ static int pause_audio_iniciar(void)
  {unsigned int r=(unsigned int)(++g_pause_abertos)*2654435761u+12345u;int meio=tam/2,off=0;
   r=r*1664525u+1013904223u;
   if(meio>=4){unsigned int n=(unsigned)(meio/4);off=(int)((r>>8)%(n+1u))*4;}
-  lseek(fd,off,SEEK_SET);
+  gio_lseek(fd,off,SEEK_SET);
   telemetry_event("pause_musica_offset",off,tam);}
  if(audio_ring_start_loop(fd,1)!=0){
-  close(fd);
+  gio_close(fd);
   telemetry_event("pause_musica_falhou",0,0);
   return -1;
  }
@@ -9646,7 +9659,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(ui_state==6&&transition_frame>0)menu_cam_y+=(40.0f+160.0f*(float)selection-menu_cam_y)*0.06f;
   frame_mark("F.TITLE",ui_state);
   if(frame_no==0){capture_status("F0_INPUT_STATE_DONE",-1,0);}if(ui_state==0&&title_intro_active&&!title_ng_restored){if(title_intro_phase()>=8u){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;title_ng_restored=1;}}
-  if((ui_state==0||ui_state==6||ui_state==7)&&g_gf_reload_active==1){u32 left=g_gf_reload_total-g_gf_reload_offset,want=left>32768u?32768u:left;int got=read(g_gf_reload_fd,g_gf_pixels+g_gf_reload_offset,(int)want);if(got<=0){close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=3;}else{g_gf_reload_offset+=(u32)got;if(g_gf_reload_offset==g_gf_reload_total){close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=2;FlushCache(0);}}}
+  if((ui_state==0||ui_state==6||ui_state==7)&&g_gf_reload_active==1){u32 left=g_gf_reload_total-g_gf_reload_offset,want=left>32768u?32768u:left;int got=gio_read(g_gf_reload_fd,g_gf_pixels+g_gf_reload_offset,(int)want);if(got<=0){gio_close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=3;}else{g_gf_reload_offset+=(u32)got;if(g_gf_reload_offset==g_gf_reload_total){gio_close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=2;FlushCache(0);}}}
   if(ui_state==0&&title_confirm_frames>0){title_confirm_frames--;if(title_confirm_frames==0){target_state=6;transition_frame=1;transitions++;}}
   /* Incremental menu ownership: begin as soon as the fade starts, process at
    * most 64 KiB output per video frame, and hold only at the opaque midpoint. */
@@ -9829,7 +9842,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
    if(g_play_song){
     char ap[192];
     if(sr_stems_path(ap,(unsigned)sizeof(ap),FNF_ASSET_ROOT,g_play_song)>0){
-     audio_fd=open(ap,O_RDONLY);
+     audio_fd=gio_open(ap,O_RDONLY,0);
      if(audio_fd>=0)snprintf(g_audio_fonte,sizeof(g_audio_fonte),"%s",ap);
     }
     telemetry_event("play_audio_path",audio_fd,(int)sizeof(ap));
@@ -9838,7 +9851,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       pertence. Usar o stems do Tutorial para tocar Bopeebo seria tocar a musica
       errada com o chart certo -- pior do que admitir que falta o audio. */
    if(audio_fd<0&&g_play_song&&strcmp(g_play_song->id,"tutorial")==0){
-    audio_fd=open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY);
+    audio_fd=gio_open("mass:/FNFPS2/assets/audio_stems.pcm",O_RDONLY,0);
     if(audio_fd>=0)snprintf(g_audio_fonte,sizeof(g_audio_fonte),"%s",
                             "mass:/FNFPS2/assets/audio_stems.pcm");
    }
