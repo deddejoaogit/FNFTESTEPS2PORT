@@ -7924,9 +7924,11 @@ static void boot_mark(const char*phase,int code){
   int fd;char b[128];int n;
   if(g_boot_mark_n>60)return;   /* 0.2.164: 400 marcas = 80 s de E/S a 5/s */
   g_boot_mark_n++;
+  {int g=io_gate_trylock();(void)g;
   fd=open("mass:/FNFPS2/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
   if(fd<0)fd=open("mass:/BOOT.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
-  if(fd<0)return;
+  io_gate_unlock();}
+  if(fd<0){telemetry_error("boot_mark.open",fd);return;}
   n=snprintf(b,sizeof(b),"passo %d: %s code=%d\n",g_boot_mark_n,phase,code);
   write_all_fd(fd,b,n);
   fsync(fd);
@@ -8074,11 +8076,11 @@ static void frame_mark(const char*phase,int code){
   r->queued=g_qrpc_cache;r->ring=(u32)audio_ring_level();
   r->submits=(u32)g_audsrv_submit_errors;r->zeros=(u32)g_audsrv_zero_events;
   g_fnring_wp++;
-  if(g_fn_last_write&&now-g_fn_last_write<FNMARK_MIN_GAP_TICKS&&
-     (g_fn_frame-g_fn_last_write_frame)<FNMARK_FRAME_GATE)return;
-  g_fn_last_write=now;
-  g_fn_last_write_frame=g_fn_frame;
-  fnmark_flush();
+  /* 0.2.169: SEM escrita periodica. O anel e' RAM; o cao de guarda o despeja.
+     A escrita aqui (BOOT.txt a cada 600 quadros/10 s) foi a que matou as
+     sessoes 0.2.167 e 0.2.168 logo apos o quadro 600: duas escritas seguidas
+     (despejo grande + BOOT.txt) derrubavam o usbhdfsd. */
+  (void)now;
 }
 
 /* Grava as ultimas posicoes. Usada SO pelo cao de guarda, quando o jogo parou. */
@@ -8094,6 +8096,14 @@ static void fnwd_dump(int dumps){
      (E/S do laco encravada = o proprio travamento), escrevemos SEM portao --
      ultimo recurso, e' para isto que a thread morre depois. */
   {int g=io_gate_trylock();
+  /* 0.2.169: o MARCADOR MINIMO sai primeiro (um open+write+close de 96 B):
+     se o despejo grande a seguir voltar a derrubar o driver, pelo menos a
+     linha de morrencia existe. */
+  {int mfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+   if(mfd<0)mfd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+   if(mfd>=0){char mk[96];int mn=snprintf(mk,sizeof(mk),"# MARCADOR f=%u marca=%s t=%u\n",
+     (unsigned)g_fn_frame,g_marca_actual,(unsigned)g_fn_beat);
+     write_all_fd(mfd,mk,mn);fsync(mfd);close(mfd);}}
   if(g)telemetry_anomaly("cao_de_guarda");
   fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0)fd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
@@ -9107,7 +9117,7 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
  {char b[256];
   snprintf(b,sizeof(b),"build=%s elf=%s",FNF_PS2_VERSION,argc?argv[0]:"?");
   telemetry_boot(b);
-  snprintf(b,sizeof(b),"telemetry_init=%d tel_result=%d frames_por_despejo=300",
+  snprintf(b,sizeof(b),"telemetry_init=%d tel_result=%d frames_por_despejo=700",
            g_telemetry_init_result,(int)0);
   telemetry_boot(b);
   snprintf(b,sizeof(b),"fisico=%dx%d logico=%dx%d psm=%d aspect169=%d viewport360=%d",
@@ -9145,7 +9155,13 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
      deixou de ser um por quadro. */
   {static u64 fn_ultimo_marco=0;u64 fn_agora=GetTimerSystemTime();
    if(frame_no<3u||fn_ultimo_marco==0||fn_agora-fn_ultimo_marco>=(u64)kBUSCLK/5u){
-     if(fn_agora)fn_ultimo_marco=fn_agora;capture_status("FRAME",(int)frame_no,ui_state);}}
+     if(fn_agora)fn_ultimo_marco=fn_agora;
+     /* 0.2.169: o marco FRAME NAO escreve mais em USB. O boot_mark() abria
+        BOOT.txt (open+write+fsync+close) a cada 200 ms durante os primeiros
+        ~60 marcas: os picos de 53-83 ms medidos em "in" E a corrida contra as
+        leituras do produtor (sem portao) que matava o usbhdfsd. O marco fica
+        em RAM (telemetry_phase) -- o vigia e' quem o despeja quando interessa. */
+     telemetry_phase("FRAME",(int)frame_no,ui_state);}}
   if(g_congelar){g_congelar=0;fnx_congelado2(-1,frame_no,ui_state,selection,menu_cam_y,g_held);g_cong_frames=180;}if(g_cong_frames>0){g_cong_frames--;graph_wait_vsync();continue;}if(frame_no==0){capture_status("F0_TIMER_DONE",-1,0);}if(frame_no==0){capture_status("F0_PAD_READ_BEGIN",-1,0);}MARCA("buttons_pressed");pressed=buttons_pressed();frame_mark("F.IN",(int)pressed);g_tm[TM_IN]=GetTimerSystemTime();
 #ifdef PS2H
   if(frame_no==0){int wk=ps2h_semana_inicial();if(wk>=0){const sr_level_t*lvs=sr_level(wk);if(lvs&&lvs->song_count){int d=ps2h_dificuldade_inicial();if(d>=0&&d<3)story_diff=d;g_story_mode=1;g_story_week=wk;g_fp_active=0;g_fp_play_song=0;g_playlist_n=(int)lvs->song_count;g_playlist_i=0;campanha_zerar();g_play_level=(unsigned)wk;g_play_song_index=0;g_practice_mode=0;fnf_play_set_practice(&g_play,0);target_state=8;transition_frame=1;transitions++;telemetry_event("harness_start",wk,g_playlist_n);}}}
@@ -12264,7 +12280,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       (fl=58810 us mediano) -- a 300 quadros era 1,2% do tempo num salto
       visivel a cada 5 s. */
    if((frame_no%1800u)==0u&&frame_no>0){MARCA("miniatura");capture_thumb_ram((u32)fb[draw].address<<5);}
-   if((frame_no%600u)==0u){
+   if((frame_no%700u)==0u){
     /* Snapshot periodico: o estado da maquina a cada 5 s, no mesmo fluxo.
        Memoria (VRAM livre, buffers do port), relogio e anel de audio, e a
        maquina de estados. E' o "valor nas memorias" que o log tem de ter. */

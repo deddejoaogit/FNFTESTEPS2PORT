@@ -64,7 +64,7 @@ static int exec_irx(void *data, unsigned int size)
  * comprometidos, e NAO aceita fsync repetido entre blocos: a sincronizacao
  * acontece uma vez, no flush, e nao em cada linha.
  */
-#define OUTPUT_BUFFER_SIZE 65536
+#define OUTPUT_BUFFER_SIZE (192*1024)
 static char output_buffer[OUTPUT_BUFFER_SIZE];
 static unsigned int output_used;
 static unsigned int output_checksum;
@@ -120,6 +120,7 @@ static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
    para escrita (fica so' como "ja sei em qual caminho abrir"), para nao haver
    dois escritores no mesmo arquivo -- que ja' custou uma colheita vazia antes. */
 static int log_path_index = -1;
+static unsigned int output_dropped;   /* 0.2.169: linhas descartadas */
 
 /* Anel de quadros completo (0.2.165). Fica em RAM (512 x ~70 B = 35 KB) e
    so' vai para o cartao quando algo anormal acontece -- ver telemetry_frame2()
@@ -275,10 +276,10 @@ static void write_text(const char *text)
         unsigned int available = OUTPUT_BUFFER_SIZE - output_used;
         unsigned int amount;
         if (available == 0) {
-            if (out_fd < 0 && out_begin() < 0) { output_used = 0; return; }
-            out_push(output_buffer, output_used);
-            output_used = 0;
-            available = OUTPUT_BUFFER_SIZE;
+            /* 0.2.169: NUNCA abrir/escrever arquivo a meio do quadro. Buffer
+               cheio = descartar a linha nova e contar (DROPS no despejo). */
+            output_dropped++;
+            return;
         }
         amount = length < available ? length : available;
         memcpy(output_buffer + output_used, text, amount);
@@ -596,7 +597,10 @@ void telemetry_flush(void)
     u32 i;
     if (!usb_ready) return;
 
-    for (i = 0; i < record_count && !output_error; ++i) {
+    /* 0.2.169: F-records FORA do despejo (o anel Q cobre os quadros).
+       Corta o despejo de ~118 KB para ~60 KB. */
+    record_count = 0;
+    for (i = 0; i < 0 && !output_error; ++i) {
         frame_record_t *r = &records[i];
         u64 draw_ticks = r->draw_done - r->begin;
         u64 wait_ticks = r->vsync_done - r->draw_done;
