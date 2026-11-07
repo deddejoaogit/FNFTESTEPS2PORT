@@ -8131,7 +8131,13 @@ static void fnwd_pintar(void){
  graph_set_bgcolor(0,0,0);
  fb.width=SCREEN_W;fb.height=SCREEN_H;fb.psm=FB_PSM;fb.mask=0;fb.address=nova;
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
- p=packet_init(2048,PACKET_NORMAL);
+ p=packet_init(4096,PACKET_NORMAL);
+ /* 0.2.181: eram 2048 qwords e o ASan do harness apanhou heap-buffer-overflow
+    AQUI (draw_clear escrevia 8 bytes alem do fim): o vigia pinta 39 digitos x
+    7 segmentos x ~8 qwords = ~2222 qwords no pior caso (todos os digitos aceso),
+    mais o setup -- os 2048 estouravam por pouco e a corrupcao era intermitente.
+    No consola, o estouro escrevia sobre o heap do EE e mandava GIF lixo: o
+    ecrã de diagnóstico do freeze podia ele proprio derrubar o jogo. */
  if(!p)return;
  q=p->data;
  q=draw_setup_environment(q,0,&fb,&z);
@@ -9210,25 +9216,39 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    lseek+write sobre clusters ja' alocados (a classe provada). Criar/estender/
    truncar em jogo e' o que morre depois de minutos de streaming. */
 {static const struct{const char*n;unsigned sz;}slots[]={
+   /* 0.2.181: tamanhos <= 512 KB (o tamanho grande PROVADO neste consola) e
+      o padrao EXACTO do logvivo_init (criar de novo + encher de uma assentada
+      + fechar). Sem lseek, sem estender ficheiros existentes. A 0.2.180
+      estendeu o FNF_LOG.TXT (acabado de escrever, 978 B) em 2 MB dentro de
+      um ciclo fechado de writes e o usbhdfsd morreu ali mesmo: BOOT ficou em
+      "passo 2: USB_PRONTO" e o jogo nunca pintou nada (tela preta). O anel
+      do log passa a 512 KB (cabe ~2 h de despejos de 5 s) e o FNF_TELA sobe
+      a 128 KB para o ESTADO (SELECT+R1) nunca estender em jogo. */
    {"mass:/FNFPS2/FNF_BOOT.TXT",8192u},
-   {"mass:/FNFPS2/FNF_LOG.TXT",2097152u},
+   {"mass:/FNFPS2/FNF_LOG.TXT",524288u},
    {"mass:/FNFPS2/FNF_TRAVA.TXT",262144u},
-   {"mass:/FNFPS2/FNF_TELA.TXT",65536u},
+   {"mass:/FNFPS2/FNF_TELA.TXT",131072u},
    {"mass:/FNFPS2/FNF_ERRO.TXT",16384u},
    {"mass:/FNFPS2/FNF_SHOT.rgba",286720u},
    {"mass:/FNFPS2/FNF_SAVESTATE.bin",49152u},
    {0,0}};
- char z[4096];unsigned si;memset(z,0,sizeof(z));
+ char z[4096];unsigned si,k;memset(z,0,sizeof(z));
  for(si=0;slots[si].n;si++){
-  int pfd=open(slots[si].n,O_WRONLY|O_CREAT,0666);
-  if(pfd>=0){long tem=lseek(pfd,0,SEEK_END);unsigned falta;
-   if(tem<0)tem=0;
-   falta=(tem>=(long)slots[si].sz)?0u:(slots[si].sz-(unsigned)tem);
-   if(falta){unsigned k;for(k=0;k<falta;k+=(unsigned)sizeof(z)){
-     unsigned fat=falta-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):falta-k;
-     if(write(pfd,z,fat)!=(int)fat)break;}}
+  int pfd;const char*nm=slots[si].n;const char*sl=strrchr(nm,'/');char lbl[48];
+  if(sl)nm=sl+1;
+  /* O marco ANTES do preenchimento: se o boot morrer outra vez, o FNF_BOOT
+     diz exactamente em qual ficheiro (0.2.180 nao tinha marcas aqui e foi
+     preciso inferir tudo pelo tamanho dos ficheiros). */
+  snprintf(lbl,sizeof(lbl),"PREALLOC %s",nm);
+  boot_mark(lbl,0);
+  pfd=open(slots[si].n,O_WRONLY|O_CREAT|O_TRUNC,0666);
+  if(pfd>=0){
+   for(k=0;k<slots[si].sz;k+=(unsigned)sizeof(z)){
+    unsigned fat=slots[si].sz-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):slots[si].sz-k;
+    if(write(pfd,z,fat)!=(int)fat)break;}
    close(pfd);}}}
 g_slots_prontos=1;
+telemetry_log_descritivo(); /* 0.2.181: o bloco descritivo entra por cima dos zeros */
 logvivo_init();   /* 0.2.179: o LOG VIVO (512 KB pre-alocados, anel circular) */
 /* O log NAO eh truncado aqui. telemetry_init() jah o abriu com O_APPEND e jah
    escreveu o cabecalho; reabrir com O_TRUNC apagava esse cabecalho e deixava

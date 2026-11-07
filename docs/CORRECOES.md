@@ -1,4 +1,4 @@
-# CORREÇÕES — FNF PS2 (actualizado na 0.2.180)
+# CORREÇÕES — FNF PS2 (actualizado na 0.2.181)
 
 Documento pedido pelo utilizador: **absolutamente tudo o que precisa de ser
 corrigido**, incluindo TODAS as correções que ele cita. Cada entrada: número,
@@ -110,6 +110,34 @@ de nomes fixos (FNF_BOOT.TXT, FNF_LOG.TXT, FNF_TRAVA.TXT, FNF_TELA.TXT,
 FNF_ERRO.TXT) + FNF_LOGVIVO.bin + FNF_SHOT.rgba + FNF_SAVESTATE.bin. Os
 antigos nomes rotativos desapareceram; o extractor v8 lê o layout novo E o
 antigo.
+
+### #18 [x] TELA PRETA NO BOOT (0.2.180, UTILIZADOR + MEDIDO) — REGRESSÃO
+"O jogo não abriu, tela preta e sem som." FALHA TOTAL de arranque logo após a
+0.2.179 (que entrava no tutorial). Prova dos ficheiros enviados: FNF_BOOT.TXT
+= 8192 B com a última marca "passo 2: USB_PRONTO" (o slot foi preenchido até
+ao fim) e FNF_LOG.TXT = 978 B (SÓ o cabeçalho da telemetria — o preenchimento
+de zeros não escreveu UM byte sequer). Cadeia: entre a marca "USB_PRONTO" e a
+seguinte só existia o novo laço de pré-alocação; ele preencheu o FNF_BOOT
+(8 KB, OK) e MORREU no primeiro write do FNF_LOG.TXT — um ficheiro acabado de
+escrever (978 B) que se estava a ESTENDER em 2 MB dentro de um ciclo fechado
+de writes sem pausas. A 0.2.179 o maior preenchimento de boot era 512 KB
+(LOG VIVO) e nunca houve uma extensão destas. CORRIGIDO 0.2.181: pré-alocação
+usa o padrão PROVADO do logvivo_init (criar de novo O_TRUNC + preencher de uma
+assentada + fechar), cada ficheiro ≤ 512 KB (anel do log = 512 KB, cabe ~2 h de
+despejos), com marca "PREALLOC <nome>" ANTES de cada ficheiro (se morrer de
+novo, o BOOT diz exactamente em qual) e o bloco descritivo do log passa a ser
+escrito DEPOIS da pré-alocação (antes morria com o truncamento).
+
+### #19 [x] ESTOURO DE HEAP no ecrã de diagnóstico do vigia (0.2.181, MEDIDO
+com AddressSanitizer no harness) — bug LATENTE, independente do #18.
+"corrupted size vs. prev_size" intermitente no harness. ASan: heap-buffer-
+overflow em draw_clear ← fnwd_dig ← fnwd_num ← fnwd_pintar ← fnwd_dump — o
+pacote DMA do vigia era packet_init(2048) = 2048 qwords e o ecrã pinta 39
+dígitos × 7 segmentos × ~8 qwords ≈ 2222 qwords no pior caso. No consola isto
+escrevia sobre o heap do EE e mandava GIF lixo quando o vigia disparava (num
+freeze): o ecrã de diagnóstico podia ele próprio derrubar o jogo. CORRIGIDO
+0.2.181: packet_init(4096) (o mesmo tamanho do pacote do quadro principal).
+Prova: 6 execuções ASan seguidas limpas (antes falhava em ≤8).
 
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).

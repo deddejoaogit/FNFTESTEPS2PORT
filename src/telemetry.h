@@ -2,6 +2,10 @@
 #define FNF_TELEMETRY_H
 #include <tamtypes.h>
 int telemetry_init(const char *build_id, const char *elf_path);
+/* 0.2.181: o bloco descritivo do FNF_LOG.TXT (build/elf/formato das colunas),
+   chamado pelo main DEPOIS da pre-alocacao dos slots -- antes saia dentro do
+   init e morria quando a pre-alocacao truncava o ficheiro. */
+void telemetry_log_descritivo(void);
 void telemetry_event(const char *name, int a, int b);
 void telemetry_frame(u32 frame, u64 begin, u64 after_draw, u64 after_vsync,
                      unsigned short pressed, int animation, int animation_frame,

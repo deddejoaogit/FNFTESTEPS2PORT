@@ -124,7 +124,10 @@ static void log_path_for(int idx, unsigned seq, char *out, unsigned int size)
    lseek+write sobre clusters ja' alocados, seguida de close (o close e' o
    que publica -- licao 0.2.162). NUNCA criar, estender, truncar ou fsync
    durante o jogo. */
-#define FN_RING_SIZE (2u*1024u*1024u)   /* anel do FNF_LOG.TXT */
+#define FN_RING_SIZE (512u*1024u)   /* anel do FNF_LOG.TXT (0.2.181: 512 KB --
+   o preenchimento unico de 2 MB da 0.2.180 matou o usbhdfsd no boot; 512 KB e'
+   o tamanho grande PROVADO neste consola (o LOG VIVO enche 512 KB desde a
+   0.2.179 e sobrevive sempre). Cabe ~2 h de despejos de 5 s. */
 static u32 g_ring_off;                  /* posicao corrente do anel */
 static char g_log_path[96];             /* caminho escolhido pelo log_try_open */
 static u32 g_boot_id;                   /* identificador deste boot */
@@ -472,6 +475,10 @@ static void log_try_open(int *path_index)
 static int log_late_attempts;
 #define LOG_LATE_MAX 40
 
+/* 0.2.181: dados do init guardados para o bloco descritivo (que sai depois
+   da pre-alocacao dos slots, ja' fora do telemetry_init). */
+static int g_desc_caminho = -1, g_desc_modulos = 0, g_desc_falhas = 0;
+
 int telemetry_init(const char *build_id, const char *elf_path)
 {
     int modules_loaded = 0;
@@ -522,10 +529,27 @@ int telemetry_init(const char *build_id, const char *elf_path)
     }
 
     usb_ready = 1;
-    {
-        char line[512];
-        /* O cabecalho sai no init, nao no fim: se o port travar no meio, o
-           arquivo jah comeca dizendo que build eh este e em que modo. */
+    /* 0.2.181: o bloco descritivo NAO sai mais aqui. Sai em
+       telemetry_log_descritivo(), chamado pelo main DEPOIS da pre-alocacao
+       dos slots: a pre-alocacao 0.2.180 truncava e enchia o FNF_LOG.TXT e o
+       cabecalho escrito aqui morria com ela. Agora o bloco entra por cima
+       dos zeros, no offset 0 do anel. */
+    g_desc_caminho = path_index;
+    g_desc_modulos = modules_loaded;
+    g_desc_falhas = module_failures;
+    return 0;
+}
+
+/* O bloco descritivo do FNF_LOG.TXT (build, elf, formato das colunas).
+   Chamado UMA vez pelo main depois da pre-alocacao dos slots. As linhas de
+   fase anteriores (P,META_BEGIN, P,USB_PRONTO...) ja' estao no buffer e saem
+   primeiro -- o bloco 0 fica a contar a historia do boot por ordem. */
+void telemetry_log_descritivo(void)
+{
+    char line[512];
+    if (!usb_ready || log_fd < 0) return;
+        /* O cabecalho diz que build e este e em que modo, logo no primeiro
+           bloco: se o port travar depois, o arquivo ja' se identifica. */
         output_checksum = 2166136261u;
         snprintf(line, sizeof(line), "# FNF PS2 TELEMETRIA CONTINUA build=%.63s", build_name);
         write_line(line);
@@ -539,12 +563,10 @@ int telemetry_init(const char *build_id, const char *elf_path)
         /* Resultado da abertura: diz se o lancador jah tinha montado o mass:,
            quantos modulos falharam, e em qual caminho o arquivo foi parar. */
         snprintf(line, sizeof(line), "# init ok caminho=%d modulos_carregados=%d falhas_modulo=%d aberto_direto=%d",
-                 path_index, modules_loaded, module_failures, modules_loaded ? 0 : 1);
+                 g_desc_caminho, g_desc_modulos, g_desc_falhas, g_desc_modulos ? 0 : 1);
         write_line(line);
         flush_output();
         /* fsync ja feito dentro de flush_output() */
-    }
-    return 0;
 }
 
 /* O que a tela mostra no canto. Se o log nao abriu, isso eh a UNICA pista que

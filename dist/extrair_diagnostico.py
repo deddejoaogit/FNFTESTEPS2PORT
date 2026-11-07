@@ -224,6 +224,10 @@ def principal():
     if not marca and achar(pasta, 'BOOT*.txt'):
         marca = ler(achar(pasta, 'BOOT*.txt')[-1]).strip()
     A('boot ultimo passo: %s' % (marca.replace('\n', ' | ')[:90] or 'nada'))
+    if marca and 'PREALLOC' in marca:
+        A('* O BOOT MORREU NA PRE-ALOCACAO (0.2.181+): o ficheiro nomeado acima')
+        A('*  e o ULTIMO que comecou a preencher. Compare os tamanhos abaixo:')
+        A('*  os incompletos dizem ate onde o preenchimento chegou.')
 
     # 2. Vigia (novo: slots do FNF_TRAVA.TXT; antigo: FNF_TRAVA*.txt)
     trava_txt = ''
@@ -408,6 +412,20 @@ def principal():
             A('---- ANEL DE MARCAS (ultimas posicoes do laco) ----')
             for l in anel.splitlines()[-10:]:
                 A('  %s' % l[:100])
+
+    # 6f. Tamanhos dos ficheiros fixos (0.2.181: prova da pre-alocacao)
+    esperados = ((fn_boot, 8192, 'FNF_BOOT.TXT'), (fn_log, 524288, 'FNF_LOG.TXT'),
+                 (fn_trava, 262144, 'FNF_TRAVA.TXT'), (fn_tela, 131072, 'FNF_TELA.TXT'),
+                 (fn_erro, 16384, 'FNF_ERRO.TXT'), (fn_shot, 286720, 'FNF_SHOT.rgba'),
+                 (fn_state, 49152, 'FNF_SAVESTATE.bin'))
+    A('---- PRE-ALOCACAO (tamanho actual / esperado) ----')
+    for fn, esp, nome in esperados:
+        if os.path.exists(fn):
+            sz = os.path.getsize(fn)
+            marca_sz = 'OK' if sz == esp else ('INCOMPLETO <--' if sz < esp else 'MAIOR (sessao antiga?)')
+            A('  %s: %d / %d  %s' % (nome, sz, esp, marca_sz))
+        else:
+            A('  %s: FALTA (nunca chegou a ser pre-alocado)' % nome)
 
     # 7. Conclusao automatica
     A('---- CONCLUSAO ----')

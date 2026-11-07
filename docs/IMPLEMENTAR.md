@@ -95,14 +95,15 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
       (visual/desempenho/sonora/pad/marcas/Q) + imagem `FNF_SHOT.rgba`
       320×224, escrita pela thread escritora sobre clusters pré-alocados.
 - [x] Amostras Q no corpo do TRAVA (0.2.178).
-- [x] **5 TXT de nomes fixos + 2 bin (0.2.180, pedido do utilizador):**
+- [x] **5 TXT de nomes fixos + 2 bin (0.2.180/181, pedido do utilizador):**
       `FNF_BOOT.TXT` (marca+anel de marcas), `FNF_LOG.TXT` (anel de despejos
-      Q/eventos/anomalias, 2 MB), `FNF_TRAVA.TXT` (slots VIGIA/MARCADOR/
+      Q/eventos/anomalias, 512 KB), `FNF_TRAVA.TXT` (slots VIGIA/MARCADOR/
       corpo/CONGELADO/AV), `FNF_TELA.TXT` (slots RETRATO/SESSAO/FIM/TV/
-      ESTADO), `FNF_ERRO.TXT` (fatal/aviso) + `FNF_LOGVIVO.bin` +
+      ESTADO, 128 KB), `FNF_ERRO.TXT` (fatal/aviso) + `FNF_LOGVIVO.bin` +
       `FNF_SHOT.rgba` + `FNF_SAVESTATE.bin`. Fim dos 32+12 ficheiros
-      rotativos. Tudo pré-alocado com zeros no boot; em jogo só
-      `lseek+write`+`close` (CORRECOES #16/#17).
+      rotativos. Pré-alocação = padrão provado (O_TRUNC + zeros até ≤512 KB)
+      com marca `PREALLOC <nome>` por ficheiro; em jogo só `lseek+write`+
+      `close` (CORRECOES #16/#17/#18).
 
 ## 12. CAUSAS SEPARADAS CONHECIDAS (não são "features")
 - **pad=0000**: os registos nunca vêm bits do pad — causa própria, à parte de
