@@ -125,3 +125,4 @@ int audio_ring_reset(void);
 int audio_ring_switch(int fd, int loop);
 void audio_ring_debug(int *fd, unsigned int *loop, unsigned int *switches, unsigned int *reset_pending, unsigned int *switch_pending);
 #endif
+unsigned audio_ring_bytes_lidos(void);  /* 0.2.173 */

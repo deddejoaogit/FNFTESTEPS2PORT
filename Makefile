@@ -16,6 +16,10 @@ FNX_EXTRA   ?=
 FNX_MAP     ?= FNF_PS2.map
 EE_CFLAGS = -O2 -G0 -Wall -Wextra -Werror=implicit-function-declaration -std=gnu11 -Isrc -Isrc/engine -DFNF_PS2_VERSION=\"$(FNF_VERSION)\" $(FNX_EXTRA)
 EE_LDFLAGS = -Wl,-Map,$(FNX_MAP)
+# 0.2.173: a versao faz parte do binario; sem esta dependencia mudar o
+# VERSION nao reconstruia e o ELF saia com o nome da versao anterior.
+src/main.o: VERSION
+
 all: $(EE_BIN)
 clean:
 	rm -f $(EE_BIN) $(EE_OBJS) FNF_PS2.map fnf_ps2_m84.map fnf_ps2_m85_fix.map

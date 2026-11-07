@@ -112,6 +112,7 @@ typedef struct {
     u16 clip, cull, st, tr, sel, pad, pressed, anim, anim_frame;
     u32 clk, queued, ring, underruns;
     u32 vram_free, ram_bufs, io_kb;
+    u32 sub_ok, lr_bytes;   /* 0.2.173: contadores vivos (audsrv ok / lido pelo produtor) */
     u8  eof, paused, audio_playing;
 } fnf_frame_t;
 

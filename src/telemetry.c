@@ -731,7 +731,7 @@ static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
         "qw=%u,qd=%u,bx=%u,upn=%u,upk=%u,ovf=%u,cl=%u,cu=%u,"
         "st=%u,tr=%u,sel=%u,pad=%04X,prs=%04X,an=%d,af=%d,"
         "clk=%u,q=%u,r=%u,un=%u,eof=%u,pl=%u,"
-        "vr=%u,rb=%u,ek=%u,er=%u,ck=%d",
+        "vr=%u,rb=%u,ek=%u,er=%u,ck=%d,so=%u,lr=%u",
         (unsigned)f->frame, (unsigned)f->t_total, (unsigned)f->t_in,
         (unsigned)f->t_upd, (unsigned)f->t_dma, (unsigned)f->t_wait,
         (unsigned)f->t_cap, (unsigned)f->t_vsync, (unsigned)f->t_post,
@@ -745,7 +745,8 @@ static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
         (unsigned)f->clk, (unsigned)f->queued, (unsigned)f->ring,
         (unsigned)f->underruns, (unsigned)f->eof, (unsigned)f->paused,
         (unsigned)f->vram_free, (unsigned)f->ram_bufs, (unsigned)f->io_kb,
-        telemetry_error_total(), audio_ring_stack_ok());
+        telemetry_error_total(), audio_ring_stack_ok(),
+        (unsigned)f->sub_ok, (unsigned)f->lr_bytes);
 }
 
 void telemetry_frame2(const fnf_frame_t *f)

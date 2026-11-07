@@ -19,6 +19,8 @@ static unsigned char thread_stack[16384] __attribute__((aligned(128)));
 static volatile unsigned int rp,wp,level,running,reset_requested,switch_requested,source_eof,loop_source;
 static volatile int pending_fd=-1;
 static volatile int producer_exited=1;
+static volatile unsigned g_lidos;   /* bytes lidos do pendrive pelo produtor (0.2.173) */
+unsigned audio_ring_bytes_lidos(void){return g_lidos;}
 /* FONTES SECUNDARIAS (overlay). Ver audio_ring.h: sao os sfx que tocam por
    cima da musica -- o `fnf_loss_sfx` do game over e os dois jingles do rank da
    Freeplay. `overlay_pedido[i]` e' o canal de pedido para a thread:
@@ -254,6 +256,7 @@ static void producer(void *arg){(void)arg;while(running){int free_bytes,got,firs
    if((long)want>resto)want=(int)resto;
   }
   io_gate_lock();in_read=1;got=read(source_fd,io_block,want);in_read=0;io_gate_unlock();
+  if(got>0)g_lidos+=(unsigned)got;   /* 0.2.173: prova de vida do produtor */
   if(got==0){
    if(prev_ativo){prev_pos=0;lseek(source_fd,prev_ini,SEEK_SET);loops_count++;continue;}
    source_eof=1;continue;

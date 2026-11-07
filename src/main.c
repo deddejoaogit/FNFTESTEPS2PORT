@@ -7134,7 +7134,8 @@ static int audio_set_stream(int volume){return audio_set_stream_rate(volume,AUDI
  * with more than the IOP currently reports available, and retry the exact
  * unaccepted tail instead of allowing a caller to discard it. */
 static u32 g_audsrv_partial_events=0,g_audsrv_zero_events=0,g_audsrv_submit_errors=0;
-static int audio_play_complete(const char *data,int bytes){int off=0,guard=2000;if(bytes<=0)return 0;while(off<bytes&&guard--){int avail=audsrv_available(),want,r;if(avail<=0){g_audsrv_zero_events++;DelayThread(1000);continue;}want=bytes-off;if(want>avail)want=avail;want&=~3;if(want<=0){DelayThread(1000);continue;}r=audsrv_play_audio(data+off,want);if(r<0){g_audsrv_submit_errors++;return off?off:r;}if(r==0){g_audsrv_zero_events++;DelayThread(1000);continue;}if(r<want)g_audsrv_partial_events++;off+=r;}if(off<bytes)g_audsrv_submit_errors++;return off;}
+static u32 g_sub_ok=0;   /* 0.2.173: submissoes audsrv bem-sucedidas */
+static int audio_play_complete(const char *data,int bytes){int off=0,guard=2000;if(bytes<=0)return 0;g_sub_ok++;while(off<bytes&&guard--){int avail=audsrv_available(),want,r;if(avail<=0){g_audsrv_zero_events++;DelayThread(1000);continue;}want=bytes-off;if(want>avail)want=avail;want&=~3;if(want<=0){DelayThread(1000);continue;}r=audsrv_play_audio(data+off,want);if(r<0){g_audsrv_submit_errors++;return off?off:r;}if(r==0){g_audsrv_zero_events++;DelayThread(1000);continue;}if(r<want)g_audsrv_partial_events++;off+=r;}if(off<bytes)g_audsrv_submit_errors++;return off;}
 
 static int tutorial_audio_mix_submit(int voices_enabled){
  short *samples=(short*)g_audio_pcm;
@@ -8097,7 +8098,63 @@ static void frame_mark(const char*phase,int code){
 }
 
 /* Grava as ultimas posicoes. Usada SO pelo cao de guarda, quando o jogo parou. */
+/* ==== 0.2.173: O FREEZE EXPLICA-SE NA TV ==============================
+   Nas sessoes 0.2.170..0.2.172 o USB morria primeiro e NENHUM ficheiro do
+   vigia saia (o FNF_TRAVA ficava so' com o VIGIA_VIVO). O vigia agora PINTA
+   primeiro -- GS puro, sem ficheiros e sem portao -- e so' depois escreve.
+   Leitura da foto da TV:
+     barra vermelha no topo = PARAGEM do laco confirmada;
+     linha branca  = quadro (6 digitos);
+     linha amarela = estado (2) e contador do laco (6);
+     linha ciano   = fila do audsrv (5), anel (6), underruns (3);
+     linha verde   = bytes lidos pelo produtor (8) e submissoes audsrv (6). */
+static volatile unsigned g_ui_espelho=0;   /* copia de ui_state (local do main) */
+static void fnwd_dig(qword_t **qp,int x,int y,int d,int sz,float r,float g,float b){
+ static const unsigned char segs[10]={0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F};
+ unsigned sv=segs[(d>=0&&d<10)?d:0];int t=sz/5,h2=sz/2;
+ if(sv&0x01)*qp=draw_clear(*qp,0,(float)x,(float)y,(float)sz,(float)t,r,g,b);
+ if(sv&0x02)*qp=draw_clear(*qp,0,(float)(x+sz-t),(float)y,(float)t,(float)h2,r,g,b);
+ if(sv&0x04)*qp=draw_clear(*qp,0,(float)(x+sz-t),(float)(y+h2),(float)t,(float)h2,r,g,b);
+ if(sv&0x08)*qp=draw_clear(*qp,0,(float)x,(float)(y+sz-t),(float)sz,(float)t,r,g,b);
+ if(sv&0x10)*qp=draw_clear(*qp,0,(float)x,(float)(y+h2),(float)t,(float)h2,r,g,b);
+ if(sv&0x20)*qp=draw_clear(*qp,0,(float)x,(float)y,(float)t,(float)h2,r,g,b);
+ if(sv&0x40)*qp=draw_clear(*qp,0,(float)x,(float)(y+h2-t/2),(float)sz,(float)t,r,g,b);
+}
+static void fnwd_num(qword_t **qp,unsigned v,int nd,int x,int y,int sz,float r,float g,float b){
+ int i;unsigned div=1;for(i=1;i<nd;i++)div*=10;
+ for(i=0;i<nd;i++){fnwd_dig(qp,x+i*(sz+sz/3),y,(int)((v/div)%10u),sz,r,g,b);if(div>1)div/=10;}
+}
+static void fnwd_pintar(void){
+ framebuffer_t fb;zbuffer_t z;packet_t*p;qword_t*q;u32 nova;
+ graph_vram_clear();
+ nova=(u32)graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
+ if((int)nova<0)return;
+ graph_initialize(nova,SCREEN_W,SCREEN_H,FB_PSM,0,0);
+ graph_set_bgcolor(0,0,0);
+ fb.width=SCREEN_W;fb.height=SCREEN_H;fb.psm=FB_PSM;fb.mask=0;fb.address=nova;
+ z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
+ p=packet_init(2048,PACKET_NORMAL);
+ if(!p)return;
+ q=p->data;
+ q=draw_setup_environment(q,0,&fb,&z);
+ q=draw_clear(q,0,0.0f,0.0f,(float)SCREEN_W,(float)SCREEN_H,0,0,0);
+ q=draw_clear(q,0,0.0f,0.0f,(float)SCREEN_W,40.0f,255.0f,0.0f,0.0f);
+ fnwd_num(&q,g_fn_frame,6,60,70,44,255.0f,255.0f,255.0f);
+ fnwd_num(&q,g_ui_espelho,2,60,150,40,255.0f,255.0f,0.0f);
+ fnwd_num(&q,(unsigned)g_fn_beat,6,220,150,40,255.0f,190.0f,0.0f);
+ fnwd_num(&q,(unsigned)g_qrpc_cache,5,60,230,32,0.0f,220.0f,255.0f);
+ fnwd_num(&q,(unsigned)audio_ring_level(),6,240,230,32,0.0f,220.0f,255.0f);
+ fnwd_num(&q,(unsigned)g_fn_underruns,3,470,230,32,255.0f,120.0f,120.0f);
+ fnwd_num(&q,audio_ring_bytes_lidos(),8,60,310,32,120.0f,255.0f,120.0f);
+ fnwd_num(&q,g_sub_ok,6,340,310,32,120.0f,255.0f,120.0f);
+ q=draw_finish(q);
+ dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
+ dma_wait_fast();packet_free(p);
+ graph_wait_vsync();
+}
+
 static void fnwd_dump(int dumps){
+  fnwd_pintar();   /* 0.2.173: primeiro a TV, depois o pendrive */
   int fd;char b[256],hdr[160];int i,n,u32base;
   /* O usbhdfsd nao e reentrante: o produtor de audio para de tocar o USB antes.
      A espera e limitada (2 s) e a gravacao acontece mesmo se ele nao parar --
@@ -9141,7 +9198,7 @@ save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEG
  {char b[256];
   snprintf(b,sizeof(b),"build=%s elf=%s",FNF_PS2_VERSION,argc?argv[0]:"?");
   telemetry_boot(b);
-  snprintf(b,sizeof(b),"telemetry_init=%d tel_result=%d frames_por_despejo=700",
+  snprintf(b,sizeof(b),"telemetry_init=%d tel_result=%d frames_por_despejo=300",
            g_telemetry_init_result,(int)0);
   telemetry_boot(b);
   snprintf(b,sizeof(b),"fisico=%dx%d logico=%dx%d psm=%d aspect169=%d viewport360=%d",
@@ -12274,11 +12331,13 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     ff.ovf=(u16)g_dl_overflow;
     ff.clip=(u16)g_band_clip_rects; ff.cull=(u16)g_band_cull_rects;
     ff.st=(u16)ui_state; ff.tr=(u16)transition_frame; ff.sel=(u16)selection;
+    g_ui_espelho=(unsigned)ui_state;
     ff.pad=g_held; ff.pressed=pressed;
     ff.anim=(u16)anim; ff.anim_frame=(u16)local;
     ff.clk=music_clock; ff.queued=queued_bytes; ff.ring=ring_bytes;
     ff.underruns=audio_underruns;
     ff.vram_free=vl_free_words()*4u; ff.ram_bufs=ram_buffers_total(); ff.io_kb=0;
+    ff.sub_ok=g_sub_ok; ff.lr_bytes=audio_ring_bytes_lidos();
     ff.eof=(u8)audio_ring_eof(); ff.paused=(u8)g_paused; ff.audio_playing=(u8)audio_playing;
     telemetry_frame2(&ff);
     g_binds_frame=0; g_up_bytes_frame=0;}
@@ -12304,7 +12363,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
       (fl=58810 us mediano) -- a 300 quadros era 1,2% do tempo num salto
       visivel a cada 5 s. */
    if((frame_no%1800u)==0u&&frame_no>0){MARCA("miniatura");capture_thumb_ram((u32)fb[draw].address<<5);}
-   if((frame_no%700u)==0u){
+   if((frame_no%300u)==0u){   /* 0.2.173: 5 s por despejo; era 700 (~12 s) */
     /* Snapshot periodico: o estado da maquina a cada 5 s, no mesmo fluxo.
        Memoria (VRAM livre, buffers do port), relogio e anel de audio, e a
        maquina de estados. E' o "valor nas memorias" que o log tem de ter. */
