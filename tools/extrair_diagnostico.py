@@ -122,6 +122,23 @@ def principal():
             A('* O produtor de audio NAO leu nada durante toda a janela: o audio nunca viveu.')
         if tem_campos and dso == 0 and num(qs[-1], 'un') >= 1:
             A('* Nenhuma submissao ao audsrv na janela: o consumidor esta morto.')
+        if tem_campos and dlr > 0 and dso > 0:
+            A('* Audio VIVO na janela: produtor leu %.1f KB, consumidor submeteu %d x ao audsrv.' %
+              (dlr / 1024.0, dso))
+
+    # 7b. Padrao de freeze: o freeze vem a seguir a um despejo?
+    if qs:
+        f_ult = num(qs[-1], 'f')
+        # cada linha Q cobre um quadro; o despejo escreve as linhas NOVAS. Se as
+        # linhas terminam em f_ult, o proximo despejo seria ~300 quadros depois.
+        # O freeze com o USB ja morto deixa tudo parado em f_ult..f_ult+300.
+        A('---- PADRAO DE FREEZE ----')
+        A('* Ultimo quadro registado: f=%d (~%.1f s a 60 fps).' % (f_ult, f_ult / 60.0))
+        A('* O freeze esta ENTRE f=%d e f=%d (janela do proximo despejo).' % (f_ult, f_ult + 300))
+        A('* Se as linhas param logo depois de um despejo (f=%d %s), o despejo' %
+          (f_ult, '≈ fim de ciclo 300: PADRAO CONFIRMADO' if (f_ult + 2) % 300 <= 12 or f_ult % 300 >= 288 else 'nao coincide com o ciclo 300'))
+        A('*  (escrita grande no USB) + a leitura em fluxo do audio = o usbhdfsd trava.')
+        A('* O numero branco pintado na TV diz o quadro exacto do freeze: FOTOGRAFE A TV.')
     A("* Janela cega: o que falta esta ENTRE o ultimo q-line e o fim (ver quadros cobertos).")
     print('\n'.join(L))
     return 0
