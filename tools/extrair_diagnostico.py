@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.173).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.176 v6).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*.txt).
@@ -8,8 +8,12 @@ onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*.txt).
 Imprime um relatorio compacto (para colar no chat). Nao precisa de descrever
 nada: o relatorio diz onde o jogo parou, se o produtor de audio vivia, se o
 audsrv recebia, se o vigia escreveu, e onde esta' a janela cega.
+
+v6 (0.2.176): (a) le o bloco # VALORES (os numeros pintados na TV, em texto);
+(b) converte as capturas (FNF_SHOT/FNF_SCREEN) e a MINIATURA do FNF_TRAVA em
+ficheiros PNG -- mande os PNGs no chat e eu vejo o ecra EXACTO, pixel a pixel.
 """
-import sys, os, re, glob
+import sys, os, re, glob, zlib, struct
 
 def achar(pasta, padrao):
     v = sorted(glob.glob(os.path.join(pasta, padrao)))
@@ -21,6 +25,57 @@ def ler(fn):
             return f.read().decode('latin-1', 'replace')
     except OSError:
         return ''
+
+def png_gravar(path, w, h, rgba):
+    """PNG RGBA8 sem dependencias (zlib/struct da biblioteca standard)."""
+    def bloco(tag, dados):
+        return (struct.pack('>I', len(dados)) + tag + dados +
+                struct.pack('>I', zlib.crc32(tag + dados) & 0xffffffff))
+    linhas = b''.join(b'\x00' + rgba[y*w*4:(y+1)*w*4] for y in range(h))
+    with open(path, 'wb') as f:
+        f.write(b'\x89PNG\r\n\x1a\n')
+        f.write(bloco(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)))
+        f.write(bloco(b'IDAT', zlib.compress(linhas, 9)))
+        f.write(bloco(b'IEND', b''))
+
+def converter_captura(fn):
+    """FNF_SHOT (320x224 raw) / FNF_SCREEN (640x448 raw) -> PNG. Devolve (w,h,png) ou None."""
+    n = os.path.getsize(fn)
+    try:
+        with open(fn, 'rb') as f:
+            dados = f.read()
+    except OSError:
+        return None
+    w = h = 0
+    if n == 320*224*4:
+        w, h = 320, 224
+    elif n == 640*448*4:
+        w, h = 640, 448
+    else:
+        return None
+    png = fn.replace('.rgba.txt', '.png').replace('.txt', '.png')
+    png_gravar(png, w, h, dados)
+    return (w, h, png)
+
+def extrair_miniatura(fn_trava):
+    """Procura '# MINIATURA WxH f=N rgba32' em FNF_TRAVA e grava o PNG."""
+    try:
+        with open(fn_trava, 'rb') as f:
+            dados = f.read()
+    except OSError:
+        return None
+    m = re.search(br'# MINIATURA (\d+)x(\d+) f=(\d+) rgba32\n', dados)
+    if not m:
+        return None
+    w, h, fr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    ini = m.end()
+    fim = ini + w*h*4
+    if fim > len(dados):
+        return None
+    png = os.path.join(os.path.dirname(fn_trava),
+                       'FNF_MINIATURA_f%06d.png' % fr)
+    png_gravar(png, w, h, dados[ini:fim])
+    return (w, h, fr, png)
 
 def principal():
     pasta = sys.argv[1] if len(sys.argv) > 1 else '.'
@@ -137,10 +192,29 @@ def principal():
         for l in evs[-12:]:
             A('  %s' % l[:88])
 
-    # 6. Capturas
+    # 6. VALORES (a TV em texto) + Capturas -> PNG
+    for fn in achar(pasta, 'FNF_TRAVA*.txt'):
+        for l in ler(fn).splitlines():
+            if l.startswith('# VALORES'):
+                A('VALORES (TV): %s' % l[10:])
+                A('  (por ordem: f=quadro st=estado beat=laco q=fila audsrv')
+                A('   r=anel un=underruns lr=bytes lidos so=submissoes)')
     for fn in achar(pasta, 'FNF_SCREEN*.txt') + achar(pasta, 'FNF_SHOT*.txt'):
-        A('captura: %s (%d bytes)%s' % (os.path.basename(fn), os.path.getsize(fn),
-          '  <- VAZIA' if os.path.getsize(fn) == 0 else ''))
+        sz = os.path.getsize(fn)
+        if sz == 0:
+            A('captura: %s (0 bytes)  <- VAZIA (a captura antiga; ver FNF_SHOT)' % os.path.basename(fn))
+            continue
+        r = converter_captura(fn)
+        if r:
+            A('captura: %s (%dx%d) -> %s  << ENVIE ESTE PNG' %
+              (os.path.basename(fn), r[0], r[1], os.path.basename(r[2])))
+        else:
+            A('captura: %s (%d bytes, formato desconhecido)' % (os.path.basename(fn), sz))
+    for fn in achar(pasta, 'FNF_TRAVA*.txt'):
+        m = extrair_miniatura(fn)
+        if m:
+            A('MINIATURA do TRAVA (f=%d, %dx%d) -> %s  << ENVIE ESTE PNG' %
+              (m[2], m[0], m[1], os.path.basename(m[3])))
 
     # 7. Conclusao automatica
     A('---- CONCLUSAO ----')

@@ -158,15 +158,22 @@ void telemetry_servir_pendentes(void){
 }
 
 /* Escreve direto no arquivo aberto. Varias chamadas no MESMO descritor sao
-   seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND). */
+   seguras (o que nao era seguro, e matou as 0.2.161/0.2.162, era o O_APPEND).
+   0.2.176: CONTA-GOTAS -- fatias de 4 KB com 4 ms de intervalo. A 0.2.175 o
+   despejo continuou a morrer no usbhdfsd: o produtor PAUSADO nao chega se a
+   rajada inteira (40 KB+) entrar de uma vez. Sem rajada, sem veneno. */
 static void out_push(const char *p, unsigned int n)
 {
     unsigned int done = 0;
     io_gate_lock();
     while (done < n) {
-        int r = write(out_fd, p + done, n - done);
+        unsigned int fatia = n - done;
+        int r;
+        if (fatia > 4096u) fatia = 4096u;
+        r = write(out_fd, p + done, fatia);
         if (r <= 0) { io_gate_unlock(); output_error = 1; telemetry_error("out_push.write", r); return; }
         done += (unsigned int)r;
+        if (done < n) DelayThread(4000);   /* 4 ms entre fatias: nunca uma rajada */
     }
     io_gate_unlock();
 }

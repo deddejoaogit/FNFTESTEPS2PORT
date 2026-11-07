@@ -108,13 +108,15 @@ static int io_owner=-1;      /* recursivo POR THREAD: o vigia segura o portao
                                 enquanto chama caminhos que tambem o tomam */
 static int io_depth=0;
 void io_gate_init(void){if(io_sema<0){ee_sema_t sp;sp.init_count=1;sp.max_count=1;sp.option=0;io_sema=CreateSema(&sp);}}
+static volatile u32 io_desde_us=0;   /* 0.2.176: quando o portao foi tomado */
 void io_gate_lock(void){
   int me=GetThreadId();
   if(io_sema<0)io_gate_init();
   if(io_owner==me){io_depth++;return;}
   WaitSema(io_sema);
   io_owner=me;
-  io_depth=1;}
+  io_depth=1;
+  io_desde_us=(u32)GetTimerSystemTime();}
 void io_gate_unlock(void){
   int me=GetThreadId();
   if(io_owner!=me)return;          /* nunca desbloquear o portao dos outros */
@@ -133,12 +135,21 @@ int io_gate_trylock(void){
   if(io_sema<0){
     io_gate_init();
     if(io_sema<0)return 0;
-    io_owner=me;io_depth=1;return 1;
+    io_owner=me;io_depth=1;io_desde_us=(u32)GetTimerSystemTime();return 1;
   }
   if(io_owner==me){io_depth++;return 1;}
   if(io_owner>=0)return 0;          /* ocupado por outra thread: nao tocar */
   io_gate_lock();                   /* livre; espera usos rapidos (open) */
   return 1;}
+/* 0.2.176: ha' quanto tempo o portao esta' preso (ms). Os nossos usos sao de
+   milissegundos; uma presa > 5 s = o escritor morreu dentro de um write do
+   usbhdfsd e nunca mais o liberta. O vigia usa isto para ROUBAR o portao e
+   gravar os VALORES da TV -- ultimo recurso, e so' na thread do vigia. */
+int io_gate_preso_ha_ms(void){
+  u32 d;
+  if(io_owner<0)return 0;
+  d=(u32)GetTimerSystemTime()-io_desde_us;
+  return (int)(d/1000u);}
 
 /* ---- 0.2.168: CANARIO DA PILHA DO PRODUTOR -----------------------------
    Estouro de pilha e' candidato a travamento silencioso: pinta-se o fundo da
@@ -156,6 +167,10 @@ int audio_ring_stack_ok(void){
 }
 void audio_ring_pause(int p){int n=0;pause_req=p?1:0;
  if(p){while(in_read&&n++<2000)DelayThread(1000);}}
+/* 0.2.176: 1 = o produtor esta' FORA de leitura (seguro escrever); 0 = esta'
+   preso dentro de um read do usbhdfsd -- escrever agora envenena o driver.
+   O escritor serve os despejos so' com isto a 1. */
+int audio_ring_pausado(void){return in_read?0:1;}
 static volatile unsigned int produced,reads_count,loops_count,errors_count,underruns_count,switches_count;
 static int source_fd=-1,mutex=-1,thread_id=-1;
 extern void *_gp;

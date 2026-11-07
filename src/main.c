@@ -7920,7 +7920,7 @@ static float g_story_title_y[9]={0};
 static int g_story_title_y_ready=0;
 static void story_title_targets(int selected,float*out){int i;out[selected]=284.0f;for(i=selected-1;i>=0;i--){float h=(float)g_story_title[i][2],step=fmaxf(h+10.0f,62.5f);out[i]=out[i+1]-step;}for(i=selected+1;i<9;i++){float ph=(float)g_story_title[i-1][2];out[i]=out[i-1]+ph+10.0f;}}
 static void story_title_update_positions(int selected){float t[9];int i;story_title_targets(selected,t);if(!g_story_title_y_ready){for(i=0;i<9;i++)g_story_title_y[i]=t[i];g_story_title_y_ready=1;}else for(i=0;i<9;i++)g_story_title_y[i]+=(t[i]-g_story_title_y[i])*STORY_TITLE_LERP_ALPHA;}
-static void write_all_fd(int fd,const void*buf,u32 n){const unsigned char*p=(const unsigned char*)buf;while(n){int w=write(fd,p,n);if(w<=0)break;p+=w;n-=w;}}
+static void write_all_fd(int fd,const void*buf,u32 n){const unsigned char*p=(const unsigned char*)buf;while(n){u32 fatia=n>4096u?4096u:n;int w=write(fd,p,fatia);if(w<=0)break;p+=w;n-=w;if(n)DelayThread(3000);}} /* 0.2.176: conta-gotas acima de 4 KB */
 static volatile int g_capture_status_write_enabled=1;
 /* Marco de fase. EScrevia direto no arquivo, abrindo e fechando com fsync a
    cada chamada, enquanto a telemetria segurava outro descritor aberto com
@@ -8109,6 +8109,7 @@ static void frame_mark(const char*phase,int code){
      linha ciano   = fila do audsrv (5), anel (6), underruns (3);
      linha verde   = bytes lidos pelo produtor (8) e submissoes audsrv (6). */
 static volatile unsigned g_ui_espelho=0;   /* copia de ui_state (local do main) */
+static int g_pedido_foto;                  /* 0.2.176: definido abaixo; pedido do vigia */
 static void fnwd_dig(qword_t **qp,int x,int y,int d,int sz,float r,float g,float b){
  static const unsigned char segs[10]={0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F};
  unsigned sv=segs[(d>=0&&d<10)?d:0];int t=sz/5,h2=sz/2;
@@ -8142,11 +8143,11 @@ static void fnwd_pintar(void){
  fnwd_num(&q,g_fn_frame,6,60,70,44,255.0f,255.0f,255.0f);
  fnwd_num(&q,g_ui_espelho,2,60,150,40,255.0f,255.0f,0.0f);
  fnwd_num(&q,(unsigned)g_fn_beat,6,220,150,40,255.0f,190.0f,0.0f);
- fnwd_num(&q,(unsigned)g_qrpc_cache,5,60,230,32,0.0f,220.0f,255.0f);
- fnwd_num(&q,(unsigned)audio_ring_level(),6,240,230,32,0.0f,220.0f,255.0f);
- fnwd_num(&q,(unsigned)g_fn_underruns,3,470,230,32,255.0f,120.0f,120.0f);
- fnwd_num(&q,audio_ring_bytes_lidos(),8,60,310,32,120.0f,255.0f,120.0f);
- fnwd_num(&q,g_sub_ok,6,340,310,32,120.0f,255.0f,120.0f);
+ fnwd_num(&q,(unsigned)g_qrpc_cache,5,40,230,26,0.0f,220.0f,255.0f);
+ fnwd_num(&q,(unsigned)audio_ring_level(),6,210,230,26,0.0f,220.0f,255.0f);
+ fnwd_num(&q,(unsigned)g_fn_underruns,3,420,230,26,255.0f,120.0f,120.0f);
+ fnwd_num(&q,audio_ring_bytes_lidos(),8,40,310,26,120.0f,255.0f,120.0f);
+ fnwd_num(&q,g_sub_ok,6,310,310,26,120.0f,255.0f,120.0f);
  q=draw_finish(q);
  dma_channel_send_normal(DMA_CHANNEL_GIF,p->data,q-p->data,0,0);
  dma_wait_fast();packet_free(p);
@@ -8155,6 +8156,7 @@ static void fnwd_pintar(void){
 
 static void fnwd_dump(int dumps){
   fnwd_pintar();   /* 0.2.173: primeiro a TV, depois o pendrive */
+  g_pedido_foto=1; /* 0.2.176: se o laco ainda respirar, grava FNF_SHOT sozinho */
   int fd;char b[256],hdr[160];int i,n,u32base;
   /* O usbhdfsd nao e reentrante: o produtor de audio para de tocar o USB antes.
      A espera e limitada (2 s) e a gravacao acontece mesmo se ele nao parar --
@@ -8168,15 +8170,31 @@ static void fnwd_dump(int dumps){
   {int g=io_gate_trylock();
   /* 0.2.174: SEM portao nao ha' escrita segura (usbhdfsd nao reentrante) e
      esperar aqui mataria o vigia -- alem de so' acontecer quando o produtor
-     esta' PRESO (o proprio freeze). A TV ja' foi pintada: e' o canal. */
-  if(!g){audio_ring_pause(0);return;}
+     esta' PRESO (o proprio freeze). A TV ja' foi pintada: e' o canal.
+     0.2.176: ROUBO DO PORTAO -- se o portao esta' preso ha' mais de 5 s, o
+     escritor morreu dentro de um write (os nossos usos sao de milissegundos)
+     e nunca mais o liberta. Escrevemos SEM portao: ultimo recurso, so' aqui,
+     so' no vigia, com a TV ja' pintada. */
+  if(!g){
+    if(io_gate_preso_ha_ms()<5000){audio_ring_pause(0);return;}
+    telemetry_error("fnwd.roubo_portao",io_gate_preso_ha_ms());
+  }
   /* 0.2.169: o MARCADOR MINIMO sai primeiro (um open+write+close de 96 B):
      se o despejo grande a seguir voltar a derrubar o driver, pelo menos a
-     linha de morrencia existe. */
+     linha de morrencia existe.
+     0.2.176: VALORES = os EXACTOS numeros pintados na TV, em texto (pedido
+     do utilizador: imprimir os valores no txt e ler diretamente). Sai com o
+     MARCADOR, no mesmo open/close, antes de qualquer escrita grande. */
   {int mfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
    if(mfd<0)mfd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
-   if(mfd>=0){char mk[96];int mn=snprintf(mk,sizeof(mk),"# MARCADOR f=%u marca=%s t=%u\n",
-     (unsigned)g_fn_frame,g_marca_actual,(unsigned)g_fn_beat);
+   if(mfd>=0){char mk[320];int mn=snprintf(mk,sizeof(mk),
+     "# MARCADOR f=%u marca=%s t=%u\n"
+     "# VALORES f=%u st=%u beat=%u q=%u ring=%u un=%u lr=%u so=%u\n",
+     (unsigned)g_fn_frame,g_marca_actual,(unsigned)g_fn_beat,
+     (unsigned)g_fn_frame,(unsigned)g_ui_espelho,(unsigned)g_fn_beat,
+     (unsigned)g_qrpc_cache,(unsigned)audio_ring_level(),
+     (unsigned)g_fn_underruns,(unsigned)audio_ring_bytes_lidos(),
+     (unsigned)g_sub_ok);
      write_all_fd(mfd,mk,mn);fsync(mfd);close(mfd);}}
   telemetry_anomaly("cao_de_guarda");
   fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
@@ -8234,6 +8252,14 @@ static void iow_thread_fn(void*arg){
     DelayThread(200000);                 /* 200 ms */
     if(!telemetry_tem_pendente())continue;
     audio_ring_pause(1);                 /* produtor parado: escrita sozinha */
+    /* 0.2.176: guarda estrita de pausa -- se o produtor ficou PRESO dentro de
+       um read (usbhdfsd a morrer), escrever agora envenena o driver de vez.
+       Saltamos este ciclo: a escrita fica pedida para a proxima acordada. */
+    if(!audio_ring_pausado()){
+      telemetry_error("iow.produtor_preso",0);
+      audio_ring_pause(0);
+      continue;
+    }
     telemetry_servir_pendentes();
     audio_ring_pause(0);
   }
@@ -8336,7 +8362,7 @@ static int cap_wait_set64(volatile u64*r,u64 m,u64 t){u64 s=GetTimerSystemTime()
    linha e a captura sairia embaralhada -- ou seja, a evidencia de um bug
    viraria ela mesma um bug. */
 static int safe_readback_rect(void*d,u32 v,u32 y,u32 h){u32 c[40]__attribute__((aligned(16))),*p=c,qwc=SCREEN_W*h/8,oc=CAP_D1_CHCR;u64*q=(u64*)(p+4),oi=CAP_GS_IMR,t=294912000ull;int r=-1;if(!h||qwc>65535u||(oc&0x100u))return-10;p[0]=0;p[1]=CAP_VIF_MSKPATH3(0x8000);p[2]=CAP_VIF_FLUSHA;p[3]=CAP_VIF_DIRECT(6);q[0]=CAP_GIFTAG(5,1);q[1]=0x0e;q[2]=GS_SET_BITBLTBUF(v,SCREEN_W/64,FB_PSM,0,0,FB_PSM);q[3]=GS_REG_BITBLTBUF;q[4]=GS_SET_TRXPOS(0,y,0,0,0);q[5]=GS_REG_TRXPOS;q[6]=GS_SET_TRXREG(SCREEN_W,h);q[7]=GS_REG_TRXREG;q[8]=0;q[9]=0x61;q[10]=GS_SET_TRXDIR(1);q[11]=GS_REG_TRXDIR;CAP_GS_IMR=oi|0x200u;CAP_GS_CSR=2;FlushCache(0);CAP_D1_QWC=7;CAP_D1_MADR=(u32)c;CAP_D1_CHCR=0x101;EE_SYNCL();if(cap_wait_clear32(&CAP_D1_CHCR,0x100,t)<0){r=-11;goto x;}if(cap_wait_set64(&CAP_GS_CSR,2,t)<0){r=-12;goto x;}if(cap_wait_clear32(&CAP_VIF1_STAT,0x1f000000u,t)<0){r=-13;goto x;}CAP_VIF1_STAT=1u<<23;CAP_GS_BUSDIR=1;FlushCache(0);CAP_D1_QWC=qwc;CAP_D1_MADR=(u32)d;CAP_D1_CHCR=0x100;EE_SYNCL();if(cap_wait_clear32(&CAP_D1_CHCR,0x100,t)<0){r=-14;goto x;}r=1;x:CAP_D1_CHCR=oc;EE_SYNCL();CAP_VIF1_STAT=0;CAP_GS_BUSDIR=0;CAP_GS_IMR=oi;CAP_GS_CSR=2;{u128 e=(u128)CAP_VIF_MSKPATH3(0);CAP_VIF1_FIFO=e;}return r;}
-static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>32768u?32768u:n;int w=write(f,p,a);if(w!=(int)a)return w<0?-21:-22;p+=a;n-=a;}return 0;}
+static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>4096u?4096u:n;int w=write(f,p,a);if(w!=(int)a)return w<0?-21:-22;p+=a;n-=a;if(n)DelayThread(3000);}return 0;} /* 0.2.176: 4 KB + 3 ms: a captura nunca e' rajada */
 /* Durante a captura o anel de audio PARA de ler do pendrive. O
    usbhdfsd nao e reentrante e esta funcao grava 1,1 MB nele pela
    thread principal. Sem isso, depois de algumas capturas a musica e
