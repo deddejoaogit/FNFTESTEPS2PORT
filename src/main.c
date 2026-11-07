@@ -8196,13 +8196,11 @@ static void fnwd_dump(int dumps){
      (unsigned)g_fn_underruns,(unsigned)audio_ring_bytes_lidos(),
      (unsigned)g_sub_ok);
      write_all_fd(mfd,mk,mn);fsync(mfd);close(mfd);}}
-  /* 0.2.177: a HISTORIA EM RAM (192 KB de linhas Q/S/E/P + snapshots) sai
-     agora AQUI, no TRAVA -- unico momento em que escrever nao tem custo (o
-     jogo ja' parou). Antes saia em despejos periodicos que matavam o USB. */
-  telemetry_flush();
-  telemetry_anomaly_exec("cao_de_guarda");
-  fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
-  if(fd<0)fd=open("mass:/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
+  /* 0.2.178: ORDEM -- primeiro o CORPO (pequeno, append provado), so' DEPOIS
+     as escritas grandes (flush/anomaly). Na 0.2.177 o open() do flush pendurou
+     e o corpo nunca saiu: o FNF_TRAVA ficou so' com o MARCADOR. */
+  fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_APPEND,0666);
+  if(fd<0)fd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);
   if(fd<0){
     telemetry_error("fnwd.open",-1);
     io_gate_unlock();
@@ -8229,12 +8227,20 @@ static void fnwd_dump(int dumps){
       (unsigned)r->ring,(unsigned)r->underruns,(unsigned)r->submits,(unsigned)r->zeros);
     write_all_fd(fd,b,n);
   }
+  /* 0.2.178: as amostras Q (as ultimas 100) directamente no corpo -- o flush
+     grande pode morrer depois; estas sao o que explica o fim da sessao. */
+  {static char qt[32768];unsigned qn=telemetry_qring_txt(qt,sizeof(qt));
+   if(qn)write_all_fd(fd,qt,qn);}
   if(g_thumb_frame){
     int ty;char th[96];
     n=snprintf(th,sizeof(th),"# MINIATURA %dx%d f=%u rgba32\n",THUMB_W,THUMB_H,(unsigned)g_thumb_frame);
     write_all_fd(fd,th,n);
     for(ty=0;ty<THUMB_H;ty++)write_all_fd(fd,(const char*)(g_thumb+ty*THUMB_W),THUMB_W*4);
   }
+  /* 0.2.178: a HISTORIA EM RAM (192 KB) e a anomalia sao DEPOIS do corpo --
+     se estas escritas grandes morrerem, o corpo ja' esta' no cartao. */
+  telemetry_flush();
+  telemetry_anomaly_exec("cao_de_guarda");
   fsync(fd);
   close(fd);
   io_gate_unlock();
@@ -8248,12 +8254,29 @@ static void fnwd_dump(int dumps){
    vigia: o usbhdfsd ve um cliente de cada vez) e SEM fsync no despejo.
    Se o usbhdfsd ainda assim prender, prende AQUI: o jogo continua a correr
    e a faixa vermelha da TV diz que a E/S morreu. */
+/* 0.2.178: a captura NUNCA escreve no laco do quadro (o write() pendurava o
+   jogo -- 0.2.177, Select+R3). O laco apenas regista a fotografia (endereco
+   do framebuffer, quadro, estado); quem escreve e' a thread escritora (iow). */
+static int g_shot_n;
+static volatile u32 g_cap_fb=0, g_cap_fr=0, g_cap_ui=0;
 static unsigned char iow_stack[16384] __attribute__((aligned(128)));
 static volatile int g_iow_stop=0;
+static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui);
+static void estado_gigante_gravar(void);
+static unsigned int ram_buffers_total(void);   /* definida mais abaixo */
 static void iow_thread_fn(void*arg){
   (void)arg;
   while(!g_iow_stop){
     DelayThread(200000);                 /* 200 ms */
+    /* 0.2.178: o SAVESTATE gigante (SELECT+R3 / pedido do vigia) e' servido
+       AQUI -- fora do laco do quadro. Texto primeiro (pequeno), imagem a
+       seguir. Se o usbhdfsd prender na imagem, prende ESTA thread: o jogo
+       continua (a garantia da 0.2.175). */
+    if(g_pedido_foto&&g_shot_n<4){
+      g_pedido_foto=0;
+      estado_gigante_gravar();
+      capture_framebuffer_fast((u32)g_cap_fb,(u32)g_cap_fr,(u32)g_cap_ui);
+    }
     if(!telemetry_tem_pendente())continue;
     audio_ring_pause(1);                 /* produtor parado: escrita sozinha */
     /* 0.2.176: guarda estrita de pausa -- se o produtor ficou PRESO dentro de
@@ -8392,8 +8415,6 @@ static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>
    Para 640x448 existe o despejo de estado e a PROVA 4.
  */
 static unsigned char g_cap_slice[640u*32u*2u] __attribute__((aligned(64)));
-static int g_shot_n;
-static int g_pedido_foto;
 
 static void cap_media(u32 v0,u32 v1,u32 v2,u32 v3,unsigned char *o)
 {
@@ -8404,6 +8425,59 @@ static void cap_media(u32 v0,u32 v1,u32 v2,u32 v3,unsigned char *o)
     o[1]=(unsigned char)((g<<3)|(g>>2));
     o[2]=(unsigned char)((b<<3)|(b>>2));
     o[3]=255;
+}
+
+/* =====================================================================
+   0.2.178: SAVESTATE GIGANTE (pedido do utilizador: "um save state de log
+   gigante com o maximo de informacoes sobre aquele frame -- visual,
+   desempenho, sonora"). SELECT+R3 (ou o vigia no TRAVA) dispara. O TEXTO
+   sai primeiro (pequeno: sobrevive mesmo se a imagem pendurar depois).
+   ===================================================================== */
+static void estado_gigante_gravar(void){
+  static char eb[4600];
+  char path[64];
+  int fd,n,off=0;
+  audio_ring_pause(1);
+  if(!audio_ring_pausado()){audio_ring_pause(0);telemetry_error("estado.sem_pausa",0);return;}
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# SAVESTATE %02u build=" FNF_PS2_VERSION " f=%u ui=%u beat=%u marca=%s\n",
+    (unsigned)g_shot_n,(unsigned)g_fn_frame,(unsigned)g_ui_espelho,
+    (unsigned)g_fn_beat,g_marca_actual);
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# VISUAL thumb_f=%u dl=%d erros=%u free_vram=%u ram_bufs=%u\n",
+    (unsigned)g_thumb_frame,g_dl_n,telemetry_error_total(),
+    (unsigned)(vl_free_words()*4u),(unsigned)ram_buffers_total());
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# DESEMPENHO tm_dma=%u tm_wait=%u tm_drawn=%u tm_vsync=%u\n",
+    (unsigned)g_tm[TM_DMA],(unsigned)g_tm[TM_WAIT],
+    (unsigned)g_tm[TM_DRAWN],(unsigned)g_tm[TM_VSYNC]);
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# SONORA q=%u ring=%u un=%u so=%u lr=%u sub_err=%u zero=%u\n",
+    (unsigned)g_qrpc_cache,(unsigned)audio_ring_level(),
+    (unsigned)g_fn_underruns,(unsigned)audio_ring_bytes_lidos(),
+    (unsigned)g_sub_ok,(unsigned)g_audsrv_submit_errors,
+    (unsigned)g_audsrv_zero_events);
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# PAD held=0x%04x | captura f=%u ui=%u fb=0x%x\n",
+    (unsigned)g_held,(unsigned)g_cap_fr,
+    (unsigned)g_cap_ui,(unsigned)g_cap_fb);
+  off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,
+    "# ULTIMAS MARCAS (anel):\n");
+  {u32 base=(g_fnring_wp>8u)?(g_fnring_wp-8u):0u;u32 k;
+   for(k=base;k<g_fnring_wp;k++){fnmark_t*r=&g_fnring[k%FNMARK_RING];
+    off+=snprintf(eb+off,sizeof(eb)-(unsigned)off,"  %s code=%d f=%u\n",
+      r->phase?r->phase:"?",r->code,(unsigned)r->frame);}}
+  snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SAVESTATE_%02d.txt",g_shot_n);
+  fd=open(path,O_WRONLY|O_APPEND,0666);
+  if(fd<0)fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0666);
+  if(fd>=0){
+    write_all_fd(fd,eb,(u32)off);
+    /* as amostras Q do fim da sessao: o que explica o frame em detalhe */
+    {static char qt[32768];unsigned qn=telemetry_qring_txt(qt,sizeof(qt));
+     if(qn)write_all_fd(fd,qt,qn);}
+    close(fd);
+  }else telemetry_error("estado.open",-1);
+  audio_ring_pause(0);
 }
 
 static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
@@ -8418,8 +8492,7 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     (void)fb; (void)fr; (void)ui;
     return 0;
 #endif
-    snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02d_s%u_f%u.rgba.txt",
-             g_shot_n,(unsigned)ui,(unsigned)fr);
+    snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02d.rgba.txt",g_shot_n);
     audio_ring_pause(1);
     /* 0.2.177: so' escrever com o produtor REALMENTE parado (handshake).
        Sem isto a captura era uma escrita a correr junto do fluxo de leituras
@@ -9134,6 +9207,23 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
  reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);
  {const char *onde=0;int pd=espera_pendrive(&onde);capture_status(pd?"USB_PRONTO":"USB_AUSENTE",pd,0);
   if(!pd)boot_fail(0,-1,"PENDRIVE","mass:/FNFPS2/assets nao respondeu em 25 s (2 recargas de usbd+usbhdfsd). Checar FAT32/MBR.");}g_capture_raw_fd=open("mass:/FNFPS2/FNF_SCREEN_0000.rgba.txt",O_WRONLY|O_CREAT|O_TRUNC,0666);
+/* 0.2.178: PRÉ-CRIAR todos os ficheiros de diagnóstico ANTES da música.
+   Provado (0.2.175-0.2.177): depois de minutos de leitura em fluxo, as
+   operações de CRIAÇÃO de ficheiros no usbhdfsd penduram (FAT) -- mas os
+   APPENDS a ficheiros já criados funcionam (o MARCADOR/VALORES chegaram
+   sempre). Pré-criar = as escritas seguintes são appends/trunc de entradas
+   existentes. */
+{char pn[64];int pi,pfd;
+ for(pi=0;pi<32;pi++){snprintf(pn,sizeof(pn),"mass:/FNFPS2/FNF_LOG%02d.txt",pi);
+   pfd=open(pn,O_WRONLY|O_CREAT|O_TRUNC,0666);if(pfd>=0)close(pfd);}
+ for(pi=0;pi<12;pi++){snprintf(pn,sizeof(pn),"mass:/FNFPS2/FNF_ANOM_%02d.txt",pi);
+   pfd=open(pn,O_WRONLY|O_CREAT|O_TRUNC,0666);if(pfd>=0)close(pfd);}
+ for(pi=0;pi<4;pi++){
+   snprintf(pn,sizeof(pn),"mass:/FNFPS2/FNF_SHOT_%02d.rgba.txt",pi);
+   pfd=open(pn,O_WRONLY|O_CREAT|O_TRUNC,0666);if(pfd>=0)close(pfd);
+   snprintf(pn,sizeof(pn),"mass:/FNFPS2/FNF_SAVESTATE_%02d.txt",pi);
+   pfd=open(pn,O_WRONLY|O_CREAT|O_TRUNC,0666);if(pfd>=0)close(pfd);}
+ pfd=open("mass:/FNFPS2/FNF_TRAVA.txt",O_WRONLY|O_CREAT|O_APPEND,0666);if(pfd>=0)close(pfd);}
 /* O log NAO eh truncado aqui. telemetry_init() jah o abriu com O_APPEND e jah
    escreveu o cabecalho; reabrir com O_TRUNC apagava esse cabecalho e deixava
    um segundo escritor brigando pelo mesmo arquivo. O cabecalho do log unico
@@ -12408,7 +12498,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      inclusive da `camHUD` e do preto do `solidCover`. */
   if(ui_state==8)q=cut_fim_desenha(q);
   if(!voices_enabled&&ui_state==8){q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,"VOZES DESLIGADAS (R3 LIGA)",320,402,.62f,1);}
-  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);g_tm[TM_DMA]=GetTimerSystemTime();dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);g_tm[TM_WAIT]=GetTimerSystemTime();MARCA("draw_wait_finish");draw_wait_finish();frame_mark("F.DRAWN",qw);g_tm[TM_DRAWN]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(g_pedido_foto){g_pedido_foto=0;if(g_shot_n<12)capture_framebuffer_fast((u32)fb[draw].address<<5,frame_no,ui_state);}if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;g_capture_chord_latched=1;{int cr=capture_framebuffer_fast((u32)fb[draw].address<<5,frame_no,ui_state);capture_status(cr==0?"RAW_OK":"RAW_FAIL",(int)frame_no,cr);}}frame_mark("F.VSYNC",0);g_tm[TM_VSYNC]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);g_tm[TM_DMA]=GetTimerSystemTime();dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);g_tm[TM_WAIT]=GetTimerSystemTime();MARCA("draw_wait_finish");draw_wait_finish();frame_mark("F.DRAWN",qw);g_tm[TM_DRAWN]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(g_pedido_foto){g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;}if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;g_capture_chord_latched=1;g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;g_pedido_foto=1;capture_status("CAPTURA_PEDIDA",(int)frame_no,0);}frame_mark("F.VSYNC",0);g_tm[TM_VSYNC]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que

@@ -245,7 +245,13 @@ static int out_begin(void)
     if (log_path_index < 0) return -1;
     num = (log_seq == 0u) ? 0u : (1u + ((log_seq - 1u) % 31u));
     log_path_for(log_path_index, num, path, sizeof(path));
-    io_gate_lock(); out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); io_gate_unlock();
+    io_gate_lock();
+    /* 0.2.178: os ficheiros sao pré-criados no boot; abrir SEM criar (o APPEND
+       e' a operacao provada quando o FAT ja' esta' doente). So' cria se o
+       ficheiro nao existir (pendrive limpo a meio). */
+    out_fd = open(path, O_WRONLY | O_APPEND, 0666);
+    if (out_fd < 0) out_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    io_gate_unlock();
     if (out_fd < 0) { output_error = 1; return -1; }
     output_error = 0;   /* 0.2.171: um open que passa recupera o canal */
     k = snprintf(hdr, sizeof(hdr),
@@ -628,6 +634,27 @@ void telemetry_io(const char *op, const char *path, long result, long detail)
     snprintf(line, sizeof(line), "IO,%s,%s,%ld,%ld",
              op ? op : "?", path ? path : "?", result, detail);
     write_line(line);
+}
+
+static void q_line(char *b, unsigned int tam, const fnf_frame_t *f); /* prototipo: definida abaixo */
+/* 0.2.178: as amostras Q em texto para o CORPO do TRAVA. O flush grande pode
+   morrer no open() do usbhdfsd; o corpo do TRAVA escreve ANTES e estas amostras
+   saem mesmo assim. Ultimas min(100, count) amostras, em linhas Q normais. */
+unsigned telemetry_qring_txt(char *buf, unsigned size)
+{
+    unsigned n = (g_fring_count < 100u) ? g_fring_count : 100u;
+    unsigned used = 0, i;
+    for (i = 0; i < n; i++) {
+        char b[512];
+        const fnf_frame_t *r = &g_fring[(g_fring_wp + FRAME_RING - n + i) % FRAME_RING];
+        unsigned k;
+        q_line(b, sizeof(b), r);
+        k = (unsigned)strlen(b);
+        if (used + k + 2u > size) break;
+        memcpy(buf + used, b, k); used += k;
+        buf[used++] = '\n';
+    }
+    return used;
 }
 
 void telemetry_flush(void)

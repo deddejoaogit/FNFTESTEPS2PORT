@@ -139,7 +139,7 @@ def principal():
 
     # 3. Q-lines (todos os logs)
     qs = []
-    logs = achar(pasta, 'FNF_LOG*.txt')
+    logs = achar(pasta, 'FNF_LOG*.txt') + achar(pasta, 'FNF_TRAVA*.txt') + achar(pasta, 'FNF_SAVESTATE*.txt')
     for fn in logs:
         for l in ler(fn).splitlines():
             if l.startswith('Q,f='):
@@ -215,6 +215,13 @@ def principal():
         if m:
             A('MINIATURA do TRAVA (f=%d, %dx%d) -> %s  << ENVIE ESTE PNG' %
               (m[2], m[0], m[1], os.path.basename(m[3])))
+    for fn in achar(pasta, 'FNF_SAVESTATE*.txt'):
+        t = ler(fn)
+        if t.strip():
+            A('SAVESTATE: %s (%d bytes)' % (os.path.basename(fn), os.path.getsize(fn)))
+            for l in t.splitlines()[:5]:
+                if l.startswith('#'):
+                    A('  %s' % l[:100])
 
     # 7. Conclusao automatica
     A('---- CONCLUSAO ----')

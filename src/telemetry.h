@@ -14,6 +14,7 @@ void telemetry_frame(u32 frame, u64 begin, u64 after_draw, u64 after_vsync,
    o caso em que o log eh necessario. telemetry_flush() escreve o que estiver
    pendente e pode ser chamado a qualquer momento, inclusive a cada quadro. */
 void telemetry_flush(void);
+unsigned telemetry_qring_txt(char *buf, unsigned size); /* 0.2.178: amostras Q em texto (corpo do TRAVA) */
 unsigned telemetry_flush_skip(void);   /* 0.2.174: despejos saltados (portao ocupado) */
 void telemetry_anomaly_exec(const char *motivo); /* 0.2.175: escrita real (thread escritora) */
 void telemetry_despejo_pendente(void); /* 0.2.175: o quadro apenas PEDE o despejo */
