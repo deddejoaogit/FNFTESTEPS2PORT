@@ -1,4 +1,4 @@
-FNF PS2 -- port para PlayStation 2, versão 0.2.105-aceito-exato
+FNF PS2 -- port para PlayStation 2, versão 0.2.186
 ================================================================
 
 ESTE ARQUIVO É PARA WINDOWS COM WSL, OU PARA LINUX DIRETO.

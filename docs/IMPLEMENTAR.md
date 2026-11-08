@@ -164,6 +164,25 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
   vivem em RAM e escrevem no TRAVA; pré-criar ficheiros no boot (0.2.178).
 - **FNF_SCREEN** = código morto (0 bytes para sempre) — remover ou ignorar.
 
+## 13. ESTADO 0.2.186 (campanha 08/11/2026 — os 3 bugs citados)
+- [~] **Música engasga com fps baixo** — Fix A feito (bomba em thread dedicada,
+  audsrv thread-safe verificado no ps2sdk); harness ×2 + ASan ×3 verdes;
+  música reproduz no harness. Falta a confirmação na consola.
+- [~] **Personagens/eventos não aparecem** — Fix B feito (descodificação v3 dos
+  eventos FOCUS/ZOOM/SCROLL/BOP/HEALTH_ICON em `chart_events.c`; 24/24 testes
+  de unidade). Falta a confirmação na consola (jogar e ver os efeitos).
+- [~] **Freeplay completamente bugado** — `freeplay_dados.h` == plan.json
+  (campo a campo, verificado); os harnesses freeplay/gameplay/resultado_rank
+  existem mas dependem do canal de log do harness (ver #24.3) para validar —
+  causa visual EM ABERTO.
+- [ ] **Canal de telemetria→ficheiro do harness para ao quadro 1-584** (causa
+  19, CORRECOES #24.3): o jogo corre os 1 402 quadros, mas os despejos Q/E
+  morrem cedo — é o próximo alvo (marcação fina no iow + re-arm do
+  `g_fn_write_ok`), e é a MESMA classe do "FNF_LOG parado" da consola.
+- [ ] Janela do accept do menu = 82 quadros (16 toggles×3,6 + 24 de
+  `menu_exit_frames`) — fiel ao original; os roteiros do harness já contam com
+  isto; nada a corrigir, só documentado.
+
 ---
 *Actualizar este documento a cada sessão. As correções do utilizador vão para
 `CORRECOES.md`; o que falta IMPLEMENTAR fica aqui.*

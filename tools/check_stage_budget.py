@@ -47,7 +47,10 @@ PLAN = os.path.join(PROJECT, "assets-data", "stage-props.json")
 LOG = os.path.join(PROJECT, "build", "harness_assets", "FNFPS2", "FNF_COLHEITA.txt")
 if not os.path.exists(LOG):
     _dir = os.path.join(PROJECT, "build", "harness_assets", "FNFPS2")
-    _alts = sorted(glob.glob(os.path.join(_dir, "FNF_LOG*.txt")))
+    _alts = sorted(
+        p for p in glob.glob(os.path.join(_dir, "FNF_LOG*"))
+        if os.path.basename(p).lower().endswith(".txt")
+    )
     if _alts:
         LOG = _alts[-1]
 

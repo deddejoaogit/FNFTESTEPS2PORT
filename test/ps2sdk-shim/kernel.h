@@ -49,4 +49,17 @@ int StartThread(int id, void *arg);
 int TerminateThread(int id);
 void ExitThread(void);
 
+/* `audio_ring.c` usa `GetTimerSystemTime` nas estatisticas de I/O (0.2.186 a
+ * thread de bomba tambem). No EE o `kernel.h` do ps2sdk ja' o declara; aqui
+ * ele e' `static inline` para cada unidade de traducao do teste ter um
+ * relogio monotono de verdade sem mudar o jogo. Os valores sao so' para
+ * deltas -- as unidades nao interessam. */
+#include <time.h>
+static inline u64 GetTimerSystemTime(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u64)ts.tv_sec * 1000000000ull + (u64)ts.tv_nsec;
+}
+
 #endif /* FNF_SHIM_KERNEL_H */

@@ -1,0 +1,51 @@
+FNF PS2 0.2.186 -- LEIA-ME OPCIONAL (detalhes de teste e diagnostico)
+=====================================================================
+
+NOVIDADES 0.2.186 (o que testar de novo)
+----------------------------------------
+1. EVENTOS DOS CHARTS (v3): foco/zoom da camera, scroll, bop e icones de
+   vida agora sao descodificados (antes 18/24 testes morriam e os efeitos
+   nunca apareciam). Nas musicas, REPARAR se a camera faz os movimentos
+   (zoom/foco) e se os icones dos personagens trocam.
+2. SOM SEM ENGASGOS: o relogio da musica passou a correr numa thread propria
+   (antes dependia do fps). REPARAR se a musica engasga quando o fps cai.
+3. FREEPLAY: confirmar se o menu continua bugado (a logica esta' igual ao
+   original; precisamos do relatorio do extrador para fechar a causa).
+
+PROTOCOLO DE TESTE (o mesmo de sempre)
+--------------------------------------
+1. Apagar a pasta FNFPS2 do pendrive (D:\FNFPS2 ou a letra do seu pendrive).
+2. Copiar o FNF_PS2.ELF deste zip para o pendrive.
+3. No PS2: STORY MODE (o menu do freeplay esta' bugado -- usar sempre o
+   story) -> semana -> tutorial. Jogar a musica toda.
+4. SELECT+R3 durante 3 segundos (ou no fim) = pedido de diagnostico:
+   grava FNF_SHOT.rgba (imagem da tela 320x224), FNF_SAVESTATE.bin e
+   tenta os despejos do vigia. Repetir as vezes que quiser (as primeiras
+   4 imagens sao guardadas).
+5. Desligar o PS2, levar o pendrive ao PC.
+6. Arrastar a pasta FNFPS2 para cima do extrair_diagnostico.py
+   (ou: python extrair_diagnostico.py E:\FNFPS2).
+7. COPIAR e COLAR o relatorio inteiro (o texto da janela).
+   Os PNG que o extrador gerar (FNF_SHOT*.png / FNF_MINIATURA*.png) tambem.
+
+OS .BIN NAO PRECISAM DE SER ENVIADOS
+------------------------------------
+FNF_LOGVIVO.bin, FNF_SAVESTATE.bin e FNF_SHOT.rgba sao lidos pelo proprio
+extrador no PC e resumidos dentro do relatorio. Basta colar o texto.
+
+O QUE OS FICHEIROS SAO (nomes fixos desde a 0.2.180)
+----------------------------------------------------
+FNF_BOOT.TXT     ultimo passo do arranque + anel de marcas de fase
+FNF_LOG.TXT      anel de blocos de diagnostico (512 KB)
+FNF_TRAVA.TXT    o vigia: marcador de paragem, valores, trace, eventos
+FNF_TELA.TXT     retrato do console, sessao, fim, TV, estado
+FNF_ERRO.TXT     falha fatal / avisos
+FNF_LOGVIVO.bin  historia completa em RAM (eventos + quadros a 2 Hz)
+FNF_SHOT.rgba    imagem da tela no SELECT+R3 (o extrador vira PNG)
+FNF_SAVESTATE.bin resumo gigante do momento (visual/desempenho/som/pad)
+
+SELECT+OUTRAS TECLAS
+--------------------
+SELECT+R3  diagnostico (imagem + savestate + despejos)
+SELECT+R1  estado do jogo em texto (o extrador le no FNF_TELA.TXT)
+SELECT+TRIANGULO  alterna 16:9 / 4:3 (modo de proporcao)

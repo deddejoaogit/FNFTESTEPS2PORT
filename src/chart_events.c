@@ -283,6 +283,15 @@ void chart_events_apply(const chart_event_t *e)
 {
     {
         u32 ease_dir = (e->b >> 16) & 3u;
+        /* 0.2.186: charts v3 (FCH3) trazem os parâmetros TODOS a zero em
+           p0/p1/p2/a/b -- o loader só preenche `value`. Sem esta decodificação
+           o ZoomCamera levava o ecrã para zoom 0 (tudo invisível), o
+           ScrollSpeed parava as notas e o foco ficava sempre no char 0: os
+           "eventos/personagens que não aparecem" das fases. O formato FCH3 é
+           o de tools/fnf_to_fch3.py pack_event_value():
+              value = (duração_em_steps << 16) | primário_low16
+           com o primário em x1000 (zoom/scroll/intensity) ou int (char). */
+        int v3 = (bound && bound->version == 3u);
         st.last_type = e->type;
         st.last_sample = e->sample;
         st.seen++;
@@ -300,6 +309,20 @@ void chart_events_apply(const chart_event_t *e)
             const char *en = (e->b & CHART_B_EASE_ABSENT)
                              ? 0 : chart_event_string(e->b & CHART_B_EASE_MASK);
             /* Absent duration = 4 steps (FocusCameraSongEvent L63), not instant. */
+            if (v3) {
+                /* FCH3: primário = char (s16), duração em steps (high 16).
+                   x/y/ease não existem no formato -- CLASSIC é o class default
+                   quando o ease vem ausente (FocusCameraSongEvent L64). */
+                st.cam_char = (int)(short)(e->value & 0xFFFFu);
+                st.cam_x = st.cam_y = 0.0f;
+                st.cam_ease_dir = 1;
+                st.cam_mode = CHART_FOCUS_MODE_CLASSIC;
+                st.cam_ease = CHART_EASE_LINEAR;
+                { float d = (float)(e->value >> 16);
+                  st.cam_dur_s = steps_to_seconds(d > 0.0f ? d : CHART_FOCUS_DEFAULT_DURATION); }
+                st.cam_seq++;
+                break;
+            }
             float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
                                                     : fx(e->p0);
             st.cam_char = (int)e->a;
@@ -333,6 +356,21 @@ void chart_events_apply(const chart_event_t *e)
 
         case CHART_EV_ZOOM_CAMERA: {
             /* Absent duration = the class default (4 steps), NOT instant. */
+            if (v3) {
+                /* FCH3: zoom x1000 nos low 16, duração em steps nos high 16.
+                   O `mode` (direct/stage) não cabe no formato -- direct, que é
+                   o default da classe. Antes este caso lia p1=0: zoom 0 e o
+                   desenho encolhia para nada (fase "sem personagens"). */
+                float d = (float)(e->value >> 16);
+                st.zoom_from = st.zoom;
+                st.zoom_to = fx((u32)(int)(short)(e->value & 0xFFFFu));
+                st.zoom_ease = CHART_EASE_LINEAR;
+                st.zoom_ease_dir = 0;
+                st.zoom_dur_s = steps_to_seconds(d > 0.0f ? d : CHART_EVENT_DEFAULT_DURATION);
+                st.zoom_t = (st.zoom_dur_s > 0.0f) ? 0.0f : 1.0f;
+                if (st.zoom_dur_s <= 0.0f) { st.zoom = st.zoom_to; st.zoom_t = 1.0f; }
+                break;
+            }
             float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
                                                     : fx(e->p0);
             float zoom = fx(e->p1);
@@ -364,6 +402,21 @@ void chart_events_apply(const chart_event_t *e)
         }
 
         case CHART_EV_SCROLL_SPEED: {
+            if (v3) {
+                /* FCH3: scroll x1000 nos low 16, duração em steps nos high 16.
+                   O flag `absolute` não cabe no formato -- relativo, que é o
+                   default da classe (absolute false = multiplicar o scroll do
+                   chart). Antes lia p1=0: scroll 0 e as notas paravam. */
+                float d = (float)(e->value >> 16);
+                st.scroll_from = st.scroll;
+                st.scroll_to = st.scroll_from * fx((u32)(int)(short)(e->value & 0xFFFFu));
+                st.scroll_ease = CHART_EASE_LINEAR;
+                st.scroll_ease_dir = 0;
+                st.scroll_dur_s = steps_to_seconds(d > 0.0f ? d : CHART_EVENT_DEFAULT_DURATION);
+                st.scroll_t = (st.scroll_dur_s > 0.0f) ? 0.0f : 1.0f;
+                if (st.scroll_dur_s <= 0.0f) { st.scroll = st.scroll_to; st.scroll_t = 1.0f; }
+                break;
+            }
             float dur = (e->b & CHART_B_DUR_ABSENT) ? CHART_EVENT_DEFAULT_DURATION
                                                     : fx(e->p0);
             float scroll = fx(e->p1);
@@ -400,15 +453,32 @@ void chart_events_apply(const chart_event_t *e)
                entao rate 0 aqui quer dizer perda de dado -- e isso vai para o
                log em vez de virar um "o HUD nao pisca" sem explicacao. O build
                do pendrive usa build/charts, que e' FCH5 e tem os parametros. */
+            /* 0.2.186: FCH3 guarda só a intensidade x1000 (rate/offset não
+               cabem no formato). Com rate 0 o original NAO pulsa
+               (`if (cameraZoomRate > 0.0)`) -- era o "o HUD não pisca". O
+               rate ausente passa a usar o DEFAULT_ZOOM_RATE da classe
+               (Constants, CHART_DEFAULT_BOP_RATE): um {} no original repõe o
+               bop padrão. A perda de dado continua a ser contada e reportada. */
+            if (v3) {
+                st.bop_sem_parametros++;
+                chart_events_set_bop((CHART_DEFAULT_BOP_INTENSITY - 1.0f)
+                                     * fx((u32)(int)(short)(e->value & 0xFFFFu)) + 1.0f,
+                                     CHART_DEFAULT_BOP_RATE, CHART_DEFAULT_BOP_OFFSET);
+                break;
+            }
             if (!(fx(e->p2) > 0.0f)) st.bop_sem_parametros++;
             chart_events_set_bop((CHART_DEFAULT_BOP_INTENSITY - 1.0f) * fx(e->p0) + 1.0f,
-                                 fx(e->p2), fx(e->p1));
+                                 (fx(e->p2) > 0.0f) ? fx(e->p2) : CHART_DEFAULT_BOP_RATE,
+                                 fx(e->p1));
             break;
 
         case CHART_EV_SET_HEALTH_ICON:
-            st.icon_char = (int)e->a;
-            st.icon_flipx = (e->b & CHART_B_FLIPX) ? 1 : 0;
-            st.icon_ref = e->ref;
+            /* 0.2.186: FCH3 guarda o char (s16); o id do ícone (a arte) não
+               cabe no formato -- a divergência conhecida (sem arte HealthIcon)
+               mantém-se, mas o char deixa de ficar sempre a 0. */
+            st.icon_char = v3 ? (int)(short)(e->value & 0xFFFFu) : (int)e->a;
+            st.icon_flipx = v3 ? 0 : ((e->b & CHART_B_FLIPX) ? 1 : 0);
+            st.icon_ref = v3 ? 0u : e->ref;
             break;
 
         case CHART_EV_PLAY_ANIMATION:

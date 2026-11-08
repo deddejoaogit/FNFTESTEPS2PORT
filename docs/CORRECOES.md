@@ -284,4 +284,41 @@ protocolo manda apagar os FNF_* antigos (o utilizador cumpre — obrigado!).
 7. A pintura da TV (GS puro) é o último canal quando o USB morre.
 
 ---
+
+### #24 [x] Campanha 0.2.186: eventos v3 + bomba em thread + telemetria do harness (Fix A/B/C)
+(1) **FACTO**: os charts FCH3 v3 (todos os reais) trazem FOCUS/ZOOM/SCROLL/BOP/
+HEALTH_ICON no bloco de EVENTOS, mas o `chart_events_apply` só descodificava os
+tipos 0-4 e os valores `(a<<8)|b` dos passos — 18/24 testes de unidade morriam
+com "estouro de stack" (virgem=0) e os efeitos de câmara/ícones nunca chegavam
+ao jogo = **"personagens/eventos não aparecem"** (causa 18). Corrigido:
+`chart_events.c` decodifica os 5 tipos v3 (secção nova, layout verificado byte a
+byte contra os charts reais em `assets-data/`) com `fx(u32)=(s32)/1000` e
+primário = `(s16)p` para chars. 24/24 testes de unidade verdes.
+(2) **FACTO**: o relógio da música avançava no frame loop ⇒ passos/letras a
+depender do fps = "música engasga com fps baixo" (causa 17). Corrigido (Fix A):
+thread dedicada prio 45 (`pump_thread_fn`, arranca no frame 1 com
+`fnwd_start();iow_start()`) que chama `audio_bombear()` a cada 2 ms; os sites do
+frame loop passaram a só marcar `g_pump_fn`. audsrv é thread-safe (audsrv_rpc.c
+usa completion_sema em TODAS as chamadas — verificado no ps2sdk oficial).
+Harness ×2 + ASan ×3 verdes; música reproduz no harness (124 928 amostras).
+(3) **FACTO**: o teste de cobertura do run_tests.sh exigia `state,6/7/8` no
+FNF_LOG.TXT do harness e falhava sempre. Investigação completa (logs rt10 e
+direct1 preservados em /tmp): **o jogo corre os 1 402 quadros todos do roteiro
+(h_frames_run++ é no graph_wait_vsync; 83 200 draws, 2 054 pacotes, 433 opens,
+12/12 teclas, 0 estouros)** mas o CANAL DE TELEMETRIA PARA FICHEIRO (despejos
+Q/E via iow/despejo) para de gravar de forma não-determinística (quadro 1 no
+rt10, 584 no direct1) — mesma classe do "FNF_LOG parado" da consola (causa 19,
+EM ABERTO). O `vigia` do jogo faz 8 dumps falsos no harness (DelayThread das
+threads não-render = sem espera real ⇒ 15 acordadas instantâneas = falso
+positivo de paragem) — artefacto do harness, não do jogo.
+(4) **FACTO (ferramentas)**: os globs `FNF_LOG*.txt` não achavam `FNF_LOG.TXT`
+em Linux (case-sensitive) — `check_stage_budget.py` e `test/run_tests.sh`
+(2 sítios) corrigidos; o shim de host `test/ps2sdk-shim/kernel.h` não tinha
+`GetTimerSystemTime` (só afectava os testes de unidade) — corrigido.
+(5) **DESCARTADO**: loop infinito em `menu_atlas_resample_phys` — os laços são
+limitados pela tabela `const g_menu_frame[5][2][3][3]` com valores sãos
+(verificados); o ponto exacto da paragem do canal de log fica para a próxima
+campanha com marcação fina no iow (REGRAS: sem dado ⇒ build seguinte coleta).
+
+---
 *Novas correções do utilizador = nova entrada em A. Actualizar os estados.*

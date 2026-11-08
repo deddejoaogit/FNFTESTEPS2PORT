@@ -821,6 +821,11 @@ static unsigned char *g_hud_pixels;
 static unsigned char *g_font_pixels;
 static unsigned char g_font_widths[96];
 static unsigned char *g_audio_pcm;
+/* 0.2.186: promovidos de locais de main() para o ficheiro: a BOMBA DE AUDIO
+   DEDICADA (thread) precisa deles fora do main(). Os nomes ficam iguais para
+   nao tocar em nenhuma das dezenas de usos existentes. */
+static volatile int audio_playing=1,audio_started=0,voices_enabled=1;
+static volatile u32 audio_submitted=0;
 #define AUDIO_FILE_BYTES 3225600
 #define AUDIO_STREAM_BUFFER 32768
 #define AUDIO_READ_CHUNK 4096
@@ -7661,7 +7666,8 @@ static void resmus_passo(int rank,int pct_alvo)
   telemetry_event("resultado_ticks",g_resmus_ticks,0);
   telemetry_event("resultado_audio",(int)g_resmus_enviado,g_resmus_estado);
  }
- resmus_bombear();
+ /* 0.2.186: o resmus_bombear() saiu daqui -- a bomba corre na thread dedicada
+    (g_pump_fn[1]=pump_resmus, escolhida no laco do quadro para ui_state==9). */
 }
 
 
@@ -8295,6 +8301,105 @@ static void fnwd_dump(int dumps){
    do framebuffer, quadro, estado); quem escreve e' a thread escritora (iow). */
 static int g_shot_n;
 static volatile u32 g_cap_fb=0, g_cap_fr=0, g_cap_ui=0;
+
+/* ===== 0.2.186: BOMBA DE AUDIO DEDICADA (thread) ==========================
+   PORQUE (medido + relatado pelo utilizador): as bombas corriam UMA vez por
+   quadro, dentro do laco do desenho. Quando um quadro levava 100-300 ms (o GS
+   a lutar com o draw das fases), o ring do audsrv esvaziava e a musica
+   engasgava -- o proprio codigo ja' descrevia o sintoma ("a musica comeca,
+   fica muito lenta e engasgada, e trava"). Medido na consola: pior quadro
+   t=116 ms, un=4 underruns; e o audio_play_complete podia ainda segurar o
+   laco do quadro ate' 2 s (guard 2000x1 ms) quando o audsrv devolvia 0.
+   A musica tinha ficado DEPENDENTE DO FPS.
+   COMO: uma thread propria chama a bomba ACTIVA do estado (g_pump_fn[2]) e
+   mantem o ring do IOP CHEIO; solavancos de fps sao absorvidos pelo buffer do
+   audsrv em vez de chegarem aos auscultadores. Slot 0 = menu (freakyMenu +
+   faixa de SFX); slot 1 = o estado actual (gameplay/pausa/game over/resultado/
+   freeplay) -- mutuamente exclusivos entre si.
+   SEGURANCA (fonte oficial ps2sdk, ee/rpc/audsrv/src/audsrv_rpc.c, consultado
+   em 2026-11-08): TODAS as chamadas audsrv serializam em `completion_sema`
+   (WaitSema/SignalSema por pacote, sbuff copiado por baixo do semaforo) -- e'
+   seguro chamar o audsrv de duas threads. O audio_ring tem mutex proprio. */
+static volatile int g_pump_stop=0;
+static int (*volatile g_pump_fn[2])(void);
+static unsigned char pump_stack[16384] __attribute__((aligned(128)));
+/* Bomba do menu: corpo igual ao que corria no laco do quadro (mistura da
+   faixa de SFX do menu por cima do freakyMenu). */
+static int pump_menu(void){
+ int voltas=0,enviado=0;
+ while(audsrv_available()>=AUDIO_READ_CHUNK){
+  int n,j;
+  if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}
+  n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);
+  if(n<=0)break;
+  if(g_menu_sfx_pos<g_menu_sfx_end){
+   int k,frames=n/4;short*dst=(short*)g_audio_pcm;
+   for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){
+    short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);
+    int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];
+    if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;
+    if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;
+    dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;
+    g_menu_sfx_phase+=147u;
+    if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}
+   }
+  }
+  j=audio_play_complete((char*)g_audio_pcm,n);
+  if(j<=0){frame_mark("A.STOP_ERRO",j);break;}
+  g_title_audio_submitted+=(u32)(j/4);
+  enviado+=j;
+ }
+ return enviado;
+}
+/* Bomba da gameplay (stems instrumental+vozes). O bookkeeping do bloco curto
+   e das falhas seguidas saiu do laco do quadro para aqui, IDENTICO. */
+static int pump_tutorial(void){
+ int submitted;
+ if(audsrv_available()<AUDIO_READ_CHUNK)return 0;   /* o guarda antigo do laco */
+ submitted=tutorial_audio_mix_submit(voices_enabled);
+ if(submitted>0){
+  audio_submitted+=(u32)(submitted/4);
+  if(submitted!=AUDIO_READ_CHUNK){
+   if(g_tut_partial_blocks<8u)telemetry_event("tutorial_audio_curto",submitted,(int)g_fn_frame);
+   g_tut_partial_blocks++;
+  }
+  g_tut_audio_fail_streak=0;
+ }else{
+  g_tut_audio_fail_streak++;
+  if(g_tut_audio_fail_streak>=TUT_AUDIO_FAIL_LIMIT){
+   g_tut_audio_given_up=1;
+   g_tutorial_audio_status=-6;audio_playing=0;audio_started=0;audsrv_stop_audio();
+   telemetry_event("tutorial_audio_submit",submitted,(int)g_fn_frame);
+  }
+ }
+ return submitted;
+}
+static int pump_gameover(void){int e=gameover_audio_bombear();if(e>0)frame_mark("A.GAMEOVER",e);return e;}
+static int pump_pause(void){int e=pause_audio_bombear();if(e>0)frame_mark("A.PAUSA",e);return e;}
+static int pump_resmus(void){return resmus_bombear();}
+static int pump_freeplay(void){int e=freeplay_audio_bombear();if(e>0)frame_mark("A.FREEPLAY",g_fpa_estado);return e;}
+static void pump_thread_fn(void*arg){
+ int i;
+ (void)arg;
+ while(!g_pump_stop){
+  int e=0;
+  for(i=0;i<2;i++){
+   int (*fn)(void)=g_pump_fn[i];
+   if(fn)e+=fn();
+  }
+  if(e<=0)DelayThread(3000);   /* 3 ms quando nao ha' o que enviar */
+ }
+ ExitThread();
+}
+static void pump_start(void){
+ ee_thread_t t;
+ memset(&t,0,sizeof(t));
+ t.func=pump_thread_fn;t.stack=pump_stack;t.stack_size=sizeof(pump_stack);
+ t.gp_reg=&_gp;t.initial_priority=45;   /* entre o produtor (40) e o iow (50) */
+ {int id=CreateThread(&t);
+  if(id<0)return;
+  if(StartThread(id,0)<0)DeleteThread(id);}
+}
 
 static unsigned char iow_stack[16384] __attribute__((aligned(128)));
 static volatile int g_iow_stop=0;
@@ -9280,7 +9385,7 @@ static int espera_pendrive(const char **onde){
   return 0;
 }
 
-int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,tex2,fonttex,gftex,stagetex;packet_t* packet;int draw=1,running=1,anim=0,deferred_menu_start=1,last=-1,last2=-1,transform_mode=0,components_mode=0,ui_state=0,target_state=-1,transition_frame=0,selection=0,settings_sel=0,toggle_value=1,slider_value=7,tab_value=0,repeat_dir=0,repeat_frames=0,transitions=0,audio_ok=0,audio_playing=1,audio_started=0,audio_volume=70,voices_enabled=1,audio_fd=-1,title_logo_last=-1,title_gf_last=-1,title_intro_active=1,title_confirm_frames=0,title_ng_restored=0,title_intro_flash_frames=0,menu_placeholder=0,menu_anim_tick=-1,story_diff=1,story_level=0,menu_back_transition=0,story_assets_ready=0,story_diff_tween=5;float menu_cam_y=40.0f;u32 frame_no=0,visual_frame=0,anim_start=0,audio_submitted=0,music_clock=0,audio_read_bytes=0,audio_loops=0,audio_read_errors=0,audio_underruns=0;u64 music_clock_tick=0,music_clock_fraction=0;int latency_samples=0,clock_hold=0,transport_state=1;u32 chart_event_cursor=0;
+int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,tex2,fonttex,gftex,stagetex;packet_t* packet;int draw=1,running=1,anim=0,deferred_menu_start=1,last=-1,last2=-1,transform_mode=0,components_mode=0,ui_state=0,target_state=-1,transition_frame=0,selection=0,settings_sel=0,toggle_value=1,slider_value=7,tab_value=0,repeat_dir=0,repeat_frames=0,transitions=0,audio_ok=0,audio_volume=70,audio_fd=-1,title_logo_last=-1,title_gf_last=-1,title_intro_active=1,title_confirm_frames=0,title_ng_restored=0,title_intro_flash_frames=0,menu_placeholder=0,menu_anim_tick=-1,story_diff=1,story_level=0,menu_back_transition=0,story_assets_ready=0,story_diff_tween=5;float menu_cam_y=40.0f;u32 frame_no=0,visual_frame=0,anim_start=0,music_clock=0,audio_read_bytes=0,audio_loops=0,audio_read_errors=0,audio_underruns=0;u64 music_clock_tick=0,music_clock_fraction=0;int latency_samples=0,clock_hold=0,transport_state=1;u32 chart_event_cursor=0;
  reset_iop();g_telemetry_init_result=telemetry_init(FNF_PS2_VERSION,argc?argv[0]:"unknown");capture_status("META_BEGIN",-1,0);
  {const char *onde=0;int pd=espera_pendrive(&onde);capture_status(pd?"USB_PRONTO":"USB_AUSENTE",pd,0);
   if(!pd)boot_fail(0,-1,"PENDRIVE","mass:/FNFPS2/assets nao respondeu em 25 s (2 recargas de usbd+usbhdfsd). Checar FAT32/MBR.");}
@@ -9613,7 +9718,11 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      console). O limite e 64 voltas: 64 x 4 KB = 256 KB, o dobro do anel de
      audio deste jogo, entao o caminho saudavel sai pela mesma condicao de
      antes. Quando o limite ou o erro pegam, fica registrado em AUDIO_STALL. */
-  if((ui_state==0||ui_state==6||ui_state==7||ui_state==11)&&!g_menu_audio_suspended&&g_title_audio_fd>=0){int voltas=0;while(audsrv_available()>=AUDIO_READ_CHUNK){int n;int j;if(++voltas>64){frame_mark("A.STOP_LACO",voltas);break;}n=audio_ring_take(g_audio_pcm,AUDIO_READ_CHUNK);if(n>0){if(g_menu_sfx_pos<g_menu_sfx_end){int k,frames=n/4;short*dst=(short*)g_audio_pcm;for(k=0;k<frames&&g_menu_sfx_pos<g_menu_sfx_end;k++){short*fx=(short*)(g_menu_sfx_pixels+g_menu_sfx_pos);int vl=(int)dst[k*2]+(int)fx[0],vr=(int)dst[k*2+1]+(int)fx[1];if(vl>32767)vl=32767;if(vl<-32768)vl=-32768;if(vr>32767)vr=32767;if(vr<-32768)vr=-32768;dst[k*2]=(short)vl;dst[k*2+1]=(short)vr;g_menu_sfx_phase+=147u;if(g_menu_sfx_phase>=320u){g_menu_sfx_phase-=320u;g_menu_sfx_pos+=4u;}}}j=audio_play_complete((char*)g_audio_pcm,n);if(j>0)g_title_audio_submitted+=(u32)(j/4);else{frame_mark("A.STOP_ERRO",j);break;}}else break;} }
+  /* 0.2.186: as bombas passaram para a thread dedicada (pump_thread_fn); o
+     laco do quadro apenas ESCOLHE a bomba activa. Limpa os slots por quadro:
+     as condicoes abaixo sao exactamente as que antes chamavam as bombas. */
+  g_pump_fn[0]=0;g_pump_fn[1]=0;
+  if((ui_state==0||ui_state==6||ui_state==7||ui_state==11)&&!g_menu_audio_suspended&&g_title_audio_fd>=0)g_pump_fn[0]=pump_menu;
   /* AUDIO DA FREEPLAY: transporte proprio (o do menu so' serve enquanto o
      `freakyMenu` ainda esta' tocando nos 0,25 s do comeco). */
   /* O bombeamento da Freeplay: sempre na tela parada, e TAMBEM durante o fade
@@ -9623,7 +9732,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
      abrir o anel e o relogio da cinematica conta de `g_fp_t0` -- medido, o
      bombeamento durante a entrada empurrava o primeiro quadro de 0 para 1 ms e
      o zoom de 1850 para 1849. */
-  if(ui_state==11&&(transition_frame==0||target_state!=11)&&freeplay_audio_bombear()>0)frame_mark("A.FREEPLAY",g_fpa_estado);
+  if(ui_state==11&&(transition_frame==0||target_state!=11))g_pump_fn[1]=pump_freeplay;   /* 0.2.186: thread */
   if(ui_state==8&&audio_ok&&audio_fd>=0&&g_tutorial_audio_status==0&&!g_paused){
    /* A musica so' comeca depois da contagem: no original startSong() e'
       chamado quando o Conductor chega em 0 (PlayState.hx:1144-1151). */
@@ -9635,50 +9744,23 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
       sobra um resto menor que o bloco, e essa exigencia impedia o mixer de ser
       chamado -- o resto ficava preso no anel para sempre e a musica nunca
       terminava. Quem decide o que ha' para enviar e' o mixer. */
-   if(audio_started&&audio_playing&&audsrv_available()>=AUDIO_READ_CHUNK){
-    int submitted=tutorial_audio_mix_submit(voices_enabled);
-    /* UM BLOCO CURTO NAO PODE MATAR A MUSICA.
-       Antes, qualquer valor diferente de AUDIO_READ_CHUNK marcava
-       g_tutorial_audio_status=-6, chamava audsrv_stop_audio() e congelava o
-       relogio da musica -- para o resto da tentativa, sem retentativa. Um
-       bloco curto acontece quando a fila do audsrv enche no meio do envio, o
-       que no console e' normal (pendrive a ~1,5 MB/s, anel de 20 KB). O
-       sintoma que o usuario descreveu no PS2 -- "a musica comeca, fica muito
-       lenta e engasgada, e trava" -- tem exatamente esse formato.
-       Agora: bloco curto conta e segue; o transporte so' para depois de
-       TUT_AUDIO_FAIL_LIMIT quadros seguidos sem conseguir enviar nada. */
-    if(submitted>0){
-     audio_submitted+=(u32)(submitted/4);
-     if(submitted!=AUDIO_READ_CHUNK){
-      if(g_tut_partial_blocks<8u)telemetry_event("tutorial_audio_curto",submitted,(int)frame_no);
-      g_tut_partial_blocks++;
-     }
-     g_tut_audio_fail_streak=0;
-    }else{
-     g_tut_audio_fail_streak++;
-     if(g_tut_audio_fail_streak>=TUT_AUDIO_FAIL_LIMIT){
-      g_tut_audio_given_up=1;
-      g_tutorial_audio_status=-6;audio_playing=0;audio_started=0;audsrv_stop_audio();
-      telemetry_event("tutorial_audio_submit",submitted,(int)frame_no);
-     }
-    }
+   /* 0.2.186: o bookkeeping (bloco curto/falhas seguidas) vive agora em
+      pump_tutorial, correndo na thread da bomba -- a musica deixou de depender
+      do fps. O guarda do audsrv tambem la' esta'. */
+   if(audio_started&&audio_playing)g_pump_fn[1]=pump_tutorial;
    }
-  }
   /* AUDIO DO GAME OVER: um transporte proprio (o do nivel esta' parado nesta
      tela desde a morte). O anel pode estar em SILENCIO+sfx ou tocando a
      musica do game over; quem decide e' o audio_ring. Sem pre-buffer grande:
      o sfx tem de comecar no primeiro quadro do substate. */
-  if(ui_state==10&&transition_frame==0&&g_audio_ok&&g_go_audio_estado>0){
-   int enviado=gameover_audio_bombear();
-   if(enviado>0)frame_mark("A.GAMEOVER",enviado);
-  }
+  if(ui_state==10&&transition_frame==0&&g_audio_ok&&g_go_audio_estado>0)g_pump_fn[1]=pump_gameover;   /* 0.2.186: thread */
   /* MUSICA DA PAUSA: transporte proprio, com o fade-in do original. Bombeia
      enquanto a pausa esta' aberta -- inclusive nos quadros em que o menu
      nao aceita entrada (o justOpened), porque o original tambem toca ali. */
-  if(ui_state==8&&g_paused&&g_audio_ok&&g_pause_on){
-   int enviado=pause_audio_bombear();
-   if(enviado>0)frame_mark("A.PAUSA",enviado);
-  }
+  if(ui_state==8&&g_paused&&g_audio_ok&&g_pause_on)g_pump_fn[1]=pump_pause;   /* 0.2.186: thread */
+  /* 0.2.186: a bomba do resultado (resmus) tambem vive na thread; antes era
+     chamada dentro de resmus_passo (so' na tela de resultado). */
+  if(ui_state==9&&g_audio_ok)g_pump_fn[1]=pump_resmus;
   frame_mark("F.AUDIO",transport_state);
   {u32 reads=0;audio_ring_stats(&audio_read_bytes,&reads,&audio_loops,&audio_read_errors,&audio_underruns);(void)reads;}
   if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}MARCA("audsrv_queued");if(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0)){g_qrpc_cache=(u32)audsrv_queued();g_arpc_cache=(u32)audsrv_available();}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?g_qrpc_cache:0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
@@ -12701,7 +12783,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
    if(frame_no==0)tela_marco((u32)fb[draw].address,4);
    frame_mark("F.POST",(int)frame_no);g_tm[TM_POST]=GetTimerSystemTime();g_fn_beat++;
    if(frame_no<3u)tela_marco((u32)fb[draw].address,5+(int)frame_no);
-   if(frame_no==1u){fnwd_start();iow_start();}
+   if(frame_no==1u){fnwd_start();iow_start();pump_start();}
    av_trace_capture(frame_no-1,ui_state,target_state,transition_frame,transport_state,audio_fd,music_clock,audio_started,audio_playing,last2,last,chart_event_cursor);draw^=1;
  }
  g_fnwd_stop=1;if(g_fnwd_thread>=0){DelayThread(250000);DeleteThread(g_fnwd_thread);g_fnwd_thread=-1;}
