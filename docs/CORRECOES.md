@@ -139,6 +139,23 @@ freeze): o ecrã de diagnóstico podia ele próprio derrubar o jogo. CORRIGIDO
 0.2.181: packet_init(4096) (o mesmo tamanho do pacote do quadro principal).
 Prova: 6 execuções ASan seguidas limpas (antes falhava em ≤8).
 
+### #20 [x] Diagnóstico 0.2.181 interpretado + diagnóstico que não destrói (0.2.182)
+Os logs de 0.2.181 (boot 03700f00) resolveram 3 mistérios de uma vez:
+(1) a "tela bugada com números" É a pintura do vigia a disparar em engasgos
+reais de 3 s (parado_ha=3000ms em F.PACKET = o próprio telemetry_flush a
+escrever para o USB); (2) ela fazia `graph_vram_clear`+`graph_initialize` =
+**destruía o GS** — bf/gf desaparecidos, textos como texturas, barra de vida
+parada = VRAM morta; (3) SFX tarde = produtor de áudio preso (SRV=HANG ×7 nos
+Q; ui_som_tocar usava `audio_ring_overlay_slot` = a mesma mistura do produtor).
+**Correções (0.2.182)**: fnwd_pintar NÃO toca no GS (pinta no buffer actual);
+logvivo consertado (fd fechado após o pre-fill = o tamanho aparece; seq i=8..15;
+porta NÃO-bloqueante); despejo do anel serializado dentro de telemetry_flush +
+`# DESPEJO` por bloco (antes o anel nem saía!); anel de marcas de boot (slot 4096
+= as marcas ENCASTELADAS do 0.2.176); SFX directo no canal (conta misturas) +
+EV=SFX; EV=PRODUTOR preso/ok; hud hp/nt no logvivo; MAX_DUMPS 8 sem teto de
+20 min; SHOT.rgba = captura real 320×224 no freeze; extrator v9 (resumo de
+SFX/produtor/vigia + batimento do anel + VALORES sem duplicar).
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).

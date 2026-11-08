@@ -343,7 +343,7 @@ static int out_begin(void)
     if (log_path_index < 0) return -1;
     k = snprintf(out_hdr, sizeof(out_hdr),
         "# FNF PS2 %s | boot %08x | log v2 | despejo %u | off %u | quadros ate' %u |"
-        " anel %u | t=%u ms\n",
+        " anel %u | t=%u s\n",
         build_name, (unsigned)g_boot_id, (unsigned)log_seq, (unsigned)g_ring_off,
         (unsigned)frames_logged, (unsigned)fring_n(), (unsigned)segundos_desde_boot());
     out_hdr_len = (k > 0) ? (unsigned)k : 0;
@@ -760,8 +760,7 @@ void telemetry_io(const char *op, const char *path, long result, long detail)
    PARA (o jogo nunca trava por causa do log -- regra 7). */
 #define LOGVIVO_REG   256u
 #define LOGVIVO_N     2048u            /* 512 KB */
-#define LOGVIVO_FILA  96u              /* registos em RAM a espera */
-static int lv_fd = -1;
+#define LOGVIVO_FILA  256u             /* registos em RAM a espera (0.2.182: era 96) */
 static unsigned lv_seq, lv_boot;
 static char lv_fila[LOGVIVO_FILA][LOGVIVO_REG];
 static unsigned lv_wp, lv_n, lv_erros, lv_descartados;
@@ -790,41 +789,55 @@ void logvivo_init(void)
     g_boot_id = lv_boot;   /* 0.2.180: LOG VIVO e anel do log com o MESMO boot id */
     lv_seq = 0;
     snprintf(path, sizeof(path), "mass:/FNFPS2/FNF_LOGVIVO.bin");
-    lv_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (lv_fd < 0) { telemetry_error("logvivo.init", lv_fd); return; }
-    memset(z, 0, sizeof(z));
-    for (i = 0; i < (LOGVIVO_N * LOGVIVO_REG) / sizeof(z); ++i) {
-        int w = write(lv_fd, z, (u32)sizeof(z));
-        if (w != (int)sizeof(z)) { telemetry_error("logvivo.prealloc", w); break; }
+    {
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (fd < 0) { telemetry_error("logvivo.init", fd); return; }
+        memset(z, 0, sizeof(z));
+        for (i = 0; i < (LOGVIVO_N * LOGVIVO_REG) / sizeof(z); ++i) {
+            int w = write(fd, z, (u32)sizeof(z));
+            if (w != (int)sizeof(z)) { telemetry_error("logvivo.prealloc", w); break; }
+        }
+        /* 0.2.182: FECHAR aqui e' obrigatorio. O usbhdfsd so' publica o
+           tamanho do arquivo no close(); com o descritor aberto para sempre
+           (como era) o ficheiro ficava existindo com 0 bytes e o LOG VIVO
+           saia sempre "vazio" -- a mesma classe do cabecalho da 0.2.162. */
+        close(fd);
     }
-    lseek(lv_fd, 0, SEEK_SET);
     /* primeiro registo: o marco de boot (identifica a sessao) */
     logvivo("BOOT build=%s t=%u", build_name, (unsigned)segundos_desde_boot());
 }
 
-/* Chamada pela thread escritora (iow): drena ate' 8 registos por acordada.
-   lseek+write sobre clusters ja' alocados -- nunca cria nem estende. */
+/* Drena registos para o ficheiro. 0.2.182: chamada pelo vigia E pela thread
+   iow; abre/fecha por lote (o close publica o tamanho), usa o portao em modo
+   TENTATIVO (nunca bloqueia -- se o produtor esta' com o portao, a drenagem
+   fica para a proxima acordada) e aproveita para corrigir o parse do seq
+   (i=8..15; antes lia 9..16 e escrevia nas posicoes erradas). */
 void logvivo_servir(void)
 {
     int k;
-    if (lv_fd < 0) { lv_n = 0; return; }
-    for (k = 0; k < 8 && lv_n > 0; ++k) {
-        unsigned s = lv_wp - lv_n;
-        char *rec = lv_fila[s % LOGVIVO_FILA];
-        unsigned seq = 0, i;
-        for (i = 9; i < 17u; ++i) {          /* os 8 hex do seq */
-            char c = rec[i];
-            seq = seq * 16u + (unsigned)((c >= '0' && c <= '9') ? c - '0' :
-                   (c >= 'a' && c <= 'f') ? c - 'a' + 10 : 0);
+    if (lv_n == 0) return;
+    if (!io_gate_trylock()) return;
+    {
+        int fd = open("mass:/FNFPS2/FNF_LOGVIVO.bin", O_WRONLY);
+        if (fd < 0) { io_gate_unlock(); return; }
+        for (k = 0; k < 16 && lv_n > 0; ++k) {
+            unsigned s = lv_wp - lv_n;
+            char *rec = lv_fila[s % LOGVIVO_FILA];
+            unsigned seq = 0, i;
+            for (i = 8; i < 16u; ++i) {          /* os 8 hex do seq */
+                char c = rec[i];
+                seq = seq * 16u + (unsigned)((c >= '0' && c <= '9') ? c - '0' :
+                       (c >= 'a' && c <= 'f') ? c - 'a' + 10 : 0);
+            }
+            lseek(fd, (long)((seq % LOGVIVO_N) * LOGVIVO_REG), SEEK_SET);
+            if (write(fd, rec, LOGVIVO_REG) != (int)LOGVIVO_REG) {
+                telemetry_error("logvivo.write", (int)seq);
+                lv_erros++;
+            }
+            lv_n--;
         }
-        io_gate_lock();
-        lseek(lv_fd, (long)((seq % LOGVIVO_N) * LOGVIVO_REG), SEEK_SET);
-        if (write(lv_fd, rec, LOGVIVO_REG) != (int)LOGVIVO_REG) {
-            telemetry_error("logvivo.write", (int)seq);
-            lv_erros++;
-        }
+        close(fd);   /* publica o tamanho */
         io_gate_unlock();
-        lv_n--;
     }
 }
 unsigned logvivo_pendentes(void){ return lv_n; }
@@ -875,6 +888,22 @@ void telemetry_flush(void)
         write_text("\n");
     }
     record_count = 0;
+
+    /* 0.2.182: o ANEL Q (as amostras de quadro) entra no despejo. Antes so'
+       os eventos entravam e, como o buffer vinha quase sempre vazio, os
+       despejos periodicos nem chegavam a acontecer: a sessao ficava cega e
+       so' o vigia via os ultimos quadros. Agora todo o bloco traz as
+       ultimas amostras Q + uma linha de batimento cardíaco -- um buraco
+       entre blocos e' exactamente um engasgo do laco. */
+    {
+        static char qt[32768];
+        unsigned qn = telemetry_qring_txt(qt, sizeof(qt));
+        snprintf(line, sizeof(line), "# DESPEJO f=%u anel=%u ev=%u t=%u s",
+                 (unsigned)frames_logged, (unsigned)fring_n(),
+                 (unsigned)render_event_count, (unsigned)segundos_desde_boot());
+        write_line(line);
+        if (qn) write_text(qt);
+    }
 
     for (i = 0; i < render_event_count && !output_error; ++i) {
         snprintf(line, sizeof(line), "E,%llu,%s,%d,%d",
@@ -1005,6 +1034,12 @@ static void q_line(char *b, unsigned int tam, const fnf_frame_t *f)
         (unsigned)f->sub_ok, (unsigned)f->lr_bytes);
 }
 
+/* 0.2.182: barra de vida (hp) e notas vivas (nt) para o Q2 -- era o unico
+   estado do gameplay que nao aparecia em lado nenhum. */
+static unsigned g_hud_hp = 0, g_hud_nt = 0;
+void telemetry_hud_estado(int hp, int notas)
+{ g_hud_hp = (unsigned)hp; g_hud_nt = (unsigned)notas; }
+
 void telemetry_frame2(const fnf_frame_t *f)
 {
     fnf_frame_t r = *f;
@@ -1027,13 +1062,13 @@ void telemetry_frame2(const fnf_frame_t *f)
             logvivo("EV=ESTADO %u->%u f=%u clk=%u sel=%u",
                     lv_estado_ultimo, r.st, r.frame, r.clk, r.sel);
         lv_estado_ultimo = r.st;
-        logvivo("Q2 f=%u t=%u vs=%u qw=%u st=%u tr=%u sel=%u pad=%04X prs=%04X q=%u r=%u un=%u so=%u lr=%u clk=%u vr=%u",
+        logvivo("Q2 f=%u t=%u vs=%u qw=%u st=%u tr=%u sel=%u pad=%04X prs=%04X q=%u r=%u un=%u so=%u lr=%u clk=%u vr=%u hp=%u nt=%u",
             (unsigned)r.frame, (unsigned)r.t_total, (unsigned)r.t_vsync,
             (unsigned)r.qwords, (unsigned)r.st, (unsigned)r.tr,
             (unsigned)r.sel, (unsigned)r.pad, (unsigned)r.pressed,
             (unsigned)r.queued, (unsigned)r.ring, (unsigned)r.underruns,
             (unsigned)r.sub_ok, (unsigned)r.lr_bytes,
-            (unsigned)r.clk, (unsigned)r.vram_free);
+            (unsigned)r.clk, (unsigned)r.vram_free, g_hud_hp, g_hud_nt);
     }
 
     hist_add(r.t_total / 100u);          /* decimos de ms */

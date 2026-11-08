@@ -4605,6 +4605,7 @@ static unsigned int ui_som_ger=0;
    `scrollMenu` da Freeplay (L2918/L2388), 1,0 no `confirmMenu` de la' (L2764) e
    no `cancelMenu` (L2240), e 0,7 no `confirmMenu` do titulo (TitleState.hx
    L288). Por isso vem por chamada e nao de uma tabela. */
+static volatile u32 g_fn_frame=0;         /* quadro corrente, para o cao (0.2.182: declarado cedo -- o EV=SFX usa-o) */
 static void ui_som_tocar(int q,int vol_pct)
 {
  char caminho[128];
@@ -4628,6 +4629,7 @@ static void ui_som_tocar(int q,int vol_pct)
   return;
  }
  telemetry_event("ui_som",q,vol_pct);
+ logvivo("EV=SFX %s f=%u vol=%d mist=%u",ui_som_nome[q],(unsigned)g_fn_frame,vol_pct,audio_ring_sfx_misturados());
 }
 
 /* ===== ICONES DE VIDA DO HUD (engine/health_icon.c) =====
@@ -7965,6 +7967,14 @@ static void boot_mark(const char*phase,int code){
   n=snprintf(b,sizeof(b),"passo %d: %s code=%d\n",g_boot_mark_n,phase,code);
   {int g=io_gate_trylock();
    if(!g){logvivo("EV=MARCA adiada %s %d",phase,code);return;}
+   /* 0.2.182: o ANEL de marcas (slot 4096) volta -- o slot 0 so' guarda a
+      ULTIMA marca e, quando o boot morria, perdiam-se as anteriores. O anel
+      acumula todas (cap ~3,5 KB) e reescreve-se por cima dos clusters
+      pre-alocados. */
+   {static char anel[3800];static unsigned an=0;
+    int k=snprintf(anel+an,sizeof(anel)-an,"passo %d: %s code=%d\n",g_boot_mark_n,phase,code);
+    if(k>0&&(unsigned)k<sizeof(anel)-an){an+=(unsigned)k;
+     fnwrite_slot(FN_BOOT_TXT,4096u,anel,an);}}
    if(fnwrite_slot(FN_BOOT_TXT,0,b,(u32)n)<0&&!g_slots_prontos){
      /* ANTES da pre-alocacao (fase de boot): criar o ficheiro ainda e'
         permitido -- nao ha' streaming nenhum a correr. */
@@ -8022,7 +8032,7 @@ static void capture_status(const char*phase,int row,int code){
 #ifndef FNMARK_FRAME_GATE
 #define FNMARK_FRAME_GATE 600u                    /* 10 s a 60 fps; ver frame_mark */
 #endif
-#define FNWD_MAX_DUMPS 3
+#define FNWD_MAX_DUMPS 8   /* 0.2.182: eram 3 e o vigia MORRIA antes do freeze final */
 #define FNWD_PAUSE_WAIT_US 2000000
 
 typedef struct { const char*phase; int code; u32 frame; u32 queued; u32 ring;
@@ -8031,7 +8041,6 @@ typedef struct { const char*phase; int code; u32 frame; u32 queued; u32 ring;
 static fnmark_t g_fnring[FNMARK_RING];
 static volatile u32 g_fnring_wp=0;
 static volatile u32 g_fn_beat=0;          /* muda a cada quadro completo */
-static volatile u32 g_fn_frame=0;         /* quadro corrente, para o cao */
 static volatile int g_fnwd_stop=0;
 static int g_fnwd_thread=-1;
 static volatile int g_fn_write_ok=1;      /* vira 0 na primeira falha: desliga */
@@ -8107,6 +8116,10 @@ static void frame_mark(const char*phase,int code){
      linha verde   = bytes lidos pelo produtor (8) e submissoes audsrv (6). */
 static volatile unsigned g_ui_espelho=0;   /* copia de ui_state (local do main) */
 static int g_pedido_foto;                  /* 0.2.176: definido abaixo; pedido do vigia */
+/* 0.2.182: endereco do framebuffer EM EXIBICAO, actualizado por vsync;
+   o vigia pinta nele (sem destruir o GS) e captura a partir dele. */
+static volatile u32 g_fb_agora=0;
+static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui);
 static void fnwd_dig(qword_t **qp,int x,int y,int d,int sz,float r,float g,float b){
  static const unsigned char segs[10]={0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F};
  unsigned sv=segs[(d>=0&&d<10)?d:0];int t=sz/5,h2=sz/2;
@@ -8124,11 +8137,15 @@ static void fnwd_num(qword_t **qp,unsigned v,int nd,int x,int y,int sz,float r,f
 }
 static void fnwd_pintar(void){
  framebuffer_t fb;zbuffer_t z;packet_t*p;qword_t*q;u32 nova;
- graph_vram_clear();
- nova=(u32)graph_vram_allocate(SCREEN_W,SCREEN_H,FB_PSM,GRAPH_ALIGN_PAGE);
+ /* 0.2.182: o pintura do vigia NAO PODE destruir o GS. Antes fazia
+    graph_vram_clear()+graph_initialize() -- e quando o laco RESUMIA (um
+    engasgo de 3 s, nao um freeze), o jogo seguia com as texturas e os
+    framebuffers do lixo: era a "TELA BUGADA COM NUMEROS" seguida de
+    personagens desaparecidos e textos como texturas. Agora pinta no
+    framebuffer ACTUAL (g_fb_agora), sem realocar VRAM nem reiniciar o
+    display; o proximo quadro do jogo refaz o draw_setup_environment dele. */
+ nova=g_fb_agora;
  if((int)nova<0)return;
- graph_initialize(nova,SCREEN_W,SCREEN_H,FB_PSM,0,0);
- graph_set_bgcolor(0,0,0);
  fb.width=SCREEN_W;fb.height=SCREEN_H;fb.psm=FB_PSM;fb.mask=0;fb.address=nova;
  z.enable=DRAW_DISABLE;z.address=0;z.mask=0;z.zsm=0;z.method=0;
  p=packet_init(4096,PACKET_NORMAL);
@@ -8160,6 +8177,14 @@ static void fnwd_pintar(void){
 static void fnwd_dump(int dumps){
   fnwd_pintar();   /* 0.2.173: primeiro a TV, depois o pendrive */
   g_pedido_foto=1; /* 0.2.176: se o laco ainda respirar, grava FNF_SHOT sozinho */
+  /* 0.2.182: o vigia IDENTIFICA-SE sempre (antes so' o TRAVA sabia) e tira
+     ele proprio a captura 320x224 para o FNF_SHOT.rgba -- se o laco estiver
+     morto, o g_pedido_foto nunca seria servido e ficava so' a miniatura
+     160x112 borrada. */
+  logvivo("EV=VIGIA dump=%u f=%u beat=%u ui=%u parado=3s",dumps,
+          (unsigned)g_fn_frame,(unsigned)g_fn_beat,(unsigned)g_ui_espelho);
+  telemetry_event("vigia_dump",dumps,(int)g_fn_frame);
+  capture_framebuffer_fast((u32)g_fb_agora<<5,(int)g_fn_frame,(int)g_ui_espelho);
   char b[256],hdr[160];int i,n,u32base;u32 troff=4096u;
   /* O usbhdfsd nao e reentrante: o produtor de audio para de tocar o USB antes.
      A espera e limitada (2 s) e a gravacao acontece mesmo se ele nao parar --
@@ -8254,9 +8279,11 @@ static void fnwd_dump(int dumps){
    do framebuffer, quadro, estado); quem escreve e' a thread escritora (iow). */
 static int g_shot_n;
 static volatile u32 g_cap_fb=0, g_cap_fr=0, g_cap_ui=0;
+
 static unsigned char iow_stack[16384] __attribute__((aligned(128)));
 static volatile int g_iow_stop=0;
 static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui);
+static int g_produtor_preso_visto=0;   /* 0.2.182: EV=PRODUTOR ok quando volta */
 static void estado_gigante_gravar(void);
 static unsigned int ram_buffers_total(void);   /* definida mais abaixo */
 static void iow_thread_fn(void*arg){
@@ -8280,10 +8307,14 @@ static void iow_thread_fn(void*arg){
        Saltamos este ciclo: a escrita fica pedida para a proxima acordada. */
     if(!audio_ring_pausado()){
       telemetry_error("iow.produtor_preso",0);
+      g_produtor_preso_visto=1;
+      logvivo("EV=PRODUTOR preso f=%u",(unsigned)g_fn_frame);
       audio_ring_pause(0);
       continue;
     }
     telemetry_servir_pendentes();
+    if(g_produtor_preso_visto){g_produtor_preso_visto=0;
+      logvivo("EV=PRODUTOR ok f=%u",(unsigned)g_fn_frame);}
     audio_ring_pause(0);
   }
   ExitThread();
@@ -8336,7 +8367,7 @@ static void fnwd_thread_fn(void*arg){
     io_gate_unlock();break;}}
   /* Teto de vida: 6000 acordadas de 200 ms = 20 minutos. Depois disso a
      thread sai sozinha, para nao existir laco eterno de diagnostico. */
-  while(!g_fnwd_stop&&dumps<FNWD_MAX_DUMPS&&wakes<6000u){
+  while(!g_fnwd_stop&&dumps<FNWD_MAX_DUMPS){  /* 0.2.182: sem teto de 20 min */
     DelayThread(FNWD_WAKE_US);
     wakes++;
     if(g_fn_beat!=last_beat){last_beat=g_fn_beat;paradas=0;continue;}
@@ -12523,7 +12554,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
      inclusive da `camHUD` e do preto do `solidCover`. */
   if(ui_state==8)q=cut_fim_desenha(q);
   if(!voices_enabled&&ui_state==8){q=bind_texture_filter(q,&fonttex,1);q=text_draw(q,"VOZES DESLIGADAS (R3 LIGA)",320,402,.62f,1);}
-  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);g_tm[TM_DMA]=GetTimerSystemTime();dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);g_tm[TM_WAIT]=GetTimerSystemTime();MARCA("draw_wait_finish");draw_wait_finish();frame_mark("F.DRAWN",qw);g_tm[TM_DRAWN]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(g_pedido_foto){g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;}if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;g_capture_chord_latched=1;g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;g_pedido_foto=1;capture_status("CAPTURA_PEDIDA",(int)frame_no,0);logvivo("EV=ACCAO select+r3 f=%u ui=%u",(unsigned)frame_no,(unsigned)ui_state);}frame_mark("F.VSYNC",0);g_tm[TM_VSYNC]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
+  q=sinal_vida(q,frame_no,ui_state);q=draw_finish(q);qw=(int)(q-packet->data);if(frame_no==0)capture_status("F0_PACKET_DONE",-1,qw);frame_mark("F.DMA",qw);g_tm[TM_DMA]=GetTimerSystemTime();dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,qw,0,0);if(frame_no==0)capture_status("F0_DMA_SENT",-1,0);frame_mark("F.WAIT",qw);g_tm[TM_WAIT]=GetTimerSystemTime();MARCA("draw_wait_finish");draw_wait_finish();frame_mark("F.DRAWN",qw);g_tm[TM_DRAWN]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_DRAW_FINISH_DONE",-1,0);if(ui_state==7&&transition_frame==0){int si;story_title_update_positions(story_level);for(si=0;si<9;si++){const unsigned int*sr=g_story_title[si];float yy=g_story_title_y[si]-44.0f,hh=(float)sr[2];if(vy(yy+hh)<269.0f||vy(yy)>391.0f)continue;story_upload_title(&tex,si);menu_anim_tick=-1;{qword_t*tq=packet->data;tq=draw_setup_environment(tq,0,&fb[draw],&z);tq=gs_dither16(tq);tq=draw_scissor_area(tq,0,0,SCREEN_W-1,269,391);band_set(269,391);tq=bind_texture_filter(tq,&tex,0);tq=sprite_region_alpha(tq,320.0f-(float)sr[1]*.5f,yy,(float)sr[1],hh,0,0,(float)sr[1],hh,si==story_level?128:77);tq=draw_finish(tq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,tq-packet->data,0,0);draw_wait_finish();}}}after_draw=GetTimerSystemTime();if((g_held&(PAD_SELECT|PAD_R3))!=(PAD_SELECT|PAD_R3))g_capture_chord_latched=0;if(g_pedido_foto){g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;}if(!g_cap_busy&&(g_forcar_captura||(!g_capture_chord_latched&&transition_frame==0&&(g_held&(PAD_SELECT|PAD_R3))==(PAD_SELECT|PAD_R3)&&(pressed&(PAD_SELECT|PAD_R3))))){g_forcar_captura=0;g_capture_chord_latched=1;g_cap_fb=(u32)fb[draw].address<<5;g_cap_fr=frame_no;g_cap_ui=ui_state;g_pedido_foto=1;capture_status("CAPTURA_PEDIDA",(int)frame_no,0);logvivo("EV=ACCAO select+r3 f=%u ui=%u",(unsigned)frame_no,(unsigned)ui_state);}frame_mark("F.VSYNC",0);g_tm[TM_VSYNC]=GetTimerSystemTime();if(frame_no==0)capture_status("F0_VSYNC_BEGIN",-1,0);graph_wait_vsync();if(frame_no==0)capture_status("F0_VSYNC_DONE",-1,0);g_fb_agora=(u32)fb[draw].address;graph_set_framebuffer_filtered(fb[draw].address,SCREEN_W,FB_PSM,0,0);if(frame_no==0)capture_status("F0_FRAMEBUFFER_SET",-1,0);if(frame_no==0)tela_marco((u32)fb[draw].address,1);after_vsync=GetTimerSystemTime();if(frame_no==0)tela_marco((u32)fb[draw].address,2);if(deferred_menu_start&&frame_no>=3u){deferred_menu_start=0;capture_status("DEFERRED_AUDIO_BEGIN",-1,0);if(audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0)audio_ring_start_loop(g_title_audio_fd,1);}}
   if(g_dl_gravando){g_dl_gravando=0;dl_gravar();}
   /* A lista do quadro sai antes do flush, em fluxo: se o jogo pendurar no
      quadro seguinte, a ultima coisa no cartao eh exatamente o quadro em que
@@ -12555,6 +12586,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     ff.vram_free=vl_free_words()*4u; ff.ram_bufs=ram_buffers_total(); ff.io_kb=0;
     ff.sub_ok=g_sub_ok; ff.lr_bytes=audio_ring_bytes_lidos();
     ff.eof=(u8)audio_ring_eof(); ff.paused=(u8)g_paused; ff.audio_playing=(u8)audio_playing;
+    telemetry_hud_estado((int)(g_play.health*100.0f),g_play.total_notes-g_play.total_notes_hit-g_play.missed);
     telemetry_frame2(&ff);
     g_binds_frame=0; g_up_bytes_frame=0;}
    telemetry_frame(frame_no++,begin,after_draw,after_vsync,pressed,anim,(int)local,(int)global,g_frame_texture_quads,qw,transition_frame?10+(transition_frame>15):(components_mode?4:(transform_mode?3:ui_state)),transitions,heard,queued_bytes,ring_bytes,audio_underruns);

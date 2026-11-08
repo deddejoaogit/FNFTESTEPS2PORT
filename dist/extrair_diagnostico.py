@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.180 v8).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.182 v9).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -172,7 +172,7 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v8 (0.2.180) ====')
+    A('==== EXTRATOR FNF PS2 v9 (0.2.182) ====')
 
     fn_boot = os.path.join(pasta, 'FNF_BOOT.TXT')
     fn_log = os.path.join(pasta, 'FNF_LOG.TXT')
@@ -272,6 +272,12 @@ def principal():
     if ring_est:
         A('anel FNF_LOG.TXT: %d blocos (%d despejos + %d anomalias) | boots vistos: %d' %
           (ring_est['blocos'], ring_est['despejos'], ring_est['anomalias'], ring_est['boots']))
+        ts = [int(m.group(1)) for m in re.finditer(r'\| t=(\d+) s', ring_txt)]
+        if len(ts) >= 2:
+            gaps = [ts[i+1] - ts[i] for i in range(len(ts) - 1)]
+            A('batimento do anel: %d blocos em %d s | maior buraco: %d s' %
+              (len(ts), ts[-1] - ts[0] if ts[-1] > ts[0] else 0, max(gaps)))
+            A('  (o anel escreve a cada ~5 s; um buraco > 10 s = o laco ficou parado)')
     if qs:
         fs = [int(q.get('f', 0)) for q in qs]
         A('q-lines: %d | quadros cobertos: %d..%d' % (len(qs), min(fs), max(fs)))
@@ -313,8 +319,10 @@ def principal():
             A('  %s' % l[:88])
 
     # 6. VALORES (a TV em texto) + Capturas -> PNG
+    _valores_vistas = set()
     for l in trava.splitlines():
-        if l.startswith('# VALORES'):
+        if l.startswith('# VALORES') and l not in _valores_vistas:
+            _valores_vistas.add(l)
             A('VALORES (TV): %s' % l[10:])
             A('  (por ordem: f=quadro st=estado beat=laco q=fila audsrv')
             A('   r=anel un=underruns lr=bytes lidos so=submissoes)')
@@ -426,6 +434,37 @@ def principal():
             A('  %s: %d / %d  %s' % (nome, sz, esp, marca_sz))
         else:
             A('  %s: FALTA (nunca chegou a ser pre-alocado)' % nome)
+
+    # 6g. Eventos de audio/diagnostico (0.2.182): SFX, produtor, vigia
+    ev_sfx = [p for s2, p in linha_logvivo_all if p.startswith('EV=SFX')] \
+        if 'linha_logvivo_all' in dir() else []
+    todos_ev = []
+    for fn in achar(pasta, 'FNF_LOGVIVO*'):
+        for b2, s2, p in ler_logvivo(fn):
+            todos_ev.append(p)
+    for txt in textos:
+        for l in txt.splitlines():
+            if l.startswith('EV=') or l.startswith('E,'):
+                todos_ev.append(l)
+    sfx = [p for p in todos_ev if p.startswith('EV=SFX')]
+    prod = [p for p in todos_ev if p.startswith('EV=PRODUTOR')]
+    vig = [p for p in todos_ev if p.startswith('EV=VIGIA')]
+    if sfx:
+        A('---- SFX (%d toques) ----' % len(sfx))
+        for p in sfx[-8:]:
+            A('  %s' % p[:96])
+        A('  (mist= blocos de SFX ja\' misturados quando o toque foi pedido;')
+        A('   se mist nao avanca entre toques, o produtor esta\' preso e o som')
+        A('   chega tarde -- ver EV=PRODUTOR abaixo.)')
+    if prod:
+        A('---- PRODUTOR DE AUDIO (%d eventos) ----' % len(prod))
+        for p in prod[-8:]:
+            A('  %s' % p[:96])
+    if vig:
+        A('---- VIGIA (dumps do cao de guarda) ----')
+        for p in vig:
+            A('  %s' % p[:96])
+        A('  (a captura FNF_SHOT.rgba de cada dump mostra o ecra do freeze)')
 
     # 7. Conclusao automatica
     A('---- CONCLUSAO ----')

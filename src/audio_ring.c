@@ -69,6 +69,8 @@ static volatile int overlay_pedido_vol[RING_OVERLAYS];
    da musica -- uma diferenca que so' o ouvido pega. */
 static volatile int overlay_loop[RING_OVERLAYS];
 static volatile int overlay_pedido_loop[RING_OVERLAYS];
+static volatile unsigned sfx_misturados=0;   /* 0.2.182 */
+unsigned audio_ring_sfx_misturados(void){return sfx_misturados;}
 /* Sobe a cada stop/inicio: os fds guardados pelo chamador para reusar deixam de
    valer quando o anel fecha tudo (ver audio_ring_geracao). */
 static volatile unsigned int ring_geracao=0;
@@ -241,6 +243,7 @@ static void soma_overlay(int got){
    loops_count++;
   }
   if(off<=0)continue;
+  sfx_misturados++;   /* 0.2.182: mede o atraso trigger->som real (EV=SFX) */
   /* O volume do `FlxSound` do original, uma vez por bloco e antes de somar:
      cada fonte secundaria tem o seu (0,4 no `scrollMenu` da Freeplay). */
   if(overlay_vol[i]!=100)amix_volume((short*)overlay_block,off/4,overlay_vol[i]);

@@ -145,6 +145,8 @@ typedef struct {
 /* Registra o quadro: entra no anel (sempre) e na linha de fluxo (10 Hz ou
    quando algo anormal). Nao escreve no pendrive. */
 void telemetry_frame2(const fnf_frame_t *f);
+/* 0.2.182: hp (barra de vida 0..100) e notas vivas para o Q2 do LOG VIVO. */
+void telemetry_hud_estado(int hp, int notas);
 
 /* Despeja o anel INTEIRO num arquivo proprio, agora. Para quando o jogo trava
    (cao de guarda) ou quando um quadro passa de 100 ms. Rate-limited. */

@@ -89,6 +89,8 @@ void audio_ring_overlay_parar(int slot);
  * dele (o slot trocou de dono).
  *
  * Devolve 0, ou -1 sem thread (ai' o CHAMADOR continua dono do fd). */
+/* 0.2.182: quantos blocos de SFX ja' foram misturados (atraso trigger->som). */
+unsigned audio_ring_sfx_misturados(void);
 int audio_ring_overlay_slot(int slot, int fd, int vol_pct);
 int audio_ring_overlay_vol(int fd, int vol_pct);
 

@@ -1,4 +1,12 @@
-# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.178)
+# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.182)
+
+**ESTADO ACTUAL**: 0.2.182 "DIAGNÓSTICO COMPLETO E FUNCIONAL" compilado
+(0 erros) — vigia não-destrutivo (era a causa dos personagens/texturas
+desaparecidos), logvivo vivo (fd/seq/porta), despejo do anel serializado,
+SHOT real 320×224, SFX directo + EV=SFX/PRODUTOR, anel de boot, extrator v9.
+**0.2.181 (entregue, testado)**: o jogo ABRE em consola (boot preto resolvido).
+**ABERTOS do teste 0.2.181**: transições de menu engasgadas, linha bugada sob
+botões, SFX tarde, story menu bugado, botões (=pad), game over, vitória.
 
 Documento pedido pelo utilizador: **absolutamente tudo o que falta implementar
 no jogo**, dividido por secções/fases (menus, gameplay, etc.). Cada entrada diz
