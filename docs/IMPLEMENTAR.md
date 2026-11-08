@@ -183,6 +183,35 @@ APARÊNCIA/COMPORTAMENTO fiel ao original e as telas finais (game over, vitória
   `menu_exit_frames`) — fiel ao original; os roteiros do harness já contam com
   isto; nada a corrigir, só documentado.
 
+## 14. ESTADO 0.2.187 (campanha 08/11/2026 — TODOS os bugs do teste 0.2.186)
+
+FEITO (ver CORRECOES #25 para as provas):
+- [x] **SFX instantâneos (vozes ADPCM/SPU2)** — 7 samples (5 `assets/result/*.pcm`
+  + slices scroll/confirm do menu_sfx) codificados no boot para ADPCM
+  (header 16 B do ps2sdk, pitch 4551); fallback para o mix no anel se o load
+  falhar (`SFX_ADPCM 0` desliga tudo). Risco: área SPU2 0x5010 vs streaming
+  (comentário do ps2sdk) — TESTAR na consola: a música não pode "estravar"
+  quando os sons tocam.
+- [x] **Freeze story menu fechado** — RPCs do audsrv para a thread da bomba
+  (`g_arpc_vara/varb`); o loop nunca mais bloqueia no IOP.
+- [x] **FPS do main menu** — cache dos uploads da animação (só frames mudados).
+- [x] **Textos** — avanços proporcionais (VCR 0.625, HUD 0.3125).
+- [x] **Capturas ilimitadas** — 8 slots rotativos pré-alocados (7 esparsos),
+  guarda de carga, escrita por fatias de 20 KB, extractor v9.4.
+- [x] **Etiquetagem** — VERSION escrito ANTES do build (0.2.187 embutido 6×).
+
+FALTA (por ordem):
+- [ ] **Telemetria do harness** (pré-existente): os despejos Q/E param de ser
+  drenados ~f=610, logo a seguir ao savestado pedido pelo vigia — o JOGO corre
+  os 7602 quadros (harness PASS) mas os checks da secção "gameplay de ponta a
+  ponta" leem um log morto (e esperavam `FNF_COLHEITA.txt`, extinto 0.2.164).
+  Próximo passo: marcação fina no iow (quem deixa de chamar o despejo) +
+  fallback de nomes nos scripts já feito (run_gameplay_harness.sh).
+- [ ] **Marca d'água do anel em menus** (0,7 s) — adiada: o caminho ADPCM cobre
+  o atraso e mexer no anel é o componente mais sensível (sem regressões).
+- [ ] Consola: confirmar 8 slots + capturas ilimitadas + ausência de crackle
+  SPU2 com SFX (o extractor v9.4 já lê tudo).
+
 ---
 *Actualizar este documento a cada sessão. As correções do utilizador vão para
 `CORRECOES.md`; o que falta IMPLEMENTAR fica aqui.*

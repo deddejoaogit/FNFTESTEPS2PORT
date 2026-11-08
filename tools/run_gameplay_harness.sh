@@ -48,6 +48,11 @@ FRAMES=${1:-7600}
 # musica+intro -- o roteiro normal chega sempre no GREAT.
 RANK_FORCADO=${FNF_RANK:--1}
 LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
+# 0.2.187: o jogo escreve FNF_LOG.TXT (nome fixo desde 0.2.180); o nome antigo
+# FNF_COLHEITA.txt so' existia na rodacao de logs. Fallback como em
+# test/run_tests.sh -- sem isto o gameplay acusava "o jogo nao gravou".
+[ -f "$LOG" ] || LOG=$(ls build/harness_assets/FNFPS2/FNF_LOG* 2>/dev/null | grep -i '\.txt$' | sort | tail -1)
+[ -f "$LOG" ] || LOG=build/harness_assets/FNFPS2/FNF_COLHEITA.txt
 CHART=build/harness_assets/FNFPS2/assets/songs/tutorial/normal.chart
 # Entrada no tutorial (as tres primeiras cruzes sao titulo -> menu -> story;
 # a quarta entra no jogo).

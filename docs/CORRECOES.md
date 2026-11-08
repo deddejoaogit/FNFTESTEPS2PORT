@@ -11,7 +11,7 @@ Convenções: `[ ]` aberta · `[x]` corrigida (diz a build) · `[~]` parcialment
 
 ## A. CORREÇÕES CITADAS PELO UTILIZADOR
 
-### #1 [ ] SFX do clique chega TARDE (0.2.177, UTILIZADOR)
+### #1 [x] SFX do clique chega TARDE (0.2.177, UTILIZADOR — RESOLVIDO 0.2.187: vozes ADPCM)
 "o efeito sonoro de clicar só é emitido depois que já entrei na tela" — no
 main menu, o som do clique devia tocar NO MOMENTO do clique, não depois da
 transição. Provável causa: o SFX é pedido no estado seguinte (ou o menu_audio
@@ -27,7 +27,7 @@ MainMenuState.hx). Medir os tempos do original e copiar as constantes.
 "Ao entrar no modo free play: transição também diferente do original". Idem #2,
 comparar com FreeplayState.hx.
 
-### #4 [ ] Textos SIMPLES (sem fonte especial) BUGADOS no story menu (0.2.177, UTILIZADOR)
+### #4 [x] Textos SIMPLES (sem fonte especial) BUGADOS (0.2.177 — RESOLVIDO 0.2.187: avanços proporcionais)
 "Os textos simples, sem fonte especial, estavam todos bugados" — os glifos do
 caminho de texto simples saem corrompidos/errados no ecrã de story mode. Os
 textos com fonte especial (títulos) parecem OK. Rever o desenho dos glifos
@@ -319,6 +319,71 @@ em Linux (case-sensitive) — `check_stage_budget.py` e `test/run_tests.sh`
 limitados pela tabela `const g_menu_frame[5][2][3][3]` com valores sãos
 (verificados); o ponto exacto da paragem do canal de log fica para a próxima
 campanha com marcação fina no iow (REGRAS: sem dado ⇒ build seguinte coleta).
+
+### #25 [x] CAMPANHA 0.2.187 — TODOS os bugs do teste 0.2.186 (UTILIZADOR: textura/grelha, fps, código morto, SFX tardio, freeze story menu, capturas ilimitadas)
+
+Pedido: "revisasse o código e solucionasse todos os erros... Só corrija todos
+estes bugs" + "Como dar print na tela?" → capturas ilimitadas a qualquer
+momento (menos em cargas). FACTO CRÍTICO da sessão: o ELF testado reportava
+`build: 0.2.185` mas CONTINHA o código 0.2.186 (o `printf > VERSION` correu
+depois do make; o Makefile lê VERSION na compilação) — etiquetar sempre
+VERSION **antes** do make (cumprido: 0.2.187 embutido 6× no ELF).
+
+**Cadeia do FREEZE no story menu (FACTO, fechada)**: SELECT+R3 (f=4546) →
+`estado_gigante_gravar` gravou 49 KB OK → `capture_framebuffer_fast` nunca
+gravou (FNF_SHOT.rgba = 286 720 B a zeros) → usbhdfsd encaixa → IOP morre →
+o LOOP bloqueava em `audsrv_queued` (MARCA `audsrv_queued`, main.c:9766 = a
+marca exacta do savestate do FNF_TRAVA-4) → vigia e logvivo morrem juntos.
+Corrigido: os RPCs do audsrv (queued/available) passaram para a **thread da
+bomba** (`pump_thread_fn` actualiza `g_arpc_vara/varb`); o loop só lê cópias
+— se o IOP morrer, quem bloqueia é a bomba (thread separada), o loop continua
+a pintar (a garantia da 0.2.175). TESTE DE ACEITAÇÃO: o utilizador NÃO deve
+conseguir travar o jogo com SELECT+R3 repetidos.
+
+**SFX "só depois" (FACTO, fechado)**: o anel de áudio tem 1 MB (5,4 s de
+música pré-produzida) e os SFX eram misturados à PRODUÇÃO = tocavam tarde
+(`EV=SFX confirm_menu f=258 mist=0` provou a mistura em blocos futuros).
+Corrigido: **vozes ADPCM do SPU2** (audsrv_load_adpcm/ch_play_adpcm) — os 7
+samples (5 de `assets/result/*.pcm` + slices 0..39168 / 39168..241920 do
+menu_sfx) sobem uma vez no boot e tocam no INSTANTE do botão. Formato do
+buffer = ps2sdk adpcm.c verificado (header 16 B, pitch 0x1000=44.1k → 4551
+para 48 kHz). Codificador próprio (shift do pico × 5 filtros, 70 ops/bloco).
+Fallback automático para o mix no anel se o load falhar (nunca regressão de
+som). RISCO CONHECIDO: o alloc SPU2 do adpcm começa em 0x5010 e o comentário
+do ps2sdk admite sobreposição com o streaming — se a música "estragar" quando
+os SFX tocam, desligar `SFX_ADPCM` (define no main.c) e reportar.
+
+**FPS do main menu (FACTO por código)**: o uploader de animação (estado 6)
+subia 4 texturas a 24 Hz com memcpy+dma_wait síncronos (~96 uploads/s = 15-30%
+do orçamento do quadro). Corrigido: cache por personagem `(sel,af[,blend])` —
+só sobe o quadro que MUDOU (`g_menu_up_chave[4]`); força só quando
+`menu_anim_tick<0` (troca de textura).
+
+**Textos (PROVA4)**: `font.widths` real = 10..23 em células de 24 unidades; o
+`story_vcr_line` usava avanço FIXO 15 px (célula inteira) e o HUD 7.5 px —
+colavam/espaçavam mal. Corrigido: avanços proporcionais às larguras reais
+(VCR ×0.625, HUD ×0.3125×zoom, igual ao factor da célula de cada um);
+`text_draw_alpha` já usava widths×0.5 (correcto).
+
+**Capturas ilimitadas (PEDIDO)**: 8 slots pré-alocados rotativos
+(`FNF_SHOT.rgba` + `FNF_SHOT_01..07.rgba`, os novos criados esparsos em boot
+para não pesar); sem limite de 4 (`g_shot_n<4` removido); guarda de CARGA
+(`g_trans_espelho>0` → `captura_bloqueada_carga`, o pedido fica para quando a
+transição acaba — menos nas telas de carregamento, como pedido); escrita por
+fatias de 16 linhas (20 KB) em vez de 224 escritas de 1,28 KB (matavam o IOP)
+e `raw_write_chunks` a 16 KB + 2 ms. Extractor v9.4 lê os 8 slots + tempos de
+quadro por estado.
+
+**VALIDAÇÃO (0.2.187)**: harness 1402 quadros PASSOU ×N (0 estouros, 0 guard,
+12/12 teclas, todo asset); logvivo prova o roteiro completo ESTADO 0→6 (f585)
+→7 (f696, accept em 96 f = fidelidade 0.2.105) →8 (f775) com 4 ciclos
+story/tutorial; `EV=SFX adpcm 7/7` + `EV=SFX confirm_menu f=420 adpcm`;
+unidades ALL PASS. VERMELHO CONHECIDO (pré-existente, documentado): a secção
+"gameplay de ponta a ponta" do run_tests.sh lê eventos de telemetria que no
+harness param de ser drenados ~f=610 (a seguir ao savestate pedido pelo vigia;
+o JOGO corre os 7602 quadros todos — só o dreno de log para) + esperava
+`FNF_COLHEITA.txt` (extinto desde 0.2.164). Infra-estrutura de telemetria do
+harness = trabalho futuro (IMPLEMENTAR).
 
 ---
 *Novas correções do utilizador = nova entrada em A. Actualizar os estados.*

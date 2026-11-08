@@ -191,6 +191,20 @@ static void ring_block(const char *hdr, u32 hl, const char *pay, u32 pl)
     u32 off = g_ring_off, total = hl + pl;
     if (!g_log_path[0]) return;
     if (total == 0 || total > FN_RING_SIZE - 4096u) return;
+#ifdef PS2H
+    /* HARNESS: o ficheiro cresce SEM enrolar. Em consola o anel de 512 KB
+       enrola por desenho (o pendrive nao pode crescer); nos testes de
+       gameplay (14 000 quadros) o enrolamento escondia os eventos e os
+       checks acusavam falsamente ("a barra nunca assentou"). */
+    fd = open(g_log_path, O_WRONLY | O_APPEND);
+    if (fd < 0) { output_error = 1; return; }
+    fnwrite_all(fd, hdr, hl);
+    fnwrite_all(fd, pay, pl);
+    close(fd);
+    output_error = 0;
+    g_ring_off = off + total;
+    return;
+#else
     if (off + total > FN_RING_SIZE) {
         u32 pad = FN_RING_SIZE - off;
         fd = open(g_log_path, O_WRONLY);
@@ -214,6 +228,7 @@ static void ring_block(const char *hdr, u32 hl, const char *pay, u32 pl)
     close(fd);
     output_error = 0;
     g_ring_off = off + total;
+#endif
 }
 
 /* id deste boot (partilhado com o LOG VIVO) */

@@ -18,7 +18,9 @@ PROTOCOLO DE TESTE (o mesmo de sempre)
 2. Copiar o FNF_PS2.ELF deste zip para o pendrive.
 3. No PS2: STORY MODE (o menu do freeplay esta' bugado -- usar sempre o
    story) -> semana -> tutorial. Jogar a musica toda.
-4. SELECT+R3 durante 3 segundos (ou no fim) = pedido de diagnostico:
+4. SELECT+R3 = captura da tela + diagnostico (0.2.187: ILIMITADAS,
+   a qualquer momento excepto em telas de carregamento; giram por 8 ficheiros:
+   FNF_SHOT.rgba, FNF_SHOT_01..07.rgba -- o extrador vira todos em PNG):
    grava FNF_SHOT.rgba (imagem da tela 320x224), FNF_SAVESTATE.bin e
    tenta os despejos do vigia. Repetir as vezes que quiser (as primeiras
    4 imagens sao guardadas).
@@ -41,11 +43,11 @@ FNF_TRAVA.TXT    o vigia: marcador de paragem, valores, trace, eventos
 FNF_TELA.TXT     retrato do console, sessao, fim, TV, estado
 FNF_ERRO.TXT     falha fatal / avisos
 FNF_LOGVIVO.bin  historia completa em RAM (eventos + quadros a 2 Hz)
-FNF_SHOT.rgba    imagem da tela no SELECT+R3 (o extrador vira PNG)
+FNF_SHOT.rgba + FNF_SHOT_01..07.rgba   capturas da tela (SELECT+R3), 8 slots
 FNF_SAVESTATE.bin resumo gigante do momento (visual/desempenho/som/pad)
 
 SELECT+OUTRAS TECLAS
 --------------------
-SELECT+R3  diagnostico (imagem + savestate + despejos)
+SELECT+R3  captura da tela + diagnostico (ilimitado desde 0.2.187)
 SELECT+R1  estado do jogo em texto (o extrador le no FNF_TELA.TXT)
 SELECT+TRIANGULO  alterna 16:9 / 4:3 (modo de proporcao)

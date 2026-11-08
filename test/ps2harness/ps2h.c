@@ -685,6 +685,15 @@ unsigned char padRead(int port, int slot, struct padButtonStatus *data)
  */
 int audsrv_init(void) { return 0; }
 int audsrv_quit(void) { return 0; }
+/* 0.2.187: vozes ADPCM do SPU2 (SFX instantaneos). No harness aceitam tudo:
+   o encoder real corre assim em cada arranque e o caminho ADPCM fica exercado. */
+int audsrv_adpcm_init(void) { return 0; }
+int audsrv_load_adpcm(void *adpcm, void *buffer, int size)
+{ (void)adpcm; (void)buffer; (void)size; return 0; }
+int audsrv_ch_play_adpcm(int channel, void *adpcm)
+{ (void)channel; (void)adpcm; return 0; }
+int audsrv_adpcm_set_volume_and_pan(int channel, int vol, int pan)
+{ (void)channel; (void)vol; (void)pan; return 0; }
 int audsrv_set_format(void *fmt) { (void)fmt; return 0; }
 int audsrv_set_volume(int v) { (void)v; return 0; }
 int audsrv_stop_audio(void)
@@ -868,7 +877,13 @@ static int h_ausencia_declarada(const char *p)
        ausencia ("(nao abriu rom0:ROMVER)") e o harness nao emula a ROM. */
     if (p && !strncmp(p, "rom0:", 5)) return 1;
     return strstr(p, "/gameover/loss_sfx-pico-gutpunch.pcm") != NULL
-        || strstr(p, "/gameover/loss_sfx-pico-and-nene.pcm") != NULL;
+        || strstr(p, "/gameover/loss_sfx-pico-and-nene.pcm") != NULL
+        /* CHARTS SOLTOS NUNCA EXISTIRAM NO PORTO: os charts andam empacotados
+           (packs CFZ4/SR) e o registador de assets prova 4 layouts de ficheiro
+           solto (`songs/<id>/<d>.chart`, `songs/<id>-<d>.chart`,
+           `charts/<id>-<d>.chart`, `charts/<id>/<d>.chart`) antes de cair no
+           pack. Em consola esses 4 opens falham igual -- nao sao assets. */
+        || strstr(p, ".chart") != NULL;
 }
 
 static int ps2h_openat(const char *p, int flags, mode_t mode)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.185 v9.3).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.187 v9.4).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -172,7 +172,7 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v9.3 (0.2.185) ====')
+    A('==== EXTRATOR FNF PS2 v9.4 (0.2.187) ====')
     A('Nota: os .bin (LOGVIVO/SAVESTATE/SHOT) NAO precisam de ser enviados --')
     A('este relatorio ja os leu e resumiu. Cole o texto + os PNG que aparecerem.')
 
@@ -292,6 +292,21 @@ def principal():
             st = q.get('st', '?')
             cont[st] = cont.get(st, 0) + 1
         A('estados (amostrados): %s' % ', '.join('st=%s x%d' % kv for kv in sorted(cont.items())))
+        # v9.4: tempos de quadro por estado (campo t = t_total em us).
+        tp = {}
+        for q in qs:
+            st = q.get('st', '?')
+            tt = num(q, 't')
+            if tt > 0:
+                a = tp.setdefault(st, [0, 0, 0])   # n, soma, max
+                a[0] += 1; a[1] += tt
+                if tt > a[2]: a[2] = tt
+        if tp:
+            A('tempos de quadro por estado (us):')
+            for st in sorted(tp, key=lambda k: int(k) if str(k).isdigit() else -1):
+                n, soma, mx = tp[st]
+                A('  st=%s  n=%d  medio=%d  max=%d%s' %
+                  (st, n, soma // n, mx, '  <- QUADRO LENTO (>33333)' if mx > 33333 else ''))
         p0, p1 = qs[0], qs[-1]
         A('audio primeiro: q=%d r=%d un=%d so=%d lr=%d' %
           (num(p0, 'q'), num(p0, 'r'), num(p0, 'un'), num(p0, 'so'), num(p0, 'lr')))
@@ -332,10 +347,13 @@ def principal():
             A('VALORES (TV): %s' % l[10:])
             A('  (por ordem: f=quadro st=estado beat=laco q=fila audsrv')
             A('   r=anel un=underruns lr=bytes lidos so=submissoes)')
+    # v9.4: 8 slots de captura (FNF_SHOT.rgba + FNF_SHOT_01..07.rgba).
+    fn_shots_extra = sorted(achar(pasta, 'FNF_SHOT_*.rgba'))
     caps = [fn for fn in (achar(pasta, 'FNF_SCREEN*.txt') + achar(pasta, 'FNF_SHOT*.txt'))
             if os.path.abspath(fn) != os.path.abspath(fn_shot)]
     if os.path.exists(fn_shot):
         caps.append(fn_shot)
+    caps += fn_shots_extra
     for fn in caps:
         sz = os.path.getsize(fn)
         if sz == 0:

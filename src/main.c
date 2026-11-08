@@ -4611,10 +4611,154 @@ static unsigned int ui_som_ger=0;
    no `cancelMenu` (L2240), e 0,7 no `confirmMenu` do titulo (TitleState.hx
    L288). Por isso vem por chamada e nao de uma tabela. */
 static volatile u32 g_fn_frame=0;         /* quadro corrente, para o cao (0.2.182: declarado cedo -- o EV=SFX usa-o) */
+
+/* =====================================================================
+   0.2.187: SFX INSTANTANEOS NAS VOZES ADPCM DO SPU2.
+   FACTO (sessao 0.2.186 na consola): os SFX eram misturados nos blocos do
+   ANEL (1 MB = 5,4 s de musica ja' produzida), por isso o "confirm" do X no
+   titulo so' ouvia DEPOIS -- EV=SFX confirm_menu f=258 mist=0 prova que a
+   mistura comecava em blocos futuros. Agora cada som sobe uma vez para as
+   24 vozes ADPCM do SPU2 (audsrv_load_adpcm/ch_play_adpcm) e toca no
+   instante do botao. Formato do buffer (ps2sdk iop/sound/audsrv/src/adpcm.c,
+   verificado no codigo oficial): 16 bytes de cabecalho + frames ADPCM;
+   buffer[1]: byte5=canais byte6=loop; buffer[2]=pitch (0x1000=44100 Hz).
+   Se audsrv_adpcm_init/load falhar (irx antigo), FICA O CAMINHO ANTIGO
+   (mistura no anel) -- nunca ha' regressao de som, so' de latencia.
+   ===================================================================== */
+#ifndef SFX_ADPCM
+#define SFX_ADPCM 1
+#endif
+#define SFX_ADPCM_N 7   /* 5 ui_som + 2 slices do menu_sfx (scroll/confirm) */
+static audsrv_adpcm_t g_sfx_adpcm[SFX_ADPCM_N];
+static unsigned char *g_sfx_vag[SFX_ADPCM_N];
+static int g_sfx_adpcm_ok=0;
+
+/* Codifica PCM mono s16 (48 kHz) para ADPCM do SPU2 com o cabecalho de 16 B
+   do ps2sdk. `outmax` e' o tamanho do buffer. Devolve bytes usados ou <0.
+   Codificador barato: shift derivado da amplitude do bloco x 5 filtores
+   (70 operacoes por bloco -- cabe no boot sem atrasar a tela). */
+static int sfx_vag_encode(const short*pcm,int frames,unsigned char*out,int outmax){
+ static const int f0[5]={0,60,115,98,122},f1[5]={0,0,-52,-55,-60};
+ int nb=(frames+13)/14,b,s1=0,s2=0,pos=0,fi,sh,i;
+ if(nb<=0)return -1;
+ if(16+nb*16>outmax)return -2;
+ memset(out,0,16);
+ out[5]=1;                      /* 1 canal   */
+ out[6]=0;                      /* sem loop  */
+ {u32 pitch=(48000u*4096u+22050u)/44100u;   /* ~4551: 48 kHz no SPU2 (0x1000=44.1k) */
+  out[8]=(unsigned char)pitch;out[9]=(unsigned char)(pitch>>8);
+  out[10]=(unsigned char)(pitch>>16);out[11]=(unsigned char)(pitch>>24);}
+ pos=16;
+ for(b=0;b<nb;b++){
+  int n0=b*14,nn=(frames-n0>14)?14:(frames-n0);
+  long best=0x7fffffffL;int best_sh=4,best_f=0;unsigned char best_nib[14];
+  /* shift a partir do pico do bloco (m>>sh <= 7) */
+  {int m=0;for(i=0;i<nn;i++){int v=pcm[n0+i];if(v<0)v=-v;if(v>m)m=v;}
+   sh=0;while(m>7&&sh<12){m>>=1;sh++;}}
+  for(fi=0;fi<5;fi++){
+   int h1=s1,h2=s2;long err=0;unsigned char nib[14];
+   for(i=0;i<nn;i++){
+    int x=pcm[n0+i];
+    int pred=(h1*f0[fi]+h2*f1[fi])/64;
+    int d=x-pred,dn=d>>sh,dec;
+    if(dn>7)dn=7;if(dn<-8)dn=-8;
+    dec=(dn<<sh)+pred;if(dec>32767)dec=32767;if(dec<-32768)dec=-32768;
+    err+=(long)(x-dec)*(x-dec);
+    h2=h1;h1=dec;
+    nib[i]=(unsigned char)(dn&15);
+   }
+   if(err<best){best=err;best_sh=sh;best_f=fi;memcpy(best_nib,nib,(size_t)nn);}
+  }
+  /* redecodifica o escolhido para manter o historico coerente */
+  for(i=0;i<nn;i++){
+   int dn=(int)best_nib[i];if(dn>7)dn-=16;
+   {int pred=(s1*f0[best_f]+s2*f1[best_f])/64;int dec=(dn<<best_sh)+pred;
+    if(dec>32767)dec=32767;if(dec<-32768)dec=-32768;s2=s1;s1=dec;}
+  }
+  out[pos++]=(unsigned char)((best_f<<4)|best_sh);
+  out[pos++]=(unsigned char)((b==nb-1)?0x01:0x00);   /* 0x01 = fim */
+  for(i=0;i<7;i++){
+   int lo=(i*2<nn)?(best_nib[i*2]&15):0;
+   int hi=(i*2+1<nn)?(best_nib[i*2+1]&15):0;
+   out[pos++]=(unsigned char)((hi<<4)|lo);
+  }
+ }
+ return pos;
+}
+
+/* Le um .pcm (s16 stereo 48 kHz) e sobe como amostra ADPCM mono. */
+static int sfx_carregar_amostra(int idx,const unsigned char*pcm_bytes,int bytes){
+ int frames=bytes/4,i;int cap;
+ short*mono;
+ if(idx<0||idx>=SFX_ADPCM_N||frames<14)return -1;
+ cap=16+((frames+13)/14)*16+16;
+ g_sfx_vag[idx]=memalign(128,(size_t)cap);
+ if(!g_sfx_vag[idx])return -2;
+ mono=memalign(128,(size_t)frames*2u);
+ if(!mono){free(g_sfx_vag[idx]);g_sfx_vag[idx]=0;return -3;}
+ for(i=0;i<frames;i++){
+  const short*p=(const short*)(pcm_bytes+(size_t)i*4u);
+  int v=((int)p[0]+(int)p[1])/2;
+  mono[i]=(short)v;
+ }
+ {int n=sfx_vag_encode(mono,frames,g_sfx_vag[idx],cap);
+  free(mono);
+  if(n<0){free(g_sfx_vag[idx]);g_sfx_vag[idx]=0;return -4;}
+  memset(&g_sfx_adpcm[idx],0,sizeof(g_sfx_adpcm[idx]));
+  g_sfx_adpcm[idx].buffer=g_sfx_vag[idx];
+  g_sfx_adpcm[idx].size=n;
+  g_sfx_adpcm[idx].channels=1;
+  g_sfx_adpcm[idx].loop=0;
+  if(audsrv_load_adpcm(&g_sfx_adpcm[idx],g_sfx_vag[idx],n)!=0){
+   free(g_sfx_vag[idx]);g_sfx_vag[idx]=0;return -5;}}
+ return 0;
+}
+
+static void sfx_tocar_adpcm(int idx,int vol_pct){
+ int ch;
+ if(!g_sfx_adpcm_ok||idx<0||idx>=SFX_ADPCM_N||!g_sfx_vag[idx])return;
+ ch=audsrv_ch_play_adpcm(-1,&g_sfx_adpcm[idx]);
+ if(ch>=0&&vol_pct>=0&&vol_pct<=100)audsrv_adpcm_set_volume_and_pan(ch,vol_pct,0);
+}
+
+/* Chamado no boot DEPOIS do audio_init(). Carrega os 5 sons de UI (arquivos
+   em assets/result/) + os 2 slices do menu_sfx.pcm (scroll 0..39168,
+   confirm 39168..241920). Falhou qualquer coisa = fica no caminho antigo. */
+static void sfx_adpcm_arrancar(const unsigned char*menu_sfx,int menu_sfx_bytes){
+ int i,cargados=0;
+ (void)menu_sfx_bytes;
+ if(!SFX_ADPCM||!g_audio_ok)return;
+ if(audsrv_adpcm_init()!=0){telemetry_event("sfx_adpcm",-1,0);return;}
+ for(i=0;i<UI_SOM_N;i++){
+  char caminho[128];int fd,rc;
+  snprintf(caminho,sizeof(caminho),UI_SOM_DIR "%s.pcm",ui_som_nome[i]);
+  fd=open(caminho,O_RDONLY);
+  if(fd<0)continue;
+  {static unsigned char tmp[1048576];int n=read(fd,tmp,(int)sizeof(tmp));
+   close(fd);
+   if(n>64){rc=sfx_carregar_amostra(i,tmp,n);if(rc==0)cargados++;}}
+ }
+ if(menu_sfx&&menu_sfx_bytes>=241920){
+  if(sfx_carregar_amostra(UI_SOM_N,menu_sfx,39168)==0)cargados++;        /* scroll  */
+  if(sfx_carregar_amostra(UI_SOM_N+1,menu_sfx+39168,241920-39168)==0)cargados++; /* confirm */
+ }
+ g_sfx_adpcm_ok=(cargados>0);
+ telemetry_event("sfx_adpcm_ok",cargados,g_sfx_adpcm_ok);
+ logvivo("EV=SFX adpcm %d/%d",cargados,SFX_ADPCM_N);
+}
 static void ui_som_tocar(int q,int vol_pct)
 {
  char caminho[128];
  if(q<0||q>=UI_SOM_N||!g_audio_ok)return;
+ /* 0.2.187: voz ADPCM do SPU2 primeiro (som no INSTANTE do botao; o caminho
+    antigo misturava num anel de 1 MB = 5,4 s ja' produzidos -- da'i o "só
+    depois"). Se a amostra nao subiu no arranque, fica o mix no anel. */
+ if(g_sfx_adpcm_ok&&g_sfx_vag[q]){
+  sfx_tocar_adpcm(q,(vol_pct<=0)?70:(vol_pct>100)?100:vol_pct);
+  telemetry_event("ui_som",q,vol_pct);
+  logvivo("EV=SFX %s f=%u vol=%d adpcm",ui_som_nome[q],(unsigned)g_fn_frame,vol_pct);
+  return;
+ }
  /* O anel fecha os fds dos slots em toda parada: se ele parou desde o ultimo
     toque, o que estava guardado nao vale e e' reaberto. */
  if(ui_som_ger!=audio_ring_geracao()){
@@ -7779,7 +7923,7 @@ static void menu_atlas_resample_phys(void){int mi,se,af;u32 wp=0;
 }
 /* 0.2.105 C4: um tick de FlxTimer por quadro, logica identica a do flixel. */
 static void menu_flicker_step(u32 fn){
- if(g_fl_item_on){g_fl_item_tl-=1.0/60.0;if(g_fl_item_tl<=0.0){g_fl_item_vis=!g_fl_item_vis;g_fl_item_toggles++;g_fl_item_left--;if(g_fl_item_left>0){g_fl_item_tl+=0.06;}else{g_fl_item_vis=1;g_fl_item_on=0;menu_exit_frames=24;g_accept_item_end=(int)fn-g_accept_press_frame;}}}
+ if(g_fl_item_on){g_fl_item_tl-=1.0/60.0;if(g_fl_item_tl<=0.0){g_fl_item_vis=!g_fl_item_vis;g_fl_item_toggles++;g_fl_item_left--;if(g_fl_item_left>0){g_fl_item_tl+=0.06;}else{g_fl_item_vis=1;g_fl_item_on=0;menu_exit_frames=24;g_accept_item_end=(int)fn-g_accept_press_frame;telemetry_event("menu_flick_end",(int)fn,g_accept_item_end);}}}
  if(g_fl_mag_on){g_fl_mag_tl-=1.0/60.0;if(g_fl_mag_tl<=0.0){g_fl_mag_vis=!g_fl_mag_vis;g_fl_mag_toggles++;g_fl_mag_left--;if(g_fl_mag_left>0){g_fl_mag_tl+=0.15;}else{g_fl_mag_vis=0;g_fl_mag_on=0;}}}
 }
 
@@ -7843,7 +7987,7 @@ static int story_font_alpha_decode(const unsigned char*src,u32 src_bytes,unsigne
 static int tutorial_vcr_restore(void){u32 fp;int r=story_font_alpha_decode(g_menu_sfx_pixels+241920u+22656u,7672u,g_font_pixels,160u*120u);if(r<0)return r;for(fp=0;fp<160u*120u;fp++){unsigned int a=g_font_pixels[fp*4u+3];g_font_pixels[fp*4u+3]=(unsigned char)((a*128u+127u)/255u);}FlushCache(0);return 0;}
 static int g_menu_remembered=0;  /* FIDELIDADE 0.2.96: rememberedSelectedIndex do original */
 static int g_story_vcr_vbase=0;
-static qword_t*story_vcr_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float adv=15.0f,total=adv*count,cursor;if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-3));v.v0.z=0;v.v1.x=FNX_FIM(cursor+15);v.v1.y=FNX_FIM(vy(y-3)+20);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+.5f;v.t0.v=(n/16)*FONT_CELL_H+.5f;v.t1.u=(n%16+1)*FONT_CELL_W-.5f;v.t1.v=(n/16+1)*FONT_CELL_H-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+static qword_t*story_vcr_line(qword_t*q,const char*s,int count,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){int i;float total=0,cursor;/*0.2.187: avancos proporcionais (PROVA4: widths 10..23 em celulas de 24; 0.625=celula->15px)*/for(i=0;i<count;i++){unsigned char wch=(unsigned char)s[i];if(wch<32||wch>127)wch='?';total+=g_font_widths[wch-32]*0.625f;}if(align==1)x-=total*.5f;else if(align==2)x-=total;cursor=x;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(y-3));v.v0.z=0;v.v1.x=FNX_FIM(cursor+15);v.v1.y=FNX_FIM(vy(y-3)+20);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+.5f;v.t0.v=(n/16)*FONT_CELL_H+.5f;v.t1.u=(n%16+1)*FONT_CELL_W-.5f;v.t1.v=(n/16+1)*FONT_CELL_H-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=g_font_widths[n]*0.625f;}return q;}
 /* PlayState.updateScoreText() + FlxStringUtil.formatMoney(v,false,true):
    "Score: N" com virgula a cada tres digitos. Devolve o comprimento, porque
    hud_score_line() recebe contagem explicita (ela nao mede a string). */
@@ -7871,7 +8015,7 @@ static qword_t*hud_score_line(qword_t*q,const char*s,int count,float x,float y,i
    na camHUD no original (PlayState.hx L2026, L959-960), entao o zoom do HUD os
    escala como qualquer outra peca. Aqui isso vira: posicao pelo hz_*, avanco e
    altura do glifo x zoom. Com zoom 1,0 os numeros sao identicos aos de antes. */
- float adv=7.5f*g_hud_zoom,total=adv*count,cursor,x0=hz_x(x),yb=hz_y(y-1.5f);if(align==1)x0-=total*.5f;else if(align==2)x0-=total;cursor=x0;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(yb));v.v0.z=0;v.v1.x=FNX_FIM(cursor+7.5f*g_hud_zoom);v.v1.y=FNX_FIM(vy(yb)+10.0f*g_hud_zoom);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+.5f;v.t0.v=(n/16)*FONT_CELL_H+.5f;v.t1.u=(n%16+1)*FONT_CELL_W-.5f;v.t1.v=(n/16+1)*FONT_CELL_H-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=adv;}return q;}
+ float total=0,cursor,x0=hz_x(x),yb=hz_y(y-1.5f);/*0.2.187: avancos proporcionais (0.3125=celula->7.5px no zoom 1)*/for(i=0;i<count;i++){unsigned char wch=(unsigned char)s[i];if(wch<32||wch>127)wch='?';total+=g_font_widths[wch-32]*0.3125f*g_hud_zoom;}if(align==1)x0-=total*.5f;else if(align==2)x0-=total;cursor=x0;for(i=0;i<count;i++){g_frame_texture_quads++;unsigned char ch=(unsigned char)s[i];texrect_t v;int n;if(ch<32||ch>127)ch='?';n=ch-32;v.v0.x=FNX_INI(cursor);v.v0.y=FNX_INI(vy(yb));v.v0.z=0;v.v1.x=FNX_FIM(cursor+7.5f*g_hud_zoom);v.v1.y=FNX_FIM(vy(yb)+10.0f*g_hud_zoom);v.v1.z=0;v.t0.u=(n%16)*FONT_CELL_W+.5f;v.t0.v=(n/16)*FONT_CELL_H+.5f;v.t1.u=(n%16+1)*FONT_CELL_W-.5f;v.t1.v=(n/16+1)*FONT_CELL_H-.5f;v.color=rgba(r,g,b,a);if(band_clip_rect(&v))q=draw_rect_textured(q,0,&v);cursor+=g_font_widths[n]*0.3125f*g_hud_zoom;}return q;}
 static qword_t*story_vcr(qword_t*q,const char*s,float x,float y,int align,unsigned char r,unsigned char g,unsigned char b,unsigned char a){const char*p=s,*e;float yy=y;while(1){e=strchr(p,'\n');q=story_vcr_line(q,p,e?(int)(e-p):(int)strlen(p),x,yy,align,r,g,b,a);if(!e)break;p=e+1;yy+=16;}return q;}
 static unsigned char*menu_idle_blend(int mi,int af,int phase){
  const unsigned int*a=g_menu_frame_rw[mi][0][af],*b=g_menu_frame_rw[mi][0][(af+1)%3];u32 bytes=a[1]*a[2]*4u,j;unsigned int wb=(unsigned int)phase,wa=3u-wb;
@@ -7912,6 +8056,10 @@ static av_trace_t g_av_trace[AV_TRACE_CAP];static u32 g_av_trace_wp=0,g_av_trace
 static char g_marca_actual[48];
 #define MARCA(x) do{strncpy(g_marca_actual,(x),47);g_marca_actual[47]=0;}while(0)
 static u32 g_qrpc_cache, g_arpc_cache;   /* audsrv_queued/available, 1x por quadro */
+/* 0.2.187: copias actualizadas pela THREAD DA BOMBA (pump_thread_fn). O
+   LOOP deixa de chamar RPCs do IOP -- le estas. Volatile: lidos/escritos
+   por duas threads; u32 e' atomico no EE. */
+static volatile u32 g_arpc_vara=0,g_arpc_varb=0;
 #define THUMB_W 160
 #define THUMB_H 112
 static u32 g_thumb[THUMB_W*THUMB_H];
@@ -8125,6 +8273,8 @@ static void frame_mark(const char*phase,int code){
      linha ciano   = fila do audsrv (5), anel (6), underruns (3);
      linha verde   = bytes lidos pelo produtor (8) e submissoes audsrv (6). */
 static volatile unsigned g_ui_espelho=0;   /* copia de ui_state (local do main) */
+static volatile unsigned g_trans_espelho=0; /* copia de transition_frame (0.2.187: guarda de carga da captura) */
+static int g_menu_up_chave[4];   /* 0.2.187: cache dos uploads da animacao do menu (fps do estado 6) */
 static int g_pedido_foto;                  /* 0.2.176: definido abaixo; pedido do vigia */
 /* 0.2.182: endereco do framebuffer EM EXIBICAO, actualizado por vsync;
    o vigia pinta nele (sem destruir o GS) e captura a partir dele. */
@@ -8387,6 +8537,16 @@ static void pump_thread_fn(void*arg){
    int (*fn)(void)=g_pump_fn[i];
    if(fn)e+=fn();
   }
+  /* 0.2.187: os RPCs de telemetria do audsrv (queued/available) passam para
+     CA. Os corretores chamavam-nos no LOOP (MARCA "audsrv_queued"); num IOP
+     dormente (fim do USB) o RPC nunca regressava e o jogo "freezava" com o
+     marca exactamente nesse ponto -- FACTO pelo savestate do TRAVA-4. Se o
+     IOP morrer, o que bloqueia agora e' esta thread da bomba (separada);
+     o loop principal le as copias em g_arpc_vara/varb e continua a pintar. */
+  if(g_audio_ok){
+   g_arpc_vara=(u32)audsrv_queued();
+   g_arpc_varb=(u32)audsrv_available();
+  }
   if(e<=0)DelayThread(3000);   /* 3 ms quando nao ha' o que enviar */
  }
  ExitThread();
@@ -8423,10 +8583,14 @@ static void iow_thread_fn(void*arg){
        AQUI -- fora do laco do quadro. Texto primeiro (pequeno), imagem a
        seguir. Se o usbhdfsd prender na imagem, prende ESTA thread: o jogo
        continua (a garantia da 0.2.175). */
-    if(g_pedido_foto&&g_shot_n<4){
-      g_pedido_foto=0;
-      estado_gigante_gravar();
-      capture_framebuffer_fast((u32)g_cap_fb,(u32)g_cap_fr,(u32)g_cap_ui);
+    if(g_pedido_foto){
+      /* 0.2.187: em CARGA (transicao) so' fica guardado -- nao se refaz o
+         despejo gigante a cada ciclo, a captura pede quando a carga acaba. */
+      if(g_trans_espelho==0){
+       g_pedido_foto=0;
+       estado_gigante_gravar();
+       capture_framebuffer_fast((u32)g_cap_fb,(u32)g_cap_fr,(u32)g_cap_ui);
+      }
     }
     if(!telemetry_tem_pendente())continue;
     audio_ring_pause(1);                 /* produtor parado: escrita sozinha */
@@ -8559,7 +8723,7 @@ static int cap_wait_set64(volatile u64*r,u64 m,u64 t){u64 s=GetTimerSystemTime()
    linha e a captura sairia embaralhada -- ou seja, a evidencia de um bug
    viraria ela mesma um bug. */
 static int safe_readback_rect(void*d,u32 v,u32 y,u32 h){u32 c[40]__attribute__((aligned(16))),*p=c,qwc=SCREEN_W*h/8,oc=CAP_D1_CHCR;u64*q=(u64*)(p+4),oi=CAP_GS_IMR,t=294912000ull;int r=-1;if(!h||qwc>65535u||(oc&0x100u))return-10;p[0]=0;p[1]=CAP_VIF_MSKPATH3(0x8000);p[2]=CAP_VIF_FLUSHA;p[3]=CAP_VIF_DIRECT(6);q[0]=CAP_GIFTAG(5,1);q[1]=0x0e;q[2]=GS_SET_BITBLTBUF(v,SCREEN_W/64,FB_PSM,0,0,FB_PSM);q[3]=GS_REG_BITBLTBUF;q[4]=GS_SET_TRXPOS(0,y,0,0,0);q[5]=GS_REG_TRXPOS;q[6]=GS_SET_TRXREG(SCREEN_W,h);q[7]=GS_REG_TRXREG;q[8]=0;q[9]=0x61;q[10]=GS_SET_TRXDIR(1);q[11]=GS_REG_TRXDIR;CAP_GS_IMR=oi|0x200u;CAP_GS_CSR=2;FlushCache(0);CAP_D1_QWC=7;CAP_D1_MADR=(u32)c;CAP_D1_CHCR=0x101;EE_SYNCL();if(cap_wait_clear32(&CAP_D1_CHCR,0x100,t)<0){r=-11;goto x;}if(cap_wait_set64(&CAP_GS_CSR,2,t)<0){r=-12;goto x;}if(cap_wait_clear32(&CAP_VIF1_STAT,0x1f000000u,t)<0){r=-13;goto x;}CAP_VIF1_STAT=1u<<23;CAP_GS_BUSDIR=1;FlushCache(0);CAP_D1_QWC=qwc;CAP_D1_MADR=(u32)d;CAP_D1_CHCR=0x100;EE_SYNCL();if(cap_wait_clear32(&CAP_D1_CHCR,0x100,t)<0){r=-14;goto x;}r=1;x:CAP_D1_CHCR=oc;EE_SYNCL();CAP_VIF1_STAT=0;CAP_GS_BUSDIR=0;CAP_GS_IMR=oi;CAP_GS_CSR=2;{u128 e=(u128)CAP_VIF_MSKPATH3(0);CAP_VIF1_FIFO=e;}return r;}
-static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>4096u?4096u:n;int w=write(f,p,a);if(w!=(int)a)return w<0?-21:-22;p+=a;n-=a;if(n)DelayThread(3000);}return 0;} /* 0.2.176: 4 KB + 3 ms: a captura nunca e' rajada */
+static int raw_write_chunks(int f,const unsigned char*p,u32 n){while(n){u32 a=n>16384u?16384u:n;int w=write(f,p,a);if(w!=(int)a)return w<0?-21:-22;p+=a;n-=a;if(n)DelayThread(2000);}return 0;} /* 0.2.187: 16 KB + 2 ms: menos RPCs ao usbhdfsd (o IOP morria com a rajada de 4 KB) sem largar o conta-gotas */
 /* Durante a captura o anel de audio PARA de ler do pendrive. O
    usbhdfsd nao e reentrante e esta funcao grava 1,1 MB nele pela
    thread principal. Sem isso, depois de algumas capturas a musica e
@@ -8670,10 +8834,23 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     (void)fb; (void)fr; (void)ui;
     return 0;
 #endif
-    snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT.rgba");
-    /* 0.2.180: nome fixo (um ficheiro so, sobrescrito por captura). Pre-alocado
-       no boot (zeros); aqui lseek(0)+write -- NAO ha' criacao nem extensao de
-       FAT durante o jogo. */
+    /* 0.2.187: CAPTURAS ILIMITADAS. 8 slots pre-alocados rotativos (o pedido
+       foi "a qualquer momento"). A 9a' captura reescreve o slot mais antigo.
+       O extractor v9.4 le todos. */
+    {u32 slot=(u32)g_shot_n%8u;
+     if(slot==0u)snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT.rgba");
+     else snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02u.rgba",(unsigned)slot);}
+    /* 0.2.187: durante uma CARGA (transition_frame>0) nao ha' ecra para
+       capturar -- guarda o pedido para quando a carga terminar (o utilizador
+       pediu "a qualquer momento, menos nas telas de carregamento"). */
+    if(g_trans_espelho>0){
+        logvivo("EV=CAPTURA bloqueada (carga) f=%u",(unsigned)fr);
+        telemetry_event("captura_bloqueada_carga",g_shot_n,(int)fr);
+        g_pedido_foto=1;
+        return -12;
+    }
+    /* 0.2.180: nome por slot (pre-alocado em boot). Aqui lseek(0)+write --
+       NAO ha' criacao nem extensao de FAT durante o jogo. */
     logvivo("EV=CAPTURA ini f=%u ui=%u fb=0x%x shot=%u",(unsigned)fr,(unsigned)ui,(unsigned)fb,(unsigned)g_shot_n);
     /* 0.2.185: janela PAUSADA do produtor (o handshake provado da 0.2.177).
        Sem isto o trylock perdia SEMPRE para o streaming da musica e o
@@ -8695,11 +8872,13 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     lseek(fd,0,SEEK_SET);
     for(y=0;y<448u;y+=32u){
         u32 h=32u,oy,ox;
+        static unsigned char bloco[16u*320u*4u];   /* 16 linhas por fatia */
+        u32 nlin=0;
         if(y+h>448u)h=448u-y;
         if(safe_readback_rect(g_cap_slice,fb,y,h)!=1){
             telemetry_event("captura_falhou",(int)g_shot_n,-11);break;}
         for(oy=0;oy+1u<h;oy+=2u){
-            unsigned char row[320u*4u];
+            unsigned char *row=bloco+nlin*320u*4u;
             for(ox=0;ox<320u;ox++){
                 const unsigned char*s0=g_cap_slice+((oy*640u)+ox*2u)*2u;
                 const unsigned char*s1=s0+2u;
@@ -8711,16 +8890,20 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
                 u32 v3=(u32)s3[0]|((u32)s3[1]<<8);
                 cap_media(v0,v1,v2,v3,row+ox*4u);
             }
-            if(raw_write_chunks(fd,row,1280u)<0){y=448u;break;}
+            nlin++;
         }
+        /* 0.2.187: uma escrita por FATIA (16 linhas = 20 KB) em vez de uma
+           por linha (224 RPCs de 1,28 KB matavam o IOP junto com o USB). */
+        if(nlin&&raw_write_chunks(fd,bloco,nlin*320u*4u)<0){y=448u;break;}
     }
     if(y<448u)logvivo("EV=CAPTURA fim PARCIAL linhas=%u",y);
-    else logvivo("EV=CAPTURA fim ok bytes=%u linhas=448",(unsigned)320u*224u*4u);
+    else logvivo("EV=CAPTURA fim ok bytes=%u linhas=224",(unsigned)320u*224u*4u);
     close(fd);            /* 0.2.175: sem fsync -- o close publica */
     io_gate_unlock();
     if(!pausado_antes)audio_ring_pause(0);}
     g_shot_n++;
-    telemetry_event("captura",g_shot_n,(int)fr);
+    telemetry_event("captura",(int)((u32)(g_shot_n-1)%8u),g_shot_n);
+    telemetry_event("captura_frame",g_shot_n,(int)fr);
     return 0;
 }
 
@@ -9418,11 +9601,24 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    {"mass:/FNFPS2/FNF_TELA.TXT",131072u},
    {"mass:/FNFPS2/FNF_ERRO.TXT",16384u},
    {"mass:/FNFPS2/FNF_SHOT.rgba",286720u},
+   /* 0.2.187: 8 slots de captura rotativos (o pedido foi "capturas
+      ilimitadas"). Os 7 novos criam-se ESPARSOS (2 escritas de 4 KB e o
+      lseek aloca a cadeia em boot) para o boot nao ganhar 2 MB de zeros;
+      a captura escreve o ficheiro inteiro antes do close publicar. */
+   {"mass:/FNFPS2/FNF_SHOT_01.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_02.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_03.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_04.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_05.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_06.rgba",286720u|0x20000000u},
+   {"mass:/FNFPS2/FNF_SHOT_07.rgba",286720u|0x20000000u},
    {"mass:/FNFPS2/FNF_SAVESTATE.bin",49152u},
    {0,0}};
  char z[4096];unsigned si,k;memset(z,0,sizeof(z));
  for(si=0;slots[si].n;si++){
   int pfd;const char*nm=slots[si].n;const char*sl=strrchr(nm,'/');char lbl[48];
+  unsigned esparsa=(slots[si].sz&0x20000000u)!=0u;
+  unsigned tam=slots[si].sz&0x0FFFFFFFu;
   if(sl)nm=sl+1;
   /* O marco ANTES do preenchimento: se o boot morrer outra vez, o FNF_BOOT
      diz exactamente em qual ficheiro (0.2.180 nao tinha marcas aqui e foi
@@ -9431,9 +9627,17 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
   boot_mark(lbl,0);
   pfd=open(slots[si].n,O_WRONLY|O_CREAT|O_TRUNC,0666);
   if(pfd>=0){
-   for(k=0;k<slots[si].sz;k+=(unsigned)sizeof(z)){
-    unsigned fat=slots[si].sz-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):slots[si].sz-k;
-    if(write(pfd,z,fat)!=(int)fat)break;}
+   if(esparsa){
+    /* esparsa: cabeca + cauda; a cadeia FAT fica completa em boot e o
+       jogo nunca aloca durante a captura. */
+    write(pfd,z,4096);
+    lseek(pfd,(int)tam-4096,SEEK_SET);
+    write(pfd,z,4096);
+   }else{
+    for(k=0;k<tam;k+=(unsigned)sizeof(z)){
+     unsigned fat=tam-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):tam-k;
+     if(write(pfd,z,fat)!=(int)fat)break;}
+   }
    close(pfd);}}}
 g_slots_prontos=1;
 telemetry_log_descritivo(); /* 0.2.181: o bloco descritivo entra por cima dos zeros */
@@ -9490,7 +9694,7 @@ logvivo_init();   /* 0.2.179: o LOG VIVO (512 KB pre-alocados, anel circular) */
   fnwrite_slot(FN_TELA_TXT,0,b,(u32)n);
  }
  telemetry_event("console_retrato",g_telemetry_init_result,1);}
-save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);boot_fail(3,-1,"RAM DO MENU","memalign de 1,6 MB (menu_cache) ou 281 KB (menu_sfx) falhou");}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);boot_fail(4,-2,"MENU_CACHE.RLE","mass:/FNFPS2/assets/menu_cache.rle nao abriu ou veio menor que 1.587.561 B");}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);boot_fail(5,-3,"MENU_SFX.PCM","mass:/FNFPS2/assets/menu_sfx.pcm nao abriu (281.088 B)");}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);
+save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);boot_fail(3,-1,"RAM DO MENU","memalign de 1,6 MB (menu_cache) ou 281 KB (menu_sfx) falhou");}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);boot_fail(4,-2,"MENU_CACHE.RLE","mass:/FNFPS2/assets/menu_cache.rle nao abriu ou veio menor que 1.587.561 B");}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);boot_fail(5,-3,"MENU_SFX.PCM","mass:/FNFPS2/assets/menu_sfx.pcm nao abriu (281.088 B)");}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;if(audio_ok)sfx_adpcm_arrancar(g_menu_sfx_pixels,281088);capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);
  /* "sem som" era indistinguivel de "nao abriu". Agora, se o audsrv nao subir,
     a tela diz isso por 3 s e o jogo segue sem audio. */
  if(!audio_ok){boot_aviso(6,-1,"AUDIO","rom0:LIBSD + audsrv nao inicializaram: o jogo roda, mas SEM SOM");}if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;
@@ -9763,7 +9967,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   if(ui_state==9&&g_audio_ok)g_pump_fn[1]=pump_resmus;
   frame_mark("F.AUDIO",transport_state);
   {u32 reads=0;audio_ring_stats(&audio_read_bytes,&reads,&audio_loops,&audio_read_errors,&audio_underruns);(void)reads;}
-  if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}MARCA("audsrv_queued");if(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0)){g_qrpc_cache=(u32)audsrv_queued();g_arpc_cache=(u32)audsrv_available();}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?g_qrpc_cache:0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
+  if(frame_no==0){capture_status("F0_UPDATE_AUDIO_DONE",-1,0);}MARCA("audsrv_queued");if(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0)){g_qrpc_cache=g_arpc_vara;g_arpc_cache=g_arpc_varb;}queued_bytes=(audio_ok&&(g_title_audio_fd>=0||audio_fd>=0))?g_qrpc_cache:0;ring_bytes=(u32)audio_ring_level();heard=audio_submitted>=queued_bytes/4?audio_submitted-queued_bytes/4:0;
   /* Acumulador continuo: o RPC bruto apenas valida/corrige deriva; nao ancora
    * cada bloco. O resto fracionario evita perder subamostras entre frames. */
   if(clock_hold&&heard>=music_clock)clock_hold=0;
@@ -10271,7 +10475,7 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   telemetry_event("play_total_notes",(int)g_play.total_notes,0);
   chart_rc=g_chart_status;
   capture_status("TUT_CHART_DONE",(int)frame_no,chart_rc);
-  telemetry_event("tutorial_chart",g_chart_status,(int)g_chart_info.checksum);
+  telemetry_event("tutorial_chart",g_chart_status,(int)g_chart_info.checksum);logvivo("EV=CHART status=%d sum=%08x",(int)g_chart_status,(unsigned)g_chart_info.checksum);
   capture_status("TUT_FORMAT_BEGIN",(int)frame_no,sr);
   if(sr==0&&audio_ok)format_rc=audio_set_stream(audio_volume);
   capture_status("TUT_FORMAT_DONE",(int)frame_no,format_rc);
@@ -10439,7 +10643,7 @@ transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/*
      telemetry_event("freeplay_rank_inicio",g_rk_new_rank,g_rk_old_rank);
     }
     g_rk_pendente=0;
-    telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
+    telemetry_event("freeplay_enter",g_fp_sel,g_fp_diff);}else if(ui_state==7){{u32 aq0=(g_title_audio_fd>=0)?g_arpc_vara:0u;g_story_anim_heard_samples=g_title_audio_submitted>aq0/4u?g_title_audio_submitted-aq0/4u:0u;}story_diff=1;story_level=0;g_story_title_y_ready=0;if(previous_state==1||previous_state==8||previous_state==10){audsrv_stop_audio();g_title_audio_submitted=0;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;if(g_title_audio_fd>=0)close(g_title_audio_fd);g_title_audio_fd=-1;if(audio_ok&&audio_set_stream(audio_volume)==0)g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);menu_audio_prime();g_menu_audio_suspended=0;}}telemetry_event("story_music",previous_state,g_title_audio_fd>=0);}else if(ui_state==0){telemetry_event("title_anim_reuse",g_title_anim_status,g_title_anim_pixels!=0);audio_started=0;audio_playing=0;clock_hold=1;transport_state=0;title_intro_active=0;title_confirm_frames=0;title_intro_flash_frames=60;title_logo_last=title_gf_last=-1;setup_texture_dims(&fonttex,384,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_ALPHA,384u*192u*4u);upload_raw(&fonttex,g_up_bounce,384,192);menu_anim_tick=-1;setup_texture_dims(&stagetex,512,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_L,512u*192u*4u);upload_raw(&stagetex,g_up_bounce,512,192);setup_texture_dims(&tex2,320,192);memcpy(g_up_bounce,g_menu_pixels+TITLE_SNAPSHOT_PROMPT_R,320u*192u*4u);upload_raw(&tex2,g_up_bounce,320,192);menu_anim_tick=-1;setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);gftex.width=256;setup_texture_dims(&gftex,TITLE_GF_W,TITLE_GF_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;upload_raw(&gftex,g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);menu_anim_tick=-1;title_ng_restored=1;if(g_title_audio_fd<0&&audio_ok&&audio_set_stream(audio_volume)==0){g_title_audio_fd=open("mass:/FNFPS2/assets/freakyMenu_48000.pcm",O_RDONLY);if(g_title_audio_fd>=0){audio_ring_stop();audio_ring_start_loop(g_title_audio_fd,1);telemetry_event("ring_source",0,1);}}}}
    if(transition_frame>transition_end){transition_frame=0;target_state=-1;repeat_dir=0;repeat_frames=0;menu_back_transition=0;}
   }
   if(transition_frame==0&&ui_state==8&&g_tutorial_audio_finished&&(pressed&PAD_CROSS)&&g_tutorial_audio_status==0&&audio_fd>=0){
@@ -10846,7 +11050,7 @@ transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/*
      do pacote (`assets/result/cancel_menu.pcm`, empacotado de
      `preload/sounds/cancelMenu.ogg` como o scroll/confirm) e toca como fonte
      secundaria do anel do menu, que ja' esta' rodando com o `freakyMenu`. */
-     ui_som_tocar(UI_SOM_CANCEL,100);g_menu_remembered=selection;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;g_menu_cache_ready=0;title_logo_last=title_gf_last=-1;menu_back_transition=0;target_state=0;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){g_menu_sfx_pos=39168;g_menu_sfx_end=241920;g_menu_sfx_phase=0;g_menu_remembered=selection;
+     ui_som_tocar(UI_SOM_CANCEL,100);g_menu_remembered=selection;g_menu_sfx_pos=g_menu_sfx_end=g_menu_sfx_phase=0;g_menu_cache_ready=0;title_logo_last=title_gf_last=-1;menu_back_transition=0;target_state=0;transition_frame=1;transitions++;}else if(pressed&PAD_CROSS){telemetry_event("menu_accept",(int)frame_no,selection);if(g_sfx_adpcm_ok&&g_sfx_vag[UI_SOM_N+1]){sfx_tocar_adpcm(UI_SOM_N+1,70);}else{g_menu_sfx_pos=39168;g_menu_sfx_end=241920;g_menu_sfx_phase=0;}g_menu_remembered=selection;
      /* 0.2.105 C4: o original (MenuList.hx L286-305) nao tem janela de 24
         quadros. accept() dispara onAcceptPress (flicker do magenta 1,1 s /
         0,15 s) e FlxFlicker.flicker(item, 1, 0.06, true, false, callback):
@@ -10857,7 +11061,7 @@ transform_mode=0;last=-1;last2=-1;if(ui_state==6){selection=g_menu_remembered;/*
         (202752 B/4/48000 = 1,056 s = 63,4 quadros) toca INTEIRO. A janela
         de 24 quadros da 0.2.104 cortava o som pela metade: foi o "piscar
         muito rapido + som cortado" medido no console. */
-     g_accept_press_frame=(int)frame_no;g_fl_item_on=1;g_fl_item_tl=0.06;g_fl_item_left=16;g_fl_item_vis=1;g_fl_item_toggles=0;g_fl_mag_on=1;g_fl_mag_tl=0.15;g_fl_mag_left=7;g_fl_mag_vis=0;g_fl_mag_toggles=0;menu_exit_frames=0;g_accept_item_end=g_accept_switch=-1;}}if(selection!=oldsel){menu_anim_tick=-1;g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}if(menu_exit_frames){menu_exit_frames--;if(menu_exit_frames==0){g_accept_switch=(int)frame_no-g_accept_press_frame;if(selection==0){/* FIDELIDADE 0.2.103: o original, ao confirmar STORY MODE,
+     g_accept_press_frame=(int)frame_no;g_fl_item_on=1;g_fl_item_tl=0.06;g_fl_item_left=16;g_fl_item_vis=1;g_fl_item_toggles=0;g_fl_mag_on=1;g_fl_mag_tl=0.15;g_fl_mag_left=7;g_fl_mag_vis=0;g_fl_mag_toggles=0;menu_exit_frames=0;g_accept_item_end=g_accept_switch=-1;}}if(selection!=oldsel){menu_anim_tick=-1;if(g_sfx_adpcm_ok&&g_sfx_vag[UI_SOM_N]){sfx_tocar_adpcm(UI_SOM_N,70);}else{g_menu_sfx_pos=0;g_menu_sfx_end=39168;g_menu_sfx_phase=0;}}if(menu_exit_frames){menu_exit_frames--;if(menu_exit_frames==0){telemetry_event("menu_switch",(int)frame_no,selection);g_accept_switch=(int)frame_no-g_accept_press_frame;if(selection==0){/* FIDELIDADE 0.2.103: o original, ao confirmar STORY MODE,
      faz FunkinMemory.clearFreeplay() e purgeCache() (MainMenuState.hx L136-140).
      Equivalente do port: soltar os packs do Tutorial, que o Story nao usa;
      tutorial_pack_load() recarrega ao entrar no Tutorial de novo (pointer 0). */
@@ -10921,8 +11125,8 @@ else{menu_placeholder=selection;telemetry_event("menu_sem_tela",selection,0);if(
   }
   global=g_bf.anim[anim].start+local;
 
-  if(ui_state==0){if(g_title_anim_status==-2){if(g_title_anim_pixels)free(g_title_anim_pixels);g_title_anim_pixels=0;g_title_anim_status=-3;}if(g_title_anim_status==1&&!g_title_anim_ready_logged){telemetry_event("title_anim_ready",TITLE_LOGO_BYTES,TITLE_GF_BYTES);g_title_anim_ready_logged=1;}u32 raw_th=0,bs=12970u;int tqb=(g_title_audio_fd>=0?audsrv_queued():-1);if(g_title_audio_submitted<g_title_anim_last_submitted)g_title_anim_heard_samples=0;g_title_anim_last_submitted=g_title_audio_submitted;if(tqb>=0){u32 tq=(u32)tqb/4u;raw_th=g_title_audio_submitted>tq?g_title_audio_submitted-tq:0u;if(raw_th>g_title_anim_heard_samples)g_title_anim_heard_samples=raw_th;}u64 oldth=((u64)g_title_anim_heard_samples*147u)/320u;u32 phase=(u32)(oldth%bs),beat=(u32)(oldth/bs);unsigned int lf=(unsigned int)(((oldth*24u)/22050u)%TITLE_LOGO_FRAMES),gf=(beat&1u)*15u+(unsigned int)(((u64)phase*24u)/22050u);if(gf>=((beat&1u)*15u+15u))gf=(beat&1u)*15u+14u;if((!title_intro_active||title_ng_restored)&&(int)lf!=title_logo_last){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,(g_title_logo_ready&(1u<<lf))?g_title_anim_pixels+(u32)lf*TITLE_LOGO_FRAME_BYTES:g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);title_logo_last=(int)lf;}if(!title_intro_active&&(int)gf!=title_gf_last){if(frame_no==0)capture_status("F0_TITLE_UPLOAD_BEGIN",-1,0);upload_raw(&gftex,(g_title_gf_ready&(1u<<gf))?g_title_anim_pixels+TITLE_LOGO_BYTES+(u32)gf*TITLE_GF_FRAME_BYTES:g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);if(frame_no==0)capture_status("F0_TITLE_UPLOAD_DONE",-1,0);title_gf_last=(int)gf;}}
-  if(ui_state==7&&story_level==0&&g_story_anim_ready){u32 aq=(g_title_audio_fd>=0)?(u32)audsrv_queued():0u;u32 raw_heard=g_title_audio_submitted>aq/4u?g_title_audio_submitted-aq/4u:0u;if(raw_heard>g_story_anim_heard_samples)g_story_anim_heard_samples=raw_heard;u32 heard=g_story_anim_heard_samples;u64 units=(u64)heard*102u;u32 dance=(u32)(units/5760000u),phase=(u32)(((units%5760000u)*24u)/5760000u),gfi,bf;if(phase>14u)phase=14u;gfi=(dance&1u)?14u+phase:(phase?phase-1u:29u);bf=phase>13u?13u:phase;if((int)bf!=g_story_bf_uploaded&&tutorial_pack_frame(g_story_bf_pack,g_story_bf_pack_bytes,bf,14,164u*165u*4u,g_story_bf_pixels)==0){FlushCache(0);setup_texture_dims(&gftex,164,165);upload_raw(&gftex,g_story_bf_pixels,164,165);g_story_bf_uploaded=(int)bf;}if((int)gfi!=g_story_gf_uploaded&&tutorial_pack_frame(g_story_gf_pack,g_story_gf_pack_bytes,gfi,30,170u*157u*4u,g_story_gf_pixels)==0){FlushCache(0);setup_texture_dims(&tex2,170,157);upload_raw(&tex2,g_story_gf_pixels,170,157);g_story_gf_uploaded=(int)gfi;}}
+  if(ui_state==0){if(g_title_anim_status==-2){if(g_title_anim_pixels)free(g_title_anim_pixels);g_title_anim_pixels=0;g_title_anim_status=-3;}if(g_title_anim_status==1&&!g_title_anim_ready_logged){telemetry_event("title_anim_ready",TITLE_LOGO_BYTES,TITLE_GF_BYTES);g_title_anim_ready_logged=1;}u32 raw_th=0,bs=12970u;int tqb=(g_title_audio_fd>=0?(int)g_arpc_vara:-1);if(g_title_audio_submitted<g_title_anim_last_submitted)g_title_anim_heard_samples=0;g_title_anim_last_submitted=g_title_audio_submitted;if(tqb>=0){u32 tq=(u32)tqb/4u;raw_th=g_title_audio_submitted>tq?g_title_audio_submitted-tq:0u;if(raw_th>g_title_anim_heard_samples)g_title_anim_heard_samples=raw_th;}u64 oldth=((u64)g_title_anim_heard_samples*147u)/320u;u32 phase=(u32)(oldth%bs),beat=(u32)(oldth/bs);unsigned int lf=(unsigned int)(((oldth*24u)/22050u)%TITLE_LOGO_FRAMES),gf=(beat&1u)*15u+(unsigned int)(((u64)phase*24u)/22050u);if(gf>=((beat&1u)*15u+15u))gf=(beat&1u)*15u+14u;if((!title_intro_active||title_ng_restored)&&(int)lf!=title_logo_last){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,(g_title_logo_ready&(1u<<lf))?g_title_anim_pixels+(u32)lf*TITLE_LOGO_FRAME_BYTES:g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);title_logo_last=(int)lf;}if(!title_intro_active&&(int)gf!=title_gf_last){if(frame_no==0)capture_status("F0_TITLE_UPLOAD_BEGIN",-1,0);upload_raw(&gftex,(g_title_gf_ready&(1u<<gf))?g_title_anim_pixels+TITLE_LOGO_BYTES+(u32)gf*TITLE_GF_FRAME_BYTES:g_gf_pixels+TITLE_GF_STORE_OFFSET,TITLE_GF_W,TITLE_GF_H);if(frame_no==0)capture_status("F0_TITLE_UPLOAD_DONE",-1,0);title_gf_last=(int)gf;}}
+  if(ui_state==7&&story_level==0&&g_story_anim_ready){u32 aq=(g_title_audio_fd>=0)?g_arpc_vara:0u;u32 raw_heard=g_title_audio_submitted>aq/4u?g_title_audio_submitted-aq/4u:0u;if(raw_heard>g_story_anim_heard_samples)g_story_anim_heard_samples=raw_heard;u32 heard=g_story_anim_heard_samples;u64 units=(u64)heard*102u;u32 dance=(u32)(units/5760000u),phase=(u32)(((units%5760000u)*24u)/5760000u),gfi,bf;if(phase>14u)phase=14u;gfi=(dance&1u)?14u+phase:(phase?phase-1u:29u);bf=phase>13u?13u:phase;if((int)bf!=g_story_bf_uploaded&&tutorial_pack_frame(g_story_bf_pack,g_story_bf_pack_bytes,bf,14,164u*165u*4u,g_story_bf_pixels)==0){FlushCache(0);setup_texture_dims(&gftex,164,165);upload_raw(&gftex,g_story_bf_pixels,164,165);g_story_bf_uploaded=(int)bf;}if((int)gfi!=g_story_gf_uploaded&&tutorial_pack_frame(g_story_gf_pack,g_story_gf_pack_bytes,gfi,30,170u*157u*4u,g_story_gf_pixels)==0){FlushCache(0);setup_texture_dims(&tex2,170,157);upload_raw(&tex2,g_story_gf_pixels,170,157);g_story_gf_uploaded=(int)gfi;}}
   /* FocusCameraSongEvent.hx: char 0 is BF, 1 is the opponent, 2 is GF. The
      tutorial's opponent IS gf, so both 1 and 2 focus her and 0 focuses BF. */
   /* FOCO DA CAMERA POR PAPEL. O booleano de antes (`g_tut_cam_focus`) tratava
@@ -11003,7 +11207,7 @@ else{menu_placeholder=selection;telemetry_event("menu_sem_tela",selection,0);if(
       rotulada - o asset menuBGMagenta.png nao esta no repo (assets/ vazio)
       nem no rar do Drive; a forma (retangulo cheio) e exata porque o
       menuBG.png e opaco em toda a area (ver prova_fix_02105.py). */
-   if(g_fl_mag_on&&g_fl_mag_vis)mq=rect_alpha(mq,-64.0f,bg_y,768.0f,435.956454f,210,20,120,0x80);}mq=draw_finish(mq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,mq-packet->data,0,0);draw_wait_finish();if(!menu_placeholder&&tick!=menu_anim_tick){texbuffer_t*mt[5]={&fonttex,&tex,&gftex,&tex2,&stagetex};for(mi=0;mi<4;mi++){int sel=(mi==selection),af=sel?(tick%3):g_menu_idle_timeline[mi][tick%9];const unsigned int*fr=g_menu_frame_rw[mi][sel][af];setup_texture_dims(mt[mi],(int)fr[1],(int)fr[2]);{const unsigned char*srcu=(!sel&&(mi==1||mi==2))?menu_idle_blend(mi,af,tick%3):g_menu_pixels+fr[0];u32 bbw=(u32)fr[1]*(u32)fr[2]*4u;memcpy(g_up_bounce,srcu,bbw);upload_raw(mt[mi],g_up_bounce,(int)fr[1],(int)fr[2]);}}menu_anim_tick=tick;}
+   if(g_fl_mag_on&&g_fl_mag_vis)mq=rect_alpha(mq,-64.0f,bg_y,768.0f,435.956454f,210,20,120,0x80);}mq=draw_finish(mq);dma_channel_send_normal(DMA_CHANNEL_GIF,packet->data,mq-packet->data,0,0);draw_wait_finish();if(!menu_placeholder&&tick!=menu_anim_tick){int forcar=(menu_anim_tick<0);texbuffer_t*mt[5]={&fonttex,&tex,&gftex,&tex2,&stagetex};for(mi=0;mi<4;mi++){int sel=(mi==selection),af=sel?(tick%3):g_menu_idle_timeline[mi][tick%9];int chave=(sel<<12)|(af<<2)|((!sel&&(mi==1||mi==2))?(tick%3):0);if(!forcar&&chave==g_menu_up_chave[mi])continue;g_menu_up_chave[mi]=chave;const unsigned int*fr=g_menu_frame_rw[mi][sel][af];setup_texture_dims(mt[mi],(int)fr[1],(int)fr[2]);{const unsigned char*srcu=(!sel&&(mi==1||mi==2))?menu_idle_blend(mi,af,tick%3):g_menu_pixels+fr[0];u32 bbw=(u32)fr[1]*(u32)fr[2]*4u;memcpy(g_up_bounce,srcu,bbw);upload_raw(mt[mi],g_up_bounce,(int)fr[1],(int)fr[2]);}}menu_anim_tick=tick;}
 /* CREDITS fica na stagetex, que e a MESMA textura usada para o fundo
    do menu. O fundo e reenviado em todo quadro, logo acima, e apaga o
    CREDITS. Por isso este upload TEM de ficar fora do guarda de tick.
@@ -12720,6 +12924,7 @@ q=draw_scissor_area(q,0,0,SCREEN_W-1,0,SCREEN_H-1);}
     ff.clip=(u16)g_band_clip_rects; ff.cull=(u16)g_band_cull_rects;
     ff.st=(u16)ui_state; ff.tr=(u16)transition_frame; ff.sel=(u16)selection;
     g_ui_espelho=(unsigned)ui_state;
+    g_trans_espelho=(unsigned)transition_frame;
     ff.pad=g_held; ff.pressed=pressed;
     ff.anim=(u16)anim; ff.anim_frame=(u16)local;
     ff.clk=music_clock; ff.queued=queued_bytes; ff.ring=ring_bytes;

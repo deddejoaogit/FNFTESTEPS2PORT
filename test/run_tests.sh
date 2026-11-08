@@ -687,9 +687,16 @@ else
     # Um teste que passa sem exercitar o codigo arriscado eh um verde falso.
     # O log do proprio jogo registra o quadro de cada troca de estado, entao
     # eh ele que prova a cobertura -- nao uma suposicao.
+    # 0.2.187: o FNF_LOG.TXT e' um ANEL de 524288 B que ENROLA em execucoes
+    # longas do harness -- as trocas de estado podem la' nao constar (falso
+    # negativo: o jogo entrava no story e o grep nao via). O FNF_LOGVIVO.bin
+    # (anel circular do log vivo) tem as linhas EV=ESTADO a->b, que sao a
+    # prova de cobertura fiavel; o grep no FNF_LOG continua como primeira
+    # tentativa para os runs curtos.
     reached=""
     for st in 6 7 8; do
-        if grep -q "state,$st," "$LOG" 2>/dev/null; then
+        if grep -q "state,$st," "$LOG" 2>/dev/null || \
+           grep -aq -- "->$st f=" "$ROOT/FNFPS2/FNF_LOGVIVO.bin" 2>/dev/null; then
             reached="$reached $st"
         else
             echo "  FAIL: o jogo nunca entrou no estado $st"
@@ -698,13 +705,16 @@ else
         fi
     done
     echo "  cobertura: estados alcancados ->$reached"
-    if ! grep -q "tutorial_chart,0," "$LOG" 2>/dev/null; then
+    if ! grep -q "tutorial_chart,0," "$LOG" 2>/dev/null && \
+       ! grep -aq "EV=CHART status=0 " "$ROOT/FNFPS2/FNF_LOGVIVO.bin" 2>/dev/null; then
         echo "  FAIL: o chart do tutorial nao carregou"
         exit 1
     fi
     # Reentrar no tutorial eh o caminho de free/reload dos pacotes CFZ4, que o
     # proprio codigo comenta ser arriscado. Uma passada so nao exercita isso.
     ncycles=$(grep -c "state,8," "$LOG" 2>/dev/null || echo 0)
+    nvivo=$(grep -ac -- "->8 f=" "$ROOT/FNFPS2/FNF_LOGVIVO.bin" 2>/dev/null || echo 0)
+    if [ "$nvivo" -gt "$ncycles" ]; then ncycles=$nvivo; fi
     if [ "$ncycles" -lt 3 ]; then
         echo "  FAIL: o tutorial so foi entrado $ncycles vez(es); o ciclo de"
         echo "        free/reload dos pacotes nao foi exercitado"
