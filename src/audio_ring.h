@@ -126,6 +126,7 @@ int audio_ring_level_snapshot(void);
 void audio_ring_stats(unsigned int *produced, unsigned int *reads, unsigned int *loops, unsigned int *errors, unsigned int *underruns);
 void audio_ring_stop(void);
 void audio_ring_pause(int p);
+int audio_ring_parada_suja(void); /* 0.2.185: 1 = matou o produtor dentro de um read; NAO fechar fds */
 int audio_ring_eof(void);
 int audio_ring_reset(void);
 int audio_ring_switch(int fd, int loop);

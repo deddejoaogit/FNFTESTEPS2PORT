@@ -227,7 +227,11 @@ static void aplica_pedidos(void){
   source_fd=f;
   sem_fonte=(f<0)?1:0;
   source_eof=0;
-  if(f>=0)lseek(f,prev_ativo?prev_ini:0,SEEK_SET);
+  /* 0.2.185: SEM lseek no switch normal. O fd chega de um open() novo (offset 0)
+     e o lseek era uma meta-op do usbhdfsd exactamente no momento da troca --
+     a classe de operacoes que morre apos minutos de streaming. So' as janelas
+     de PREVIEW precisam de saltar para prev_ini (o fd e' reusado ali). */
+  if(f>=0&&prev_ativo)lseek(f,prev_ini,SEEK_SET);
   fonte_pedido=RING_SEM_PEDIDO;
  }
  for(i=0;i<RING_OVERLAYS;i++){
@@ -240,7 +244,8 @@ static void aplica_pedidos(void){
    overlay_vol[i]=overlay_pedido_vol[i];
    overlay_loop[i]=overlay_pedido_loop[i];
    overlay_pedido_loop[i]=0;
-   if(o>=0){lseek(o,0,SEEK_SET);overlay_eof[i]=0;}else overlay_eof[i]=1;
+   if(o>=0){overlay_eof[i]=0;}else overlay_eof[i]=1;   /* 0.2.185: fd novo ja'
+   esta' no offset 0; o lseek era uma meta-op do usbhdfsd dentro do produtor. */
    overlay_pedido[i]=RING_SEM_PEDIDO;
   }
  }
@@ -388,7 +393,7 @@ int audio_ring_start_overlay(int overlay_fd_){
  if(thread_id>=0)audio_ring_stop();
  fontes_reset(-1,0,0,0,0);
  overlay_vol[0]=100;
- if(overlay_fd_>=0){overlay_fd[0]=overlay_fd_;overlay_eof[0]=0;lseek(overlay_fd_,0,SEEK_SET);}
+ if(overlay_fd_>=0){overlay_fd[0]=overlay_fd_;overlay_eof[0]=0;}   /* 0.2.185: sem lseek (fd novo, offset 0) */
  prepara_inicio();
  return inicia_thread();
 }
@@ -500,13 +505,34 @@ void audio_ring_debug(int*fd,unsigned int*loop,unsigned int*sw,unsigned int*rpen
    PEDIDOS e este stop fecha o que sobrou -- depois de a thread ter saido (se
    ela teve de ser terminada a' forca, o fd NAO e' fechado: um fd vazado e'
    melhor que um close em cima de um read). */
-void audio_ring_stop(void){int n=0,saiu=0,i;running=0;
+/* 0.2.185: PARADA SUJA = o stop teve de matar o produtor DENTRO de um read
+   (leitura pendente no IOP). Quem chamou NAO pode fechar os fds: um fd vazado
+   e' melhor que um close em cima de uma leitura pendente (regra da 0.2.63). */
+static volatile int g_parada_suja=0;
+int audio_ring_parada_suja(void){return g_parada_suja;}
+void audio_ring_stop(void){int n=0,saiu=0,i;
+ /* 0.2.185: PAUSA PRIMEIRO. O ack prova que o produtor esta' no topo do laco
+    (fora de qualquer read do usbhdfsd): so' entao e' seguro parar a thread e
+    fechar fds. Antes esperava-se 600 ms e matava-se com TerminateThread --
+    uma leitura pendente no IOP + o close() seguinte e' o "travamento duro, sem
+    retorno" que o comentario da 0.2.63 previa. Foi exactamente o que a sessao
+    0.2.184 mediu: o stop do tutorial apanhou o produtor do menu dentro de um
+    read, o TerminateThread deixou a leitura pendente, os closes colidiram e o
+    usbhdfsd encaixou ~67 s (tela preta, sem som, cargas todas a falhar). */
+ g_parada_suja=0;
+ if(thread_id>=0){
+  pause_req=1;
+  while(!pause_ack&&n++<2000)DelayThread(1000);
+ }
+ running=0;
+ n=0;
  if(thread_id>=0){
   while(!producer_exited&&n++<600)DelayThread(1000);
   saiu=producer_exited;
-  if(!producer_exited)TerminateThread(thread_id);
+  if(!producer_exited){TerminateThread(thread_id);g_parada_suja=1;}
   DeleteThread(thread_id);thread_id=-1;producer_exited=1;
  }else saiu=1;
+ pause_req=0;
  if(mutex>=0){DeleteSema(mutex);mutex=-1;}
  for(i=0;i<RING_OVERLAYS;i++){
   if(overlay_fd[i]>=0){if(saiu)close(overlay_fd[i]);overlay_fd[i]=-1;}

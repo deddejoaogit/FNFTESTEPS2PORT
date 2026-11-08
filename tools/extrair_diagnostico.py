@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.184 v9.2).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.185 v9.3).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -172,7 +172,9 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v9.2 (0.2.184) ====')
+    A('==== EXTRATOR FNF PS2 v9.3 (0.2.185) ====')
+    A('Nota: os .bin (LOGVIVO/SAVESTATE/SHOT) NAO precisam de ser enviados --')
+    A('este relatorio ja os leu e resumiu. Cole o texto + os PNG que aparecerem.')
 
     fn_boot = os.path.join(pasta, 'FNF_BOOT.TXT')
     fn_log = os.path.join(pasta, 'FNF_LOG.TXT')
@@ -270,6 +272,9 @@ def principal():
     def num(q, k):
         try: return int(q.get(k, 0))
         except ValueError: return 0
+    # v9.3: ordenar por quadro -- os q-lines chegam de varias fontes (anel,
+    # logs antigos, TRAVA) e sem ordem o "audio ultimo" saia errado.
+    qs.sort(key=lambda q: num(q, 'f'))
     if ring_est:
         A('anel FNF_LOG.TXT: %d blocos (%d despejos + %d anomalias) | boots vistos: %d' %
           (ring_est['blocos'], ring_est['despejos'], ring_est['anomalias'], ring_est['boots']))
@@ -379,12 +384,10 @@ def principal():
               (fs[0], fs[-1], (fs[-1] - fs[0]) / 60.0))
         evs2 = [p for s, p in linha if p.startswith(('EV=', 'BOOT'))]
         A('  eventos: %d (estados/accoes/erros/anomalias/capturas)' % (len(evs2) - 1))
-        for p in evs2[:6]:
-            A('    %s' % p[:96])
-        if len(evs2) > 8:
-            A('    ...')
-        for p in evs2[-10:]:
-            A('    %s' % p[:96])
+        # v9.3: TODOS os eventos (o utilizador pediu para ver tudo -- antes
+        # so' saiam 6+10 e perdiam-se os 135 do meio).
+        for p in evs2:
+            A('    %s' % p[:120])
         q2 = [p for s, p in linha if p.startswith('Q2 ')]
         if q2:
             A('  compactos de quadro: %d (2 Hz)' % len(q2))
@@ -486,8 +489,31 @@ def principal():
         A('*  Com 0.2.183+ o jogo CONTINUA (espera limitada) mas os personagens/')
         A('*  icones podem faltar (os loads falharam) e o fim pode travar num RPC.')
         A('*  Cadeia: lseek do switch do produtor -> usbhdfsd morre -> tudo morre.')
-    if 'portao_livre' in ''.join(todos_ev):
-        A('* O monitor LIBERTOU o portao depois do produtor morrer (0.2.184).')
+    presos = [p for p in todos_ev if p.startswith('EV=PRODUTOR preso')]
+    livres = [p for p in todos_ev if 'portao_livre' in p]
+    oks = [p for p in todos_ev if p.startswith('EV=PRODUTOR ok')]
+    cap_ini = [p for p in todos_ev if p.startswith('EV=CAPTURA ini')]
+    cap_ok = [p for p in todos_ev if p.startswith('EV=CAPTURA fim ok')]
+    if presos:
+        A('* O PRODUTOR PRENDEU %d vez(es) dentro do driver usbhdfsd.' % len(presos))
+        A('*  Cadeia medida (0.2.184): stop do anel no switch da musica -> o')
+        A('*  produtor e morto dentro de um read -> close() colide com a leitura')
+        A('*  pendente -> o driver ENCAIXA ~67 s -> o iow segura o portao ->')
+        A('*  TODAS as cargas falham (tela preta, texturas em falta, sem som).')
+        A('*  0.2.185: stop com pausa-primeiro + sem meta-ops no switch.')
+        if livres:
+            A('*  O monitor libertou o portao %d vez(es) (o jogo sobreviveu).' % len(livres))
+        if oks:
+            A('*  O produtor RECUPEROU (%s) -- o som volta a tocar.' % oks[-1].strip()[:40])
+    if cap_ini and not cap_ok:
+        A('* SELECT+R3: %d tentativa(s) de captura, NENHUMA gravou.' % len(cap_ini))
+        A('*  O trylock perdia para o streaming da musica (portao ocupado).')
+        A('*  0.2.185 pausa o produtor antes de capturar: as imagens DEVEM sair.')
+    elif cap_ok:
+        A('* SELECT+R3: %d captura(s) gravada(s) com sucesso.' % len(cap_ok))
+    if ring_est and ring_est.get('blocos', 0) <= 2 and len(qs) > 10:
+        A('* O FNF_LOG.TXT parou cedo (so %d blocos) mas o jogo continuou:' % ring_est['blocos'])
+        A('*  os flushes perderam o portao/aberturas morreram durante o streaming.')
     if marca and 'TUT_FONT_BEGIN' in marca and 'TUT_FONT_DONE' not in marca:
         A('* A ULTIMA MARCA E TUT_FONT_BEGIN: o freeze esta no intervalo TUT_FONT_BEGIN->DONE')
         A('*  (tutorial_vcr_restore + a escrita da marca seguinte). Ver CORRECOES #16.')
@@ -497,21 +523,33 @@ def principal():
         dso = num(qs[-1], 'so') - num(qs[0], 'so')
         if not tem_campos:
             A('* Log antigo (sem campos so/lr): nao da para julgar o audio por aqui.')
-        if tem_campos and dlr == 0:
+        if tem_campos and len(qs) >= 2 and dlr == 0:
             A('* O produtor de audio NAO leu nada durante toda a janela: o audio nunca viveu.')
-        if tem_campos and dso == 0 and num(qs[-1], 'un') >= 1:
+        if tem_campos and len(qs) >= 2 and dso == 0 and num(qs[-1], 'un') >= 1:
             A('* Nenhuma submissao ao audsrv na janela: o consumidor esta morto.')
         if tem_campos and dlr > 0 and dso > 0:
             A('* Audio VIVO na janela: produtor leu %.1f KB, consumidor submeteu %d x ao audsrv.' %
               (dlr / 1024.0, dso))
 
     # 7b. Padrao de freeze
+    marca_fim = ''
+    if os.path.exists(fn_state):
+        m = re.search(r'marca=([A-Za-z0-9_.]+)', ler(fn_state))
+        if m:
+            marca_fim = m.group(1)
     if qs:
         f_ult = num(qs[-1], 'f')
         A('---- PADRAO DE FREEZE ----')
         A('* Ultimo quadro registado: f=%d (~%.1f s a 60 fps).' % (f_ult, f_ult / 60.0))
         A('* O freeze esta ENTRE f=%d e f=%d (janela do proximo despejo).' % (f_ult, f_ult + 300))
         A('* O numero branco pintado na TV diz o quadro exacto do freeze: FOTOGRAFE A TV.')
+    if marca_fim:
+        A('* Ultima marca do frame loop: %s.' % marca_fim)
+        if marca_fim == 'F.PACKET':
+            A('*  Janela F.PACKET->F.DMA = o DESENHO do estado. 0.2.185 dividiu-a')
+            A('*  (F.SINAL a meio): F.PACKET->F.SINAL = o desenho do estado;')
+            A('*  F.SINAL->F.DMA = sinal_vida+fecho do pacote. Se voltar a prender')
+            A('*  aqui, a marca seguinte diz em qual das duas metades.')
     # 7c. E/S morta com o jogo VIVO
     if qs and ('lr' in qs[-1] or 'so' in qs[-1]):
         f_lr, last_lr = None, -1

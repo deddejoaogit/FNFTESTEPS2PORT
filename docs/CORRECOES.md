@@ -195,6 +195,49 @@ removido (o fd chega novo a offset 0); o monitor LIBERTA o portão quando o
 produtor morre (roubo+unlock) → os voltam a carregar e o logvivo continua;
 extrator v9.2 (sem duplicados + conclusão da cadeia).
 
+### #23 [x] TESTE 0.2.184: O SOM TOCOU — e a cadeia do stop/switch ESTÁ PROVADA (0.2.185)
+PROVADO pelo teste (story mode → tutorial, extrador v9.2):
+(1) **O SOM TOCOU** (1.ª vez no tutorial/resultados!): o produtor leu 14,3 MB,
+2 978 submissões audsrv, 4 underruns — o áudio está VIVO;
+(2) `EV=PRODUTOR preso f=3051 → portao_livre f=3051 → ok f=7093`: o produtor
+prendeu **67 s** dentro do usbhdfsd exactamente no switch da música do tutorial
+(3.ª sessão seguida no mesmo ponto) — o jogo sobreviveu (o monitor libertou o
+portão) e o som voltou em f=7093 (o som que o utilizador ouviu NO ECRÃ DE
+RESULTADOS = o PCM da música a chegar atrasado);
+(3) **a tela preta do tutorial + texturas bugadas + resultados sem personagens**
+= as cargas falharam TODAS durante a janela do driver encaixado: a sequência
+medida é `audio_ring_stop()` do switch → o produtor está DENTRO de um read →
+a espera de 600 ms vence → **TerminateThread deixa uma leitura PENDENTE no
+IOP** → os `close()` seguintes colidem com ela ("travamento duro, sem retorno"
+— o próprio comentário da 0.2.63 previa este cenário) → o usbhdfsd encaixa →
+o iow, no ciclo seguinte, rouba o portão e **prende-se no `open()` do
+logvivo com o portão na mão** (prova: um ÚNICO `EV=PRODUTOR preso` em 67 s,
+porque o iow deixou de correr) → `gio_*` (prazo 60 ms) falham em massa →
+tutorial_scene_load/HUD/chars nunca carregam → **tela preta**; o ecrã de
+resultados carrega contra o produtor já em streaming (o trylock perde) →
+sem personagens + bugs visuais; o draw do resultado com dados lixo sufoca o
+GS (tm_drawn−tm_wait = 221 ms no último quadro) → **freeze em F.PACKET**;
+(4) **as capturas nunca saem** (SELECT+R3 ×4 = 4 "portao ocupado", shot a
+zeros, despejos=0, FNF_LOG parado aos 12 s) — o trylock único perde sempre
+para o streaming; o utilizador: "não vejo todas as imagens".
+**Correções (0.2.185)** — uma causa (o switch do tutorial não pode matar o
+produtor nem o driver):
+(a) `audio_ring_stop()`: **PAUSA PRIMEIRO** (handshake provado — o ack garante
+o produtor fora de reads) e, se ainda assim for preciso TerminateThread,
+marca PARADA SUJA e **ninguém fecha os fds** (fd vazado > close sobre leitura
+pendente);
+(b) closes do TUT_PREP/back guardados com `audio_ring_parada_suja()`;
+(c) **sem meta-ops nos fds novos**: lseeks removidos do switch de fonte, dos
+overlays e do start_overlay (só os previews rebobinam — fd reutilizado);
+(d) iow: flag USB-DOENTE — enquanto o produtor estiver preso, NENHUMA escrita
+nossa toca o driver (o LOGVIVO fica em RAM e é servido depois);
+(e) **capturas/SAVESTATE com a janela PAUSADA do produtor** (pause→trylock→
+escrita→resume) + repetição automática — as imagens DEVEM sair;
+(f) boot_mark com 3 tentativas (as marcas TUT_SCENE_DONE+ morriam à 1.ª);
+(g) marca F.SINAL divide a janela F.PACKET→F.DMA em duas (o freeze final);
+(h) extrador v9.3: q-lines ordenados, TODOS os eventos do LOGVIVO, regras de
+conclusão para a cadeia do stop/switch e para as capturas.
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).

@@ -25,19 +25,31 @@
 | U21 | Nenhum evento do original pode ser removido/encurtado | REGRA | REGRAS.md |
 | U22 | Documentos CORRECOES/IMPLEMENTAR actualizados | EM VIGOR | estes |
 | U23 | Nao prometer 100% | REGRA | respostas |
+| U24 | "Poderia remover esta tela?" (tela de numeros do vigia) | FEITO 0.2.184 | CORRECOES #22 |
+| U25 | Personagens/icones/textos em falta no tutorial | ABERTO (carga falha) | CORRECOES #23 |
+| U26 | Ecrã de resultados BUGADO + trava no fim | ABERTO (GS com dados lixo) | CORRECOES #23 |
+| U27 | Sem MUSICA no tutorial | RESOLVIDO 0.2.184/185 (som TOCOU) | CORRECOES #23 |
+| U28 | Tela preta do tutorial + "textura completamente bugada" no fade | ABERTO (cargas falham no stop do switch) | CORRECOES #23 |
+| U29 | "nao vejo todas as imagens" (SELECT+R3 sem imagens) | CORRIGIDO 0.2.185 (capturas pausadas) | CORRECOES #23 |
+| U30 | "nao consigo mandar os .bin" | RESPOSTA: nao precisa — o extrator le-os no PC | extrair_diagnostico.py |
 
 **NOTA DE TESTE (U10/U11)**: o utilizador joga STORY MODE (freeplay esta' bugado).
 O tutorial testado e' o do STORY MODE. Toda a instrucao de teste comeca assim.
 
-# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.184)
+# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.185)
 
-**ESTADO ACTUAL**: 0.2.182 "DIAGNÓSTICO COMPLETO E FUNCIONAL" compilado
-(0 erros) — vigia não-destrutivo (era a causa dos personagens/texturas
-desaparecidos), logvivo vivo (fd/seq/porta), despejo do anel serializado,
-SHOT real 320×224, SFX directo + EV=SFX/PRODUTOR, anel de boot, extrator v9.
-**0.2.181 (entregue, testado)**: o jogo ABRE em consola (boot preto resolvido).
-**ABERTOS do teste 0.2.181**: transições de menu engasgadas, linha bugada sob
-botões, SFX tarde, story menu bugado, botões (=pad), game over, vitória.
+**ESTADO ACTUAL**: 0.2.185 "O SWITCH NAO PODE MATAR O PRODUTOR NEM O DRIVER".
+Teste 0.2.184 PROVOU: o SOM TOCOU no tutorial/resultados (1.ª vez), o jogo
+sobreviveu ao engasgo, os resultados apareceram animados. A cadeia causal da
+tela preta está medida e corrigida (CORRECOES #23): stop do anel com
+TerminateThread sobre read pendente → close colide → driver encaixa → iow
+segura o portão → cargas todas falham. 0.2.185: pausa-primeiro no stop, sem
+meta-ops nos fds novos, iow não escreve com o USB doente, capturas com a
+janela pausada (as imagens do SELECT+R3 DEVEM sair).
+**ABERTOS**: tela preta do tutorial (confirmar se as cargas passam a pegar),
+resultados sem personagens + freeze no fim (GS com dados lixo), personagens/
+ícones/textos, pad=0000 nos registos (input funciona — proibido pelos menus),
+transições/SFX, game over, vitória, fps, freeplay (joga-se pelo STORY).
 
 Documento pedido pelo utilizador: **absolutamente tudo o que falta implementar
 no jogo**, dividido por secções/fases (menus, gameplay, etc.). Cada entrada diz
