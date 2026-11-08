@@ -20,7 +20,7 @@ PROTOCOLO DE TESTE (o mesmo de sempre)
    story) -> semana -> tutorial. Jogar a musica toda.
 4. SELECT+R3 = captura da tela + diagnostico (0.2.187: ILIMITADAS,
    a qualquer momento excepto em telas de carregamento; giram por 8 ficheiros:
-   FNF_SHOT.rgba, FNF_SHOT_01..07.rgba -- o extrador vira todos em PNG):
+   FNF_SHOT.rgba, FNF_SHOT_01..03.rgba -- o extrador vira todos em PNG):
    grava FNF_SHOT.rgba (imagem da tela 320x224), FNF_SAVESTATE.bin e
    tenta os despejos do vigia. Repetir as vezes que quiser (as primeiras
    4 imagens sao guardadas).
@@ -43,7 +43,7 @@ FNF_TRAVA.TXT    o vigia: marcador de paragem, valores, trace, eventos
 FNF_TELA.TXT     retrato do console, sessao, fim, TV, estado
 FNF_ERRO.TXT     falha fatal / avisos
 FNF_LOGVIVO.bin  historia completa em RAM (eventos + quadros a 2 Hz)
-FNF_SHOT.rgba + FNF_SHOT_01..07.rgba   capturas da tela (SELECT+R3), 8 slots
+FNF_SHOT.rgba + FNF_SHOT_01..03.rgba   capturas da tela (SELECT+R3), 4 slots rotativos
 FNF_SAVESTATE.bin resumo gigante do momento (visual/desempenho/som/pad)
 
 SELECT+OUTRAS TECLAS

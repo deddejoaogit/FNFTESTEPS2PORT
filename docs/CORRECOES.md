@@ -387,3 +387,49 @@ harness = trabalho futuro (IMPLEMENTAR).
 
 ---
 *Novas correções do utilizador = nova entrada em A. Actualizar os estados.*
+
+---
+
+## 26. 0.2.188 (08/11/2026) — REGRESSAO DE BOOT: "tela preta e sem som, nao abriu, nao ha log" (0.2.187)
+
+**Sintoma**: o PS2 nem arrancou -- nem o titulo, nem som, nem log.
+
+**FACTO**: o unico codigo da 0.2.187 executado ANTES do primeiro pixel foi o novo
+prealloc de slots de captura: `lseek` + `write` 1-byte = ficheiros ESPARSOS =
+extensao FAT em ciclo fechado 12x. E' a mesmissima classe da correcao **#18**
+(0.2.180, sintoma identico): escritas USB continuas no boot matam o usbhdfsd
+neste console e o jogo morre antes de pintar.
+
+**INFERENCIA**: a morte e' nessa janela; as causas B-E abaixo sao do mesmo bloco
+novo e tambem correm antes do 1. pixel (arranque ADPCM) ou gastam RAM/BSS
+(aumentando a chance de qualquer azar no boot).
+
+**Correcoes (TODAS de uma vez, pedido "corrija o maximo de erros por versao")**:
+- **A**: prealloc volta ao padrao PROVADO da #18: tabela curta (FNF_SHOT.rgba +
+  FNF_SHOT_01..03.rgba + FNF_SAVESTATE.bin), preenchimento de uma assentada em
+  `z[32768]`, `DelayThread(2000)` entre escritas e `DelayThread(10000)` entre
+  ficheiros. Sem lseek, sem esparsa, sem nada novo.
+- **B**: `sfx_adpcm_arrancar` deixa de correr no arranque -- a thread da bomba
+  executa-o quando o loop pede (depois do primeiro pixel), com marcas
+  SFX_ADPCM_BEGIN/INIT_OK/DONE no FNF_BOOT. Falhou = o caminho antigo do anel
+  continua (fallback).
+- **C**: o `static unsigned char tmp[1048576]` (1 MB de BSS) e' substituido por
+  memalign (heap), leitura exacta em ciclo (short reads do usbhdfsd) e
+  `DelayThread(5000)` entre amostras.
+- **D**: o encoder ADPCM estava ERRADO: codificava 14 amostras por bloco e o
+  formato real e' **16 bytes = 28 nibbles = 28 amostras** (adpcm.c do IOP). Os
+  sons sairiam ruido. Corrigido para 28/bloco com bytes de dados = (hi<<4)|lo,
+  nibble par em lo, flags 0x01 no ultimo bloco.
+- **E**: os RPCs `audsrv_queued/available` (2 por iteracao da bomba = centenas/s
+  de trafego SIF) passam a actualizacao limitada (1x em 16 iteracoes).
+- **Rotacao de capturas coerente**: o `capture_framebuffer_fast` rotava %8 (8
+  nomes) enquanto o prealloc so' criava 4 -- a 5a captura estenderia FAT em
+  jogo (= classe #18). Agora G_SHOT_SLOTS=4 em todo o lado: FNF_SHOT.rgba +
+  FNF_SHOT_01..03.rgba, a 5a captura reescreve o slot mais antigo.
+
+**Prova do harness**: FNF_BOOT mostra `passo 44: SFX_ADPCM_BEGIN` ->
+`passo 45: SFX_ADPCM_INIT_OK` -> `passo 46: SFX_ADPCM_DONE code=7` (7/7 sons
+codificados) DEPOIS do boot; o botao premido antes de pronto caiu no fallback
+do anel (mist=0) sem quebrar nada. 187 checks `ok` na suite de unidades;
+o unico FAIL ("chart do tutorial") e' o falso negativo CONHECIDO do dreno do
+log (~f=610) -- o chart carrega (provado pelo gameplay harness, PASSO51).

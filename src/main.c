@@ -4631,15 +4631,20 @@ static volatile u32 g_fn_frame=0;         /* quadro corrente, para o cao (0.2.18
 #define SFX_ADPCM_N 7   /* 5 ui_som + 2 slices do menu_sfx (scroll/confirm) */
 static audsrv_adpcm_t g_sfx_adpcm[SFX_ADPCM_N];
 static unsigned char *g_sfx_vag[SFX_ADPCM_N];
-static int g_sfx_adpcm_ok=0;
+static volatile int g_sfx_adpcm_ok=0;
+static volatile int g_sfx_adpcm_pedir=0;   /* loop pede; a bomba executa 1x */
+static volatile int g_sfx_adpcm_feito=0;
 
 /* Codifica PCM mono s16 (48 kHz) para ADPCM do SPU2 com o cabecalho de 16 B
    do ps2sdk. `outmax` e' o tamanho do buffer. Devolve bytes usados ou <0.
-   Codificador barato: shift derivado da amplitude do bloco x 5 filtores
-   (70 operacoes por bloco -- cabe no boot sem atrasar a tela). */
+   Codificador barato: shift derivado da amplitude do bloco x 5 filtros.
+   FORMATO (0.2.188 corrigido): cada bloco SPU-ADPCM sao 16 bytes = shift/
+   filtro + flags + 14 bytes de dados = 28 NIBBLES = 28 amostras. A 0.2.187
+   codificava 14 amostras por bloco -- o SPU2 lia os nibbles todos e o som
+   saia ruido. Ordem dos nibbles: byte = (hi<<4)|lo com lo = amostra par. */
 static int sfx_vag_encode(const short*pcm,int frames,unsigned char*out,int outmax){
  static const int f0[5]={0,60,115,98,122},f1[5]={0,0,-52,-55,-60};
- int nb=(frames+13)/14,b,s1=0,s2=0,pos=0,fi,sh,i;
+ int nb=(frames+27)/28,b,s1=0,s2=0,pos=0,fi,sh,i;
  if(nb<=0)return -1;
  if(16+nb*16>outmax)return -2;
  memset(out,0,16);
@@ -4650,13 +4655,13 @@ static int sfx_vag_encode(const short*pcm,int frames,unsigned char*out,int outma
   out[10]=(unsigned char)(pitch>>16);out[11]=(unsigned char)(pitch>>24);}
  pos=16;
  for(b=0;b<nb;b++){
-  int n0=b*14,nn=(frames-n0>14)?14:(frames-n0);
-  long best=0x7fffffffL;int best_sh=4,best_f=0;unsigned char best_nib[14];
+  int n0=b*28,nn=(frames-n0>28)?28:(frames-n0);
+  long best=0x7fffffffL;int best_sh=4,best_f=0;unsigned char best_nib[28];
   /* shift a partir do pico do bloco (m>>sh <= 7) */
   {int m=0;for(i=0;i<nn;i++){int v=pcm[n0+i];if(v<0)v=-v;if(v>m)m=v;}
    sh=0;while(m>7&&sh<12){m>>=1;sh++;}}
   for(fi=0;fi<5;fi++){
-   int h1=s1,h2=s2;long err=0;unsigned char nib[14];
+   int h1=s1,h2=s2;long err=0;unsigned char nib[28];
    for(i=0;i<nn;i++){
     int x=pcm[n0+i];
     int pred=(h1*f0[fi]+h2*f1[fi])/64;
@@ -4677,7 +4682,7 @@ static int sfx_vag_encode(const short*pcm,int frames,unsigned char*out,int outma
   }
   out[pos++]=(unsigned char)((best_f<<4)|best_sh);
   out[pos++]=(unsigned char)((b==nb-1)?0x01:0x00);   /* 0x01 = fim */
-  for(i=0;i<7;i++){
+  for(i=0;i<14;i++){
    int lo=(i*2<nn)?(best_nib[i*2]&15):0;
    int hi=(i*2+1<nn)?(best_nib[i*2+1]&15):0;
    out[pos++]=(unsigned char)((hi<<4)|lo);
@@ -4690,8 +4695,8 @@ static int sfx_vag_encode(const short*pcm,int frames,unsigned char*out,int outma
 static int sfx_carregar_amostra(int idx,const unsigned char*pcm_bytes,int bytes){
  int frames=bytes/4,i;int cap;
  short*mono;
- if(idx<0||idx>=SFX_ADPCM_N||frames<14)return -1;
- cap=16+((frames+13)/14)*16+16;
+ if(idx<0||idx>=SFX_ADPCM_N||frames<28)return -1;
+ cap=16+((frames+27)/28)*16+16;
  g_sfx_vag[idx]=memalign(128,(size_t)cap);
  if(!g_sfx_vag[idx])return -2;
  mono=memalign(128,(size_t)frames*2u);
@@ -4721,29 +4726,45 @@ static void sfx_tocar_adpcm(int idx,int vol_pct){
  if(ch>=0&&vol_pct>=0&&vol_pct<=100)audsrv_adpcm_set_volume_and_pan(ch,vol_pct,0);
 }
 
-/* Chamado no boot DEPOIS do audio_init(). Carrega os 5 sons de UI (arquivos
-   em assets/result/) + os 2 slices do menu_sfx.pcm (scroll 0..39168,
-   confirm 39168..241920). Falhou qualquer coisa = fica no caminho antigo. */
+/* 0.2.188: chamado pela THREAD DA BOMBA (pump_thread_fn) quando o loop pede
+   (g_sfx_adpcm_pedir, quadro >= 4 -- o titulo ja' esta' pintado). NAO corre
+   mais no arranque: na 0.2.187 corria antes do primeiro pixel e qualquer
+   azar ali = tela preta sem log (a morte da correcao #18 e' a mesma classe).
+   Carrega os 5 sons de UI (assets/result/) + os 2 slices do menu_sfx.pcm.
+   Falhou qualquer coisa = fica o caminho antigo (mistura no anel). Marcas
+   SFX_ADPCM_* no FNF_BOOT dizem exactamente onde parou se voltar a falhar. */
 static void sfx_adpcm_arrancar(const unsigned char*menu_sfx,int menu_sfx_bytes){
  int i,cargados=0;
+ unsigned char *tmp;
  (void)menu_sfx_bytes;
  if(!SFX_ADPCM||!g_audio_ok)return;
- if(audsrv_adpcm_init()!=0){telemetry_event("sfx_adpcm",-1,0);return;}
+ capture_status("SFX_ADPCM_BEGIN",-1,0);
+ if(audsrv_adpcm_init()!=0){
+  telemetry_event("sfx_adpcm",-1,0);capture_status("SFX_ADPCM_INIT_FAIL",-1,-1);return;}
+ capture_status("SFX_ADPCM_INIT_OK",-1,0);
+ /* 0.2.188: o pcm vai para o HEAP (a 0.2.187 era 1 MB estatico -- pressao de
+    RAM no arranque, e o boot_fail(3) "RAM DO MENU" ja' existia por memalign). */
+ tmp=memalign(128,1048576);
+ if(!tmp){capture_status("SFX_ADPCM_SEM_RAM",-1,-2);return;}
  for(i=0;i<UI_SOM_N;i++){
-  char caminho[128];int fd,rc;
+  char caminho[128];int fd,n=0,r,rc;
   snprintf(caminho,sizeof(caminho),UI_SOM_DIR "%s.pcm",ui_som_nome[i]);
   fd=open(caminho,O_RDONLY);
   if(fd<0)continue;
-  {static unsigned char tmp[1048576];int n=read(fd,tmp,(int)sizeof(tmp));
-   close(fd);
-   if(n>64){rc=sfx_carregar_amostra(i,tmp,n);if(rc==0)cargados++;}}
+  /* leitura EXACTA em ciclo: o usbhdfsd faz short reads num read() so'. */
+  while(n<(int)1048576&&(r=read(fd,tmp+n,(unsigned)(1048576-n)))>0)n+=r;
+  close(fd);
+  if(n>64){rc=sfx_carregar_amostra(i,tmp,n);if(rc==0)cargados++;}
+  DelayThread(5000);   /* conta-gotas: nada de rajadas de E/S (classe #18) */
  }
+ free(tmp);
  if(menu_sfx&&menu_sfx_bytes>=241920){
   if(sfx_carregar_amostra(UI_SOM_N,menu_sfx,39168)==0)cargados++;        /* scroll  */
   if(sfx_carregar_amostra(UI_SOM_N+1,menu_sfx+39168,241920-39168)==0)cargados++; /* confirm */
  }
  g_sfx_adpcm_ok=(cargados>0);
  telemetry_event("sfx_adpcm_ok",cargados,g_sfx_adpcm_ok);
+ capture_status("SFX_ADPCM_DONE",-1,cargados);
  logvivo("EV=SFX adpcm %d/%d",cargados,SFX_ADPCM_N);
 }
 static void ui_som_tocar(int q,int vol_pct)
@@ -8059,7 +8080,7 @@ static u32 g_qrpc_cache, g_arpc_cache;   /* audsrv_queued/available, 1x por quad
 /* 0.2.187: copias actualizadas pela THREAD DA BOMBA (pump_thread_fn). O
    LOOP deixa de chamar RPCs do IOP -- le estas. Volatile: lidos/escritos
    por duas threads; u32 e' atomico no EE. */
-static volatile u32 g_arpc_vara=0,g_arpc_varb=0;
+static volatile u32 g_arpc_vara=0,g_arpc_varb=0;static u32 g_arpc_varc=0;
 #define THUMB_W 160
 #define THUMB_H 112
 static u32 g_thumb[THUMB_W*THUMB_H];
@@ -8450,6 +8471,7 @@ static void fnwd_dump(int dumps){
    jogo -- 0.2.177, Select+R3). O laco apenas regista a fotografia (endereco
    do framebuffer, quadro, estado); quem escreve e' a thread escritora (iow). */
 static int g_shot_n;
+#define G_SHOT_SLOTS 4   /* 0.2.188: ficheiros pre-alocados no boot (ver tabela dos slots) */
 static volatile u32 g_cap_fb=0, g_cap_fr=0, g_cap_ui=0;
 
 /* ===== 0.2.186: BOMBA DE AUDIO DEDICADA (thread) ==========================
@@ -8537,13 +8559,22 @@ static void pump_thread_fn(void*arg){
    int (*fn)(void)=g_pump_fn[i];
    if(fn)e+=fn();
   }
+  /* 0.2.188: o carregamento ADPCM acontece AQUI (thread da bomba, depois do
+     primeiro pixel). Se um RPC destes morrer, morre ESTA thread: o loop
+     continua a pintar e o FNF_BOOT mostra SFX_ADPCM_BEGIN sem DONE. */
+  if(g_sfx_adpcm_pedir&&!g_sfx_adpcm_feito){
+   g_sfx_adpcm_pedir=0;g_sfx_adpcm_feito=1;
+   sfx_adpcm_arrancar(g_menu_sfx_pixels,281088);
+  }
   /* 0.2.187: os RPCs de telemetria do audsrv (queued/available) passam para
      CA. Os corretores chamavam-nos no LOOP (MARCA "audsrv_queued"); num IOP
      dormente (fim do USB) o RPC nunca regressava e o jogo "freezava" com o
      marca exactamente nesse ponto -- FACTO pelo savestate do TRAVA-4. Se o
      IOP morrer, o que bloqueia agora e' esta thread da bomba (separada);
-     o loop principal le as copias em g_arpc_vara/varb e continua a pintar. */
-  if(g_audio_ok){
+     o loop principal le as copias em g_arpc_vara/varb e continua a pintar.
+     0.2.188: actualizacao LIMITADA (1x em 16 iteracoes ~ 50 ms) -- a versao
+     anterior chamava 2 RPCs por iteracao = centenas/s de trafego SIF novo. */
+  if(g_audio_ok&&((++g_arpc_varc)&15u)==0u){
    g_arpc_vara=(u32)audsrv_queued();
    g_arpc_varb=(u32)audsrv_available();
   }
@@ -8834,10 +8865,11 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     (void)fb; (void)fr; (void)ui;
     return 0;
 #endif
-    /* 0.2.187: CAPTURAS ILIMITADAS. 8 slots pre-alocados rotativos (o pedido
-       foi "a qualquer momento"). A 9a' captura reescreve o slot mais antigo.
-       O extractor v9.4 le todos. */
-    {u32 slot=(u32)g_shot_n%8u;
+    /* 0.2.188: CAPTURAS ILIMITADAS por ROTACAO. 4 slots pre-alocados
+       (G_SHOT_SLOTS -- os que o boot criou; escrever num nao pre-alocado
+       estende FAT em jogo = a classe que mata o usbhdfsd). A 5a' captura
+       reescreve o slot mais antigo. O extractor le todos os FNF_SHOT_*. */
+    {u32 slot=(u32)g_shot_n%(u32)G_SHOT_SLOTS;
      if(slot==0u)snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT.rgba");
      else snprintf(path,sizeof(path),"mass:/FNFPS2/FNF_SHOT_%02u.rgba",(unsigned)slot);}
     /* 0.2.187: durante uma CARGA (transition_frame>0) nao ha' ecra para
@@ -8902,7 +8934,7 @@ static int capture_framebuffer_fast(u32 fb,u32 fr,u32 ui)
     io_gate_unlock();
     if(!pausado_antes)audio_ring_pause(0);}
     g_shot_n++;
-    telemetry_event("captura",(int)((u32)(g_shot_n-1)%8u),g_shot_n);
+    telemetry_event("captura",(int)((u32)(g_shot_n-1)%(u32)G_SHOT_SLOTS),g_shot_n);
     telemetry_event("captura_frame",g_shot_n,(int)fr);
     return 0;
 }
@@ -9601,24 +9633,21 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
    {"mass:/FNFPS2/FNF_TELA.TXT",131072u},
    {"mass:/FNFPS2/FNF_ERRO.TXT",16384u},
    {"mass:/FNFPS2/FNF_SHOT.rgba",286720u},
-   /* 0.2.187: 8 slots de captura rotativos (o pedido foi "capturas
-      ilimitadas"). Os 7 novos criam-se ESPARSOS (2 escritas de 4 KB e o
-      lseek aloca a cadeia em boot) para o boot nao ganhar 2 MB de zeros;
-      a captura escreve o ficheiro inteiro antes do close publicar. */
-   {"mass:/FNFPS2/FNF_SHOT_01.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_02.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_03.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_04.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_05.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_06.rgba",286720u|0x20000000u},
-   {"mass:/FNFPS2/FNF_SHOT_07.rgba",286720u|0x20000000u},
+   /* 0.2.188: slots de captura rotativos (pedido "ilimitadas" = sem limite de
+      CONTAGEM; a rotacao cobre quantas quiser). REGRA DA CORRECAO #18: cada
+      ficheiro <= 512 KB, preenchimento de uma assentada, PAUSA entre
+      ficheiros -- a 0.2.187 criou os novos em modo esparsa (lseek+write =
+      extensao FAT em ciclo fechado) e voltou a matar o usbhdfsd no boot
+      ("tela preta e sem som", como a 0.2.180). Padrão provado apenas. */
+   {"mass:/FNFPS2/FNF_SHOT_01.rgba",286720u},
+   {"mass:/FNFPS2/FNF_SHOT_02.rgba",286720u},
+   {"mass:/FNFPS2/FNF_SHOT_03.rgba",286720u},
    {"mass:/FNFPS2/FNF_SAVESTATE.bin",49152u},
    {0,0}};
- char z[4096];unsigned si,k;memset(z,0,sizeof(z));
+ static char z[32768];unsigned si,k;memset(z,0,sizeof(z));
  for(si=0;slots[si].n;si++){
   int pfd;const char*nm=slots[si].n;const char*sl=strrchr(nm,'/');char lbl[48];
-  unsigned esparsa=(slots[si].sz&0x20000000u)!=0u;
-  unsigned tam=slots[si].sz&0x0FFFFFFFu;
+  unsigned tam=slots[si].sz;
   if(sl)nm=sl+1;
   /* O marco ANTES do preenchimento: se o boot morrer outra vez, o FNF_BOOT
      diz exactamente em qual ficheiro (0.2.180 nao tinha marcas aqui e foi
@@ -9627,18 +9656,17 @@ int main(int argc,char**argv){framebuffer_t fb[2];zbuffer_t z;texbuffer_t tex,te
   boot_mark(lbl,0);
   pfd=open(slots[si].n,O_WRONLY|O_CREAT|O_TRUNC,0666);
   if(pfd>=0){
-   if(esparsa){
-    /* esparsa: cabeca + cauda; a cadeia FAT fica completa em boot e o
-       jogo nunca aloca durante a captura. */
-    write(pfd,z,4096);
-    lseek(pfd,(int)tam-4096,SEEK_SET);
-    write(pfd,z,4096);
-   }else{
-    for(k=0;k<tam;k+=(unsigned)sizeof(z)){
-     unsigned fat=tam-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):tam-k;
-     if(write(pfd,z,fat)!=(int)fat)break;}
-   }
-   close(pfd);}}}
+   /* preenchimento de uma assentada, com conta-gotas (0.2.188: um ciclo
+      fechado de writes SEM pausas e' o que matava o usbhdfsd -- #18). */
+   for(k=0;k<tam;k+=(unsigned)sizeof(z)){
+    unsigned fat=tam-k>(unsigned)sizeof(z)?(unsigned)sizeof(z):tam-k;
+    if(write(pfd,z,fat)!=(int)fat)break;
+    if(k+fat<tam)DelayThread(2000);}
+   close(pfd);}
+  /* pausa entre ficheiros: a #18 provou que rajadas continuas de E/S no boot
+     destroem o driver USB deste console. */
+  DelayThread(10000);}}
+
 g_slots_prontos=1;
 telemetry_log_descritivo(); /* 0.2.181: o bloco descritivo entra por cima dos zeros */
 logvivo_init();   /* 0.2.179: o LOG VIVO (512 KB pre-alocados, anel circular) */
@@ -9694,7 +9722,7 @@ logvivo_init();   /* 0.2.179: o LOG VIVO (512 KB pre-alocados, anel circular) */
   fnwrite_slot(FN_TELA_TXT,0,b,(u32)n);
  }
  telemetry_event("console_retrato",g_telemetry_init_result,1);}
-save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);boot_fail(3,-1,"RAM DO MENU","memalign de 1,6 MB (menu_cache) ou 281 KB (menu_sfx) falhou");}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);boot_fail(4,-2,"MENU_CACHE.RLE","mass:/FNFPS2/assets/menu_cache.rle nao abriu ou veio menor que 1.587.561 B");}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);boot_fail(5,-3,"MENU_SFX.PCM","mass:/FNFPS2/assets/menu_sfx.pcm nao abriu (281.088 B)");}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;if(audio_ok)sfx_adpcm_arrancar(g_menu_sfx_pixels,281088);capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);
+save_carregar_do_cartao();g_menu_pixels=g_pixels;capture_status("CACHE_ALLOC_BEGIN",-1,0);g_menu_compressed=memalign(128,PRELOAD_RLE_BYTES);g_menu_sfx_pixels=memalign(128,281088);if(!g_menu_compressed||!g_menu_sfx_pixels){capture_status("CACHE_ALLOC_FAIL",-1,-1);boot_fail(3,-1,"RAM DO MENU","memalign de 1,6 MB (menu_cache) ou 281 KB (menu_sfx) falhou");}capture_status("CACHE_READ_BEGIN",-1,0);if(read_exact_path("mass:/FNFPS2/assets/menu_cache.rle",g_menu_compressed,PRELOAD_RLE_BYTES)<0){capture_status("CACHE_RLE_FAIL",-1,-2);boot_fail(4,-2,"MENU_CACHE.RLE","mass:/FNFPS2/assets/menu_cache.rle nao abriu ou veio menor que 1.587.561 B");}telemetry_event("rle_size",(int)PRELOAD_RLE_BYTES,(int)MENU_RLE_BYTES);telemetry_event("rle_head",(int)(((u32)g_menu_compressed[0]<<24)|((u32)g_menu_compressed[1]<<16)|((u32)g_menu_compressed[2]<<8)|(u32)g_menu_compressed[3]),(int)(((u32)g_menu_compressed[MENU_RLE_BYTES]<<24)|((u32)g_menu_compressed[MENU_RLE_BYTES+1]<<16)|((u32)g_menu_compressed[MENU_RLE_BYTES+2]<<8)|(u32)g_menu_compressed[MENU_RLE_BYTES+3]));{int rfd=open("mass:/FNFPS2/assets/menu_cache.rle",O_RDONLY);if(rfd>=0){unsigned char rb[16];int rn=read(rfd,rb,16);close(rfd);telemetry_event("rle_reread",rn,rn>=4?(int)(((u32)rb[0]<<24)|((u32)rb[1]<<16)|((u32)rb[2]<<8)|(u32)rb[3]):-999);}else telemetry_event("rle_reread",-1,-998);}if(read_exact_path("mass:/FNFPS2/assets/menu_sfx.pcm",g_menu_sfx_pixels,281088)<0){capture_status("CACHE_SFX_FAIL",-1,-3);boot_fail(5,-3,"MENU_SFX.PCM","mass:/FNFPS2/assets/menu_sfx.pcm nao abriu (281.088 B)");}capture_status("AUDIO_INIT_BEGIN",-1,0);audio_ok=(audio_init()==0);g_audio_ok=audio_ok;g_audio_ready=audio_ok;g_sfx_adpcm_pedir=audio_ok;   /* 0.2.188: ADPCM adiado -- a bomba carrega depois do 1. pixel */capture_status("AUDIO_INIT_DONE",-1,audio_ok?0:-1);
  /* "sem som" era indistinguivel de "nao abriu". Agora, se o audsrv nao subir,
     a tela diz isso por 3 s e o jogo segue sem audio. */
  if(!audio_ok){boot_aviso(6,-1,"AUDIO","rom0:LIBSD + audsrv nao inicializaram: o jogo roda, mas SEM SOM");}if(!audio_ok)audio_playing=0;else audio_playing=0;transport_state=0;clock_hold=1;

@@ -215,3 +215,26 @@ FALTA (por ordem):
 ---
 *Actualizar este documento a cada sessão. As correções do utilizador vão para
 `CORRECOES.md`; o que falta IMPLEMENTAR fica aqui.*
+
+
+## 15. Campanha 0.2.188 (08/11/2026) — a 0.2.187 nem abriu (regressao de boot)
+
+**Pedido**: "procure todos e corrija o maximo de erros de uma so' vez por versao".
+
+**Corrigido nesta versao** (tudo documentado em CORRECOES.md #26):
+- [FEITO] A. Prealloc sem esparsa (padrao #18 provado) + pausas + 4 slots.
+- [FEITO] B. Arranque ADPCM adiado para depois do 1. pixel (thread da bomba,
+  marcas SFX_ADPCM_* no FNF_BOOT; fallback do anel se falhar).
+- [FEITO] C. PCM no heap (memalign), leituras exactas em ciclo, pausas.
+- [FEITO] D. Encoder ADPCM corrigido: 28 amostras por bloco de 16 B (formato
+  real do SPU2; o de 14/bloco dava ruido).
+- [FEITO] E. Rate-limit dos RPCs audsrv_queued/available (1x/16 iteracoes).
+- [FEITO] Rotacao de capturas coerente: G_SHOT_SLOTS=4, FNF_SHOT.rgba +
+  FNF_SHOT_01..03.rgba (a 5a reescreve o slot mais antigo).
+
+**Falta / proximo**:
+- [FALTA] Confirmacao em PS2 real (este e' o teste decisivo da 0.2.188).
+- [FALTA] Teste de musica continuada com o SFX ADPCM activo (risco SPU2 0x5010
+  documentado na seccao 14 -- SFX_ADPCM e' reversivel para 0).
+- [FALTA] O falso negativo do chart na suite de unidades (dreno do log ~f=610).
+- [FALTA] Freeplay como caminho de jogo confiavel (o utilizador joga STORY).
