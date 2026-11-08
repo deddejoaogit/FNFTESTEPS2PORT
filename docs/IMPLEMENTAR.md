@@ -232,6 +232,12 @@ FALTA (por ordem):
 - [FEITO] Rotacao de capturas coerente: G_SHOT_SLOTS=4, FNF_SHOT.rgba +
   FNF_SHOT_01..03.rgba (a 5a reescreve o slot mais antigo).
 
+- [FEITO] B (reforco): pump ADPCM so' parte com `g_fn_frame>=4` (nenhum RPC
+  SIF novo nos primeiros 4 quadros).
+- [FEITO] Harness: `gen_harness_assets.py` cria os ficheiros de nome fixo nos
+  dois niveis (`FNFPS2/` e `FNFPS2/assets/`) -- o jogo abre em `FNFPS2/`.
+  Boot e gameplay harness passam com "todo asset abriu" (1402 f / 7602 f).
+
 **Falta / proximo**:
 - [FALTA] Confirmacao em PS2 real (este e' o teste decisivo da 0.2.188).
 - [FALTA] Teste de musica continuada com o SFX ADPCM activo (risco SPU2 0x5010

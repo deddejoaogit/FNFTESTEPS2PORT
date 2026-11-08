@@ -1,5 +1,15 @@
-FNF PS2 0.2.186 -- LEIA-ME OPCIONAL (detalhes de teste e diagnostico)
+FNF PS2 0.2.188 -- LEIA-ME OPCIONAL (detalhes de teste e diagnostico)
 =====================================================================
+
+NOVIDADES 0.2.188 (o que testar de novo)
+----------------------------------------
+0. ARRANQUE CORRIGIDO: a 0.2.187 morria com tela preta, sem som e sem log
+   (regressao de boot -- escritas novas antes do 1º pixel matavam o usbhdfsd).
+   TESTE PRINCIPAL: a 0.2.188 TEM DE ABRIR com titulo e SOM. Se abrir,
+   o resto do jogo e' o mesmo de sempre (story -> semana -> tutorial).
+   Depois do tutorial: SELECT+R3, desligar, levar o pendrive ao PC e correr
+   o extrador (passos 5-7 abaixo). O FNF_BOOT.TXT mostra as marcas
+   SFX_ADPCM_BEGIN -> INIT_OK -> DONE -- prova de que o som carregou.
 
 NOVIDADES 0.2.186 (o que testar de novo)
 ----------------------------------------
@@ -19,7 +29,7 @@ PROTOCOLO DE TESTE (o mesmo de sempre)
 3. No PS2: STORY MODE (o menu do freeplay esta' bugado -- usar sempre o
    story) -> semana -> tutorial. Jogar a musica toda.
 4. SELECT+R3 = captura da tela + diagnostico (0.2.187: ILIMITADAS,
-   a qualquer momento excepto em telas de carregamento; giram por 8 ficheiros:
+   a qualquer momento excepto em telas de carregamento; giram por 4 ficheiros:
    FNF_SHOT.rgba, FNF_SHOT_01..03.rgba -- o extrador vira todos em PNG):
    grava FNF_SHOT.rgba (imagem da tela 320x224), FNF_SAVESTATE.bin e
    tenta os despejos do vigia. Repetir as vezes que quiser (as primeiras

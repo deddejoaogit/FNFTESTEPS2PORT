@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.187 v9.4).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.188 v9.5).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -172,7 +172,7 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v9.4 (0.2.187) ====')
+    A('==== EXTRATOR FNF PS2 v9.5 (0.2.188) ====')
     A('Nota: os .bin (LOGVIVO/SAVESTATE/SHOT) NAO precisam de ser enviados --')
     A('este relatorio ja os leu e resumiu. Cole o texto + os PNG que aparecerem.')
 
@@ -347,7 +347,8 @@ def principal():
             A('VALORES (TV): %s' % l[10:])
             A('  (por ordem: f=quadro st=estado beat=laco q=fila audsrv')
             A('   r=anel un=underruns lr=bytes lidos so=submissoes)')
-    # v9.4: 8 slots de captura (FNF_SHOT.rgba + FNF_SHOT_01..07.rgba).
+    # v9.5: 4 slots de captura (FNF_SHOT.rgba + FNF_SHOT_01..03.rgba, 0.2.188);
+    # a 5a captura reescreve o slot mais antigo.
     fn_shots_extra = sorted(achar(pasta, 'FNF_SHOT_*.rgba'))
     caps = [fn for fn in (achar(pasta, 'FNF_SCREEN*.txt') + achar(pasta, 'FNF_SHOT*.txt'))
             if os.path.abspath(fn) != os.path.abspath(fn_shot)]

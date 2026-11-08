@@ -8562,7 +8562,7 @@ static void pump_thread_fn(void*arg){
   /* 0.2.188: o carregamento ADPCM acontece AQUI (thread da bomba, depois do
      primeiro pixel). Se um RPC destes morrer, morre ESTA thread: o loop
      continua a pintar e o FNF_BOOT mostra SFX_ADPCM_BEGIN sem DONE. */
-  if(g_sfx_adpcm_pedir&&!g_sfx_adpcm_feito){
+  if(g_fn_frame>=4u&&g_sfx_adpcm_pedir&&!g_sfx_adpcm_feito){
    g_sfx_adpcm_pedir=0;g_sfx_adpcm_feito=1;
    sfx_adpcm_arrancar(g_menu_sfx_pixels,281088);
   }

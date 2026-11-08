@@ -42,3 +42,11 @@ FNF_COLHEITA.txt
 /build.log
 /build-tests.log
 /assets/*.lz4f
+
+# Armazenamento externo (Google Drive). O que ja' esta' rastreado permanece
+# (gitignore so' afecta ficheiros novos); artefactos NOVOS grandes nunca
+# entram: zips de entrega, toolchains e packs de arte.
+google_drive/*.zip
+google_drive/*.tar.xz
+google_drive/*.lz4f
+FNF_PS2_*.zip

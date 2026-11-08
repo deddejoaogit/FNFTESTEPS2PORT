@@ -427,9 +427,26 @@ novo e tambem correm antes do 1. pixel (arranque ADPCM) ou gastam RAM/BSS
   jogo (= classe #18). Agora G_SHOT_SLOTS=4 em todo o lado: FNF_SHOT.rgba +
   FNF_SHOT_01..03.rgba, a 5a captura reescreve o slot mais antigo.
 
+- **B (reforco, mesma campanha)**: o pump ADPCM da thread da bomba so' parte
+  com `g_fn_frame>=4` -- garantia EXPLICITA de que nenhum RPC SIF novo corre
+  nos primeiros 4 quadros, mesmo que o pedido seja ligado cedo. E' a mesma
+  promessa do comentario do fix B, agora verificavel no codigo.
+- **Harness (ferramenta, nao o jogo)**: `gen_harness_assets.py` criava os
+  ficheiros de diagnostico de nome fixo em `FNFPS2/assets/`, mas o jogo abre
+  `mass:/FNFPS2/<nome>` (nivel `FNFPS2/`): o 1º open sem `O_CREAT` falhava e o
+  rastreio contava "arquivo nao abriu" (falso -- o fallback `O_CREAT` cria-o).
+  Agora cria nos DOIS niveis; em raiz fresca o boot harness volta a acusar
+  "todo asset abriu".
+
 **Prova do harness**: FNF_BOOT mostra `passo 44: SFX_ADPCM_BEGIN` ->
 `passo 45: SFX_ADPCM_INIT_OK` -> `passo 46: SFX_ADPCM_DONE code=7` (7/7 sons
 codificados) DEPOIS do boot; o botao premido antes de pronto caiu no fallback
 do anel (mist=0) sem quebrar nada. 187 checks `ok` na suite de unidades;
 o unico FAIL ("chart do tutorial") e' o falso negativo CONHECIDO do dreno do
 log (~f=610) -- o chart carrega (provado pelo gameplay harness, PASSO51).
+
+**Re-validacao 0.2.188 (suite completa)**: boot harness **PASSOU** (1402 f,
+0 estouros de pacote, 12/12 botoes, todo asset abriu -- tambem em raiz
+fresca); gameplay harness **PASSOU** (7602 f, 0 estouros); unidades com os
+mesmos veredictos da base aceite (1 FAIL conhecido = ciclo do tutorial pelo
+dreno do log; ~24 checks de gameplay = falsos negativos conhecidos).

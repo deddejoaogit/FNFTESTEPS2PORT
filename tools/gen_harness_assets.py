@@ -1402,13 +1402,18 @@ def build(root, charts_src=None):
     # existem no pendrive real apos o boot. No harness sao criados vazios para
     # que os opens sem O_CREAT do jogo (regra: nunca criar em jogo) funcionem
     # e o rastreio de aberturas nao os conte como falha.
+    # 0.2.188: o jogo abre mass:/FNFPS2/<nome> (nivel FNFPS2/, NAO assets/).
+    # Criar so' em assets/ deixava o 1º open sem O_CREAT falhar e o rastreio
+    # do harness contava "arquivo nao abriu" (falso: o fallback O_CREAT cria).
+    # Criar nos DOIS niveis cobre o contrato do jogo e o antigo.
     for nome in ("FNF_BOOT.TXT", "FNF_LOG.TXT", "FNF_TRAVA.TXT", "FNF_TELA.TXT",
                  "FNF_ERRO.TXT", "FNF_SHOT.rgba", "FNF_SAVESTATE.bin",
                  "FNF_LOGVIVO.bin"):
-        destino = os.path.join(a, nome)
-        if not os.path.exists(destino):
-            with open(destino, "wb"):
-                pass
+        for base in (a, os.path.dirname(a)):
+            destino = os.path.join(base, nome)
+            if not os.path.exists(destino):
+                with open(destino, "wb"):
+                    pass
 
     total = sum(len(v) for v in files.values())
     print(f"assets sinteticos: {len(files)} arquivos + {nchart} charts + "
