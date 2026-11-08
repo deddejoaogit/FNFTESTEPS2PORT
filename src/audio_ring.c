@@ -278,7 +278,11 @@ static void soma_overlay(int got){
  }
 }
 /* ver canario_pintar() acima */
-static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){pause_ack=1;while(pause_req&&running)DelayThread(2000);pause_ack=0;continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;lseek(source_fd,0,SEEK_SET);sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
+static void producer(void *arg){(void)arg;while(running){int free_bytes,got,first,want;if(pause_req){pause_ack=1;while(pause_req&&running)DelayThread(2000);pause_ack=0;continue;}aplica_pedidos();if(switch_requested){source_fd=pending_fd;/* 0.2.184: SEM lseek aqui. O fd chega
+   de um open() novo (offset 0) e o lseek era uma meta-op do usbhdfsd exacta-
+   mente no momento do switch -- o ponto medido onde o produtor morria
+   (iow.produtor_preso aos 55 s em 3 sessoes seguidas). As meta-ops do driver
+   morrem apos minutos de uso; as leituras sobrevivem. */sem_fonte=0;prev_ativo=0;prev_total=prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();switches_count++;switch_requested=0;continue;}if(reset_requested){if(!sem_fonte)lseek(source_fd,prev_ativo?prev_ini:0,SEEK_SET);prev_pos=0;lock_ring();rp=wp=level=0;source_eof=0;unlock_ring();reset_requested=0;continue;}lock_ring();free_bytes=RING_SIZE-(int)level;unlock_ring();if(free_bytes<READ_SIZE){DelayThread(2000);continue;}
  if(sem_fonte){
   /* SEM FONTE: so' silencio + overlays. Se todos os overlays ja' acabaram (ou
      nao existem) nao ha' nada para produzir -- dormir aqui e' o que evita

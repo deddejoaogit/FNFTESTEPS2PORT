@@ -12,7 +12,7 @@
 | U8 | Tela preta FINAL (freeze) | ABERTO | CORRECOES #21 |
 | U9 | Story menu visualmente bugado | ABERTO (trabalho visual) | ver FASE 3 |
 | U10 | **Freeplay menu BUGADO -- por isso JOGA SEMPRE PELO STORY MODE** | ABERTO | FASE 3; NOTA: testar sempre pelo STORY |
-| U11 | **Entrar no TUTORIAL = tela de numeros + sem som + trava (0.2.182)** | EM CORRECAO 0.2.183 | CORRECOES #21 |
+| U11 | Entrar no TUTORIAL = tela de numeros + sem som + trava | RESOLVIDO 0.2.183/184 | CORRECOES #21/22 ||
 | U12 | Botoes do menu nao funcionam (pad=0000) | ABERTO (causa separada) | CORRECOES #12 |
 | U13 | Laco bugado/traço sob os botoes | ABERTO (visual) | FASE 3 |
 | U14 | Game over / vitoria | POR IMPLEMENTAR | FASE 1-2 |
@@ -29,7 +29,7 @@
 **NOTA DE TESTE (U10/U11)**: o utilizador joga STORY MODE (freeplay esta' bugado).
 O tutorial testado e' o do STORY MODE. Toda a instrucao de teste comeca assim.
 
-# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.183)
+# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.184)
 
 **ESTADO ACTUAL**: 0.2.182 "DIAGNÓSTICO COMPLETO E FUNCIONAL" compilado
 (0 erros) — vigia não-destrutivo (era a causa dos personagens/texturas

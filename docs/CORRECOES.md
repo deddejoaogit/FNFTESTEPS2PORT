@@ -177,6 +177,24 @@ out_begin não descarta o buffer; marca F.GFRELOAD no trace.
 **ABERTO (causa seguinte)**: o produtor de áudio morre no arranque da música do
 tutorial (TUT_PCM_OPEN fd=3 OK; a morte é depois, no switch do ring) — sem som.
 
+### #22 [x] Teste 0.2.183: o tutorial ABRE e JOGA-SE — causas novas identificadas (0.2.184)
+PROVADO pelo teste (boot 03700f00 era o antigo; este: trace f=6074+):
+(1) **O congelamento do tutorial ESTÁ RESOLVIDO** — a espera limitada de 60 ms
+fez o jogo sobreviver ao engasgo ("a tela de erro apareceu mas depois o
+tutorial abriu normalmente"); (2) o marcadór `marca=F.GFRELOAD` provou o ponto
+exacto do engasgo (a bomba do stream da GF, como diagnosticado);
+(3) **o produtor de áudio morre no SWITCH da música do tutorial** (55 s,
+3 sessões seguidas) — o `lseek(source_fd,0,SEEK_SET)` do switch é uma meta-op
+do usbhdfsd e é o ponto medido da morte do modelo; sem música e com o portão
+preso, os loads dos personagens/ícones falham (tutorial sem personagens, barra
+sem ícones, textos bugados) e o fim (ecrã de resultados) trava num RPC do IOP;
+(4) pedido do utilizador: a TELA DE NÚMEROS do vigia foi REMOVIDA (aparecia em
+engasgos recuperáveis e estragava a experiência) — o vigia só grava ficheiros.
+**Correções (0.2.184)**: pintura do vigia removida; o `lseek` do switch
+removido (o fd chega novo a offset 0); o monitor LIBERTA o portão quando o
+produtor morre (roubo+unlock) → os voltam a carregar e o logvivo continua;
+extrator v9.2 (sem duplicados + conclusão da cadeia).
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).

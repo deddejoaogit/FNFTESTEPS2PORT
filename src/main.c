@@ -8175,7 +8175,12 @@ static void fnwd_pintar(void){
 }
 
 static void fnwd_dump(int dumps){
-  fnwd_pintar();   /* 0.2.173: primeiro a TV, depois o pendrive */
+  /* 0.2.184: PINTURA REMOVIDA (pedido explicito do utilizador). A tela de
+     numeros so' aparecia em engasgos recuperaveis e estragava a experiencia.
+     O vigia continua a gravar TUDO nos ficheiros (MARCADOR/VALORES/trace/
+     eventos/SHOT) -- o extrador le. Se algum dia for preciso o canal da TV
+     de novo, e' reativar esta linha. */
+  /* fnwd_pintar(); */
   g_pedido_foto=1; /* 0.2.176: se o laco ainda respirar, grava FNF_SHOT sozinho */
   /* 0.2.182: o vigia IDENTIFICA-SE sempre (antes so' o TRAVA sabia) e tira
      ele proprio a captura 320x224 para o FNF_SHOT.rgba -- se o laco estiver
@@ -8316,6 +8321,17 @@ static void iow_thread_fn(void*arg){
       telemetry_error("iow.produtor_preso",0);
       g_produtor_preso_visto=1;
       logvivo("EV=PRODUTOR preso f=%u",(unsigned)g_fn_frame);
+      /* 0.2.184: o produtor morreu DENTRO de um read() segurando o portao.
+         Sem isto o portao fica preso para sempre: os loads dos personagens/
+         icones falham (tutorial sem personagens), o logvivo morre e o resto
+         do jogo perde o USB. Libertamo-lo a forcado (roubo + unlock) -- o
+         produtor morto ja' nao o vai libertar. Risco aceite: e' o mesmo do
+         roubo do vigia (0.2.176). */
+      if(io_gate_preso_ha_ms()>=2000){
+        io_gate_roubar();
+        io_gate_unlock();
+        logvivo("EV=PRODUTOR portao_livre f=%u",(unsigned)g_fn_frame);
+      }
       audio_ring_pause(0);
       continue;
     }

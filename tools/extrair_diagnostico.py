@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.183 v9.1).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.184 v9.2).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -172,7 +172,7 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v9.1 (0.2.183) ====')
+    A('==== EXTRATOR FNF PS2 v9.2 (0.2.184) ====')
 
     fn_boot = os.path.join(pasta, 'FNF_BOOT.TXT')
     fn_log = os.path.join(pasta, 'FNF_LOG.TXT')
@@ -235,7 +235,8 @@ def principal():
         trava_txt = '\n'.join(x for x in (
             ler_slot(fn_trava, 0), ler_slot(fn_trava, 512),
             ler_slot(fn_trava, 4096), ler_slot(fn_trava, 65536)) if x)
-    trava_legado = '\n'.join(ler(f) for f in achar(pasta, 'FNF_TRAVA*.txt'))
+    trava_legado = '\n'.join(ler(f) for f in achar(pasta, 'FNF_TRAVA*.txt')
+                      if os.path.abspath(f) != os.path.abspath(fn_trava))
     trava = trava_txt + '\n' + trava_legado
     vivo = 'VIGIA_VIVO' in trava
     marcas = [l for l in trava.splitlines() if l.startswith('# MARCADOR')]
@@ -480,6 +481,13 @@ def principal():
         A('* O vigia NUNCA escreveu: ou morreu cedo ou o USB ja estava morto no arranque.')
     if marcas:
         A('* O vigia VIU a paragem e escreveu o marcador: a morte esta no ficheiro FNF_TRAVA.')
+    if 'produtor_preso' in trava or 'produtor_preso' in ring_txt:
+        A('* PRODUTOR DE AUDIO PRESO: a musica morreu e o portao ficou ocupado.')
+        A('*  Com 0.2.183+ o jogo CONTINUA (espera limitada) mas os personagens/')
+        A('*  icones podem faltar (os loads falharam) e o fim pode travar num RPC.')
+        A('*  Cadeia: lseek do switch do produtor -> usbhdfsd morre -> tudo morre.')
+    if 'portao_livre' in ''.join(todos_ev):
+        A('* O monitor LIBERTOU o portao depois do produtor morrer (0.2.184).')
     if marca and 'TUT_FONT_BEGIN' in marca and 'TUT_FONT_DONE' not in marca:
         A('* A ULTIMA MARCA E TUT_FONT_BEGIN: o freeze esta no intervalo TUT_FONT_BEGIN->DONE')
         A('*  (tutorial_vcr_restore + a escrita da marca seguinte). Ver CORRECOES #16.')
