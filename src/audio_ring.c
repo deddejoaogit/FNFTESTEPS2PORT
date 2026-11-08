@@ -152,6 +152,32 @@ int io_gate_preso_ha_ms(void){
   if(io_owner<0)return 0;
   d=(u32)GetTimerSystemTime()-io_desde_us;
   return (int)(d/1000u);}
+/* 0.2.183: ESPERA LIMITADA do portao. O quadro NUNCA pode ficar pendurado:
+   0.2.182 provou-o -- o produtor morreu dentro de um read() segurando o portao
+   e o gio_read do stream da GF (transicao para o tutorial) bloqueou o quadro
+   para SEMPRE (trace: F.TITLE escrito, F.STATE nunca). Devolve 0 = tomado,
+   -1 = desiste. O chamador trata -1 como falha de E/S e o laco continua vivo.
+   Sem PollSema: so' tentamos io_gate_trylock (que nunca toca no contador). */
+int io_gate_lock_prazo(int ms){
+  u32 t0=(u32)GetTimerSystemTime();
+  for(;;){
+    if(io_gate_trylock())return 0;
+    if((int)(((u32)GetTimerSystemTime()-t0)/1000u)>=ms)return -1;
+    DelayThread(2000);
+  }
+}
+/* 0.2.183: ROUBO COHERENTE do portao -- so' o vigia, so' quando o dono esta'
+   morto (preso_ha>=5s). Antes o roubo escrevia SEM ser dono e o flush interno
+   do despejo via o dono morto e saltava: o FNF_LOG.TXT ficava vazio para
+   sempre (sessao 0.2.182: 0 blocos em 30 s). Agora passamos a ser o dono. */
+void io_gate_roubar(void){
+  int me=GetThreadId();
+  if(io_sema<0)io_gate_init();
+  if(io_owner==me){io_depth++;return;}
+  io_owner=me;
+  io_depth=1;
+  io_desde_us=(u32)GetTimerSystemTime();
+}
 
 /* ---- 0.2.168: CANARIO DA PILHA DO PRODUTOR -----------------------------
    Estouro de pilha e' candidato a travamento silencioso: pinta-se o fundo da

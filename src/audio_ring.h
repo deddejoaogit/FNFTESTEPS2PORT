@@ -8,6 +8,8 @@ void io_gate_lock(void);
 void io_gate_unlock(void);
 int  io_gate_trylock(void);   /* 1 = portao tomado, 0 = ocupado */
 int  io_gate_preso_ha_ms(void); /* 0.2.176: ms que o portao esta' preso (0 = livre) */
+int  io_gate_lock_prazo(int ms); /* 0.2.183: espera limitada; 0=tomado -1=desiste */
+void io_gate_roubar(void);       /* 0.2.183: roubo coerente (so' vigia, dono morto) */
 int  audio_ring_pausado(void);  /* 0.2.176: 1 = produtor fora de leitura */
 int audio_ring_stack_ok(void); /* 0 = canario da pilha do produtor trilhado */
 int audio_ring_start(int fd);

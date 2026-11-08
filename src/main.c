@@ -879,10 +879,10 @@ extern unsigned int size_audsrv_irx;
    audio morto, e ate' o vigia preso no open(). E' a causa raiz dos congelamentos
    das sessoes 0.2.168..0.2.171. O portao e' recursivo por dono: envolver
    caminhos que ja' o seguram e' um no-op. */
-static int gio_open(const char*p,int fl,int mo){int r;io_gate_lock();r=open(p,fl,mo);io_gate_unlock();return r;}
-static int gio_read(int fd,void*b,int n){int r;io_gate_lock();r=read(fd,b,n);io_gate_unlock();return r;}
-static void gio_close(int fd){io_gate_lock();close(fd);io_gate_unlock();}
-static long gio_lseek(int fd,long o,int w){long r;io_gate_lock();r=lseek(fd,o,w);io_gate_unlock();return r;}
+static int gio_open(const char*p,int fl,int mo){int r;if(io_gate_lock_prazo(60)<0)return -1;r=open(p,fl,mo);io_gate_unlock();return r;}
+static int gio_read(int fd,void*b,int n){int r;if(io_gate_lock_prazo(60)<0)return -1;r=read(fd,b,n);io_gate_unlock();return r;}
+static void gio_close(int fd){if(io_gate_lock_prazo(60)<0)return;close(fd);io_gate_unlock();}
+static long gio_lseek(int fd,long o,int w){long r;if(io_gate_lock_prazo(60)<0)return -1;r=lseek(fd,o,w);io_gate_unlock();return r;}
 
 static int read_exact_path(const char *path, void *dst, int bytes){
  int fd=gio_open(path,O_RDONLY,0),done=0; if(fd<0)return -1;
@@ -8206,6 +8206,9 @@ static void fnwd_dump(int dumps){
   if(!g){
     if(io_gate_preso_ha_ms()<5000){audio_ring_pause(0);return;}
     telemetry_error("fnwd.roubo_portao",io_gate_preso_ha_ms());
+    io_gate_roubar();   /* 0.2.183: passamos a ser o dono -- o flush interno
+                           do despejo deixava de saltar e o FNF_LOG.TXT ganha
+                           os blocos mesmo com o produtor morto. */
   }
   /* 0.2.169: o MARCADOR MINIMO sai primeiro (um open+write+close de 96 B):
      se o despejo grande a seguir voltar a derrubar o driver, pelo menos a
@@ -8252,6 +8255,10 @@ static void fnwd_dump(int dumps){
      grande pode morrer depois; estas sao o que explica o fim da sessao. */
   {static char qt[32768];unsigned qn=telemetry_qring_txt(qt,sizeof(qt));
    if(qn)fnwrite_slot_append(FN_TRAVA_TXT,&troff,qt,qn);}
+  /* 0.2.183: a HISTORIA DE EVENTOS em RAM entra no corpo -- o flush saltava
+     (portao do produtor) e os eventos morriam com o freeze. */
+  {static char et[16384];unsigned en=telemetry_eventos_txt(et,sizeof(et));
+   if(en)fnwrite_slot_append(FN_TRAVA_TXT,&troff,et,en);}
   if(g_thumb_frame){
     int ty;char th[96];
     n=snprintf(th,sizeof(th),"# MINIATURA %dx%d f=%u rgba32\n",THUMB_W,THUMB_H,(unsigned)g_thumb_frame);
@@ -9964,6 +9971,10 @@ if((pressed&PAD_START)&&(g_held&PAD_SELECT))running=0;
   frame_mark("F.TITLE",ui_state);
   if(frame_no==0){capture_status("F0_INPUT_STATE_DONE",-1,0);}if(ui_state==0&&title_intro_active&&!title_ng_restored){if(title_intro_phase()>=8u){setup_texture_dims(&tex,TITLE_LOGO_W,TITLE_LOGO_H);upload_raw(&tex,g_gf_pixels,TITLE_LOGO_W,TITLE_LOGO_H);menu_anim_tick=-1;title_ng_restored=1;}}
   if((ui_state==0||ui_state==6||ui_state==7)&&g_gf_reload_active==1){u32 left=g_gf_reload_total-g_gf_reload_offset,want=left>32768u?32768u:left;int got=gio_read(g_gf_reload_fd,g_gf_pixels+g_gf_reload_offset,(int)want);if(got<=0){gio_close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=3;}else{g_gf_reload_offset+=(u32)got;if(g_gf_reload_offset==g_gf_reload_total){gio_close(g_gf_reload_fd);g_gf_reload_fd=-1;g_gf_reload_active=2;FlushCache(0);}}}
+  /* 0.2.183: marca DEPOIS da bomba do stream da GF. O trace do 0.2.182 mostrou
+     F.TITLE escrito e F.STATE nunca: o congelamento estava ENTRE os dois --
+     o gio_read da bomba bloqueado no portao do produtor morto. */
+  frame_mark("F.GFRELOAD",g_gf_reload_active);
   if(ui_state==0&&title_confirm_frames>0){title_confirm_frames--;if(title_confirm_frames==0){target_state=6;transition_frame=1;transitions++;}}
   /* Incremental menu ownership: begin as soon as the fade starts, process at
    * most 64 KiB output per video frame, and hold only at the opaque midpoint. */

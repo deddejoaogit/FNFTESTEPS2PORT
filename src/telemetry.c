@@ -364,7 +364,9 @@ static void flush_output(void)
        o despejo SALTA e o buffer fica para a proxima tentativa. */
     if (!io_gate_trylock()) { g_flush_skip++; return; }
     g_busy = 1;
-    if (out_begin() < 0) { g_busy = 0; output_used = 0; io_gate_unlock(); return; }
+    if (out_begin() < 0) { g_busy = 0; io_gate_unlock(); return; }
+    /* 0.2.183: o buffer NUNCA e' descartado em falha -- fica para a proxima
+       tentativa (antes output_used=0 destruia a historia quando o open falhava). */
     /* 0.2.180: bloco unico no anel pre-alocado. SEM fsync: o close publica. */
     ring_block(out_hdr, out_hdr_len, output_buffer, output_used);
     output_used = 0;
@@ -930,6 +932,27 @@ void telemetry_flush(void)
        o custo de sincronizacao cai para menos de 5% do tempo de quadro. */
     if (!output_error && (flush_count % 30u) == 0u) /* fsync ja feito dentro de flush_output() */
     flush_count++;
+}
+
+/* 0.2.183: os eventos P,/E, EM RAM entram no corpo do TRAVA. Antes so' saiam
+   via telemetry_flush; com o flush a saltar (portao segurado pelo produtor)
+   a historia dos eventos morria com o freeze e o extrador via 9 linhas em
+   vez de todas. Isto e' copia -- os eventos continuam no buffer do flush. */
+u32 telemetry_eventos_txt(char *dst, u32 cap)
+{
+    char line[128];
+    u32 n = 0, i;
+    for (i = 0; i < render_event_count; ++i) {
+        int k = snprintf(line, sizeof(line), "E,%llu,%s,%d,%d\n",
+                         (unsigned long long)render_events[i].ticks,
+                         render_events[i].name, render_events[i].a,
+                         render_events[i].b);
+        if (k <= 0) continue;
+        if (n + (u32)k >= cap) break;
+        memcpy(dst + n, line, (u32)k);
+        n += (u32)k;
+    }
+    return n;
 }
 
 int telemetry_finish(void)

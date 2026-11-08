@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.182 v9).
+"""Extrai o MAXIMO de diagnostico de uma pasta do jogo (0.2.183 v9.1).
 
 Corre em QUALQUER lado com Python 3 (PC, Mac, Linux):  python3 extrair_diagnostico.py PASTA
 onde PASTA = a pasta FNFPS2 do pendrive (ou qualquer pasta com os FNF_*).
@@ -93,9 +93,9 @@ def reconstruir_log_anel(fn):
     if not dados:
         return '', {}
     marcas = []
-    for m in re.finditer(br'# FNF PS2 [^\n]{0,200}?\| boot ([0-9a-fA-F]{8}) \| log v2 \| despejo (\d+)[^\n]*?\| t=(\d+) ms', dados):
+    for m in re.finditer(br'# FNF PS2 [^\n]{0,200}?\| boot ([0-9a-fA-F]{8}) \| log v2 \| despejo (\d+)[^\n]*?\| t=(\d+) m?s', dados):
         marcas.append((int(m.group(1), 16), int(m.group(3)), m.start(), 'D', int(m.group(2))))
-    for m in re.finditer(br'# ANOMALIA: [^\n]{0,200}?\| boot ([0-9a-fA-F]{8})[^\n]*?\| t=(\d+) ms', dados):
+    for m in re.finditer(br'# ANOMALIA: [^\n]{0,200}?\| boot ([0-9a-fA-F]{8})[^\n]*?\| t=(\d+) m?s', dados):
         marcas.append((int(m.group(1), 16), int(m.group(2)), m.start(), 'A', -1))
     if not marcas:
         return '', {}
@@ -172,7 +172,7 @@ def principal():
         print('pasta invalida:', pasta); return 2
     L = []
     A = L.append
-    A('==== EXTRATOR FNF PS2 v9 (0.2.182) ====')
+    A('==== EXTRATOR FNF PS2 v9.1 (0.2.183) ====')
 
     fn_boot = os.path.join(pasta, 'FNF_BOOT.TXT')
     fn_log = os.path.join(pasta, 'FNF_LOG.TXT')
@@ -434,6 +434,14 @@ def principal():
             A('  %s: %d / %d  %s' % (nome, sz, esp, marca_sz))
         else:
             A('  %s: FALTA (nunca chegou a ser pre-alocado)' % nome)
+
+    # 6f2. ERRO_LOCAL/ERR + trace de fases do corpo do vigia (0.2.183)
+    for l in trava.splitlines():
+        ls = l.strip()
+        if ls.startswith('ERRO_LOCAL') or ls.startswith('ERR,'):
+            A('ERRO: %s' % ls[:100])
+        elif ls.startswith('F.') and (' f=' in ls):
+            A('TRACE: %s' % ls[:100])
 
     # 6g. Eventos de audio/diagnostico (0.2.182): SFX, produtor, vigia
     ev_sfx = [p for s2, p in linha_logvivo_all if p.startswith('EV=SFX')] \

@@ -38,6 +38,7 @@ void telemetry_servir_pendentes(void); /* chamado pela thread escritora */
    escreve buf em `off` e poe um NUL a seguir; fnwrite_slot_append avanca o
    `off` do chamador. NAO tomam o portao -- quem chama gere-o. */
 int fnwrite_slot(const char *path, u32 off, const void *buf, u32 len);
+u32 telemetry_eventos_txt(char *dst, u32 cap);   /* 0.2.183: eventos RAM -> TRAVA */
 int fnwrite_slot_append(const char *path, u32 *off, const void *buf, u32 len);
 unsigned telemetry_boot_id(void);       /* id deste boot (comum ao LOG VIVO) */
 

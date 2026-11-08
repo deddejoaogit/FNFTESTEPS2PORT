@@ -1,4 +1,35 @@
-# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.182)
+# REGISTO DE TUDO O QUE O UTILIZADOR CITOU (pedido explicito, 0.2.183)
+
+| # | O que citou | Estado | Onde resolve |
+|---|---|---|---|
+| U1 | Tela preta no ARRANQUE (0.2.180) | RESOLVIDO 0.2.181 | CORRECOES #18 |
+| U2 | "Tela bugada com numeros" = pintura do vigia | RESOLVIDO 0.2.182 | CORRECOES #20 (non-destructive) |
+| U3 | Texturas/personagens a DESAPARECER no tutorial | RESOLVIDO 0.2.182 | CORRECOES #20 (o vigia destruia o GS) |
+| U4 | Transicoes de menu travadas (3-8,4 s) | RESOLVIDO 0.2.182 | CORRECOES #20 (escritas do log no laco) |
+| U5 | Barra de vida parada, SEM icones | RESOLVIDO 0.2.182 (VRAM morta) | CORRECOES #20; icones em teste |
+| U6 | SFX do clique tarde | RESOLVIDO 0.2.182 (directo no canal) | CORRECOES #20 |
+| U7 | Sem musica no tutorial | RESOLVIDO 0.2.182 (produtor EV=) | CORRECOES #20; ver U10 |
+| U8 | Tela preta FINAL (freeze) | ABERTO | CORRECOES #21 |
+| U9 | Story menu visualmente bugado | ABERTO (trabalho visual) | ver FASE 3 |
+| U10 | **Freeplay menu BUGADO -- por isso JOGA SEMPRE PELO STORY MODE** | ABERTO | FASE 3; NOTA: testar sempre pelo STORY |
+| U11 | **Entrar no TUTORIAL = tela de numeros + sem som + trava (0.2.182)** | EM CORRECAO 0.2.183 | CORRECOES #21 |
+| U12 | Botoes do menu nao funcionam (pad=0000) | ABERTO (causa separada) | CORRECOES #12 |
+| U13 | Laco bugado/traço sob os botoes | ABERTO (visual) | FASE 3 |
+| U14 | Game over / vitoria | POR IMPLEMENTAR | FASE 1-2 |
+| U15 | Icones dos personagens no HUD | POR IMPLEMENTAR | FASE 2 |
+| U16 | fps | POR MEDIR | FASE 3 |
+| U17 | Logs = 4-5 txt de nome fixo | FEITO 0.2.180 | layouts |
+| U18 | Logs DETETAR TUDO mas sem nunca estragar o jogo | FEITO 0.2.182/183 | vigia non-destructive |
+| U19 | Extrator no fim de TODA a resposta | EM VIGOR | extrair_diagnostico.py |
+| U20 | "diga exatamente o que devo testar" no fim | EM VIGOR | respostas |
+| U21 | Nenhum evento do original pode ser removido/encurtado | REGRA | REGRAS.md |
+| U22 | Documentos CORRECOES/IMPLEMENTAR actualizados | EM VIGOR | estes |
+| U23 | Nao prometer 100% | REGRA | respostas |
+
+**NOTA DE TESTE (U10/U11)**: o utilizador joga STORY MODE (freeplay esta' bugado).
+O tutorial testado e' o do STORY MODE. Toda a instrucao de teste comeca assim.
+
+# O QUE FALTA IMPLEMENTAR — FNF PS2 (actualizado na 0.2.183)
 
 **ESTADO ACTUAL**: 0.2.182 "DIAGNÓSTICO COMPLETO E FUNCIONAL" compilado
 (0 erros) — vigia não-destrutivo (era a causa dos personagens/texturas

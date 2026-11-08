@@ -156,6 +156,27 @@ EV=SFX; EV=PRODUTOR preso/ok; hud hp/nt no logvivo; MAX_DUMPS 8 sem teto de
 20 min; SHOT.rgba = captura real 320×224 no freeze; extrator v9 (resumo de
 SFX/produtor/vigia + batimento do anel + VALORES sem duplicar).
 
+### #21 [x] CONGELAMENTO NO TUTORIAL — cadeia causal COMPLETA (0.2.183)
+Logs do teste 0.2.182 (boot 02e67e00) + o trace do vigia provaram a cadeia:
+1. **O produtor de áudio morre DENTRO de um `read()` segurando o portão**
+   (`iow.produtor_preso` ×2 em t=55s/57s; `io_gate` preso para sempre);
+2. O `flush_output` do log SALTA quando o portão está ocupado → **o FNF_LOG.TXT
+   nunca escreve durante a música** (0 blocos em 30 s; era intencional para o
+   despejo periódico, mas o flush DO DESPEJO do vigia também saltava porque o
+   roubo do portão não passava a posse → o dono morto continuava a "ocupar");
+3. O quadro chamava `gio_read` (portão BLOQUEANTE) na bomba do stream da GF,
+   no meio da transição para o tutorial → **bloqueou para SEMPRE** (trace:
+   F.TITLE escrito em f=1798, F.STATE nunca; transition_frame=15 preso);
+4. O vigia despejou (teve de ROUBAR o portão: `fnwd.roubo_portao`) e pintou a
+   TV (a "tela de números" que o utilizador viu) — e o áudio drenou (q=0).
+**Correções (0.2.183)**: `io_gate_lock_prazo(60ms)` em TODOS os gio_* (o quadro
+nunca mais bloqueia: falha de E/S degrada, nunca congela); `io_gate_roubar()`
+coerente (o vigia passa a ser dono e o flush do despejo escreve o LOG.TXT);
+eventos P,/E, EM RAM entram no corpo do TRAVA (sobrevivem ao flush morto);
+out_begin não descarta o buffer; marca F.GFRELOAD no trace.
+**ABERTO (causa seguinte)**: o produtor de áudio morre no arranque da música do
+tutorial (TUT_PCM_OPEN fd=3 OK; a morte é depois, no switch do ring) — sem som.
+
 ### #8 [x] Números da TV sobrepostos (0.2.175 → corrigido 0.2.176)
 Os números ciano/verde encostavam-se (o utilizador não conseguia ler o `so`).
 Corrigido (tamanhos/posições novas).
